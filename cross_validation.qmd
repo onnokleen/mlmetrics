@@ -15,6 +15,93 @@ When we build a machine learning model, we face several critical decisions that 
 
 Our primary goal is to create a model that performs well on **new, unseen data**. A model that only performs well on the data it was trained on is not useful in practice. This phenomenon, where a model learns the training data too well—including its noise and idiosyncrasies—is called **overfitting**.
 
+## A Simple Illustration of Overfitting
+
+Consider a regression model with Gaussian errors:
+
+$$
+y_i = f(x_i) + \varepsilon_i, \qquad \varepsilon_i \sim \mathcal{N}(0,\sigma^2).
+$$
+
+Suppose we approximate the conditional mean function by a polynomial of degree $d$,
+
+$$
+\mu_d(x) = \beta_0 + \beta_1 x + \cdots + \beta_d x^d.
+$$
+
+As discussed in the previous chapter, under Gaussian errors with fixed variance, maximizing the likelihood is equivalent to minimizing the training sum of squared errors. This makes the overfitting problem very transparent: if the degree $d$ is too large, the model can improve **in-sample fit** by chasing noise in the training data.
+
+```{python}
+#| label: fig-overfitting-example
+#| fig-cap: "Overfitting in polynomial regression: flexible models can improve training fit while hurting test performance."
+#| echo: false
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+# Set random seed for reproducibility
+np.random.seed(42)
+
+# Generate data from a nonlinear signal plus Gaussian noise
+n_train = 25
+n_test = 200
+x_train = np.sort(np.random.uniform(-1, 1, n_train))
+x_test = np.sort(np.random.uniform(-1, 1, n_test))
+
+def f(x):
+    return np.sin(np.pi * x)
+
+y_train = f(x_train) + np.random.normal(0, 0.25, n_train)
+y_test = f(x_test) + np.random.normal(0, 0.25, n_test)
+x_grid = np.linspace(-1, 1, 400)
+y_true = f(x_grid)
+
+degrees = range(1, 16)
+train_mse = []
+test_mse = []
+
+for d in degrees:
+    coefs = np.polyfit(x_train, y_train, d)
+    yhat_train = np.polyval(coefs, x_train)
+    yhat_test = np.polyval(coefs, x_test)
+    train_mse.append(np.mean((y_train - yhat_train) ** 2))
+    test_mse.append(np.mean((y_test - yhat_test) ** 2))
+
+# Two representative fits
+coefs_low = np.polyfit(x_train, y_train, 1)
+coefs_high = np.polyfit(x_train, y_train, 12)
+yhat_low = np.polyval(coefs_low, x_grid)
+yhat_high = np.polyval(coefs_high, x_grid)
+
+fig, axes = plt.subplots(1, 2, figsize=(12, 4.8))
+
+# Left panel: fitted curves
+axes[0].scatter(x_train, y_train, color='black', s=35, alpha=0.8, label='Training data')
+axes[0].plot(x_grid, y_true, color='gray', linestyle='--', linewidth=2, label='True mean')
+axes[0].plot(x_grid, yhat_low, color='C0', linewidth=2, label='Degree 1 fit')
+axes[0].plot(x_grid, yhat_high, color='C3', linewidth=2, label='Degree 12 fit')
+axes[0].set_title('Fits on the Training Sample')
+axes[0].set_xlabel('x')
+axes[0].set_ylabel('y')
+axes[0].legend(frameon=False)
+axes[0].grid(True, alpha=0.3)
+
+# Right panel: train vs test error
+axes[1].plot(list(degrees), train_mse, 'o-', color='C0', label='Training MSE')
+axes[1].plot(list(degrees), test_mse, 'o-', color='C3', label='Test MSE')
+axes[1].axvline(12, color='gray', linestyle='--', alpha=0.7)
+axes[1].set_title('Error vs Model Complexity')
+axes[1].set_xlabel('Polynomial degree')
+axes[1].set_ylabel('Mean squared error')
+axes[1].legend(frameon=False)
+axes[1].grid(True, alpha=0.3)
+
+plt.tight_layout()
+plt.show()
+```
+
+The left panel shows the fitted mean functions. The high-degree polynomial is flexible enough to follow noise in the training sample, while the linear model is too rigid. The right panel shows the classic overfitting pattern: as model complexity rises, the training error falls monotonically, but the test error eventually rises again. Cross-validation is designed to detect exactly this problem before we commit to a model.
+
 ## The Problem with Simple Train-Test Splits
 
 A simple approach is to split our data into a **training set** and a **testing set**:

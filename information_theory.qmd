@@ -7,15 +7,27 @@ number-offset: [0, 0]  # This makes sections 2.1, 2.2, etc.
 
 ## Overview
 
-Information theory provides essential tools to quantify **uncertainty**, **information**, and **discrepancy between distributions**. The core objects we'll explore are entropy, cross-entropy, mutual information, and Kullback-Leibler (KL) divergence.
+Information theory provides the language for quantifying **uncertainty**, **surprise**, and **discrepancy between distributions**. In machine learning and econometrics, these ideas appear whenever we estimate likelihood-based models, compare predictive densities, or ask how informative one variable is about another.
 
-**Why is this relevant for ML and econometrics?** These concepts are fundamental for:
+This chapter introduces four core objects:
 
-- Model comparison and selection
-- Regularization techniques 
-- Variational inference
-- Information criteria (AIC, BIC)
-- Probabilistic forecasting and scoring
+- **Entropy** for measuring uncertainty in a distribution
+- **Cross-entropy** for measuring expected log-loss under a candidate model
+- **KL divergence** for comparing a model distribution to a reference distribution
+- **Mutual information** for measuring dependence, including nonlinear dependence
+
+:::{.callout-important}
+## Why this matters for econometricians
+
+These concepts are fundamental for:
+
+- likelihood-based estimation and maximum likelihood
+- probabilistic forecasting and forecast evaluation
+- regularization and representation learning
+- understanding dependence beyond correlation
+
+These ideas are not purely abstract. They also appear in applied finance; for an example using entropy-based concepts in financial research, see @Chabi-YoColacito2019.
+:::
 
 :::{.callout-note}
 **Reference**: @Murphy2022PML1 PML1: Chapter 6.1-6.1.4, 6.2-6.3.5
@@ -23,17 +35,19 @@ Information theory provides essential tools to quantify **uncertainty**, **infor
 
 ## Roadmap
 
-This chapter covers the following key topics:
+The chapter is organized around one main econometric question: how should we quantify uncertainty and compare probability models?
 
-1. **Entropy** – quantifying uncertainty
-2. **Cross-Entropy** – comparing distributions
-3. **KL Divergence** – measuring relative entropy
-4. **Mutual Information** – quantifying dependence
-5. **Maximal Information Coefficient (MIC)** – detecting nonlinear relationships
+1. We start with **entropy**, which measures the uncertainty in a single distribution.
+2. We then move to **cross-entropy**, which has a direct interpretation as expected negative log-likelihood.
+3. This leads naturally to **KL divergence**, the key notion of discrepancy between two distributions.
+4. We use this to connect information theory to **maximum likelihood estimation**.
+5. Finally, we study **joint entropy, conditional entropy, and mutual information** to measure dependence between variables.
 
 ## Measuring Distributional Differences
 
 **Central Question**: How can we measure how much **two distributions $p$ and $q$ differ**?
+
+This question appears repeatedly in econometrics. When we estimate a parametric model, we are implicitly asking whether its distribution is close to the data-generating process. When we compare density forecasts, we are again comparing distributions rather than just point predictions.
 
 We need a divergence measure $D$ such that:
 
@@ -236,7 +250,7 @@ The divergence is symmetric only if $\sigma_0^2=\sigma_1^2$ and $\mu_0=\mu_1$. D
 
 ***Visualizing KL Divergence Between Gaussians***
 
-To build intuition for KL divergence, let's see how it changes as two Gaussian distributions differ in mean and variance. <span style="color:blue">We'll examine $D_{KL}(p \parallel q)$ where $p = \mathcal{N}(\mu_0, \sigma_0^2)$ is our **reference distribution** and $q = \mathcal{N}(\mu_1, \sigma_1^2)$ is the **comparison distribution**.<span>
+To build intuition for KL divergence, let's see how it changes as two Gaussian distributions differ in mean and variance. We examine $D_{\text{KL}}(p \parallel q)$ where $p = \mathcal{N}(\mu_0, \sigma_0^2)$ is the **reference distribution** and $q = \mathcal{N}(\mu_1, \sigma_1^2)$ is the **comparison distribution**.
 
 ```{python}
 #| label: fig-kl-gaussian-visual
@@ -275,43 +289,30 @@ plt.tight_layout()
 plt.show()
 ```
 
-***How to Interpret This Figure***
+:::{.callout-note}
+## How to Interpret This Figure
 
-<span style="color:blue"> 
-**Setup**: We have a **reference distribution** $p = \mathcal{N}(0,1)$ (shown in blue) and we're measuring how much a **comparison distribution** $q$ differs from it using KL divergence $D_{KL}(p \parallel q)$.
-<span>
+**Setup**: We fix the reference distribution at $p = \mathcal{N}(0,1)$ and measure how much a comparison distribution $q$ differs from it using $D_{\text{KL}}(p \parallel q)$.
 
-<span style="color:blue"> 
-**Left Panel - Changing $\mu_1$**:
-<span>
+**Left panel: changing the mean**
 
+- It shows what happens when we vary $\mu_1$ while keeping both variances equal to one.
+- KL divergence grows **quadratically** as the means move apart.
+- The minimum is attained at $\mu_1 = \mu_0 = 0$, where the two distributions coincide.
 
-- <span style="color:blue"> 
- **What it shows**: How KL divergence changes when we shift the mean of $q$ while keeping $\mu_0$ and both variances fixed equal to one <span>
-- <span style="color:blue"> 
- **Key insight**: KL divergence grows **quadratically** as means become more different <span>
-- <span style="color:blue"> 
- **Why**: When means differ, the distributions have less overlap, making $q$ a poor approximation of $p$ <span>
-- <span style="color:blue"> 
- **Minimum**: KL = 0 exactly when $\mu_1 = \mu_0 = 0$ (distributions are identical) <span>
+**Right panel: changing the variance**
 
-<span style="color:blue"> 
-**Right Panel - Changing $\sigma_1$**:
-<span>
+- It shows what happens when we vary $\sigma_1$ while keeping both means equal to zero.
+- KL divergence is **asymmetric** around the reference variance.
+- When $\sigma_1 < \sigma_0$, the comparison density is too narrow and misses tail mass of $p$.
+- When $\sigma_1 > \sigma_0$, the comparison density is too diffuse and places mass where $p$ has little probability.
+- The minimum is attained at $\sigma_1 = \sigma_0 = 1$.
 
-- <span style="color:blue"> **What it shows**: How KL divergence changes when we change the variance of $q$ while keeping both means equal to zero and $\sigma_0 = 1$ fixed
-- <span style="color:blue"> **Key insight**: KL divergence is **asymmetric** around the reference variance
-- <span style="color:blue"> **Why asymmetric**: 
-  - When $\sigma_1 < \sigma_0$ (narrower $q$): $q$ misses probability mass in the tails of $p$<span>
-  - When $\sigma_1 > \sigma_0$ (wider $q$): $q$ spreads mass where $p$ has little probability<span>
-  - These create different "costs" in the KL divergence<span>
-- <span style="color:blue"> **Minimum**: KL = 0 exactly when $\sigma_1 = \sigma_0 = 1$<span>
+**Takeaway**:
 
-
-**Take-away:**
-
-- KL divergence grows as the means or variances of $p$ and $q$ become more different from each other.
-- KL is not symmetric: swapping $p$ and $q$ gives a different value due to asymmetry. <span style="color:blue">In the example above, we have asymmetry w.r.t. variances.<span>
+- KL divergence increases as the model distribution moves away from the reference distribution.
+- The direction matters: $D_{\text{KL}}(p \parallel q)$ and $D_{\text{KL}}(q \parallel p)$ generally penalize different kinds of misspecification.
+:::
 
 ## MLE as KL-Divergence Minimization {#sec-mle-kl-divergence}
 
@@ -323,79 +324,17 @@ $$= \underbrace{\mathbb{E}_{X \sim \hat{p}_{\text{data}}}[\log \hat{p}_{\text{da
 
 Since the first term is constant with respect to $\theta$, minimizing the KL divergence is equivalent to maximizing the log-likelihood; see also [our discussion in Section 3](evaluating_distributions.qmd#deep-dive-connection-to-information-theory).
 
-**This provides an information-theoretic justification for the MLE principle.**
+:::{.callout-important}
+## Econometric interpretation
 
-## MLE and Overfitting
+This provides an information-theoretic justification for the MLE principle. In words: maximum likelihood chooses the model whose implied distribution is closest, in KL divergence, to the empirical distribution of the data.
+:::
 
-While powerful, **MLE can be prone to overfitting**, especially with flexible models and limited data. This is particularly evident with **non-parametric methods** like Kernel Density Estimation (KDE). <span style="color:blue">Another very flexible model could be a deep and wide neural network. At this point, I'll make the argument using KDE given that some of you might have encountered it in your bachelor studies.<span>
+:::{.callout-note}
+## Forward Link: MLE and Overfitting
 
-<span style="color:blue">**Kernel Density Estimation (KDE)** is a non-parametric method that estimates probability densities by placing a kernel (typically a Gaussian) at each data point:<span>
-
-$$\hat{p}(x) = \frac{1}{n} \sum_{i=1}^n K_h(x - x_i)$$
-
-<span style="color:blue">where $K_h(z) = \frac{1}{h}K(\frac{z}{h})$ is a kernel with bandwidth $h$.<span>
-
-<span style="color:blue">**Key characteristics of KDE:**<span>
-
-- <span style="color:blue">**Very flexible**: Can approximate any smooth density given enough data<span>
-- <span style="color:blue">**Maximum likelihood method**: Optimizes likelihood of observed data<span>
-- <span style="color:blue">**Bandwidth-dependent**: Small $h$ → overfitting, large $h$ → underfitting<span>
-- <span style="color:blue">**No parametric assumptions**: Makes no assumptions about functional form<span>
-
-<span style="color:blue">**The core issue**: When model complexity is high (i.e., high number of parameters) relative to sample size, MLE can:<span>
-
-- <span style="color:blue">The model learns training data's idiosyncrasies (noise) instead of underlying signal<span>
-- <span style="color:blue">Achieve very low training error (small $D_{KL}(\hat{p}_{\text{data}} \parallel p_\theta)$)<span>
-- <span style="color:blue">Generalize poorly to new data because $\hat{p}_{\text{data}} \neq p_{\text{true}}$<span>
-
-```{python}
-#| label: fig-overfitting-example
-#| fig-cap: "Overfitting Example: KDE fits training samples but may not generalize"
-#| echo: false
-
-import numpy as np
-import matplotlib.pyplot as plt
-from scipy.stats import norm
-from sklearn.neighbors import KernelDensity
-
-# Set random seed for reproducibility
-np.random.seed(42)
-
-# Generate true distribution (standard normal) and samples
-x_true = np.linspace(-4, 4, 400)
-true_density = norm.pdf(x_true, 0, 1)
-
-# Generate small sample
-n_samples = 10
-samples = np.random.normal(0, 1, n_samples)
-
-# Fit KDE with small bandwidth (overfitting)
-kde_overfit = KernelDensity(bandwidth=0.1, kernel='gaussian')
-kde_overfit.fit(samples.reshape(-1, 1))
-kde_overfit_density = np.exp(kde_overfit.score_samples(x_true.reshape(-1, 1)))
-
-# Fit KDE with appropriate bandwidth
-kde_good = KernelDensity(bandwidth=0.5, kernel='gaussian')
-kde_good.fit(samples.reshape(-1, 1))
-kde_good_density = np.exp(kde_good.score_samples(x_true.reshape(-1, 1)))
-
-plt.figure(figsize=(10, 6))
-plt.plot(x_true, true_density, 'orange', linewidth=2, label='True N(0,1)', alpha=0.8)
-plt.plot(x_true, kde_overfit_density, 'red', linewidth=2, label='Overfit KDE (bw=0.1)')
-plt.plot(x_true, kde_good_density, 'blue', linewidth=2, label='Appropriate KDE (bw=0.5)', linestyle='--')
-plt.scatter(samples, np.zeros_like(samples), color='black', s=50, alpha=0.7, zorder=5, label='Training samples')
-
-plt.xlabel('x')
-plt.ylabel('Density')
-plt.title('Overfitting Example: KDE on Small Sample')
-plt.legend()
-plt.grid(True, alpha=0.3)
-plt.ylim(0, 0.6)
-plt.tight_layout()
-plt.show()
-```
-
-<span style="color:blue">The figure shows how different bandwidth choices affect KDE performance: the red curve (bandwidth=0.1) creates artificial peaks around each training sample point, demonstrating severe overfitting, while the blue dashed curve (bandwidth=0.5) provides a smoother approximation closer to the true normal distribution. The overfitted model achieves higher likelihood on the training data but would generalize poorly to new samples.<span>
+Maximum likelihood by itself does not protect us against overfitting. In flexible models, training likelihood can keep improving even when out-of-sample performance deteriorates. We return to this point in the next chapter on cross-validation, where model selection is based on unseen data rather than in-sample fit alone.
+:::
 
 <!-- 
 ## Data Augmentation as Regularization
@@ -452,7 +391,7 @@ $$\mathbb{H}(Y|X) := -\sum_{x,y} p(x,y)\log p(y|x)$$
 $$\mathbb{I}(X;Y) := \sum_{x,y} p(x,y) \log\frac{p(x,y)}{p(x)p(y)} = \mathbb{H}(X) + \mathbb{H}(Y) - \mathbb{H}(X,Y)$$
 
 :::{.callout-note}
-## Key Properties of Mututal Information
+## Key Properties of Mutual Information
 
 - $\mathbb{I}(X;Y) = 0$ if and only if $X$ and $Y$ are independent
 - Alternative form: $\mathbb{I}(X;Y) = \mathbb{E}_{X,Y}[\log p(Y|X) - \log p(Y)]$
@@ -533,7 +472,7 @@ plt.show()
 ```
 
 
-**Key insight of the figure above**: While Pearson correlation only captures linear relationships, information-theoretic measures like MIC can detect various types of dependencies, making them valuable for exploratory data analysis and feature selection in machine learning.
+**Key insight of the figure above**: While Pearson correlation only captures linear relationships, mutual information can detect a much broader class of dependencies. This makes it useful for exploratory data analysis and feature selection when relevant relationships may be nonlinear.
 
 ## Key takeaways
 
@@ -543,16 +482,14 @@ Information theory provides fundamental tools for machine learning and econometr
 2. **Cross-entropy** measures expected log-loss between distributions  
 3. **KL divergence** provides a principled way to compare distributions
 4. **MLE** can be understood as KL divergence minimization
-6. **Mutual information** captures dependencies beyond linear correlation
+5. **Mutual information** captures dependencies beyond linear correlation
 
-These concepts underlie many ML techniques including variational inference, model selection criteria, and representation learning algorithms.
+These concepts underlie many machine-learning and econometric tools, including maximum likelihood, probabilistic forecast evaluation, variational inference, and feature selection.
 <!-- 
 ## References
 
 ::: {#refs}
 ::: -->
-
-For a relatively recent paper applying the concept of entropy directly in financial research, see @{Chabi-YoColacito2019}.
 
 ## Exercises
 
@@ -637,7 +574,7 @@ Note that since differential entropy is invariant to adding a constant by the ch
 
 :::{.callout-warning collapse="true"}
 ## Hint
-Consider the KL divergence between an arbitrary distribution $p$ and a Gaussian distribution $q$ that has the same variance. Use the property that $D_{KL}(p || q) \ge 0$. and the decomposition of the KL divergence into entropy and cross-entropy.}
+Consider the KL divergence between an arbitrary distribution $p$ and a Gaussian distribution $q$ that has the same variance. Use the property that $D_{KL}(p || q) \ge 0$ and the decomposition of the KL divergence into entropy and cross-entropy.
 :::
 
 :::{.callout-tip collapse="true"}
@@ -774,7 +711,6 @@ This final expression is exactly the definition of $D_{\text{KL}}(p_X \parallel 
 
 Thus, we have shown that $D_{\text{KL}}(p_X \parallel q_X) = D_{\text{KL}}(p_Y \parallel q_Y)$, proving that KL divergence is invariant to reparameterization.
 
-<span style="color:blue"> I changed the term "Jacobian" to "first-order derivative" in the solution to facilitate readability.<span>
 :::
 
 :::{.callout-note}
