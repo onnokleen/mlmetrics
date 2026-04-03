@@ -1,0 +1,248 @@
+---
+number-sections: true
+number-offset: [12, 0]  # This makes sections 10.1, 10.2, etc.
+---
+# Advanced Tree-Based Methods
+
+## Exercises
+
+::: {.callout-note}
+## Exercise 13.1: Quantile Random Forest Prediction
+
+You trained a Quantile Random Forest with $B=3$ trees. For a new test point $x_{\text{new}}$, you collect all training outcomes $Y_i$ that fall into the terminal leaf reached by $x_{\text{new}}$ in each tree:
+
+- Tree 1 leaf: $\{10,\,12,\,15\}$
+- Tree 2 leaf: $\{8,\,11,\,12\}$
+- Tree 3 leaf: $\{12,\,14,\,20\}$
+
+Questions:
+
+1. What is the full set (with duplicates) of neighboring outcomes for $x_{\text{new}}$?
+2. What is the predicted conditional median (50th percentile)?
+3. What is the predicted conditional 25th percentile?
+
+*Exam level*
+:::
+
+::: {.callout-warning collapse="true"}
+### Hint 1 (Neighbors)
+Pool (concatenate) all leaf outcomes from all trees; keep duplicates; then sort.
+:::
+
+::: {.callout-warning collapse="true"}
+### Hint 2 (Median)
+For $N$ odd, the median is the $\frac{N+1}{2}$-th smallest value.
+:::
+
+::: {.callout-warning collapse="true"}
+### Hint 3 (General Quantile)
+For quantile level $p$, compute position $k = p (N+1)$.  
+If $k$ not integer: interpolate between $\lfloor k \rfloor$ and $\lceil k \rceil$.
+:::
+
+::: {.callout-tip collapse="true"}
+### Solution
+
+1. Pool: $\{10,12,15,8,11,12,12,14,20\}$ → sorted: $\{8,10,11,12,12,12,14,15,20\}$ ($N=9$).
+2. Median index: $(9+1)/2 = 5$ → 5th value $=12$ so $\hat q_{0.5}(x_{\text{new}})=12$.
+3. 25th percentile position: $0.25(9+1)=2.5$ → interpolate between 2nd (10) and 3rd (11): $10 + 0.5(11-10)=10.5$. Thus $\hat q_{0.25}(X_{\text{new}})=10.5$.
+
+(Interpolation corresponds to the simple $p(N+1)$ rule; software may use alternative conventions.)
+:::
+
+
+
+::: {.callout-note}
+## Exercise 13.2: NGBoost with Exponential Likelihood
+
+Assume we model a positive target variable $Y$ with a conditional Exponential distribution:
+$$
+Y \mid X=x \sim \text{Exp}(\lambda(x)), \qquad \text{pdf is } f(y;\lambda)=\lambda e^{-\lambda y} \text{ for } y\ge 0.
+$$
+NGBoost can be used to learn the rate parameter function $\lambda(x)$.
+
+1.  **Conceptual:** In your own words, contrast NGBoost with (i) standard gradient boosting (using MSE) and (ii) Quantile Regression Forests.
+2.  **Loss & Gradient (Rate parameter $\lambda$):**
+    a. Write the per-observation negative log-likelihood (NLL), $\ell(\lambda;y)$.
+    b. Compute the ordinary gradient $\nabla_\lambda \ell = \partial \ell/\partial \lambda$.
+3.  **Natural Gradient (Rate parameter $\lambda$):**
+    a. The Fisher Information for $\lambda$ is $F_{\lambda\lambda} = 1/\lambda^2$. Calculate the natural gradient, $g^{\text{nat}}_\lambda = F_{\lambda\lambda}^{-1} \nabla_\lambda \ell$.
+    b. For a single data point with current prediction $\lambda=0.4$ and observed $y=3$, compute both the ordinary and natural gradients for $\lambda$.
+4.  **Reparameterization (Log-rate parameter $\theta$):** To ensure $\lambda>0$, we often model $\theta(x) = \log \lambda(x)$, so $\lambda = e^\theta$
+    a. Use the chain rule to find the ordinary gradient for $\theta$, $\nabla_\theta \ell = \partial \ell/\partial \theta$.
+    b. **Fisher Information Transformation Rule:** If $\theta = g(\lambda)$, then $F_{\theta\theta} = F_{\lambda\lambda} \cdot (\frac{d\lambda}{d\theta})^2$. Use this rule to find the Fisher Information $F_{\theta\theta}$ for our case where $\theta = \log \lambda$.
+    c. Calculate the natural gradient for $\theta$, $g^{\text{nat}}_\theta = F_{\theta\theta}^{-1} \nabla_\theta \ell$. What do you notice?
+5.  **Conclusion:** Why is the $\theta = \log \lambda$ parameterization often preferred in practice for NGBoost with an Exponential likelihood?
+
+Note that using the natural gradient is more important for multi-parameter densities where the natural gradient *standardizes* the gradients across parameters.
+
+*Exam level*
+:::
+
+::: {.callout-warning collapse="true"}
+### Hint 1 (NLL)
+The NLL is $-\log f(y;\lambda)$. Remember that $\log(ab) = \log a + \log b$.
+:::
+
+::: {.callout-warning collapse="true"}
+### Hint 2 (Chain Rule)
+For Q4a, you'll need $\partial \ell/\partial \theta = (\partial \ell/\partial \lambda) \cdot (\partial \lambda/\partial \theta)$.
+:::
+
+::: {.callout-warning collapse="true"}
+### Hint 3 (Transformation)
+For Q4b, you'll need the derivative of $\lambda = e^\theta$ with respect to $\theta$.
+:::
+
+::: {.callout-tip collapse="true"}
+### Solution
+
+
+1. **Conceptual question:**  
+   - Standard gradient boosting (with MSE) learns a single point function (typically the conditional mean) by fitting weak learners to (negative) gradients of the loss; uncertainty is not modeled.  
+   - Quantile Regression Forests approximate the entire conditional distribution nonparametrically by pooling leaf observations from many trees; quantiles are read off the empirical distribution (no parametric assumptions, no explicit gradient optimization, no natural gradients).  
+   - NGBoost is a semi-parametric method: it specifies a parametric family (here Exponential with rate $\lambda(x)$) and trains weak learners to predict its parameters by minimizing a proper scoring rule (negative log-likelihood), using (natural) gradients. It gives full predictive distributions (mean, quantiles, tail probs) if the family is suitable. Trade‑off: risk of misspecification and added complexity (Fisher / natural gradient machinery).
+
+2.  **Loss & Gradient for $\lambda$:**
+    a. $\ell(\lambda;y) = -(\log \lambda - \lambda y) = -\log \lambda + \lambda y$.
+    b. $\nabla_\lambda \ell = -1/\lambda + y$.
+
+3.  **Natural Gradient for $\lambda$:**
+    a. $g^{\text{nat}}_\lambda = (\lambda^2) \cdot (-1/\lambda + y) = -\lambda + \lambda^2 y = \lambda(\lambda y - 1)$.
+    b. With $\lambda=0.4, y=3$:
+       - Ordinary: $\nabla_\lambda \ell = -1/0.4 + 3 = -2.5 + 3 = 0.5$.
+       - Natural: $g^{\text{nat}}_\lambda = -0.4 + (0.4^2 \cdot 3) = -0.4 + 0.48 = 0.08$.
+
+4.  **Reparameterization to $\theta = \log \lambda$:**
+    a. $\nabla_\theta \ell = (\partial \ell/\partial \lambda) \cdot (\partial \lambda/\partial \theta) = (-1/\lambda + y) \cdot e^\theta = (-1/e^\theta + y) \cdot e^\theta = -1 + y e^\theta$.
+    b. $F_{\theta\theta} = F_{\lambda\lambda} \cdot (\frac{d\lambda}{d\theta})^2 = (1/\lambda^2) \cdot (e^\theta)^2 = (1/(e^\theta)^2) \cdot (e^\theta)^2 = 1$.
+    c. $g^{\text{nat}}_\theta = F_{\theta\theta}^{-1} \nabla_\theta \ell = (1)^{-1} \cdot (-1 + y e^\theta) = -1 + y e^\theta$.
+       **Observation:** For the log-parameter $\theta$, the natural gradient is identical to the ordinary gradient.
+
+5.  **Conclusion:** The $\theta = \log \lambda$ parameterization is preferred for two main reasons:
+    - **Practical:** It transforms the constrained optimization problem ($\lambda>0$) into an unconstrained one for $\theta$, which can be learned by a standard tree booster.
+    - **Theoretical:** It is the "canonical" parameter of the Exponential family. In this space, the Fisher Information is constant (1), making the geometry of the parameter space flat. This means the ordinary gradient is already "natural," simplifying the algorithm as no scaling by the Fisher matrix is needed. The gradient steps are more stable.
+:::
+
+
+
+<!-- 
+
+::: {.callout-note}
+## Exercise: NGBoost with Exponential Likelihood (Positive Targets)
+
+Assume a conditional Exponential model
+$$
+Y \mid X=x \sim \text{Exp}(\lambda(x)), \qquad \lambda(x)>0,
+$$
+with pdf $f(y;\lambda)=\lambda e^{-\lambda y}$ for $y\ge 0$.
+
+1. Conceptual question: Contrast NGBoost (parametric probabilistic) with (i) standard gradient boosting (MSE) and (ii) Quantile Regression Forests in your own words.
+2. Write the per‑observation negative log-likelihood (NLL) $\ell(\lambda;y)$.
+3. Compute $\partial \ell/\partial \lambda$.
+4. Let $\theta = \log \lambda$ so $\lambda = e^{\theta}$. Show $\partial \ell/\partial \theta = e^{\theta} y - 1$.
+5. Fisher: $F_{\lambda\lambda}=1/\lambda^{2}$. Give $g^{\text{nat}}_\lambda = F_{\lambda\lambda}^{-1} \partial \ell/\partial \lambda$ and show in $\theta$ space Fisher $=1$.
+6. Numeric: $\lambda=0.4$, $y=3$. Compute (a) ordinary gradient in $\lambda$, (b) natural gradient in $\lambda$, (c) gradient in $\theta$.
+7. One advantage and one drawback of Exponential vs Gaussian for positive skewed targets.
+:::
+
+::: {.callout-warning collapse="true"}
+### Hint 3 (NLL)
+Use $-\log f(y;\lambda)$.
+:::
+
+::: {.callout-warning collapse="true"}
+### Hint 3 (Chain Rule)
+$\partial \ell/\partial \theta = (\partial \ell/\partial \lambda)(\partial \lambda/\partial \theta)$.
+:::
+
+::: {.callout-warning collapse="true"}
+### Hint 5 (Fisher)
+Score $s(\lambda)=1/\lambda - y$; Fisher is its squared expectation.
+:::
+
+::: {.callout-warning collapse="true"}
+### Hint 4 (Natural Gradient)
+Multiply by $F^{-1}$.
+:::
+
+::: {.callout-tip collapse="true"}
+### Solution
+
+1. Conceptual question:  
+   - Standard gradient boosting (with MSE) learns a single point function (typically the conditional mean) by fitting weak learners to (negative) gradients of the loss; uncertainty is not modeled.  
+   - Quantile Regression Forests approximate the entire conditional distribution nonparametrically by pooling leaf observations from many trees; quantiles are read off the empirical distribution (no parametric assumptions, no explicit gradient optimization, no natural gradients).  
+   - NGBoost is probabilistic: it specifies a parametric family (here Exponential with rate $\lambda(x)$) and trains weak learners to predict its parameters by minimizing a proper scoring rule (negative log-likelihood), using (natural) gradients. It gives full predictive distributions (mean, quantiles, tail probs) if the family is suitable. Trade‑off: risk of misspecification and added complexity (Fisher / natural gradient machinery).
+
+2. $\ell(\lambda;y)= -\log \lambda + \lambda y$.
+
+3. $\partial \ell/\partial \lambda = -1/\lambda + y$.
+
+4. $\partial \ell/\partial \theta = (-1/\lambda + y)\lambda = -1 + \lambda y = e^{\theta} y - 1$.
+
+5. Natural in $\lambda$: $g^{\text{nat}}_\lambda = \lambda^{2}(-1/\lambda + y)= -\lambda + \lambda^{2} y = \lambda(\lambda y -1)$. In $\theta$ space Fisher $=1$, so natural = ordinary: $\lambda y -1$.
+
+6. $\lambda=0.4, y=3$:  
+   Ordinary: $-1/0.4 + 3 = 0.5$.  
+   Natural: $-0.4 + 0.16\cdot 3 = 0.08$.  
+   $\theta$ gradient: $0.4\cdot 3 -1 = 0.2$.
+
+::: -->
+
+<!-- :::
+
+```{python}
+"""
+True Quantile Regression Forest bands on heteroskedastic data
+Requires: numpy, matplotlib, quantile-forest (RandomForestQuantileRegressor)
+"""
+
+# pip install quantile-forest
+
+import numpy as np
+import matplotlib.pyplot as plt
+from quantile_forest import RandomForestQuantileRegressor  # true QRF
+
+# ---------- 1) synthetic heteroskedastic data ----------
+rng = np.random.RandomState(42)
+X = np.sort(5 * rng.rand(10000, 1) - 2.5, axis=0)      # x in [-2.5, 2.5]
+f_true = np.sin(X).ravel()                           # true conditional mean
+noise = (0.1 + 0.5 * (X.ravel() ** 2)) * rng.randn(X.shape[0])  # var increases with |x|
+y = f_true + noise
+
+# ---------- 2) fit true Quantile Regression Forest ----------
+qrf = RandomForestQuantileRegressor(
+    n_estimators=1000,
+    min_samples_leaf=50,
+    random_state=42,
+    n_jobs=-1,
+)
+qrf.fit(X, y)
+
+# ---------- 3) prediction grid & quantiles ----------
+Xg = np.linspace(-2.5, 2.5, 300).reshape(-1, 1)
+f_grid = np.sin(Xg).ravel()  # true mean for reference
+
+qs = [0.10, 0.25, 0.50, 0.75, 0.90]                # fractions in [0, 1]
+Q = qrf.predict(Xg, quantiles=qs)                   # shape: (n_points, 5)
+q10, q25, q50, q75, q90 = Q.T
+
+# ---------- 4) plot ----------
+plt.figure(figsize=(9, 5.5))
+plt.scatter(X.ravel(), y, s=10, alpha=0.04, label="Data")
+plt.plot(Xg.ravel(), f_grid, "k--", linewidth=1.7, label="True mean")
+plt.plot(Xg.ravel(), q50, linewidth=2.1, label="QRF median")
+
+# Shaded bands (same color, different opacity)
+plt.fill_between(Xg.ravel(), q10, q90, alpha=0.18, label="10–90%")
+plt.fill_between(Xg.ravel(), q25, q75, alpha=0.35, label="25–75%")
+
+plt.title("True Quantile Regression Forest (heteroskedastic noise)")
+plt.xlabel("x")
+plt.ylabel("y")
+plt.legend(loc="best")
+plt.tight_layout()
+plt.show()
+``` -->
+
+

@@ -1,0 +1,860 @@
+---
+number-sections: true
+number-offset: [3, 0]  # This makes sections 2.1, 2.2, etc.
+---
+
+# Optimization for Machine Learning {#sec-optim}
+
+Training a machine learning model, especially a neural network, is an optimization problem. Our goal is to find the set of model parameters (weights and biases) that minimizes a **loss function**. The loss function measures how poorly the model is performing on the training data. Gradient-based optimization algorithms are the workhorses that allow us to navigate the complex, high-dimensional "loss landscape" to find this minimum.
+
+## The Core Idea for Optimization: Gradient Descent
+
+Imagine you are standing on a foggy mountain and want to get to the lowest valley. The simplest strategy is to look at the ground at your feet and take a step in the steepest downhill direction. You repeat this process until you can no longer go any further down.
+
+This is the core intuition behind **Gradient Descent**.
+
+- The "mountain" is the loss landscape.
+- Your "position" is the current set of model parameters, $\boldsymbol \theta$.
+- The "steepest downhill direction" is the negative of the **gradient** of the loss function $l$ with respect to the parameters, $-\nabla_{\boldsymbol \theta} l(\boldsymbol \theta)$.
+
+The update rule for the parameters is:
+$$ \boldsymbol \theta_{\text{new}} = \boldsymbol \theta_{\text{old}} - \eta \nabla_{\boldsymbol  \theta} l(\theta_{\text{old}}) $$
+where $\eta$ is the **learning rate**, a hyperparameter that controls the size of the steps we take.
+
+The main challenge is how to compute the gradient $\nabla_{\boldsymbol \theta} l(\boldsymbol \theta)$. The way we use our training data to compute it leads to three main variants of gradient descent.
+
+## Batch, Stochastic, and Mini-Batch Gradient Descent
+
+To maintain notational consistency across all algorithms, we first establish our mathematical framework:
+
+**Setup**: Consider a training dataset with $N$ samples $y_1, \dots, y_N$ and parameter vectors $\boldsymbol{\theta} \in \mathbb{R}^m$.
+
+**Key definitions**:
+
+- $l_i(\boldsymbol{\theta}) = l(y_i, \hat{y}_i)$: loss for individual sample $i$
+- $l(\boldsymbol{\theta}) = \sum_{i=1}^N l_i(\boldsymbol{\theta})$: total loss across all samples
+- $y_i$: observed values, $\hat{y}_i$: predicted/fitted values (depending on $\boldsymbol{\theta}$)
+- $Y = \{y_i | i = 1, \dots, N\}$: the complete dataset
+
+:::{.callout-note}
+## Notation
+For brevity, we write $\hat{y}_i$ instead of $\hat{y}_i(\boldsymbol{\theta})$, but remember that predictions always depend on the current parameters.
+:::
+
+### Batch Gradient Descent
+
+In Batch Gradient Descent, we calculate the gradient of the loss function using the **entire training dataset** in one go. With learning rate $\eta > 0$ and starting value $\boldsymbol{\theta}^{(0)}$, the gradient for iteration $t=1,...,T$ is:
+
+$$ \nabla_{\boldsymbol \theta} l(\boldsymbol \theta) = \frac{1}{N} \sum_{i=1}^{N} \nabla_{\boldsymbol \theta} l_i(\boldsymbol{\theta}^{(t-1)}) $$
+
+which leads us to the update rule
+
+$$\boldsymbol{\boldsymbol \theta}^{(t)} = \boldsymbol{\theta}^{(t-1)} - \eta \frac{1}{N} \nabla_{\boldsymbol{\theta}}\sum_{i=1}^N l_i(\boldsymbol{\theta}^{(t-1)})$$
+
+:::{.callout-note}
+-   **Pros**: The gradient is a very accurate estimate of the true gradient, leading to a stable and direct convergence path.
+-   **Cons**: It is computationally very expensive and memory-intensive, especially for large datasets. It is infeasible to load millions of samples into memory at once. Can we prone to local optima but this depends heavily on the learning rate.
+:::
+
+### Stochastic Gradient Descent (SGD) 
+
+Instead of In Stochastic Gradient Descent, we calculate the gradient and update the parameters using just **one training sample** at a time. The gradient approximation reads as follows:
+
+$$ \nabla_{\boldsymbol \theta} l(\boldsymbol{\theta}^{(t-1)}) \approx \nabla_{\boldsymbol  \theta} l_i(\boldsymbol{\theta}^{(t-1)}) \quad \text{for a single random sample } i $$
+
+Of course, using only one data point for updating the parameter instead of all $i = 1, \dots, N$ is a huge oversimplification.
+
+:::{.callout-note}
+-   **Pros**: It is much faster per update and requires very little memory. The noisy updates can also help the model escape shallow local minima.
+-   **Cons**: The path to the minimum is very noisy and erratic. The model never truly "converges" but rather bounces around the minimum.
+:::
+
+### Mini-Batch Gradient Descent
+
+Mini-Batch Gradient Descent is the happy medium and the most common approach used in deep learning. We calculate the gradient using a small, random subset of the data called a **mini-batch**.
+
+More precisely: We first define $J$ batches $B_j$ such that $\bigcup_{j=1}^J B_j = Y$ and $B_j \cap B_{j'} = \emptyset \quad \text{ for all } j,j' = 1,\ldots,J:\ j \neq j'$. With learning rate $\eta > 0$ and starting value $\boldsymbol{\theta}^{(0)}$, we get the following update gradient approximation
+
+$$ \nabla_{\boldsymbol \theta} l(\boldsymbol \theta) \approx \frac{1}{\left|B_j\right|}  \sum_{y_i \in B_j} \nabla_{\boldsymbol \theta} l(\boldsymbol \theta; y_i, \hat y_i)$$
+
+and update rule
+
+$$
+\boldsymbol{\boldsymbol \theta}^{(t)} = \boldsymbol{\theta}^{(t-1)} - \eta \frac{1}{\left|B_j\right|} \sum_{y_i \in B_j}\nabla_{\boldsymbol{\theta}}l_i(\boldsymbol{\theta}^{(t-1)}).
+$$
+
+A typical mini-batch size $m$ is 32, 64, or 128. The total number of iteration steps for the algorithm $T$ doesn't need to coincide with the number of batches $B$. Typically, we have $B << T$ such that, after going through all batches for updating the parameters, we draw new batches of the same size to continue updating our parameter. 
+
+
+
+:::{.callout-note}
+-   **Pros**: Mini-Batch Gradient Descent balances the stability of Batch Gradient Descent with the speed of SGD. It also allows for efficient computation using vectorized operations on modern hardware (GPUs).
+-   **Cons**: It introduces an additional hyperparameter (the batch size) to (potentially) tune.
+
+If you take 
+- $B_j \subseteq {Y}$ with $\left|B_j\right| = 1$ for all $j=1,...,J$, then we are back at SGD, and
+- $B_j = {Y}$ for each $j$ results in Batch Gradient Descent.
+:::
+
+:::{.callout-tip}
+## Definition: Epoch
+An epoch is referring to the instances for which we once went through all data points $i$ for optimization. With the notion of epoch introduced, we get the following quasi code for neural network optimization:
+
+Define $n_e, n_{e,b} \in \mathbb{N}\setminus\{0\}$ the number of epochs for training and the number of batches for each epoch, respectively. 
+
+**Algorithm: Mini-Batch Gradient Descent Training for neural networks**
+
+***Input:*** Training data $\{(x_i, y_i)\}_{i=1}^N$, learning rate $\eta$, batch size $|B|$
+
+**Initialize:** $\boldsymbol{\theta}^{(0)}$, set $t = 0$
+
+***Repeat for*** $e = 1, \ldots, n_e$ **(epochs):**
+
+1. Shuffle training data $\{(x_i, y_i)\}_{i=1}^N$
+2. ***For each batch*** $B_j$ where $j = 1, \ldots, n_{e,b}$:
+   - ***Forward pass:*** Compute $\hat{y}_i = f(x_i; \boldsymbol{\theta}^{(t)})$ for $i$ such that $y_i \in B_j$
+   - ***Loss computation:*** $L_j = \frac{1}{|B_j|} \sum_{i \in B_j} \ell(y_i, \hat{y}_i)$
+   - ***Backward pass:*** $\boldsymbol{g}^{(t)} = \frac{1}{|B_j|} \sum_{i \in B_j} \nabla_{\boldsymbol{\theta}} \ell(y_i, f(x_i; \boldsymbol{\theta}^{(t)}))$
+   - ***Update:*** $\boldsymbol{\theta}^{(t+1)} = \boldsymbol{\theta}^{(t)} - \eta \boldsymbol{g}^{(t)}$
+   - ***Increment:*** $t \leftarrow t + 1$
+
+***Stopping rule:*** Stop if a convergence criterion is reached or maximum number of iterations $T$
+
+***Output:*** Optimized parameters $\boldsymbol{\theta}^{(T)}$
+:::
+
+## Challenges and Advanced Optimizers
+
+:::{.callout-warning}
+## Challenges with Vanilla Gradient Descent
+- Choosing the right learning rate $\eta$ is difficult
+- The same learning rate applies to all parameters, which may not be ideal
+- It can get stuck in saddle points, which are common in high-dimensional landscapes
+:::
+
+To address these issues, researchers have developed **adaptive optimization algorithms** that adjust the learning rate for each parameter automatically.
+
+In all of the following algorithms, we choose a learning rate $\eta > 0$ and a starting value $\boldsymbol{\theta}^{(0)}$. Consider iteration steps $t = 1,\ldots,T$, and define $\boldsymbol g_t = \frac{1}{N} \sum_{i = 1}^N \nabla_{\boldsymbol{\theta}}l_i(\boldsymbol{\theta}^{(t)})$ which is the gradient at time $t$. We can combine all methods below with mini-batches but leave this out for brevity in notation.
+
+
+### Momentum
+
+Momentum helps accelerate SGD in the relevant direction and dampens oscillations. It achieves this by adding a fraction of the previous update vector to the current gradient, creating a "velocity" term that accumulates past gradients.
+
+$$ \boldsymbol v_t = \delta \boldsymbol v_{t-1} + (1 - \delta) \boldsymbol g_t $$
+$$ \boldsymbol \theta^{(t+1)} = \boldsymbol \theta^{(t)} - \eta \boldsymbol v_t $$
+
+Here, $\delta$ is the momentum coefficient, and the velocity $v_t$ accumulates a weighted average of past gradients. This creates a "ball rolling downhill" effect that helps overcome small local minima and accelerates convergence in consistent directions.
+
+### AdaGrad (Adaptive Gradient)
+
+AdaGrad adapts the learning rate for each parameter individually, performing larger updates for infrequent parameters and smaller updates for frequent ones. It achieves this by dividing the learning rate by the square root of the sum of all past squared gradients for that parameter.
+
+For that, let's define $\boldsymbol G_t = \sum_{\tau = 1}^t \boldsymbol g_\tau \boldsymbol g_\tau^\top + \varepsilon \boldsymbol I_m$ the outer-product of gradients with small adjustment $\varepsilon > 0$ and $\boldsymbol I_t$ an identity matrix with dimension equal to the length of $\boldsymbol \theta$. 
+The standard AdaGrad time step is:
+
+$$
+\boldsymbol{\theta}^{(t)} = \boldsymbol{\theta}^{(t-1)} - \eta \boldsymbol G_t^{-\frac{1}{2}}g_t,$$
+
+or a simplified form
+
+$$\boldsymbol{\theta}^{(t)} = \boldsymbol{\theta}^{(t-1)} - \eta \ \mathrm{diag}(\boldsymbol G_t)^{-\frac{1}{2}}\boldsymbol g_t$$
+
+For illustration, we can consider the case of a one-dimensional parameter vector. Then, the simplified AdaGrad reads as follows:
+$$ \theta^{(t)} = \theta^{{t - 1}} - \frac{\eta}{\sqrt{G_{t} + \epsilon}} g_{t} \text{ with } G_{t} = \sum_{\tau=1}^{t} g_{\tau}^2.$$
+Here it becomes clear why we needed to add the small $\epsilon$ component: It is small smoothing constant to prevent division by zero.
+
+:::{.callout-note}
+-   **Pros**: Excellent for sparse data (like in NLP), where some features appear infrequently.
+-   **Cons**: The denominator term $G_t$ grows monotonically. This causes the learning rate to eventually become infinitesimally small, effectively stopping the training process.
+:::
+
+### RMSprop (Root Mean Square Propagation)
+
+RMSprop modifies AdaGrad to resolve its main issue of a learning rate that aggressively and monotonically decreases. Instead of accumulating all past squared gradients, RMSprop uses an exponentially decaying average, preventing the denominator from growing endlessly. Define $g_t$ as above and $g_t^2$ as the elementwise product of $g_t$ times $g_t$; that is, $g_t^2 = g_t \odot g_t$.
+
+The update rules are (with $v_0 = 0$):
+
+1.  **Compute decaying average of squared gradients**:
+    $$ \boldsymbol v_t = \delta \boldsymbol v_{t-1} + (1 - \delta) \boldsymbol g_t^2 $$
+2.  **Update parameters**:
+    $$ \boldsymbol{\theta}^{(t)} = \boldsymbol{\theta}^{(t-1)} - \eta \frac{1}{\sqrt{v_t} + \varepsilon}g_t $$
+Here, $v_t$ is the moving average of squared gradients, and $\delta$ is the decay rate (e.g., 0.9). By "forgetting" the distant past, RMSprop keeps the learning rate adaptive and responsive throughout training.
+
+
+### Adam (Adaptive Moment Estimation)
+
+Adam is arguably the most popular and effective optimization algorithm today. It combines the ideas of **Momentum** (using the first moment, or mean, of the gradients) and **RMSprop** (using the second moment, or uncentered variance, of the gradients).
+
+The algorithm maintains two moving averages:
+
+1. **First moment estimate** (momentum):
+   $$ \boldsymbol m_t = \beta \boldsymbol m_{t-1} + (1 - \beta) \boldsymbol g_{t} $$
+2. **Second moment estimate** (uncentered variance):
+   $$ \boldsymbol v_t = \delta \boldsymbol v_{t-1} + (1 - \delta) \boldsymbol g_{t}^2 $$
+
+Since $\boldsymbol m_t$ and $\boldsymbol v_t$ are initialized as zero vectors, they are biased toward zero, especially during the initial time steps. Adam corrects for this bias:
+
+3. **Bias-corrected estimates**:
+   $$ \hat{\boldsymbol m}_t = \frac{1}{1 - \beta} \ \boldsymbol m_t $$
+   $$ \hat{\boldsymbol v}_t = \frac{1}{1 - \delta} \ \boldsymbol v_t $$
+
+4. **Parameter update**:
+   $$ \boldsymbol{\theta}^{(t)} = \boldsymbol{\theta}^{(t-1)} - \eta \frac{\hat{m}_t}{\sqrt{\hat{v}_t} + \varepsilon}. $$
+
+Adam is generally a good default choice for most deep learning problems due to its robustness and adaptive nature.
+
+## Optimizer Comparison
+
+| **Algorithm** | **Memory** | **Hyperparameters** | **Key Advantage** | **Key Limitation** |
+|---------------|------------|---------------------|-------------------|-------------------|
+| **Batch Gradient Descent** | High | $\eta$ | Stable, smooth convergence | Very slow, memory intensive |
+| **SGD** | Low | $\eta$ | Fast per iteration, low memory | Noisy, sensitive to $\eta$ |
+| **Mini-Batch Gradient Descent** | Medium | $\eta$, batch size | Balances speed and stability | Additional hyperparameter to tune |
+| **Momentum** | Low | $\eta$, $\delta$ | Accelerates convergence, dampens oscillations | Can overshoot, needs tuning |
+| **AdaGrad** | Medium | $\eta$, $\epsilon$ | Adapts per-parameter rates | Learning rate decays to zero |
+| **RMSprop** | Medium | $\eta$, $\gamma$, $\epsilon$ | Fixes AdaGrad's decay problem | No momentum component |
+| **Adam** | High | $\eta$, $\beta$, $\delta$, $\epsilon$ | Combines momentum + adaptation | Can converge to suboptimal points |
+
+## Visualizing Optimizers
+
+The following plot shows the paths taken by different optimizers on a contour plot of a loss function $l(x,y) = 0.5 * x^2 + 2 * y^2$.
+
+All optimizers employ a learning rate of 0.3 and each algorithm stops at maximum 100 iterations. The stopping criterion at the end of each interation is whether $l(x,y) < 0.1$. More details can be found if you unfold the code via "Show the code". Note that the SGD optimization is illustrated by adding white noise to the gradient update. In this 2d example, we only have one data point at each gradient update.
+
+Notice how SGD is noisier than Batch Gradient Descent, Momentum overshoots but corrects, AdaGrad stalls, RMSProp corrects the stalling, and Adam looks like a combinations of momentum and RSMprop.
+
+```{python}
+#| label: fig-optimizers
+#| fig-cap: "Comparison of different optimization algorithms on a 2D loss landscape."
+#| code-fold: true
+import numpy as np
+import matplotlib.pyplot as plt
+
+# Set random seed for reproducibility
+np.random.seed(42)
+
+# Define loss function (less elongated for clearer visualization)
+def f(x, y):
+    return 1 + 0.1 * x**2 + 1 * y**2  # Less extreme ratio
+
+def df(x, y):
+    return 0.2 * x, 2 * y
+
+# Create contour plot
+x = np.linspace(-12, 12, 100)
+y = np.linspace(-8, 8, 100)
+X, Y = np.meshgrid(x, y)
+Z = f(X, Y)
+
+def run_batch_gd(x0, y0, lr=0.3, n_steps=100):
+    """Pure batch gradient descent - smooth path"""
+    path = [(x0, y0)]
+    x, y = x0, y0
+    for _ in range(n_steps):
+        gx, gy = df(x, y)
+        x -= lr * gx
+        y -= lr * gy
+        path.append((x, y))
+        if f(x, y) < 1.01:
+            break
+    return np.array(path)
+
+def run_sgd(x0, y0, lr=0.3, n_steps=100):
+    """Realistic SGD - simulate mini-batch variance"""
+    path = [(x0, y0)]
+    x, y = x0, y0
+    
+    # Generate synthetic dataset that creates natural variance
+    np.random.seed(123)  # Different seed for data generation
+    data_variance = 0.3  # Controls how much mini-batches differ
+    
+    for step in range(n_steps):
+        # Each mini-batch has slightly different gradient estimate
+        gx_base, gy_base = df(x, y)
+        
+        # Add realistic mini-batch variance (not just random noise)
+        gx_noise = np.random.normal(0, data_variance * abs(gx_base * 1))
+        gy_noise = np.random.normal(0, data_variance * abs(gy_base * 1))
+        
+        gx = gx_base + gx_noise
+        gy = gy_base + gy_noise
+        
+        x -= lr * gx
+        y -= lr * gy
+        path.append((x, y))
+        
+        if f(x, y) < 1.01:
+            break
+    
+    return np.array(path)
+
+def run_momentum(x0, y0, lr=0.05, beta=0.9, n_steps=100):
+    """Momentum optimizer - shows acceleration and overshooting"""
+    path = [(x0, y0)]
+    x, y = x0, y0
+    vx, vy = 0, 0  # Initialize velocity
+    
+    for _ in range(n_steps):
+        gx, gy = df(x, y)
+        
+        # Update velocity (momentum)
+        vx = beta * vx + gx
+        vy = beta * vy + gy
+        
+        # Update parameters
+        x -= lr * vx
+        y -= lr * vy
+        path.append((x, y))
+        
+        if f(x, y) < 1.01:
+            break
+    
+    return np.array(path)
+
+def run_adagrad(x0, y0, lr=0.3, eps=1e-8, n_steps=100):
+    """AdaGrad optimizer - shows stalling behavior"""
+    path = [(x0, y0)]
+    x, y = x0, y0
+    gx_sum_sq, gy_sum_sq = 0, 0
+    
+    for step in range(n_steps):
+        gx, gy = df(x, y)
+        
+        # Accumulate squared gradients
+        gx_sum_sq += gx**2
+        gy_sum_sq += gy**2
+        
+        # AdaGrad update - learning rate decreases over time
+        effective_lr_x = lr / (np.sqrt(gx_sum_sq) + eps)
+        effective_lr_y = lr / (np.sqrt(gy_sum_sq) + eps)
+        
+        x -= effective_lr_x * gx
+        y -= effective_lr_y * gy
+        path.append((x, y))
+        
+        # More lenient stopping criterion to see stalling
+        if f(x, y) < 1.01 and step > 20:
+            break
+            
+        # Stop if steps become too small (stalling)
+        if step > 10 and effective_lr_x < 1e-4 and effective_lr_y < 1e-4:
+            break
+    
+    return np.array(path)
+
+def run_rmsprop(x0, y0, lr=0.3, gamma=0.9, eps=1e-8, n_steps=100):
+    """RMSprop optimizer - maintains learning rate"""
+    path = [(x0, y0)]
+    x, y = x0, y0
+    vx, vy = 0, 0
+    
+    for step in range(n_steps):
+        gx, gy = df(x, y)
+        
+        # Update moving average of squared gradients
+        vx = gamma * vx + (1 - gamma) * gx**2
+        vy = gamma * vy + (1 - gamma) * gy**2
+        
+        # RMSprop update - learning rate stays more stable
+        effective_lr_x = lr / (np.sqrt(vx) + eps)
+        effective_lr_y = lr / (np.sqrt(vy) + eps)
+        
+        x -= effective_lr_x * gx
+        y -= effective_lr_y * gy
+        path.append((x, y))
+        
+        # Same stopping criterion
+        if f(x, y) < 1.01 and step > 20:
+            break
+    
+    return np.array(path)
+
+def run_adam(x0, y0, lr=0.3, beta1=0.9, beta2=0.999, eps=1e-8, n_steps=100):
+    """Adam optimizer"""
+    path = [(x0, y0)]
+    x, y = x0, y0
+    mx, my = 0, 0
+    vx, vy = 0, 0
+    
+    for t in range(1, n_steps + 1):
+        gx, gy = df(x, y)
+        
+        # Update moments
+        mx = beta1 * mx + (1 - beta1) * gx
+        my = beta1 * my + (1 - beta1) * gy
+        vx = beta2 * vx + (1 - beta2) * gx**2
+        vy = beta2 * vy + (1 - beta2) * gy**2
+        
+        # Bias correction
+        mx_hat = mx / (1 - beta1**t)
+        my_hat = my / (1 - beta1**t)
+        vx_hat = vx / (1 - beta2**t)
+        vy_hat = vy / (1 - beta2**t)
+        
+        # Update parameters
+        x -= lr * mx_hat / (np.sqrt(vx_hat) + eps)
+        y -= lr * my_hat / (np.sqrt(vy_hat) + eps)
+        path.append((x, y))
+        
+        if f(x, y) < 1.01:
+            break
+    
+    return np.array(path)
+
+# Run all optimizers from the same starting point
+start_x, start_y = -10, 5
+path_batch = run_batch_gd(start_x, start_y)
+path_sgd = run_sgd(start_x, start_y)
+path_momentum = run_momentum(start_x, start_y)
+path_adagrad = run_adagrad(start_x, start_y)
+path_rmsprop = run_rmsprop(start_x, start_y)
+path_adam = run_adam(start_x, start_y)
+
+# Plot - using 2x3 grid to accommodate all 6 optimizers
+fig, axes = plt.subplots(3, 2, figsize=(10, 10))
+axes = axes.flatten()
+
+paths_and_titles = [
+    (path_batch, 'Batch Gradient Descent'),
+    (path_sgd, 'Stochastic Gradient Descent'),
+    (path_momentum, 'Momentum'),
+    (path_adagrad, 'AdaGrad'),
+    (path_rmsprop, 'RMSprop'),
+    (path_adam, 'Adam')
+]
+
+for i, (path, title) in enumerate(paths_and_titles):
+    ax = axes[i]
+    
+    # Create contour background
+    levels = np.logspace(0, 2, 15)  # Better level spacing
+    ax.contour(X, Y, Z, levels=levels, alpha=0.6, colors='gray', linewidths=0.5)
+    ax.contourf(X, Y, Z, levels=levels, alpha=0.3, cmap='viridis')
+    
+    # Plot optimization path
+    ax.plot(path[:, 0], path[:, 1], 'r-', linewidth=2, alpha=0.8)
+    ax.plot(path[0, 0], path[0, 1], 'go', markersize=10, label='Start', zorder=5)
+    ax.plot(path[-1, 0], path[-1, 1], 'ro', markersize=8, label='End', zorder=5)
+    ax.plot(0, 0, 'k*', markersize=15, label='Optimum', zorder=5)
+    
+    # Add arrows to show direction (fewer arrows for clarity)
+    if len(path) > 5:
+        arrow_indices = np.linspace(0, len(path)-2, min(6, len(path)-1), dtype=int)
+        for j in arrow_indices:
+            dx = path[j+1, 0] - path[j, 0]
+            dy = path[j+1, 1] - path[j, 1]
+            # Only draw arrow if movement is significant
+            if np.sqrt(dx**2 + dy**2) > 0.1:
+                ax.arrow(path[j, 0], path[j, 1], dx, dy, 
+                        head_width=0.3, head_length=0.2, fc='red', ec='red', alpha=0.7)
+    
+    ax.set_aspect('equal', adjustable='box')
+
+    ax.set_title(f'{title}\n({len(path)-1} steps)')
+    ax.set_xlabel('θ₁')
+    ax.set_ylabel('θ₂')
+    ax.legend(loc='upper right')
+    ax.grid(True, alpha=0.3)
+    ax.set_xlim(-12, 3)
+    ax.set_ylim(-2, 6)
+
+plt.tight_layout()
+plt.show()
+```
+
+:::{.callout-note}
+## Note on Algorithm Performance
+While Adam might not appear dramatically superior to other algorithms in this visualization, keep in mind that we're using a **very well-behaved quadratic function** for demonstration purposes. In practice, neural network loss landscapes are:
+
+- **Highly non-convex** with many local minima and saddle points
+- **High-dimensional** (often millions of parameters)
+- **Ill-conditioned** with vastly different scales across parameters
+- **Noisy** due to mini-batch sampling
+
+In such challenging real-world scenarios, Adam's adaptive learning rates and momentum typically provide significant advantages over simpler methods. This simple 2D example serves to illustrate the core behavioral differences between optimizers rather than their relative performance on complex problems.
+:::
+
+We can make the minimization problem more challenging by having multiple local minima and one global minimum. Of course, depending on the hyperparameters chosen, all algorithms may find the global minimum. The goal is to find an optimizer that is largely robust to different choices of hyperparameters.
+
+
+```{python}
+#| label: fig-optimizers-nonconvex
+#| fig-cap: "Comparison of optimization algorithms on a non-convex loss landscape with multiple local minima."
+#| code-fold: true
+import numpy as np
+import matplotlib.pyplot as plt
+
+# Set random seed for reproducibility
+np.random.seed(42)
+
+# Define a more challenging non-convex function with multiple local minima
+def f_nonconvex(x, y):
+    return 2/3 * ((x**2 + y - 11)**2 + (x + y**2 - 7)**2 + (x - 4)**2 * (y + 2)**2)
+
+def df_nonconvex(x, y):
+    # Partial derivative with respect to x
+    dx = (2/3) * (4*x*(x**2 + y - 11) + 2*(x + y**2 - 7) + 2*(x - 4)*(y + 2)**2)
+    
+    # Partial derivative with respect to y
+    dy = (2/3) * (2*(x**2 + y - 11) + 4*y*(x + y**2 - 7) + 2*(x - 4)**2*(y + 2))
+    
+    return dx, dy
+
+# Create contour plot for non-convex function
+x_nc = np.linspace(-6, 6, 600)
+y_nc = np.linspace(-6, 6, 600)
+X_nc, Y_nc = np.meshgrid(x_nc, y_nc)
+Z_nc = f_nonconvex(X_nc, Y_nc)
+
+def run_optimizer_nonconvex(optimizer_func, x0, y0, **kwargs):
+    """Generic wrapper for running optimizers on non-convex function"""
+    path = [(x0, y0)]
+    x, y = x0, y0
+    
+    if 'momentum' in optimizer_func.__name__:
+        vx, vy = 0, 0
+        lr = kwargs.get('lr', 0.3)
+        beta = kwargs.get('beta', 0.9)
+        n_steps = kwargs.get('n_steps', 200)
+        
+        for _ in range(n_steps):
+            gx, gy = df_nonconvex(x, y)
+            vx = beta * vx + gx
+            vy = beta * vy + gy
+            x -= lr * vx
+            y -= lr * vy
+            path.append((x, y))
+            if f_nonconvex(x, y) < 1 or np.isnan(x) or np.isnan(y):
+                break
+                
+    elif 'adagrad' in optimizer_func.__name__:
+        gx_sum_sq, gy_sum_sq = 0, 0
+        lr = kwargs.get('lr', 0.3)
+        eps = kwargs.get('eps', 1e-8)
+        n_steps = kwargs.get('n_steps', 200)
+        
+        for step in range(n_steps):
+            gx, gy = df_nonconvex(x, y)
+            gx_sum_sq += gx**2
+            gy_sum_sq += gy**2
+            
+            effective_lr_x = lr / (np.sqrt(gx_sum_sq) + eps)
+            effective_lr_y = lr / (np.sqrt(gy_sum_sq) + eps)
+            
+            x -= effective_lr_x * gx
+            y -= effective_lr_y * gy
+            path.append((x, y))
+            
+            if f_nonconvex(x, y) < 1 or np.isnan(x) or np.isnan(y):
+                break
+            if step > 10 and effective_lr_x < 1e-6 and effective_lr_y < 1e-6:
+                break
+                
+    elif 'rmsprop' in optimizer_func.__name__:
+        vx, vy = 0, 0
+        lr = kwargs.get('lr', 0.3)
+        gamma = kwargs.get('gamma', 0.9)
+        eps = kwargs.get('eps', 1e-8)
+        n_steps = kwargs.get('n_steps', 200)
+        
+        for _ in range(n_steps):
+            gx, gy = df_nonconvex(x, y)
+            vx = gamma * vx + (1 - gamma) * gx**2
+            vy = gamma * vy + (1 - gamma) * gy**2
+            
+            x -= lr * gx / (np.sqrt(vx) + eps)
+            y -= lr * gy / (np.sqrt(vy) + eps)
+            path.append((x, y))
+            
+            if f_nonconvex(x, y) < 1 or np.isnan(x) or np.isnan(y):
+                break
+                
+    elif 'adam' in optimizer_func.__name__:
+        mx, my = 0, 0
+        vx, vy = 0, 0
+        lr = kwargs.get('lr', 0.3)
+        beta1 = kwargs.get('beta1', 0.9)
+        beta2 = kwargs.get('beta2', 0.99)
+        eps = kwargs.get('eps', 1e-8)
+        n_steps = kwargs.get('n_steps', 200)
+        
+        for t in range(1, n_steps + 1):
+            gx, gy = df_nonconvex(x, y)
+            
+            mx = beta1 * mx + (1 - beta1) * gx
+            my = beta1 * my + (1 - beta1) * gy
+            vx = beta2 * vx + (1 - beta2) * gx**2
+            vy = beta2 * vy + (1 - beta2) * gy**2
+            
+            mx_hat = mx / (1 - beta1**t)
+            my_hat = my / (1 - beta1**t)
+            vx_hat = vx / (1 - beta2**t)
+            vy_hat = vy / (1 - beta2**t)
+            
+            x -= lr * mx_hat / (np.sqrt(vx_hat) + eps)
+            y -= lr * my_hat / (np.sqrt(vy_hat) + eps)
+            path.append((x, y))
+            
+            if f_nonconvex(x, y) < 1 or np.isnan(x) or np.isnan(y):
+                break
+                
+    elif 'sgd' in optimizer_func.__name__:
+        lr = kwargs.get('lr', 0.3)
+        n_steps = kwargs.get('n_steps', 200)
+        np.random.seed(456)  # Different seed for SGD noise
+        data_variance = 0.2
+        
+        for _ in range(n_steps):
+            gx_base, gy_base = df_nonconvex(x, y)
+            
+            gx_noise = np.random.normal(0, data_variance * abs(gx_base * 5.3))
+            gy_noise = np.random.normal(0, data_variance * abs(gy_base * 5.3))
+            
+            gx = gx_base + gx_noise
+            gy = gy_base + gy_noise
+            
+            x -= lr * gx
+            y -= lr * gy
+            path.append((x, y))
+            
+            if f_nonconvex(x, y) < 1 or np.isnan(x) or np.isnan(y):
+                break
+                
+    else:  # Batch GD
+        lr = kwargs.get('lr', 0.3)
+        n_steps = kwargs.get('n_steps', 200)
+        
+        for _ in range(n_steps):
+            gx, gy = df_nonconvex(x, y)
+            x -= lr * gx
+            y -= lr * gy
+            path.append((x, y))
+            
+            if f_nonconvex(x, y) < 1 or np.isnan(x) or np.isnan(y):
+                break
+    
+    return np.array(path)
+
+# Define dummy functions for the wrapper
+def run_batch_gd_nc(): pass
+def run_sgd_nc(): pass
+def run_momentum_nc(): pass
+def run_adagrad_nc(): pass
+def run_rmsprop_nc(): pass
+def run_adam_nc(): pass
+
+# Run all optimizers from the same challenging starting point
+start_x_nc, start_y_nc = -4, 3  # Start far from any minimum
+
+path_batch_nc = run_optimizer_nonconvex(run_batch_gd_nc, start_x_nc, start_y_nc, lr=0.01)
+path_sgd_nc = run_optimizer_nonconvex(run_sgd_nc, start_x_nc, start_y_nc, lr=0.01)
+path_momentum_nc = run_optimizer_nonconvex(run_momentum_nc, start_x_nc, start_y_nc, lr=0.001, beta=0.9)
+path_adagrad_nc = run_optimizer_nonconvex(run_adagrad_nc, start_x_nc, start_y_nc, lr=0.3)
+path_rmsprop_nc = run_optimizer_nonconvex(run_rmsprop_nc, start_x_nc, start_y_nc, lr=0.3)
+path_adam_nc = run_optimizer_nonconvex(run_adam_nc, start_x_nc, start_y_nc, lr=0.3)
+
+# Plot - using 2x3 grid for all 6 optimizers
+fig, axes = plt.subplots(3, 2, figsize=(10, 10))
+axes = axes.flatten()
+
+paths_and_titles_nc = [
+    (path_batch_nc, 'Batch Gradient Descent'),
+    (path_sgd_nc, 'Stochastic Gradient Descent'),
+    (path_momentum_nc, 'Momentum'),
+    (path_adagrad_nc, 'AdaGrad'),
+    (path_rmsprop_nc, 'RMSprop'),
+    (path_adam_nc, 'Adam')
+]
+
+# Known global minima of Himmelblau's function
+global_minima = [(3.584428, -1.848126)]
+
+for i, (path, title) in enumerate(paths_and_titles_nc):
+    ax = axes[i]
+    
+    # Create contour background - use log scale for better visualization
+    levels = np.logspace(0, 3.4, 20)
+    ax.contour(X_nc, Y_nc, Z_nc, levels=levels, alpha=0.6, colors='gray', linewidths=0.5)
+    ax.contourf(X_nc, Y_nc, Z_nc, levels=levels, alpha=0.3, cmap='viridis')
+    
+    # Plot global minima
+    for gm in global_minima:
+        ax.plot(gm[0], gm[1], 'k*', markersize=12, alpha=0.8)
+    
+    # Plot optimization path
+    if len(path) > 1:
+        ax.plot(path[:, 0], path[:, 1], 'r-', linewidth=2, alpha=0.8)
+        ax.plot(path[0, 0], path[0, 1], 'go', markersize=10, label='Start', zorder=5)
+        ax.plot(path[-1, 0], path[-1, 1], 'ro', markersize=8, label='End', zorder=5)
+        ax.plot(0, 0, 'k*', markersize=15, label='Optimum', zorder=5)
+        
+        # Add arrows for direction (fewer for clarity)
+        if len(path) > 5:
+            arrow_indices = np.linspace(0, len(path)-2, min(5, len(path)-1), dtype=int)
+            for j in arrow_indices:
+                dx = path[j+1, 0] - path[j, 0]
+                dy = path[j+1, 1] - path[j, 1]
+                if np.sqrt(dx**2 + dy**2) > 0.05:
+                    ax.arrow(path[j, 0], path[j, 1], dx, dy, 
+                            head_width=0.1, head_length=0.08, fc='red', ec='red', alpha=0.7)
+    
+    ax.set_aspect('equal', adjustable='box')
+
+    ax.set_title(f'{title}\n({len(path)-1} steps)')
+    ax.set_xlabel('θ₁')
+    ax.set_ylabel('θ₂')
+    ax.legend(loc='upper right')
+    ax.grid(True, alpha=0.3)
+    ax.set_xlim(-6.1, 6.1)
+    ax.set_ylim(-6.1, 6.1)
+
+plt.tight_layout()
+plt.show()
+```
+
+
+## Key Takeaways
+
+:::{.callout-tip}
+## Essential Concepts for Machine Learning Practitioners
+
+**1. Gradient Descent is the Foundation**
+
+- All modern optimizers are variations of the basic gradient descent idea: move in the direction of steepest descent
+- The core challenge is estimating gradients efficiently and choosing appropriate step sizes
+
+**2. Mini-Batch is the Standard**
+
+- Pure batch gradient descent is too expensive for large datasets
+- Pure SGD is too noisy and unstable
+- Mini-batch gradient descent (typically 32-128 samples) provides the best balance
+
+**3. Adaptive Learning Rates are Crucial**
+
+- Fixed learning rates are hard to tune and often suboptimal
+- AdaGrad, RMSprop, and Adam automatically adjust learning rates per parameter
+- This is especially important for high-dimensional problems with different parameter scales
+
+**4. Adam is Usually a Good Default**
+
+- Combines momentum (first moment) with adaptive learning rates (second moment)
+- Robust across many different types of problems
+- Default hyperparameters work well in practice
+
+**5. Algorithm Choice Matters More for Complex Landscapes**
+
+- On simple, convex problems, most optimizers perform similarly
+- On complex neural network loss surfaces, adaptive methods show clear advantages
+- SGD's noise can sometimes help escape local minima, but adaptive methods are generally more reliable
+:::
+
+:::{.callout-warning}
+## Common Pitfalls to Avoid
+
+**Learning Rate Issues**
+
+- Too high: Training becomes unstable, loss explodes
+- Too low: Training is painfully slow, may get stuck in poor local minima
+- Solution: Use adaptive optimizers like Adam, or learning rate schedules
+
+**Overfitting to Simple Examples**
+
+- Don't judge optimizers solely on toy 2D functions
+- Real neural networks have millions of parameters and complex loss landscapes
+- What works on simple problems may not scale to deep learning
+:::
+
+
+## Exercises
+
+:::{.callout-note}
+## Exercise 4.1: Conceptual - Adam vs. SGD
+It is sometimes observed that while Adam converges faster during training, models trained with SGD (with momentum and mini batches) can achieve slightly better performance on the test set. Provide a brief explanation for why this might happen, focusing on the nature of the minima found by each optimizer.
+
+*At exam level but an exam question would be a little more specific to allow for clear grading criteria.*
+:::
+
+:::{.callout-tip collapse="true"}
+## Solution
+
+This phenomenon is often attributed to the "generalization gap" between adaptive optimizers and SGD.
+
+1.  **Sharp vs. Flat Minima**: The loss landscape of neural networks is complex. Some minima are very "sharp" (like a narrow ravine), while others are "flat" (like a wide valley).
+    
+    -   **Adam**: Its adaptive, per-parameter learning rates allow it to quickly find and converge to a minimum. However, this speed can sometimes lead it to settle in the nearest sharp minimum it finds.
+    -   **SGD with Momentum**: The inherent noise in SGD (from mini-batches) and the consistent step size can prevent it from immediately getting "stuck" in a sharp minimum. It might "bounce around" the walls of a sharp ravine and eventually settle in a wider, flatter minimum.
+
+2.  **Generalization**: Flat minima are generally thought to generalize better. A model that settles in a flat minimum is less sensitive to small shifts between the training and test data distributions. A model in a sharp minimum might perform very well on the training data, but a slight change in the input (as found in the test set) can lead to a large increase in the loss.
+
+Therefore, while Adam is an excellent tool for rapid prototyping and achieving good performance quickly, the slower, more explorative nature of SGD can sometimes lead it to find a more robust solution that generalizes better to unseen data.
+:::
+
+:::{.callout-note}
+## Exercise 4.2 : Mathematical - Gradient Derivation
+Consider a simple linear regression model $f(x; w, b) = wx + b$ and the Mean Squared Error loss $L = \frac{1}{2N} \sum_{i=1}^N (y_i - (wx_i + b))^2$. Derive the update rules for Batch Gradient Descent for the parameters $w$ and $b$.
+
+*I won't ask a specific question about optimization algorithm calculation in the exam, only intuition questions like the one above or below.*
+:::
+
+:::{.callout-tip collapse="true"}
+## Solution
+
+The goal is to compute the gradients $\frac{\partial L}{\partial w}$ and $\frac{\partial L}{\partial b}$ and then plug them into the gradient descent update rule.
+
+**1. Gradient with respect to weight $w$:**
+
+We use the chain rule. Let $\hat{y}_i = wx_i + b$.
+$$
+\begin{align}
+\frac{\partial L}{\partial w} &= \frac{\partial}{\partial w} \left[ \frac{1}{2N} \sum_{i=1}^N (y_i - (wx_i + b))^2 \right] \\
+&= \frac{1}{2N} \sum_{i=1}^N 2(y_i - (wx_i + b)) \cdot \frac{\partial}{\partial w}(y_i - wx_i - b) \\
+&= \frac{1}{N} \sum_{i=1}^N (y_i - \hat{y}_i) \cdot (-x_i) \\
+&= -\frac{1}{N} \sum_{i=1}^N (y_i - \hat{y}_i)x_i
+\end{align}
+$$
+
+**2. Gradient with respect to bias $b$:**
+$$
+\begin{align}
+\frac{\partial L}{\partial b} &= \frac{\partial}{\partial b} \left[ \frac{1}{2N} \sum_{i=1}^N (y_i - (wx_i + b))^2 \right] \\
+&= \frac{1}{2N} \sum_{i=1}^N 2(y_i - (wx_i + b)) \cdot \frac{\partial}{\partial b}(y_i - wx_i - b) \\
+&= \frac{1}{N} \sum_{i=1}^N (y_i - \hat{y}_i) \cdot (-1) \\
+&= -\frac{1}{N} \sum_{i=1}^N (y_i - \hat{y}_i)
+\end{align}
+$$
+
+**3. Update Rules:**
+
+The Batch Gradient Descent update rules are:
+$$ w^{(t+1)} = w^{(t)} - \eta \frac{\partial L}{\partial w} = w^{(t)} + \frac{\eta}{N} \sum_{i=1}^N (y_i - \hat{y}_i)x_i $$
+$$ b^{(t+1)} = b^{(t)} - \eta \frac{\partial L}{\partial b} = b^{(t)} + \frac{\eta}{N} \sum_{i=1}^N (y_i - \hat{y}_i) $$
+These are the iterative steps that, when repeated, will find the same optimal parameters as the ordinary least squares (OLS) solution.
+:::
+
+:::{.callout-note}
+## Exercise 4.3: Practical - Diagnosing Training
+ You are training a neural network. After many epochs, you plot the training loss and validation loss [(see our chapter on cross validation)](cross_validation.qmd). You observe that the training loss is still decreasing, but very, very slowly. The validation loss is also decreasing very slowly and is very close to the training loss. What is the most likely problem, and what are the first two things you should try to fix it?
+
+ *Exam level*
+:::
+
+:::{.callout-tip collapse="true"}
+## Solution
+
+**1. Diagnosis:**
+
+The most likely problem is **underfitting** or **slow convergence**. The key symptoms are:
+
+-   **Slowly decreasing loss**: The optimizer is making very slow progress.
+-   **Small gap between training and validation loss**: This indicates the model is not overfitting. It performs similarly on data it has seen and data it hasn't, which means it hasn't yet learned the training data well enough.
+
+**2. Solutions to Try:**
+
+The goal is to speed up the learning process.
+
+-   **First Action: Increase the Learning Rate ($\eta$)**. A learning rate that is too small is the most common cause of extremely slow convergence. By increasing $\eta$ (e.g., by a factor of 5 or 10), the optimizer will take larger steps down the gradient, and the loss should decrease much faster. You must be careful not to increase it too much, which would cause the loss to become unstable and diverge.
+
+-   **Second Action: Use a More Advanced Optimizer**. If you are using basic SGD, switching to an optimizer with momentum and adaptive learning rates, like **Adam**, is a great next step. Adam is often much faster at converging than SGD, especially in the early stages of training, because it adapts the learning rate for each parameter separately.
+
+:::

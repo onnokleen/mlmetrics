@@ -1,0 +1,866 @@
+---
+number-sections: true
+number-offset: [0, 0]  # This makes sections 2.1, 2.2, etc.
+---
+
+# Information Theory
+
+## Overview
+
+Information theory provides essential tools to quantify **uncertainty**, **information**, and **discrepancy between distributions**. The core objects we'll explore are entropy, cross-entropy, mutual information, and Kullback-Leibler (KL) divergence.
+
+**Why is this relevant for ML and econometrics?** These concepts are fundamental for:
+
+- Model comparison and selection
+- Regularization techniques 
+- Variational inference
+- Information criteria (AIC, BIC)
+- Probabilistic forecasting and scoring
+
+:::{.callout-note}
+**Reference**: @Murphy2022PML1 PML1: Chapter 6.1-6.1.4, 6.2-6.3.5
+:::
+
+## Roadmap
+
+This chapter covers the following key topics:
+
+1. **Entropy** – quantifying uncertainty
+2. **Cross-Entropy** – comparing distributions
+3. **KL Divergence** – measuring relative entropy
+4. **Mutual Information** – quantifying dependence
+5. **Maximal Information Coefficient (MIC)** – detecting nonlinear relationships
+
+## Measuring Distributional Differences
+
+**Central Question**: How can we measure how much **two distributions $p$ and $q$ differ**?
+
+We need a divergence measure $D$ such that:
+
+- $D(p,q) \geq 0$ with equality if and only if $p=q$
+- $D$ should be invariant to reparameterization; e.g., $\tilde{p}(x) = p\left(\frac{x-\mu}{\sigma}\right)$ should not change the divergence
+
+:::{.callout-tip}
+## Question for reflection 
+Would the ratio of variances be a good measure to compare two distributions?
+:::
+
+:::{.callout-note collapse="true"}
+## Solution 
+No, the ratio of variances would **not** be a good general measure for comparing distributions. Here's why:
+
+**Problems with variance ratios**:
+
+1. **Ignores shape**: Two distributions can have identical variances but completely different shapes (e.g., uniform vs. bimodal)
+2. **Ignores location**: Distributions with same variance but different means would appear "identical"
+4. **Limited information**: Variance only captures second moments, missing higher-order features
+
+**Example**: Consider:
+
+- $p$: Uniform distribution on $[-\sqrt{3}, \sqrt{3}]$ (variance = 1)
+- $q$: Normal distribution $N(0,1)$ (variance = 1)
+
+The variance ratio is 1, suggesting they're "the same," but they have completely different "probability structures"!
+:::
+
+Note that unlike a metric, we don't require symmetry or the triangle inequality.
+
+## Entropy (Discrete Case)
+
+The idea is to quantify the **uncertainty** or **information content** of a random variable $X$. Think of entropy $\mathbb{H}$ as a **generalized variance** that takes into account the entire shape of the distribution of $X$, including the tails.
+
+For a discrete $X$ with probability mass function $p(x)$ on $\mathcal{X}$:
+
+$$\mathbb{H}(X) := -\sum_{x\in\mathcal{X}} p(x)\log p(x)$$
+
+We may equivalently write $\mathbb{H}(p)$.
+
+:::{.callout-note}
+In classical information theory, it's convenient to use $\log_2$ instead of $\log_e$ for the interpretation as "bits." We'll stick to $\log_e$.
+:::
+
+### Binary Case
+
+Let's start with the binary case, where $X$ can take two values (0 and 1) with probabilities $p(0)=1-\theta$ and $p(1)=\theta$.
+
+:::{.callout-example}
+**Bernoulli Entropy**
+
+For a Bernoulli trial with $\mathbb{P}(X=1)=\theta$, the entropy is:
+$$\mathbb{H}(\theta) = -\theta \log\theta - (1-\theta)\log(1-\theta)$$
+:::
+
+:::{.callout-definition}
+**Definition (Bernoulli Entropy):**
+For a Bernoulli random variable $X$ with $\mathbb{P}(X=1)=\theta$, the entropy is:
+$$\mathbb{H}(\theta) = -\theta \log\theta - (1-\theta)\log(1-\theta)$$
+:::
+
+```{python}
+#| label: fig-bernoulli-entropy
+#| fig-cap: "Entropy of Bernoulli Distribution"
+#| echo: false
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+theta = np.linspace(0.01, 0.99, 100)
+entropy = -(theta * np.log(theta) + (1 - theta) * np.log(1 - theta))
+
+plt.figure(figsize=(8, 5))
+plt.plot(theta, entropy, 'b-', linewidth=2)
+plt.axvline(x=0.5, color='red', linestyle='--', alpha=0.7)
+plt.axhline(y=np.log(2), color='red', linestyle='--', alpha=0.7)
+plt.scatter([0.5], [np.log(2)], color='red', s=50, zorder=5)
+plt.text(0.52, np.log(2), 'Maximum', fontsize=10, color='red')
+plt.xlabel(r'$\theta$')
+plt.ylabel(r'$\mathbb{H}(\theta)$')
+plt.title('Entropy of Bernoulli Distribution')
+plt.grid(True, alpha=0.3)
+plt.tight_layout()
+plt.show()
+```
+
+**Key Insight**: Maximum uncertainty occurs when the outcome is most unpredictable ($\theta = 0.5$).
+
+### Formal Derivation of Maximum
+
+We can show that entropy $\mathbb{H}(\theta)$ is maximized at $\theta=0.5$:
+
+The derivative with respect to $\theta$ is:
+$$\frac{d\mathbb{H}}{d\theta} = \log(1-\theta) - \log\theta$$
+
+Setting to zero gives $\theta = 0.5$. The second derivative is:
+$$\frac{d^2\mathbb{H}}{d\theta^2} = -\frac{1}{1-\theta} - \frac{1}{\theta} < 0$$
+
+which confirms a maximum.
+
+## Differential Entropy (Continuous Case)
+
+For a continuous $X$ with density $p(x)$, we define:
+$$h(X) := -\int p(x)\log p(x)\,dx$$
+
+:::{.callout-example}
+**Gaussian Entropy**
+
+For a Gaussian $X \sim N(\mu,\sigma^2)$, the entropy is:
+$$h(X) = \frac{1}{2}\log(2\pi e\sigma^2)$$
+
+The entropy increases with variance $\sigma^2$, which aligns with our intuition. For a proof, see the exercises at the end of this section.
+:::
+
+### Maximum Entropy Property of Gaussians
+
+**Key Result**: Among all distributions with given covariance on $\mathbb{R}$, the Gaussian has the largest entropy.
+
+**Interpretation**: There is no uniform distribution on $\mathbb{R}$, but the Gaussian is the "most uniform" distribution under the variance constraint.
+
+**Why?** 
+
+- Entropy measures uncertainty - a distribution with higher entropy is "more evenly spread out" or "less predictable"
+- Covariance fixes the spread (second moments)
+- Under fixed covariance, the only freedom is how probability mass is shaped
+- For given variance, a Gaussian is the **smoothest possible way to distribute probability mass across $\mathbb{R}$**
+- Any other shape (more peaked or heavy-tailed) concentrates mass somewhere, reducing entropy
+
+**Takeaway**: Entropy captures more than just variance.
+
+## Limitations of Raw Entropy
+
+$$h(X) := -\int p(x)\log p(x)\,dx$$
+
+**Downsides** of differential entropy:
+- Relative comparisons are more meaningful than raw $h(X)$ values
+- Generally not invariant to reparameterization
+- Can be negative (unlike discrete entropy)
+
+This motivates us to consider relative measures...
+
+## Cross-Entropy
+
+If we want to compare distribution $q$ relative to a reference distribution $p$, we use **cross-entropy**:
+
+**Discrete case**:
+$$\mathbb{H}_{ce}(p,q) := -\sum_{x \in \mathcal{X}} p(x) \log q(x)$$
+
+**Continuous case**:
+$$h_{ce}(p,q) := -\int p(x)\log q(x)\,dx$$
+
+**Interpretation as Expected Negative Log-Likelihood**
+
+We can rewrite cross-entropy as:
+$$h_{ce}(p,q) = -\mathbb{E}_{X \sim p}[\log q(X)] = \mathbb{E}_{X \sim p}[\text{NLL}(q,X)]$$
+
+This gives cross-entropy a clear interpretation as the **expected negative log-likelihood** of $q$ when $p$ is the true distribution.
+
+However, cross-entropy still has limitations: it can be negative and is not invariant to reparameterization.
+
+## Relative Entropy (KL Divergence)
+
+We combine entropy and cross-entropy to define a divergence measure that is non-negative, zero if and only if distributions are equal, and invariant to reparameterization.
+
+For distributions $p$ and $q$ on the same space $\mathcal{X}$:
+
+**Discrete case**:
+$$D_{\text{KL}}(p\parallel q) := \sum_{x \in \mathcal{X}} p(x)\log\frac{p(x)}{q(x)}$$
+
+**Continuous case**:
+$$D_{\text{KL}}(p\parallel q) := \int_{\mathcal{X}} p(x)\log\frac{p(x)}{q(x)}\,dx$$
+
+Also called **Kullback-Leibler (KL) divergence**. Note: it's not a metric since it's asymmetric and violates the triangle inequality.
+
+***Relationship to Entropy and Cross-Entropy***
+
+The KL divergence decomposes as:
+$$D_{\text{KL}}(p\parallel q) = -\underbrace{h(p)}_{\text{entropy}} + \underbrace{h_{ce}(p,q)}_{\text{cross-entropy}}$$
+
+Where:
+- $-h(p)$ measures the irreducible uncertainty of $p$
+- $h_{ce}(p,q)$ measures the expected log-loss of $q$ when $p$ is the true distribution
+
+:::{.callout-note}
+## Properties of KL Divergence
+
+1. **Non-negativity**: $D_{\text{KL}}(p\parallel q) \geq 0$, with equality if and only if $p(x) = q(x)$ for all $x$ (for a proof, see exercises below)
+2. **Asymmetry**: $D_{\text{KL}}(p\parallel q) \neq D_{\text{KL}}(q\parallel p)$ in general  
+3. **Reparameterization invariance**: If $p$ and $q$ are reparameterized, the KL divergence remains unchanged (for a proof, see exercises below)
+:::
+
+***Example: KL Divergence Between Gaussians***
+
+For $p = N(\mu_0,\sigma_0^2)$ and $q = N(\mu_1,\sigma_1^2)$:
+
+$$D_{\text{KL}}(p \parallel q) = \frac{1}{2}\left(\frac{(\mu_1-\mu_0)^2}{\sigma_1^2} + \frac{\sigma_0^2}{\sigma_1^2} - 1 + \log\frac{\sigma_1^2}{\sigma_0^2}\right)$$
+
+The divergence is symmetric only if $\sigma_0^2=\sigma_1^2$ and $\mu_0=\mu_1$. Direction matters in optimization and approximation tasks.
+
+***Visualizing KL Divergence Between Gaussians***
+
+To build intuition for KL divergence, let's see how it changes as two Gaussian distributions differ in mean and variance. <span style="color:blue">We'll examine $D_{KL}(p \parallel q)$ where $p = \mathcal{N}(\mu_0, \sigma_0^2)$ is our **reference distribution** and $q = \mathcal{N}(\mu_1, \sigma_1^2)$ is the **comparison distribution**.<span>
+
+```{python}
+#| label: fig-kl-gaussian-visual
+#| fig-cap: "KL divergence between two Gaussians as mean and variance change. $\\mu_0$ and $\\sigma_0$ are depicted as vertical lines"
+#| echo: false
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.stats import norm
+
+def kl_gaussian(mu0, sigma0, mu1, sigma1):
+    return 0.5 * ((mu1 - mu0)**2 / sigma1**2 + sigma0**2 / sigma1**2 - 1 + np.log(sigma1**2 / sigma0**2))
+
+mu0 = 0
+sigma0 = 1
+mu1s = np.linspace(-2, 2, 100)
+sigma1s = np.linspace(0.5, 2.0, 100)
+KL_mean = [kl_gaussian(mu0, sigma0, mu1, sigma0) for mu1 in mu1s]
+KL_var = [kl_gaussian(mu0, sigma0, mu0, sigma1) for sigma1 in sigma1s]
+
+fig, ax = plt.subplots(1, 2, figsize=(10, 4))
+ax[0].plot(mu1s, KL_mean, 'b')
+ax[0].set_title('KL vs. Mean Difference')
+ax[0].set_xlabel(r'$\mu_1$')
+ax[0].set_ylabel(r'KL($p\parallel q$)')
+ax[0].grid(alpha=0.3)
+ax[0].axvline(mu0, color='gray', linestyle='--', alpha=0.5)
+
+ax[1].plot(sigma1s, KL_var, 'g')
+ax[1].set_title('KL vs. Variance Difference')
+ax[1].set_xlabel(r'$\sigma_1$')
+ax[1].set_ylabel(r'KL($p\parallel q$)')
+ax[1].grid(alpha=0.3)
+ax[1].axvline(sigma0, color='gray', linestyle='--', alpha=0.5)
+
+plt.tight_layout()
+plt.show()
+```
+
+***How to Interpret This Figure***
+
+<span style="color:blue"> 
+**Setup**: We have a **reference distribution** $p = \mathcal{N}(0,1)$ (shown in blue) and we're measuring how much a **comparison distribution** $q$ differs from it using KL divergence $D_{KL}(p \parallel q)$.
+<span>
+
+<span style="color:blue"> 
+**Left Panel - Changing $\mu_1$**:
+<span>
+
+
+- <span style="color:blue"> 
+ **What it shows**: How KL divergence changes when we shift the mean of $q$ while keeping $\mu_0$ and both variances fixed equal to one <span>
+- <span style="color:blue"> 
+ **Key insight**: KL divergence grows **quadratically** as means become more different <span>
+- <span style="color:blue"> 
+ **Why**: When means differ, the distributions have less overlap, making $q$ a poor approximation of $p$ <span>
+- <span style="color:blue"> 
+ **Minimum**: KL = 0 exactly when $\mu_1 = \mu_0 = 0$ (distributions are identical) <span>
+
+<span style="color:blue"> 
+**Right Panel - Changing $\sigma_1$**:
+<span>
+
+- <span style="color:blue"> **What it shows**: How KL divergence changes when we change the variance of $q$ while keeping both means equal to zero and $\sigma_0 = 1$ fixed
+- <span style="color:blue"> **Key insight**: KL divergence is **asymmetric** around the reference variance
+- <span style="color:blue"> **Why asymmetric**: 
+  - When $\sigma_1 < \sigma_0$ (narrower $q$): $q$ misses probability mass in the tails of $p$<span>
+  - When $\sigma_1 > \sigma_0$ (wider $q$): $q$ spreads mass where $p$ has little probability<span>
+  - These create different "costs" in the KL divergence<span>
+- <span style="color:blue"> **Minimum**: KL = 0 exactly when $\sigma_1 = \sigma_0 = 1$<span>
+
+
+**Take-away:**
+
+- KL divergence grows as the means or variances of $p$ and $q$ become more different from each other.
+- KL is not symmetric: swapping $p$ and $q$ gives a different value due to asymmetry. <span style="color:blue">In the example above, we have asymmetry w.r.t. variances.<span>
+
+## MLE as KL-Divergence Minimization {#sec-mle-kl-divergence}
+
+Maximum likelihood estimation (MLE) seeks to **find parameters $\theta$ that make observed data most probable**. This is equivalent to minimizing the KL divergence between the empirical data distribution $\hat{p}_{\text{data}}$ and the model distribution $p_\theta$:
+
+$$D_{\text{KL}}(\hat{p}_{\text{data}} \parallel p_\theta) = \mathbb{E}_{X \sim \hat{p}_{\text{data}}}[\log \hat{p}_{\text{data}}(X) - \log p_\theta(X)]$$
+
+$$= \underbrace{\mathbb{E}_{X \sim \hat{p}_{\text{data}}}[\log \hat{p}_{\text{data}}(X)]}_{\text{constant w.r.t. } \theta} - \underbrace{\mathbb{E}_{X \sim \hat{p}_{\text{data}}}[\log p_\theta(X)]}_{\text{log-likelihood}}$$
+
+Since the first term is constant with respect to $\theta$, minimizing the KL divergence is equivalent to maximizing the log-likelihood; see also [our discussion in Section 3](evaluating_distributions.qmd#deep-dive-connection-to-information-theory).
+
+**This provides an information-theoretic justification for the MLE principle.**
+
+## MLE and Overfitting
+
+While powerful, **MLE can be prone to overfitting**, especially with flexible models and limited data. This is particularly evident with **non-parametric methods** like Kernel Density Estimation (KDE). <span style="color:blue">Another very flexible model could be a deep and wide neural network. At this point, I'll make the argument using KDE given that some of you might have encountered it in your bachelor studies.<span>
+
+<span style="color:blue">**Kernel Density Estimation (KDE)** is a non-parametric method that estimates probability densities by placing a kernel (typically a Gaussian) at each data point:<span>
+
+$$\hat{p}(x) = \frac{1}{n} \sum_{i=1}^n K_h(x - x_i)$$
+
+<span style="color:blue">where $K_h(z) = \frac{1}{h}K(\frac{z}{h})$ is a kernel with bandwidth $h$.<span>
+
+<span style="color:blue">**Key characteristics of KDE:**<span>
+
+- <span style="color:blue">**Very flexible**: Can approximate any smooth density given enough data<span>
+- <span style="color:blue">**Maximum likelihood method**: Optimizes likelihood of observed data<span>
+- <span style="color:blue">**Bandwidth-dependent**: Small $h$ → overfitting, large $h$ → underfitting<span>
+- <span style="color:blue">**No parametric assumptions**: Makes no assumptions about functional form<span>
+
+<span style="color:blue">**The core issue**: When model complexity is high (i.e., high number of parameters) relative to sample size, MLE can:<span>
+
+- <span style="color:blue">The model learns training data's idiosyncrasies (noise) instead of underlying signal<span>
+- <span style="color:blue">Achieve very low training error (small $D_{KL}(\hat{p}_{\text{data}} \parallel p_\theta)$)<span>
+- <span style="color:blue">Generalize poorly to new data because $\hat{p}_{\text{data}} \neq p_{\text{true}}$<span>
+
+```{python}
+#| label: fig-overfitting-example
+#| fig-cap: "Overfitting Example: KDE fits training samples but may not generalize"
+#| echo: false
+
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.stats import norm
+from sklearn.neighbors import KernelDensity
+
+# Set random seed for reproducibility
+np.random.seed(42)
+
+# Generate true distribution (standard normal) and samples
+x_true = np.linspace(-4, 4, 400)
+true_density = norm.pdf(x_true, 0, 1)
+
+# Generate small sample
+n_samples = 10
+samples = np.random.normal(0, 1, n_samples)
+
+# Fit KDE with small bandwidth (overfitting)
+kde_overfit = KernelDensity(bandwidth=0.1, kernel='gaussian')
+kde_overfit.fit(samples.reshape(-1, 1))
+kde_overfit_density = np.exp(kde_overfit.score_samples(x_true.reshape(-1, 1)))
+
+# Fit KDE with appropriate bandwidth
+kde_good = KernelDensity(bandwidth=0.5, kernel='gaussian')
+kde_good.fit(samples.reshape(-1, 1))
+kde_good_density = np.exp(kde_good.score_samples(x_true.reshape(-1, 1)))
+
+plt.figure(figsize=(10, 6))
+plt.plot(x_true, true_density, 'orange', linewidth=2, label='True N(0,1)', alpha=0.8)
+plt.plot(x_true, kde_overfit_density, 'red', linewidth=2, label='Overfit KDE (bw=0.1)')
+plt.plot(x_true, kde_good_density, 'blue', linewidth=2, label='Appropriate KDE (bw=0.5)', linestyle='--')
+plt.scatter(samples, np.zeros_like(samples), color='black', s=50, alpha=0.7, zorder=5, label='Training samples')
+
+plt.xlabel('x')
+plt.ylabel('Density')
+plt.title('Overfitting Example: KDE on Small Sample')
+plt.legend()
+plt.grid(True, alpha=0.3)
+plt.ylim(0, 0.6)
+plt.tight_layout()
+plt.show()
+```
+
+<span style="color:blue">The figure shows how different bandwidth choices affect KDE performance: the red curve (bandwidth=0.1) creates artificial peaks around each training sample point, demonstrating severe overfitting, while the blue dashed curve (bandwidth=0.5) provides a smoother approximation closer to the true normal distribution. The overfitted model achieves higher likelihood on the training data but would generalize poorly to new samples.<span>
+
+<!-- 
+## Data Augmentation as Regularization
+
+**What is a regularizer?** A technique to prevent overfitting, often through penalties (like in LASSO and Ridge regression).
+
+**Data augmentation** combats overfitting by **artificially expanding** the training dataset:
+
+- New, plausible training samples created from existing ones through transformations
+- **Image data examples**: rotating, cropping, flipping, adding noise
+- **Time series examples**: time-warping, adding noise, SMOTE for tabular data
+- Shows the model more variations, encouraging robust and invariant feature learning
+
+:::{.callout-warning}
+The true data-generating distribution is still unknown, so we can make things worse if augmentations are inappropriate!
+:::
+
+### Data Augmentation from a KL Perspective
+
+How does data augmentation help MLE?
+
+- The empirical distribution $\hat{p}_{\text{data}}$ from a small sample is a noisy approximation of true $p_{\text{data}}$
+- Minimizing $D_{\text{KL}}(\hat{p}_{\text{data}} \parallel p_\theta)$ can lead the model astray
+- Data augmentation creates an augmented empirical distribution $\hat{p}_{\text{aug}}$
+- Transformations are designed **based on prior knowledge** about data's invariances
+- The hope: $\hat{p}_{\text{aug}}$ is a **better approximation** of true $p_{\text{data}}$ than original $\hat{p}_{\text{data}}$ -->
+
+## Joint and Conditional Entropy
+
+For understanding relationships between random variables, we extend to joint and conditional entropy.
+
+Let $X$ and $Y$ be random variables with joint distribution $p(x,y)$.
+
+**Joint entropy** (uncertainty of $X$ and $Y$ together):
+$$\mathbb{H}(X,Y) := -\sum_{x,y} p(x,y)\log p(x,y)$$
+
+**Conditional entropy** (uncertainty of $Y$ given $X$):
+$$\mathbb{H}(Y|X) := -\sum_{x,y} p(x,y)\log p(y|x)$$
+
+:::{.callout-note}
+## Key Properties of Joint and Conditional Entropy
+
+- **Independence**: If $X$ and $Y$ are independent, then $\mathbb{H}(X,Y) = \mathbb{H}(X) + \mathbb{H}(Y)$ (for proof see exercises below)
+- **Chain rule**: $\mathbb{H}(X,Y) = \mathbb{H}(X) + \mathbb{H}(Y|X) = \mathbb{H}(Y) + \mathbb{H}(X|Y)$  
+- **Conditioning reduces entropy**: $\mathbb{H}(Y|X) \leq \mathbb{H}(Y)$ (equality if $X$ and $Y$ independent)
+
+**Intuition**: Learning about one variable can only reduce (never increase) our uncertainty about another variable.
+:::
+
+## Mutual Information
+
+**Mutual information (MI)** quantifies dependence between variables:
+
+$$\mathbb{I}(X;Y) := \sum_{x,y} p(x,y) \log\frac{p(x,y)}{p(x)p(y)} = \mathbb{H}(X) + \mathbb{H}(Y) - \mathbb{H}(X,Y)$$
+
+:::{.callout-note}
+## Key Properties of Mututal Information
+
+- $\mathbb{I}(X;Y) = 0$ if and only if $X$ and $Y$ are independent
+- Alternative form: $\mathbb{I}(X;Y) = \mathbb{E}_{X,Y}[\log p(Y|X) - \log p(Y)]$
+- Useful for feature selection, representation learning, and dependence measurement
+:::
+
+```{python}
+#| label: fig-mi-example  
+#| fig-cap: "Different relationship types and their Mutual Information vs correlation values"
+#| echo: false
+
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.stats import pearsonr
+from sklearn.feature_selection import mutual_info_regression
+
+# Set random seed
+np.random.seed(42)
+n = 100
+
+# --- Helper function for plotting ---
+def plot_relationship(ax, x, y, title):
+    # Reshape x for scikit-learn's mutual_info_regression
+    x_reshaped = x.reshape(-1, 1)
+    
+    # Calculate Pearson correlation
+    r, _ = pearsonr(x, y)
+    
+    # Calculate Mutual Information (MI)
+    mi = mutual_info_regression(x_reshaped, y, random_state=42)[0]
+    
+    # Create scatter plot
+    ax.scatter(x, y, alpha=0.6, s=30)
+    # Correctly label the metric as MI, not MIC
+    ax.set_title(f'{title}\nPearson r = {r:.3f}, MI = {mi:.3f}')
+    ax.grid(True, alpha=0.3)
+
+# Create different relationship types
+fig, axes = plt.subplots(2, 3, figsize=(12, 8))
+
+# --- Plot 1: Linear relationship ---
+x1 = np.random.randn(n)
+y1 = 2 * x1 + 0.5 * np.random.randn(n)
+plot_relationship(axes[0,0], x1, y1, 'Linear')
+
+# --- Plot 2: Quadratic relationship ---
+x2 = np.random.uniform(-2, 2, n)
+y2 = x2**2 + 0.3 * np.random.randn(n)
+plot_relationship(axes[0,1], x2, y2, 'Quadratic')
+
+# --- Plot 3: Sinusoidal relationship ---
+x3 = np.random.uniform(-np.pi, np.pi, n)
+y3 = np.sin(x3) + 0.2 * np.random.randn(n)
+plot_relationship(axes[0,2], x3, y3, 'Sinusoidal')
+
+# --- Plot 4: Circle relationship ---
+theta = np.random.uniform(0, 2*np.pi, n)
+radius = 1 + 0.1 * np.random.randn(n)
+x4 = radius * np.cos(theta)
+y4 = radius * np.sin(theta)
+plot_relationship(axes[1,0], x4, y4, 'Circular')
+
+# --- Plot 5: No relationship ---
+x5 = np.random.randn(n)
+y5 = np.random.randn(n)  
+plot_relationship(axes[1,1], x5, y5, 'Independent')
+
+# --- Plot 6: Step function ---
+x6 = np.random.uniform(-2, 2, n)
+y6 = np.sign(x6) + 0.2 * np.random.randn(n)
+plot_relationship(axes[1,2], x6, y6, 'Step Function')
+
+plt.tight_layout()
+# Correct the main title
+plt.suptitle('Different Relationship Types: Linear Correlation vs. Mutual Information', 
+             fontsize=14, y=1.02)
+plt.show()
+```
+
+
+**Key insight of the figure above**: While Pearson correlation only captures linear relationships, information-theoretic measures like MIC can detect various types of dependencies, making them valuable for exploratory data analysis and feature selection in machine learning.
+
+## Key takeaways
+
+Information theory provides fundamental tools for machine learning and econometrics:
+
+1. **Entropy** quantifies uncertainty in distributions
+2. **Cross-entropy** measures expected log-loss between distributions  
+3. **KL divergence** provides a principled way to compare distributions
+4. **MLE** can be understood as KL divergence minimization
+6. **Mutual information** captures dependencies beyond linear correlation
+
+These concepts underlie many ML techniques including variational inference, model selection criteria, and representation learning algorithms.
+<!-- 
+## References
+
+::: {#refs}
+::: -->
+
+For a relatively recent paper applying the concept of entropy directly in financial research, see @{Chabi-YoColacito2019}.
+
+## Exercises
+
+:::{.callout-note}
+## Exercise 1.1 Differential Entropy of Gaussian Distribution
+Derive the differential entropy of a Gaussian distribution $X \sim \mathcal{N}(\mu, \sigma^2)$.
+
+*It could be an exam question in terms of level but it mostly asks for direct application of probability theory. Hence, only a shortened version (e.g., a distribution with only one parameter) could act as a short sub-exercise.*
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint 1
+Start by substituting the log of the Gaussian PDF into the definition of differential entropy: $h(X) = -\int p(x) \log p(x) \,dx$. Then, split the integral into two parts. 
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint 2
+You will need to use the facts that $\int p(x) \,dx = 1$ and that $\int (x-\mu)^2 p(x) \,dx$ is the definition of variance.
+:::
+
+:::{.callout-tip collapse="true"}
+## Solution
+The probability density function (PDF) of a Gaussian distribution is given by:
+$$
+p(x) = \frac{1}{\sqrt{2\pi\sigma^2}} e^{-\frac{(x-\mu)^2}{2\sigma^2}}
+$$
+The differential entropy $h(X)$ is defined as:
+$$
+h(X) = -\int_{-\infty}^{\infty} p(x) \log p(x) \,dx
+$$
+First, let's find $\log p(x)$:
+$$
+\log p(x) = \log\left(\frac{1}{\sqrt{2\pi\sigma^2}}\right) - \frac{(x-\mu)^2}{2\sigma^2} = -\frac{1}{2}\log(2\pi\sigma^2) - \frac{(x-\mu)^2}{2\sigma^2}
+$$
+
+Now, substitute this into the entropy formula:
+
+\begin{align*}
+h(X) &= -\int_{-\infty}^{\infty} p(x) \left( -\frac{1}{2}\log(2\pi\sigma^2) - \frac{(x-\mu)^2}{2\sigma^2} \right) \,dx \\
+&= \frac{1}{2}\log(2\pi\sigma^2) \int_{-\infty}^{\infty} p(x) \,dx + \frac{1}{2\sigma^2} \int_{-\infty}^{\infty} (x-\mu)^2 p(x) \,dx
+\end{align*}
+
+We know two things:
+
+- The integral of any PDF over its support is 1: $\int_{-\infty}^{\infty} p(x) \,dx = 1$ 
+- The integral $\int_{-\infty}^{\infty} (x-\mu)^2 p(x) \,dx$ is the definition of the variance, which is $\sigma^2$.
+
+Substituting these back into the equation for $h(X)$:
+\begin{align*}
+h(X) &= \frac{1}{2}\log(2\pi\sigma^2) \cdot 1 + \frac{1}{2\sigma^2} \cdot \sigma^2 \\
+&= \frac{1}{2}\log(2\pi\sigma^2) + \frac{1}{2} \\
+&= \frac{1}{2}(\log(2\pi\sigma^2) + \log(e)) \\
+&= \frac{1}{2}\log(2\pi e \sigma^2)
+\end{align*}
+So, the differential entropy of a Gaussian distribution is $\frac{1}{2}\log(2\pi e \sigma^2)$.
+:::
+
+
+<!-- :::{.callout-note}
+## Exercise 1.2: Prove the Information Inequality
+Prove the Information Inequality (also known as Gibbs' inequality). For any two probability distributions $p$ and $q$ over the same discrete set $\mathcal{X}$ with $p(x)>0$ and $q(x) >0$ for all $x \in \mathcal{X}$, the following holds:
+\[
+D_{KL}(p || q) \ge 0
+\]
+with equality if and only if $p(x)=q(x)$ for all $x$.
+:::
+
+::: {.callout-tip collapse="true"}
+## Solution
+::: -->
+
+
+
+:::{.callout-note}
+## Exercise 1.2: Gaussian Distribution Means Maximum Entropy (For Fixed Variance)
+Show that the Gaussian distribution has the maximum entropy among all continuous distributions on $\mathbb{R}$ with a given variance $\sigma^2$.
+
+Note that since differential entropy is invariant to adding a constant by the change of variables formula, we can always reparametrize $p$ to have the same mean $\mu$ as the Gaussian distribution without changing the entropy.
+
+*Would only be part of an exam if it is divided in multiple sub-exercises with appropriate hints.* 
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint
+Consider the KL divergence between an arbitrary distribution $p$ and a Gaussian distribution $q$ that has the same variance. Use the property that $D_{KL}(p || q) \ge 0$. and the decomposition of the KL divergence into entropy and cross-entropy.}
+:::
+
+:::{.callout-tip collapse="true"}
+## Solution
+Let $q(x)$ be the PDF of a Gaussian distribution $\mathcal{N}(\mu, \sigma^2)$ and $p(x)$ be the PDF of any other continuous distribution with the same variance $\sigma^2$. We want to show that $h(p) \le h(q)$.
+
+The KL divergence between $p$ and $q$ is:
+$$
+D_{KL}(p || q) = \int_{-\infty}^{\infty} p(x) \log\frac{p(x)}{q(x)} \,dx \ge 0
+$$
+This can be written as:
+\begin{align*}
+0 &\le \int_{-\infty}^{\infty} p(x) (\log p(x) - \log q(x)) \,dx \\
+&= -\left(-\int_{-\infty}^{\infty} p(x) \log p(x) \,dx\right) - \int_{-\infty}^{\infty} p(x) \log q(x) \,dx \\
+&= -h(p) - \int_{-\infty}^{\infty} p(x) \log q(x) \,dx
+\end{align*}
+So, $h(p) \le -\int_{-\infty}^{\infty} p(x) \log q(x) \,dx$.
+
+Let's evaluate the integral on the right side. The log of the Gaussian PDF $q(x)$ is:
+$$
+\log q(x) = -\frac{1}{2}\log(2\pi\sigma^2) - \frac{(x-\mu)^2}{2\sigma^2}
+$$
+So the integral becomes:
+\begin{align*}
+-\int_{-\infty}^{\infty} p(x) \log q(x) \,dx &= -\int_{-\infty}^{\infty} p(x) \left(-\frac{1}{2}\log(2\pi\sigma^2) - \frac{(x-\mu)^2}{2\sigma^2}\right) \,dx \\
+&= \frac{1}{2}\log(2\pi\sigma^2) \int_{-\infty}^{\infty} p(x) \,dx + \frac{1}{2\sigma^2} \int_{-\infty}^{\infty} (x-\mu)^2 p(x) \,dx
+\end{align*}
+Since $p(x)$ is a PDF, $\int_{-\infty}^{\infty} p(x) \,dx = 1$. Since $p(x)$ has variance $\sigma^2$, $\int_{-\infty}^{\infty} (x-\mu)^2 p(x) \,dx = \sigma^2$.
+$$
+-\int_{-\infty}^{\infty} p(x) \log q(x) \,dx = \frac{1}{2}\log(2\pi\sigma^2) + \frac{\sigma^2}{2\sigma^2} = \frac{1}{2}\log(2\pi e \sigma^2) = h(q)
+$$
+Thus, we have shown that $h(p) \le h(q)$. Equality holds if and only if $D_{KL}(p || q) = 0$, which implies $p(x) = q(x)$.
+:::
+
+:::{.callout-note}
+## Exercise 1.3: Non-Negativity of KL Divergence (Gibbs' Inequality)
+
+Show that the Kullback-Leibler (KL) divergence is always non-negative. This fundamental property is also known as the Information Inequality or Gibbs' Inequality.
+
+Recall the definition of KL divergence for discrete distributions $p$ and $q$:
+$$ D_{\text{KL}}(p \parallel q) = \sum_{x \in \mathcal{X}} p(x) \log\frac{p(x)}{q(x)} $$
+
+**Prove that:**
+
+1.  $D_{\text{KL}}(p \parallel q) \geq 0$ for any two distributions $p$ and $q$.
+2.  $D_{\text{KL}}(p \parallel q) = 0$ if and only if $p(x) = q(x)$ for all $x \in \mathcal{X}$.
+
+*Could be part of an exam if a hint is provided how to succeed.*
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint
+Use **Jensen's inequality**, which states that for a convex function $f$, $\mathbb{E}[f(X)] \geq f(\mathbb{E}[X])$. Remember that $-\log(x)$ is a convex function.
+:::
+
+:::{.callout-tip collapse="true"}
+## Solution
+Let's rewrite the KL divergence definition:
+$$ D_{\text{KL}}(p \parallel q) = \sum_{x} p(x) \log\frac{p(x)}{q(x)} = - \sum_{x} p(x) \log\frac{q(x)}{p(x)} $$
+This can be seen as the negative expectation of $\log\frac{q(x)}{p(x)}$ with respect to the distribution $p(x)$:
+$$ D_{\text{KL}}(p \parallel q) = - \mathbb{E}_{X \sim p}\left[\log\frac{q(X)}{p(X)}\right] $$
+Now, we apply Jensen's inequality. Since $-\log(z)$ is a convex function, we have:
+$$ \mathbb{E}[-\log(Z)] \ge -\log(\mathbb{E}[Z]) $$
+Applying this to our case, where $Z = \frac{q(X)}{p(X)}$:
+$$ D_{\text{KL}}(p \parallel q) = \mathbb{E}_{X \sim p}\left[-\log\frac{q(X)}{p(X)}\right] \ge -\log\left(\mathbb{E}_{X \sim p}\left[\frac{q(X)}{p(X)}\right]\right) $$
+Let's evaluate the expectation inside the logarithm:
+$$ \mathbb{E}_{X \sim p}\left[\frac{q(X)}{p(X)}\right] = \sum_x p(x) \frac{q(x)}{p(x)} = \sum_x q(x) = 1 $$
+Since the sum of any probability distribution is 1.
+
+Substituting this back into our inequality:
+$$ D_{\text{KL}}(p \parallel q) \ge -\log(1) = 0 $$
+This proves that $D_{\text{KL}}(p \parallel q) \ge 0$.
+
+For the equality condition, Jensen's inequality holds with equality if and only if the random variable is a constant. In our case, this means $\frac{q(x)}{p(x)} = c$ for some constant $c$.
+$$ \sum_x q(x) = \sum_x c \cdot p(x) \implies 1 = c \sum_x p(x) \implies c=1 $$
+Therefore, equality holds if and only if $\frac{q(x)}{p(x)} = 1$, which means $p(x) = q(x)$ for all $x$.
+:::
+
+:::{.callout-note}
+## Exercise 1.4: Invariance of KL divergence
+Show that the Kullback-Leibler (KL) divergence is invariant to a change of variables (reparameterization). 
+
+Prove this property. Specifically, let $X$ be a continuous random variable with two possible probability densities, $p_X(x)$ and $q_X(x)$. Let $y = g(x)$ be an invertible transformation with corresponding densities $p_Y(y)$ and $q_Y(y)$. Show that the KL divergence is unchanged:
+$$
+D_{\text{KL}}(p_X \parallel q_X) = D_{\text{KL}}(p_Y \parallel q_Y)
+$$
+
+
+*Could be part of an exam if the exercise is broken into multiple sub-exercises to give some guidance.*
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint 1
+The proof relies on the **change of variables formula** for probability densities. How does a density $p_X(x)$ transform into $p_Y(y)$? 
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint 2
+Start by writing out the definition of $D_{\text{KL}}(p_Y \parallel q_Y)$ and focus on simplifying the ratio $\frac{p_Y(y)}{q_Y(y)}$ first.
+:::
+
+:::{.callout-tip collapse="true"}
+## Solution
+
+The proof proceeds in three steps: stating the transformation rules, simplifying the log-ratio, and then transforming the integral.
+
+**Step 1: State the Change of Variables Formula**
+
+Let $y=g(x)$ be an invertible transformation, so $x=g^{-1}(y)$. The probability densities for the new variable $y$ are given by:
+$$
+p_Y(y) = p_X(g^{-1}(y)) \left| \frac{dx}{dy} \right| \quad \text{and} \quad q_Y(y) = q_X(g^{-1}(y)) \left| \frac{dx}{dy} \right|
+$$
+where $\left| \frac{dx}{dy} \right|$ is the absolute value of the first-order derivative of the inverse transformation $g^{-1}$.
+
+**Step 2: Simplify the Ratio of Densities**
+
+The KL divergence for $Y$ is $D_{\text{KL}}(p_Y \parallel q_Y) = \int p_Y(y) \log\frac{p_Y(y)}{q_Y(y)} \,dy$. Let's analyze the ratio inside the logarithm. The derivativs terms, being identical for both transformations, cancel out:
+$$
+\frac{p_Y(y)}{q_Y(y)} = \frac{p_X(g^{-1}(y)) \left| \frac{dx}{dy} \right|}{q_X(g^{-1}(y)) \left| \frac{dx}{dy} \right|} = \frac{p_X(g^{-1}(y))}{q_X(g^{-1}(y))}
+$$
+This is the crucial step. The relative difference between the densities is independent of the coordinate system.
+
+**Step 3: Substitute and Transform the Integral**
+
+Now, substitute the transformed density $p_Y(y)$ and the simplified ratio back into the KL divergence formula:
+$$
+D_{\text{KL}}(p_Y \parallel q_Y) = \int_{-\infty}^{\infty} \underbrace{p_X(g^{-1}(y)) \left| \frac{dx}{dy} \right|}_{p_Y(y)} \underbrace{\log\frac{p_X(g^{-1}(y))}{q_X(g^{-1}(y))}}_{\log(p_Y/q_Y)} \,dy
+$$
+We can now perform a change of variables in the integral itself, from $y$ back to $x$. Using $x = g^{-1}(y)$, we have $dx = \left| \frac{dx}{dy} \right| dy$. Substituting this into the integral gives:
+$$
+D_{\text{KL}}(p_Y \parallel q_Y) = \int_{-\infty}^{\infty} p_X(x) \log\frac{p_X(x)}{q_X(x)} \,dx
+$$
+This final expression is exactly the definition of $D_{\text{KL}}(p_X \parallel q_X)$.
+
+Thus, we have shown that $D_{\text{KL}}(p_X \parallel q_X) = D_{\text{KL}}(p_Y \parallel q_Y)$, proving that KL divergence is invariant to reparameterization.
+
+<span style="color:blue"> I changed the term "Jacobian" to "first-order derivative" in the solution to facilitate readability.<span>
+:::
+
+:::{.callout-note}
+## Exercise 1.5: KL Between Two Gaussian Distributions
+Derive the Kullback-Leibler (KL) divergence $D_{\mathrm{KL}}(P\Vert Q)$ between two univariate Gaussian distributions, $P = \mathcal{N}(\mu_0, \sigma_0^2)$ and $Q = \mathcal{N}(\mu_1, \sigma_1^2)$.
+
+*Could be part of an exam but the distributions should be simplified (e.g. by fixing both variances = 1) to shorten the derivations.*
+:::
+
+::: {.callout-tip collapse="true"}
+## Solution
+The KL divergence for continuous distributions is given by:
+$$
+D_{\mathrm{KL}}(P\Vert Q) = \int_{-\infty}^{\infty} p(x) \log\frac{p(x)}{q(x)} \,dx
+$$
+where $p(x)$ and $q(x)$ are the PDFs of $P$ and $Q$ respectively.
+
+This can be expanded as:
+$$
+D_{\mathrm{KL}}(P\Vert Q) = \int p(x) \log p(x) \,dx - \int p(x) \log q(x) \,dx = -h(P) - \int p(x) \log q(x) \,dx
+$$
+We know the entropy of a Gaussian $P=\mathcal{N}(\mu_0, \sigma_0^2)$ is $h(P) = \frac{1}{2}\log(2\pi e \sigma_0^2)$.
+
+Now, let's compute the cross-entropy term. The log of the density $q(x)$ is:
+$$
+\log q(x) = -\frac{1}{2}\log(2\pi\sigma_1^2) - \frac{(x-\mu_1)^2}{2\sigma_1^2}
+$$
+The integral is the expectation of $-\log q(X)$ where $X \sim P$:
+\begin{align*}
+-\int p(x) \log q(x) \,dx &= \mathbb{E}_{X \sim P}[-\log q(X)] \\
+&= \mathbb{E}_{X \sim P}\left[\frac{1}{2}\log(2\pi\sigma_1^2) + \frac{(X-\mu_1)^2}{2\sigma_1^2}\right] \\
+&= \frac{1}{2}\log(2\pi\sigma_1^2) + \frac{1}{2\sigma_1^2} \mathbb{E}_{X \sim P}[(X-\mu_1)^2]
+\end{align*}
+
+Let's evaluate the expectation term $\mathbb{E}_{X \sim P}[(X-\mu_1)^2]$:
+
+\begin{align*}
+\mathbb{E}[(X-\mu_1)^2] &= \mathbb{E}[(X-\mu_0 + \mu_0 - \mu_1)^2] \\
+&= \mathbb{E}[(X-\mu_0)^2 + 2(X-\mu_0)(\mu_0-\mu_1) + (\mu_0-\mu_1)^2] \\
+&= \mathbb{E}[(X-\mu_0)^2] + 2(\mu_0-\mu_1)\mathbb{E}[X-\mu_0] + (\mu_0-\mu_1)^2
+\end{align*}
+
+Since $X \sim P$, $\mathbb{E}[X-\mu_0] = 0$ and $\mathbb{E}[(X-\mu_0)^2] = \sigma_0^2$.
+So, $\mathbb{E}[(X-\mu_1)^2] = \sigma_0^2 + (\mu_0-\mu_1)^2$.
+
+Substituting this back:
+$$
+-\int p(x) \log q(x) \,dx = \frac{1}{2}\log(2\pi\sigma_1^2) + \frac{\sigma_0^2 + (\mu_0-\mu_1)^2}{2\sigma_1^2}
+$$
+Now, we combine everything:
+
+\begin{align*}
+D_{\mathrm{KL}}(P\Vert Q) &= -h(P) - \int p(x) \log q(x) \,dx \\
+&= -\frac{1}{2}\log(2\pi e \sigma_0^2) + \frac{1}{2}\log(2\pi\sigma_1^2) + \frac{\sigma_0^2 + (\mu_0-\mu_1)^2}{2\sigma_1^2} \\
+&= -\frac{1}{2}(\log(2\pi\sigma_0^2) + 1) + \frac{1}{2}\log(2\pi\sigma_1^2) + \frac{\sigma_0^2 + (\mu_1-\mu_0)^2}{2\sigma_1^2} \\
+&= \frac{1}{2} \left( \log\frac{2\pi\sigma_1^2}{2\pi\sigma_0^2} - 1 + \frac{\sigma_0^2}{\sigma_1^2} + \frac{(\mu_1-\mu_0)^2}{\sigma_1^2} \right) \\
+&= \log\frac{\sigma_1}{\sigma_0} + \frac{\sigma_0^2 + (\mu_0-\mu_1)^2}{2\sigma_1^2} - \frac{1}{2}
+\end{align*}
+
+This is the final expression for the KL divergence between two univariate normal distributions.
+
+:::
+
+:::{.callout-note}
+## Exercise 1.6: Prove Entropy is Additive for Independent Variables
+If $X$ and $Y$ are independent random variables, prove that $\mathbb{H}(X,Y) = \mathbb{H}(X) + \mathbb{H}(Y)$.
+
+*Could be part of an exam without changing anything.*
+:::
+
+::: {.callout-warning collapse="true"}
+## Hint
+Start with the definition of joint entropy and use the fact that for independent variables, $p(x,y) = p(x)p(y)$.
+:::
+
+::: {.callout-tip collapse="true"}
+## Solution
+
+\begin{align}
+\mathbb{H}(X,Y) &= -\sum_{x,y} p(x,y)\log p(x,y) && \text{(definition)}\\
+&= -\sum_{x,y} p(x)p(y)\log(p(x)p(y)) && \text{(independence)}\\
+&= -\sum_{x,y} p(x)p(y)[\log p(x) + \log p(y)] && \text{(log calculus)}\\
+&= -\sum_{x,y} p(x)p(y)\log p(x) - \sum_{x,y} p(x)p(y)\log p(y) \\
+&= -\sum_x p(x)\log p(x) \underbrace{\left(\sum_y p(y)\right)}_{=1} - \sum_y p(y)\log p(y) \underbrace{\left(\sum_x p(x)\right)}_{=1} \\
+&= \mathbb{H}(X) + \mathbb{H}(Y)
+\end{align}
+
+The key insight is that independence allows us to factorize the joint probability, and the marginal probabilities sum to 1.
+:::

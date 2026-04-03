@@ -1,0 +1,137 @@
+---
+number-sections: true
+number-offset: [10, 0]  # This makes sections 10.1, 10.2, etc.
+---
+
+# Gradient Boosting
+
+
+```{python}
+#| echo: false
+#| label: fig-gradient-boosting-sequential
+#| fig-cap: "Sequential Gradient Boosting: Each adaptive weak learner (depth‑2 tree) targets new residual structure"
+# --- Boosting setup (unchanged) ---
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.tree import DecisionTreeRegressor
+
+plt.style.use('seaborn-v0_8-whitegrid')
+sns.set_palette("husl")
+np.random.seed(42)
+
+# Data
+n_points = 120
+X = np.linspace(0, 10, n_points)
+signal = 0.5 * X**3 - 2 * X + 3
+y_true = signal + np.random.normal(0, 1.8, n_points)
+
+def fit_weak_learner(x, residuals, depth=2, min_leaf=8, seed=None):
+    mdl = DecisionTreeRegressor(
+        max_depth=depth,
+        min_samples_leaf=min_leaf,
+        random_state=seed
+    )
+    mdl.fit(x.reshape(-1,1), residuals)
+    pred = mdl.predict(x.reshape(-1,1))
+    tree = mdl.tree_
+    thresholds = [tree.threshold[i] for i in range(tree.node_count)
+                  if tree.children_left[i] != tree.children_right[i] and tree.threshold[i] != -2]
+    return pred, sorted(thresholds), mdl
+
+# Boosting loop
+M = 6
+nu = 0.35
+F = np.full_like(y_true, np.mean(y_true))
+F_history = [F.copy()]
+residuals_history = []
+weak_preds = []
+weak_thresholds = []
+
+for m in range(M):
+    residuals = y_true - F
+    residuals_history.append(residuals.copy())
+    h_m, thr, _ = fit_weak_learner(X, residuals, depth=2, min_leaf=10, seed=100+m)
+    weak_preds.append(h_m.copy())
+    weak_thresholds.append(thr)
+    F = F + nu * h_m
+    F_history.append(F.copy())
+
+# --- Figure 1: Per-iteration panels (first 4 iterations) ---
+for m in range(min(4, M)):
+    fig, axes = plt.subplots(3, 1, figsize=(6, 8), constrained_layout=True)
+    
+    # (a) Ensemble before adding h_m
+    axes[0].scatter(X, y_true, s=18, color='gray', alpha=0.45, label='Data')
+    axes[0].plot(X, F_history[m], color='tab:blue', lw=2)
+    axes[0].set_title(f'Iteration {m}: Current Ensemble F_{m}(x)')
+    axes[0].set_ylabel('y')
+    axes[0].grid(alpha=0.3)
+    
+    # (b) Residuals
+    r = residuals_history[m]
+    rmse = np.sqrt(np.mean(r**2))
+    axes[1].scatter(X, r, s=18, color='crimson', alpha=0.75)
+    axes[1].axhline(0, color='black', ls='--', lw=1)
+    axes[1].set_title(f'Residuals r_{m}(x)  (RMSE={rmse:.2f})')
+    axes[1].set_ylabel('Residual')
+    axes[1].grid(alpha=0.3)
+    
+    # (c) Weak learner h_{m+1}
+    h = weak_preds[m]
+    axes[2].plot(X, h, color='green', lw=2)
+    for t in weak_thresholds[m]:
+        axes[2].axvline(t, color='black', ls='dotted', lw=1)
+    rng = h.max() - h.min()
+    axes[2].set_title(f'Weak Learner h_{m+1}(x)  (range={rng:.2f})')
+    axes[2].set_xlabel('X')
+    axes[2].set_ylabel('h')
+    axes[2].grid(alpha=0.3)
+    
+    fig.suptitle(f'Gradient Boosting – Iteration {m}', fontsize=14, fontweight='bold')
+    plt.show()
+
+# --- Figure 2: Overlay of scaled weak learners ---
+fig, ax = plt.subplots(figsize=(7, 4.5), constrained_layout=True)
+for m, hp in enumerate(weak_preds):
+    ax.plot(X, nu * hp, lw=1.8, label=f'ν·h_{m+1}')
+ax.set_title('Scaled Weak Learners ν·h_m(x)')
+ax.set_xlabel('X'); ax.set_ylabel('Contribution')
+ax.grid(alpha=0.3)
+ax.legend(ncol=2, fontsize=9)
+plt.show()
+
+# --- Figure 3: Ensemble evolution ---
+fig, ax = plt.subplots(figsize=(7, 4.5), constrained_layout=True)
+ax.scatter(X, y_true, s=15, color='gray', alpha=0.4, label='Data')
+for m, Fm in enumerate(F_history):
+    style = '--' if m == 0 else '-'
+    lw = 1.2 if m < M else 2.5
+    alpha = 0.6 if m < M else 1.0
+    ax.plot(X, Fm, ls=style, lw=lw, alpha=alpha, label=f'F_{m}' if m < M else f'F_{M} (final)')
+ax.set_title('Ensemble Refinement Across Iterations')
+ax.set_xlabel('X'); ax.set_ylabel('Prediction')
+ax.grid(alpha=0.3)
+ax.legend(ncol=2, fontsize=8)
+plt.show()
+
+# --- Figure 4: MSE trajectory ---
+mse = [np.mean((y_true - Fm)**2) for Fm in F_history]
+fig, ax = plt.subplots(figsize=(6, 4), constrained_layout=True)
+ax.plot(range(len(mse)), mse, 'o-', color='purple', lw=2)
+for m in range(1, len(mse)):
+    imp = 100*(mse[m-1]-mse[m])/mse[m-1]
+    ax.annotate(f'-{imp:.1f}%', xy=(m, mse[m]), xytext=(4,8),
+                textcoords='offset points', fontsize=8,
+                bbox=dict(boxstyle='round,pad=0.25', facecolor='yellow', alpha=0.7))
+ax.set_title('Training MSE per Iteration')
+ax.set_xlabel('Iteration m'); ax.set_ylabel('MSE')
+ax.grid(alpha=0.3)
+plt.show()
+
+# --- Console summary ---
+print("Final MSE:", f"{mse[-1]:.3f}")
+for m, thr in enumerate(weak_thresholds):
+    print(f"h_{m+1} thresholds: {thr}")
+```
+

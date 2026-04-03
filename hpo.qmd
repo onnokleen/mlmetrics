@@ -1,0 +1,219 @@
+---
+number-sections: true
+number-offset: [13, 0]  # This makes sections 2.1, 2.2, etc.
+---
+
+# (Advanced) Hyperparameter Optimization
+
+<!-- ## Empirical example -->
+
+<!-- [Jupyter notebook on HPO optimization](https://github.com/onnokleen/teachingML/blob/main/hpo_experiment.ipynb) -->
+<!-- 
+```{R, echo = FALSE}
+library(ggplot2)
+library(dplyr)
+library(patchwork)  # for side-by-side layout
+
+# Data
+x <- seq(0, 10, length.out = 400)
+
+# Define densities
+good_density <- dnorm(x, mean = 3, sd = 1)
+bad_density  <- dnorm(x, mean = 7, sd = 1.5)
+
+# Normalize densities
+good_density <- good_density / sum(good_density)
+bad_density  <- bad_density / sum(bad_density)
+
+# Ratio
+ratio <- good_density / (bad_density + 1e-8)
+
+# Find best point
+best_idx <- which.max(ratio)
+best_x <- x[best_idx]
+
+# Data frame
+df <- data.frame(
+  x = x,
+  good = good_density,
+  bad = bad_density,
+  ratio = ratio
+)
+
+# Left plot: densities
+p1 <- ggplot(df, aes(x)) +
+  geom_line(aes(y = good, color = "l(x): good configs")) +
+  geom_line(aes(y = bad, color = "g(x): bad configs")) +
+  geom_vline(xintercept = best_x, linetype = "dashed", color = "blue") +
+  labs(title = "TPE Densities",
+       x = "Hyperparameter value (x)",
+       y = "Density") +
+  scale_color_manual(values = c("l(x): good configs" = "green",
+                                "g(x): bad configs" = "red")) +
+  theme_minimal() +
+  theme(legend.title = element_blank(),
+  legend.position = "bottom")
+
+# Right plot: ratio
+p2 <- ggplot(df, aes(x, ratio)) +
+  geom_line(color = "purple") +
+  geom_vline(xintercept = best_x, linetype = "dashed", color = "blue") +
+  geom_point(aes(x = best_x, y = ratio[best_idx]), color = "purple") +
+  labs(title = "Acquisition Function (Ratio)",
+       x = "Hyperparameter value (x)",
+       y = "l(x)/g(x)") +
+  theme_minimal()
+
+# Combine
+p1 + p2 + plot_annotation(
+  title = "Tree-structured Parzen Estimator (TPE): Next Point Selection"
+)
+```
+ -->
+
+
+## Exercises
+
+
+::: {.callout-note}
+## Exercise 14.1: Cross-Validation in Time Series
+
+You are training a gradient boosting model to forecast daily electricity demand using weather and calendar features. A research assistant proposes to use standard k-fold cross-validation (random splits of the dataset) for hyperparameter tuning.
+
+1. Explain why this choice may bias model evaluation in a time series setting.
+2. Suggest two alternative cross-validation schemes more appropriate for time series.
+3. Suppose the dataset contains strong weekly and yearly seasonal patterns. How would you adapt your cross-validation strategy to account for these?
+
+*Exam level*
+:::
+
+::: {.callout-warning collapse = "true"}
+## Hint for Part 1
+
+Time series data violate the i.i.d. assumption; random CV mixes past and future.
+:::
+
+::: {.callout-warning collapse = "true"}
+## Hint for Part 2
+
+Expanding window and rolling window CV are the two main alternatives.
+:::
+
+::: {.callout-warning collapse = "true"}
+## Hint for Part 3
+
+Seasonality can be handled by aligning folds with full seasonal cycles.
+:::
+
+::: {.callout-tip collapse="true"}
+## Solution
+
+1. Standard k-fold mixes training and validation periods. This allows information from the future into training and causes optimistic bias in performance estimates.
+
+2. The two alternatives for time series are:
+	•	Expanding-window CV: train up to time t, validate on next period, expanding training set each fold.
+	•	Rolling-window CV: fixed training window size, validate on next block, and roll the window forward
+
+3. With strong weekly and yearly cycles, ensure validation folds cover complete cycles (e.g. multiples of 7 days that cover full years) to cover the entire periodic structure of the data in *both* the weekly and yearly cycles. 
+:::
+
+
+
+::: {.callout-note}
+## Exercise 14.2: Tree-structured Parzen Estimator (TPE)
+
+You are using the Tree-structured Parzen Estimator (TPE) algorithm to optimize the hyperparameters of a gradient boosting model. The search space includes:
+
+- `learning_rate` in `[1e-3, 0.5]` (log-uniform)
+- `max_depth` in `[2, 10]` (integer)
+
+1. Explain the core mechanism of TPE. How does it select the next hyperparameter configuration to evaluate? Your explanation should involve the densities $l(x)$ and $g(x)$.
+2. What are the main advantages of TPE compared to a simple random search?
+3. What are some potential weaknesses or limitations of the TPE approach, and in what scenarios might it perform poorly?
+
+*Exam level*
+:::
+
+::: {.callout-warning collapse = "true"}
+## Hint for Part 1
+
+TPE models the density of good ($l(x)$) and bad ($g(x)$) configurations and tries to maximize the ratio $l(x)/g(x)$.
+:::
+
+::: {.callout-warning collapse = "true"}
+## Hint for Part 2
+
+Think about how TPE uses information from past trials, whereas random search does not.
+:::
+
+::: {.callout-warning collapse = "true"}
+## Hint for Part 3
+
+Consider how TPE handles interactions between parameters and its "greedy" nature.
+:::
+
+::: {.callout-tip collapse="true"}
+## Solution
+
+1. TPE works by modeling two separate probability distributions for the hyperparameters. It splits the observed trials into a "good" group (e.g., the top 25% of configurations based on the loss score) and a "bad" group (the rest). It then fits a density $l(x)$ to the good group and a density $g(x)$ to the bad group. To select the next point, it samples candidates and chooses the one that maximizes the ratio $l(x)/g(x)$, which corresponds to points that are likely under the "good" distribution but unlikely under the "bad" one.
+
+2. The main advantage of TPE over random search is **sample efficiency**. By learning from past trials, it focuses the search on promising regions of the hyperparameter space instead of exploring purely randomly. This often allows it to find good configurations with fewer evaluations. It also naturally handles conditional and categorical hyperparameters.
+
+3. **Weaknesses of TPE include:**
+    *   **Myopic Nature**: TPE optimizes each hyperparameter independently, which means it may not effectively capture complex interactions between them.
+    *   **Sensitivity to the Quantile ($\gamma$)**: The choice of what percentage of trials are considered "good" is itself a hyperparameter that can affect performance.
+    *   **Local Optima**: Because it greedily maximizes $l(x)/g(x)$, it can sometimes get stuck in a local optimum and fail to explore other potentially promising regions. It performs poorly if the objective function is very rugged or has strong parameter interactions.
+:::
+
+::: {.callout-note}
+## Exercise 13.3: Hyperband Optimization
+
+You are training a large neural network to predict firm default probabilities on financial tabular data. Training each model to convergence takes ~4 hours. You consider using Hyperband for hyperparameter search.
+
+1.  Briefly explain the main idea of Hyperband and how it differs from Bayesian optimization.
+2.  Suppose the early learning curves (plots of validation loss vs. training epochs) are very "noisy," meaning the validation loss fluctuates significantly from one epoch to the next instead of decreasing smoothly. What risk does this pose for Hyperband's strategy of eliminating models based on early performance? How could you mitigate this risk?
+3.  Compare Hyperband to random search and Bayesian optimization in the context explained at the beginning of this exercise (efficiency, robustness, convergence).
+
+*Exam level*
+:::
+
+::: {.callout-warning collapse = "true"}
+## Hint for Part 1
+
+Hyperband uses successive halving with adaptive resource allocation.
+:::
+
+::: {.callout-warning collapse = "true"}
+## Hint for Part 2
+
+Unreliable noisy performance evaluations may cause premature elimination.
+:::
+
+::: {.callout-tip collapse="true"}
+## Solution
+
+1. Hyperband allocates small budgets (e.g. few epochs) to many configurations, then keeps only the top fraction, doubling budget each round. Unlike Bayesian optimization, it is bandit-based and does not use a surrogate/acquisition function.
+
+2. Noisy early curves risk eliminating good configurations. Mitigation strategies:
+
+- Increase minimum budget before elimination.
+- Use multiple runs per configuration.
+
+3. Comparison in this context:
+
+    *   **Random Search**:
+        *   *Efficiency*: Random search would be very inefficient. Since each full training run takes 4 hours, random search would waste most of its time fully training configurations that are clearly performing poorly after just a few epochs. It has no mechanism to stop unpromising trials early.
+        *   *Robustness & Parallelism*: Its main advantage is that it's simple and perfectly parallelizable. If you have a large compute cluster, you can launch dozens of 4-hour jobs simultaneously. It is also not easily fooled by local optima.
+        *   *Convergence*: Convergence to a good solution is purely by chance. Given the long evaluation time, you could only afford a small number of trials, making it unlikely to find a high-performing configuration.
+
+    *   **Bayesian Optimization (e.g., TPE)**:
+        *   *Efficiency*: It is much more sample-efficient than random search because it uses past results to inform future choices. This is a major benefit when each sample costs 4 hours. However, it is inherently sequential (evaluate a point, update the model, choose the next point), which makes large-scale parallelization less trivial than random search. It also doesn't inherently handle early stopping; it would still run each trial for the full 4 hours.
+        *   *Robustness*: It can be sensitive to the initial design and may get stuck in local optima if it decides to exploit a promising region too early.
+        *   *Convergence*: It generally converges to a good solution in fewer trials than random search.
+
+    *   **Hyperband**:
+        *   *Efficiency*: This is the most efficient method for this specific problem. Its entire design is based on allocating a small budget (e.g., 15 minutes of training) to many configurations and aggressively pruning the poor performers. It avoids wasting the full 4 hours on bad models and concentrates the computational budget on the most promising candidates.
+        *   *Robustness*: Its primary weakness is its sensitivity to noisy learning curves, as discussed in the previous question. A good model that starts slow might be eliminated unfairly.
+        *   *Convergence*: It is very effective at quickly finding good, well-performing configurations within a fixed budget, even if it's not guaranteed to be the absolute best one. For problems with long training times, this is often the best practical choice.
+
+:::

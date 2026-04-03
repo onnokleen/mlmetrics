@@ -1,0 +1,312 @@
+---
+number-sections: true
+number-offset: [8, 0]
+---
+<!-- 
+# Introduction to Tree-Based Methods
+
+**Overview: Pros and Cons**
+
+Tree-based methods present an interesting trade-off in machine learning:
+
+- **Simple and interpretable**: Single decision trees are highly interpretable and useful for understanding relationships in data
+- **Limited accuracy**: However, they are typically not competitive with the best supervised learning approaches in terms of prediction accuracy
+- **Ensemble solutions**: To address this limitation, we use methods like **bagging**, **random forests**, and **boosting** that grow multiple trees and combine them to yield a single consensus prediction
+- **The trade-off**: Combining a large number of trees can result in dramatic improvements in prediction accuracy, but at the expense of interpretability
+<!-- 
+![Summary of the trade-off between interpretability and accuracy in tree-based methods](figures/drake_summary.jpg){fig-align="center" width="50%"} -->
+
+<!-- # Decision Trees: Basic Concepts -->
+
+<!-- ## How Decision Trees Work -->
+
+<!-- Decision trees work by creating a flowchart-like structure where we start at the root and "climb" the tree. In each node, we make a binary decision (Yes/No) based on a certain feature. -->
+
+```{python}
+#| label: fig-tree-concept
+#| fig-cap: "Example of a decision tree structure"
+#| fig-align: center
+#| fig-width: 10
+#| fig-height: 6
+
+import matplotlib.pyplot as plt
+import numpy as np
+
+# Create figure
+fig, ax = plt.subplots(1, 1, figsize=(10, 6))
+
+# Create a simple tree structure
+ax.text(0.5, 0.9, 'Root Node\n(All Data)', ha='center', va='center', 
+        bbox=dict(boxstyle="round,pad=0.3", facecolor='lightblue'),
+        fontsize=12, fontweight='bold')
+
+# Left branch
+ax.text(0.25, 0.6, 'Feature X₁ < 5?', ha='center', va='center',
+        bbox=dict(boxstyle="round,pad=0.3", facecolor='lightgreen'),
+        fontsize=10)
+
+# Right branch  
+ax.text(0.75, 0.6, 'Feature X₂ < 3?', ha='center', va='center',
+        bbox=dict(boxstyle="round,pad=0.3", facecolor='lightgreen'),
+        fontsize=10)
+
+# Terminal nodes
+ax.text(0.15, 0.3, 'Prediction:\nClass A', ha='center', va='center',
+        bbox=dict(boxstyle="round,pad=0.3", facecolor='salmon'),
+        fontsize=10)
+
+ax.text(0.35, 0.3, 'Prediction:\nClass B', ha='center', va='center',
+        bbox=dict(boxstyle="round,pad=0.3", facecolor='salmon'),
+        fontsize=10)
+
+ax.text(0.65, 0.3, 'Prediction:\nClass C', ha='center', va='center',
+        bbox=dict(boxstyle="round,pad=0.3", facecolor='salmon'),
+        fontsize=10)
+
+ax.text(0.85, 0.3, 'Prediction:\nClass A', ha='center', va='center',
+        bbox=dict(boxstyle="round,pad=0.3", facecolor='salmon'),
+        fontsize=10)
+
+# Draw arrows
+arrows = [
+    ((0.5, 0.85), (0.25, 0.65)),  # Root to left
+    ((0.5, 0.85), (0.75, 0.65)),  # Root to right
+    ((0.25, 0.55), (0.15, 0.35)), # Left to terminal
+    ((0.25, 0.55), (0.35, 0.35)), # Left to terminal
+    ((0.75, 0.55), (0.65, 0.35)), # Right to terminal
+    ((0.75, 0.55), (0.85, 0.35)), # Right to terminal
+]
+
+for start, end in arrows:
+    ax.annotate('', xy=end, xytext=start,
+               arrowprops=dict(arrowstyle='->', lw=2, color='black'))
+
+ax.set_xlim(0, 1)
+ax.set_ylim(0, 1)
+ax.axis('off')
+
+plt.tight_layout()
+plt.show()
+```
+
+## Mathematical Framework
+
+Decision trees are part of the *supervised learning goal* part of machine learning which means: Learn about the relationship $f$ between $\mathbf{y}$ and $\mathbf{x}$ using training sample $\{(\mathbf{x}_i, y_i)\}_{i=1}^N$ to get an estimate $\hat{f}$ of $f$.
+
+For comparison, a feed-forward neural network with $L$ layers can be written as a composition of functions:
+
+$$f(\mathbf{x}; \boldsymbol{\theta}) = f^{(L)} \circ f^{(L-1)} \circ \cdots \circ f^{(1)}(\mathbf{x})$$
+
+where each layer $\ell$ computes:
+
+$$\mathbf{h}^{(\ell)} = g^{(\ell)}\left(\mathbf{W}^{(\ell)} \mathbf{h}^{(\ell-1)} + \mathbf{b}^{(\ell)}\right)$$
+
+Tree-based function approximation will look very differently!
+
+# Trees for Regression
+
+## Example: Baseball Salary Data
+
+Let's consider predicting a baseball player's salary based on their experience and performance:
+
+$$\mathbf{x}_i = (\text{Years of Player } i, \text{Hits of Player } i), \quad y_i = \text{Salary of Player } i$$
+
+![Baseball salary data with log salary color-coded from low (blue, green) to high (yellow, red)](Figures/hitters_data.png){fig-align="center" width="60%"}
+
+## Decision Tree for Baseball Data
+
+![Decision tree for predicting log salary. Numbers at the bottom are mean log salary per leaf](Ch1-13_pdfs/Figures-Chapters7-13/Chapter8/8_1){fig-align="center" width="50%"}
+
+### Interpreting the Tree Structure
+
+- The tree first splits on **Years < 4.5**, creating two main branches
+- For experienced players (Years ≥ 4.5), there's a second split on **Hits < 117.5**
+- This creates three terminal nodes (leaves) with different average log salaries
+- Each leaf represents the mean response for observations that fall there
+
+## Alternative Representation: Regions
+
+The tree stratifies players into three regions of predictor space:
+
+- $R_1 = \{\mathbf{x} | \text{Years} < 4.5\}$
+- $R_2 = \{\mathbf{x} | \text{Years} \geq 4.5, \text{Hits} < 117.5\}$  
+- $R_3 = \{\mathbf{x} | \text{Years} \geq 4.5, \text{Hits} \geq 117.5\}$
+
+![Partition of the feature space corresponding to the regression tree](Ch1-13_pdfs/Figures-Chapters7-13/Chapter8/8_2){fig-align="center" width="70%"}
+
+## Mathematical Representation
+
+This segmentation gives rise to the following mathematical representation for a tree with $J$ terminal nodes:
+
+$$f(\mathbf{x}, \boldsymbol{\theta}) = \sum_{j=1}^J w_j \mathbf{1}(\mathbf{x} \in R_j)$$
+
+where:
+
+$$w_j = \frac{\sum_{n=1}^N y_n \mathbf{1}(\mathbf{x}_n \in R_j)}{\sum_{n=1}^N \mathbf{1}(\mathbf{x}_n \in R_j)}$$
+
+and the parameters are:
+
+$$\boldsymbol{\theta} = \{(R_j, w_j) : j = 1, \dots, J\}$$
+
+## Tree Structure Components
+
+![Components of a tree: root node, decision nodes, and leaf nodes](figures/dt-fig3){fig-align="center" width="90%"}
+
+A tree consists of:
+- **Root node**: Starting point containing all data
+- **Internal nodes**: Decision points that split the data
+- **Leaf nodes**: Terminal nodes that contain the final predictions
+
+# How to Grow a Tree: Model Fitting
+
+## Key Differences from Neural Networks
+
+Unlike neural networks, the tree function:
+
+$$f(\mathbf{x}, \boldsymbol{\theta}) = \sum_{j=1}^J w_j \mathbf{1}(\mathbf{x} \in R_j)$$
+
+is **not differentiable** ⟹ no gradient descent possible
+
+Instead, trees are **grown** using a **greedy algorithm**:
+- Start with the full training sample in the root node
+- Successively split to let the tree grow
+
+## Key Questions in Tree Building
+
+1. **How do we perform the splitting for a given node?**
+2. **When/How do we decide to stop growing the tree?**
+3. **What hyperparameters are involved?**
+
+## Tree-Building Process
+
+### Basic Approach
+
+- Divide the predictor space into $J$ **distinct and non-overlapping regions**, $R_1, R_2, \dots, R_J$
+- For every observation in region $R_j$, make the same prediction $w_j$
+- **Regression case**: $w_j$ is simply the mean of the response values for training observations in $R_j$
+- **Classification case**: Use different "voting" mechanisms (e.g., majority vote, entropy-based)
+
+### Optimization Objective
+
+We choose to divide the predictor space into **high-dimensional rectangles** (boxes) for simplicity and interpretability.
+
+**Goal**: Find boxes $R_1, \dots, R_J$ that **minimize the MSE**:
+
+$$\sum_{j=1}^J \sum_{i: x_i \in R_j} (y_i - \hat{y}_{R_j})^2$$
+
+where $\hat{y}_{R_j}$ is the mean response for training observations in the $j$-th box.
+
+### Computational Challenge
+
+Unfortunately, it is **computationally infeasible** to consider every possible partition of the feature space into $J$ boxes.
+
+**Solution**: Use a **top-down, greedy approach** called **recursive binary splitting**:
+
+- **Top-down**: Begin at the top of the tree and successively split the predictor space
+- **Greedy**: At each step, make the best split at that moment, without looking ahead
+
+## Node Splitting Process
+
+![Node splitting diagram showing how a parent region R is split into left and right child regions](figures/node_splitting.png){fig-align="center"}
+
+### Splitting Mechanism
+
+In each decision node, we:
+- Choose a **splitting feature** $x_j$ 
+- Choose a **threshold value** $s$
+- Create two regions:
+  - $R_\ell(j,s) = \{\mathbf{x} | x_j \leq s\}$ (left child)
+  - $R_r(j,s) = \{\mathbf{x} | x_j > s\}$ (right child)
+
+### Algorithm Details
+
+1. **First split**: Select predictor $x_j$ and cutpoint $s$ (across all $j$ and $s$) that leads to the greatest reduction in RSS when splitting into $\{\mathbf{x} | x_j < s\}$ and $\{\mathbf{x} | x_j \geq s\}$
+
+2. **Subsequent splits**: Repeat the process, looking for the best predictor and cutpoint to split one of the existing regions
+
+3. **Continue**: Until a stopping criterion is reached (e.g., no region contains more than a fixed number of observations)
+
+# Trees for Classification
+
+## Classification Tree Example
+
+![Example of a classification tree for mortgage approval decisions](figures/dt-fig2){fig-align="center" width="70%"}
+
+## Visualization of Classification Regions
+
+![Scatter plot showing classification regions for blue vs red classes](Figures/dt-fig5){fig-align="center" width="90%"}
+
+*Scatter plot of classes "blue" vs "red" depending on features $x_1$ and $x_2$ with exemplary segmentation into boxes.*
+
+## Splitting Criteria for Classification
+
+### Regression vs Classification
+
+**Regression trees**: Minimize MSE
+$$\sum_{j=1}^J \sum_{i: x_i \in R_j} (y_i - \hat{y}_{R_j})^2$$
+where $\hat{y}_{R_j} = \frac{1}{|R_j|} \sum_{x_i \in R_j} y_i$
+
+**Classification trees**: Need a different "cost measure" for class assignment
+
+### Binary Classification Trees
+
+**Goal**: Find boxes $R_1, \dots, R_J$ that **minimize the entropy** across all $J$ nodes:
+
+$$-\sum_{j=1}^J \hat{\pi}_{R_j} \log(\hat{\pi}_{R_j}) + (1 - \hat{\pi}_{R_j}) \log(1 - \hat{\pi}_{R_j})$$
+
+where $\hat{\pi}_{R_j} = \frac{1}{|R_j|} \sum_{x_i \in R_j} y_i$ is the empirical frequency of class "1" in region $R_j$.
+
+# When to Stop Growing the Tree?
+
+## The Overfitting Problem
+
+Trees can easily overfit if grown too deep. The following figures illustrate how tree depth affects model complexity:
+
+![Tree depth illustration - shallow tree](Figures/depth_1.png){fig-align="center"}
+
+![Tree depth illustration - medium tree](Figures/depth_2.png){fig-align="center"}
+
+![Tree depth illustration - deep tree](Figures/depth_3.png){fig-align="center"}
+
+*Source: [Bradley Boehmke's tutorial](https://bradleyboehmke.github.io/uc-bana-4080/lesson-6a-decision-trees.html)*
+
+## Stopping Criteria
+
+**Goal**: Avoid overfitting, which can easily happen with a fully grown or large tree
+
+**Methods to limit tree size a priori**:
+1. **Minimum sample size**: Require a minimum number of observations in each leaf
+2. **Maximum depth**: Impose a maximum depth of the tree
+
+## Hyperparameters
+
+The main hyperparameters for decision trees are:
+1. **Minimum sample size at each leaf**
+2. **Maximum depth of the tree**
+
+These need to be tuned using techniques like cross-validation.
+
+## Alternative Approaches
+
+Instead of trying to find the optimal single tree, this course focuses on **two alternatives**:
+- **Boosting**: Combining simple trees sequentially
+- **Random forests**: Combining deep trees via averaging
+
+# Advantages and Disadvantages of Trees
+
+## Advantages
+
+- **Interpretability**: Trees are very easy to explain to people - even easier than linear regression!
+- **Visualization**: Trees can be displayed graphically and are easily interpreted even by non-experts (when they are small)
+- **Intuitive**: They mirror human decision-making processes
+
+## Disadvantages
+
+- **Poor accuracy**: Trees generally do not have the same level of predictive accuracy as other regression and classification approaches
+- **Instability**: Small changes in data can lead to very different trees
+- **Overfitting**: Prone to overfitting, especially when grown deep
+
+<!-- ## The Solution: Ensemble Methods
+
+However, by **aggregating many decision trees**, the predictive performance can be substantially improved. This motivates the ensemble methods we will explore next, which dramatically enhance the power of tree-based approaches while maintaining many of -->
+ -->
