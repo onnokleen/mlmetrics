@@ -3,7 +3,7 @@ number-sections: true
 number-offset: [8, 0]
 ---
 
-# Distributional Neural Networks
+# Distributional Neural Networks {#sec-distnn}
 
 ## Overview
 
@@ -19,9 +19,9 @@ Distributional neural networks address this by reframing the prediction problem.
 4. We use Hemisphere Neural Networks as a case study for stabilizing distributional estimation in macro-financial settings.
 5. We close with Mixture Density Networks for richer conditional distributions, followed by key takeaways and common pitfalls.
 
-## From Point Forecasts to Predictive Distributions
+## From Point Forecasts to Predictive Distributions {#sec-point-to-distnn}
 
-A standard neural network trained with mean squared error produces a point forecast:
+As discussed in the [Feed-Forward Neural Networks chapter](feed_forward_nns.qmd), a standard neural network trained with mean squared error produces a point forecast:
 
 -   **Traditional NN Output**: $\hat{y} = f_\theta(\mathbf{x})$
 -   **Distributional NN Output**: $p_\phi(y \mid \mathbf{x}) = p(y \mid \boldsymbol{\eta}_\phi(\mathbf{x}))$, where $\boldsymbol{\eta}_\phi(\mathbf{x})$ are the distribution parameters learned by the network.
@@ -36,17 +36,23 @@ $$
 
 Here, $y_i$ is the observed outcome, $\mathbf{x}_i$ is the feature vector, $\boldsymbol{\eta}_\phi(\mathbf{x}_i)$ denotes the distributional parameters implied by the neural network, and $\phi$ collects all trainable network weights.
 
-## Training Scores and Information Theory
+## Training Scores and Information Theory {#sec-distnn-training-scores}
 
 :::{.callout-important}
 ## Information-theoretic interpretation
 
-This NLL objective is the same cross-entropy loss we encountered in the [Information Theory chapter](information_theory.qmd#sec-mle-kl-divergence): minimizing it is equivalent to minimizing the KL divergence between the empirical data distribution and the network's predicted distribution. Unlike a standard neural network trained with MSE (which only targets the conditional mean), a distributional network trained with NLL targets the full conditional density — and KL divergence penalizes every aspect of distributional misspecification, including the tails.
+This NLL objective is the same cross-entropy loss we encountered in @sec-mle-kl-divergence: minimizing it is equivalent to minimizing the KL divergence between the empirical data distribution and the network's predicted distribution. Unlike a standard neural network trained with MSE, which only targets the conditional mean, a distributional network trained with NLL targets the full conditional density and therefore penalizes every aspect of distributional misspecification, including the tails.
 :::
 
-The same logic can be stated in the language of proper scoring rules. The negative log-likelihood corresponds to the logarithmic score: after observing $y_i$, the model is rewarded for assigning high density to the realized outcome. Minimizing average NLL is therefore the training analogue of minimizing the out-of-sample log score.
+The same logic can be stated in the language of proper scoring rules. The negative log-likelihood corresponds to the logarithmic score: after observing $y_i$, the model is rewarded for assigning high density to the realized outcome. Minimizing average NLL is therefore the training analogue of minimizing the out-of-sample log score; see the discussion of LogS and CRPS in the [Evaluating Predictive Distributions chapter](evaluating_distributions.qmd).
 
 Other proper scoring rules can also be used as training losses if they are computable and differentiable for the chosen predictive family. For example, the continuous ranked probability score (CRPS) compares the full predictive CDF to the realized outcome. The choice of training score should match the forecasting object: log-likelihood is very sensitive to tail misspecification and extreme observations, while CRPS often behaves more like an integrated distributional error.
+
+For dependent data, this does not require an iid assumption. In a time-series setting, we would usually maximize a **conditional** log-likelihood of the form
+$$
+\sum_{t=1}^{T} \log p_\phi(y_{t+1} \mid \mathcal{F}_t),
+$$
+where $\mathcal{F}_t$ is the information set available at the forecast origin. The sum remains the correct criterion when the conditional distribution is specified relative to the appropriate filtration.
 
 :::{.callout-note}
 ## Link to Predictive-Distribution Evaluation
@@ -54,7 +60,7 @@ Other proper scoring rules can also be used as training losses if they are compu
 Training a distributional neural network and evaluating a distributional forecast are two sides of the same problem. During training, a proper scoring rule defines the loss. During evaluation, the same class of scores can be used out of sample to compare predictive distributions.
 :::
 
-## A Case Study: Hemisphere Neural Networks (HNN)
+## A Case Study: Hemisphere Neural Networks (HNN) {#sec-hnn}
 
 A key challenge in distributional modeling is reliably estimating multiple distribution parameters at once. Consider the Gaussian case where we want to learn both the conditional mean and variance:
 $$
@@ -77,6 +83,8 @@ The core idea is to split the network after a shared "common core" into two spec
 -   **Mean Hemisphere**: A dedicated set of layers with a linear output head to predict $\mu_t$.
 -   **Variance Hemisphere**: A dedicated set of layers with a `softplus` output head to ensure the predicted variance $\sigma_t^2$ is always positive.
 
+The resulting architecture is illustrated in @fig-hnn.
+
 
 ```{r}
 #| label: fig-hnn
@@ -87,16 +95,9 @@ The core idea is to split the network after a shared "common core" into two spec
 #| warning: false
 
 # Build PDF then PNG
-if (TRUE) {
-  if (!requireNamespace("tinytex", quietly = TRUE)) install.packages("tinytex")
-  invisible(tinytex::latexmk("figures/hemispheres.tex", engine = "pdflatex", clean = TRUE))
-}
-if (TRUE) {
-  if (!requireNamespace("pdftools", quietly = TRUE)) install.packages("pdftools")
-  if (!requireNamespace("png", quietly = TRUE)) install.packages("png")
-  bmp <- pdftools::pdf_render_page("figures/hemispheres.pdf", page = 1, dpi = 250)
-  png::writePNG(bmp, "figures/hemispheres.png")
-}
+invisible(tinytex::latexmk("figures/hemispheres.tex", engine = "pdflatex", clean = TRUE))
+bmp <- pdftools::pdf_render_page("figures/hemispheres.pdf", page = 1, dpi = 250)
+png::writePNG(bmp, "figures/hemispheres.png")
 
 paths <- if (knitr::is_html_output()) {
   c("figures/hemispheres.png")
@@ -127,7 +128,7 @@ The HNN framework introduces two key ingredients to discipline the unstable MLE 
 -   **Beyond Gaussian**: The hemisphere approach can be extended to other distributions (e.g., Student-t) by adding a third hemisphere for the degrees of freedom parameter, $\nu$.
 -   **Temporal Dynamics**: To capture GARCH-like effects more directly, lagged outcomes or squared residuals can be included as features in $\mathbf{x}_t$. For more complex sequences, the common core could be an LSTM.
 
-## Handling Complex Distributions: Mixture Density Networks (MDNs)
+## Handling Complex Distributions: Mixture Density Networks (MDNs) {#sec-mdn}
 
 For distributions that are skewed, fat-tailed, or multi-modal, a single parametric form is too restrictive. **Mixture Density Networks (MDNs)** proposed by @Bishop1994 address this by modeling the conditional distribution as a mixture of simpler ones, like Gaussians:
 $$
@@ -173,4 +174,151 @@ An MDN is a flexible way to approximate a conditional density with latent regime
 - Interpreting mixture components as economic regimes without additional identifying restrictions.
 - Optimizing in-sample log-likelihood while ignoring out-of-sample calibration, PIT behavior, CRPS, or tail performance.
 - Using a very flexible distributional architecture in a small macroeconomic sample without strong validation or regularization.
+:::
+
+## Exercises {#sec-distnn-exercises}
+
+:::{.callout-note}
+## Exercise 9.1: Gaussian Distributional Network and NLL
+
+Consider a Gaussian distributional neural network for one-step-ahead forecasting:
+$$
+y_{t+1} \mid \mathbf{x}_t \sim \mathcal{N}(\mu_t,\sigma_t^2), \qquad
+\mu_t = f_{\phi_\mu}(\mathbf{x}_t), \qquad
+\sigma_t^2 = g_{\phi_\sigma}(\mathbf{x}_t)>0.
+$$
+
+1. Derive the one-observation negative log-likelihood up to an additive constant.
+2. Suppose $\sigma_t^2 = \sigma^2$ is constant across all $t$, where $\sigma^2$ is fixed and known. Show that minimizing the total negative log-likelihood with respect to the mean function is equivalent to minimizing the sum of squared forecast errors.
+3. Explain why the variance head must be constrained to be positive, and give one neural-network output transformation that enforces this.
+
+*Exam level. Part 3 would likely appear as a short conceptual sub-question.*
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint for Part 1
+Start from the Gaussian density
+$$
+p(y_{t+1}\mid \mathbf{x}_t)=\frac{1}{\sqrt{2\pi\sigma_t^2}}
+\exp\left(-\frac{(y_{t+1}-\mu_t)^2}{2\sigma_t^2}\right).
+$$
+Take minus the log and drop constants that do not depend on the network parameters.
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint for Part 2
+If $\sigma_t^2=\sigma^2$ is fixed and known, then any term involving only $\sigma^2$ is constant for the optimization problem.
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint for Part 3
+Think about what would happen if the network were allowed to output a negative variance estimate.
+:::
+
+:::{.callout-tip collapse="true"}
+## Solution
+
+**Part 1**
+
+For one observation,
+$$
+-\log p(y_{t+1}\mid \mathbf{x}_t)
+= \frac{1}{2}\log(2\pi) + \frac{1}{2}\log(\sigma_t^2)
++ \frac{(y_{t+1}-\mu_t)^2}{2\sigma_t^2}.
+$$
+Up to an additive constant, this is
+$$
+\ell_t(\phi_\mu,\phi_\sigma)
+= \frac{1}{2}\log(\sigma_t^2)
++ \frac{(y_{t+1}-\mu_t)^2}{2\sigma_t^2}.
+$$
+
+**Part 2**
+
+If $\sigma_t^2=\sigma^2$ is constant across all $t$ and $\sigma^2$ is fixed, then the sample objective becomes
+$$
+\sum_{t=1}^{T}\ell_t
+= \frac{T}{2}\log(\sigma^2)
++ \frac{1}{2\sigma^2}\sum_{t=1}^{T}(y_{t+1}-\mu_t)^2.
+$$
+The first term is constant, and the factor $\frac{1}{2\sigma^2}$ in front of the sum of squared errors is also constant and positive. Therefore minimizing total NLL is equivalent to minimizing
+$$
+\sum_{t=1}^{T}(y_{t+1}-\mu_t)^2.
+$$
+
+**Part 3**
+
+The variance head must be constrained to be positive because a variance cannot be negative and because the Gaussian log-likelihood contains $\log(\sigma_t^2)$ and division by $\sigma_t^2$. A negative or zero value would make the likelihood invalid or numerically unstable. One common transformation is
+$$
+\sigma_t^2=\operatorname{softplus}(z_t)=\log(1+e^{z_t}),
+$$
+which guarantees positivity.
+:::
+
+:::{.callout-note}
+## Exercise 9.2: Mixture Density Outputs and Interpretation
+
+Consider a two-component Gaussian mixture density network:
+$$
+p(y \mid \mathbf{x}) = \pi(\mathbf{x})\,\mathcal{N}(y;\mu_1(\mathbf{x}),\sigma_1^2(\mathbf{x}))
++ \big(1-\pi(\mathbf{x})\big)\,\mathcal{N}(y;\mu_2(\mathbf{x}),\sigma_2^2(\mathbf{x})).
+$$
+
+1. Write the one-observation negative log-likelihood for realized outcome $y_i$ and feature vector $\mathbf{x}_i$.
+2. Explain why the mixing weight must satisfy $0 \le \pi(\mathbf{x}) \le 1$. Show how a two-component softmax output implies this, and explain why a sigmoid layer is an equivalent special case for a two-component mixture.
+3. Explain why the two mixture components should not automatically be interpreted as structural economic regimes.
+
+*Exam level if broken into parts as written here.*
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint for Part 1
+Evaluate the mixture density at $(y_i,\mathbf{x}_i)$ and then take minus the logarithm.
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint for Part 2
+For a two-component softmax, the network can output two logits $a_1(\mathbf{x})$ and $a_2(\mathbf{x})$ and define
+$$
+\pi(\mathbf{x})=\frac{e^{a_1(\mathbf{x})}}{e^{a_1(\mathbf{x})}+e^{a_2(\mathbf{x})}}.
+$$
+You can recover a sigmoid form by setting $a(\mathbf{x})=a_1(\mathbf{x})-a_2(\mathbf{x})$.
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint for Part 3
+Think about the difference between a predictive decomposition and a structurally identified regime-switching model.
+:::
+
+:::{.callout-tip collapse="true"}
+## Solution
+
+**Part 1**
+
+For observation $i$,
+$$
+\ell_i
+= -\log\Big[
+\pi(\mathbf{x}_i)\,\mathcal{N}(y_i;\mu_1(\mathbf{x}_i),\sigma_1^2(\mathbf{x}_i))
++ \big(1-\pi(\mathbf{x}_i)\big)\,\mathcal{N}(y_i;\mu_2(\mathbf{x}_i),\sigma_2^2(\mathbf{x}_i))
+\Big].
+$$
+
+**Part 2**
+
+The mixing weight must satisfy $0 \le \pi(\mathbf{x}) \le 1$ because it represents a probability weight in a convex combination of densities. In a two-component softmax parameterization,
+$$
+\pi(\mathbf{x})=\frac{e^{a_1(\mathbf{x})}}{e^{a_1(\mathbf{x})}+e^{a_2(\mathbf{x})}}
+$$
+always lies strictly between 0 and 1. Hence it guarantees a valid mixture weight.
+
+For a two-component mixture, this is equivalent to a sigmoid parameterization because
+$$
+\pi(\mathbf{x})=\frac{1}{1+e^{-(a_1(\mathbf{x})-a_2(\mathbf{x}))}}.
+$$
+So using a sigmoid output for one weight is just the special two-component case of softmax.
+
+**Part 3**
+
+The two mixture components should not automatically be interpreted as structural economic regimes because the MDN is fitted for predictive accuracy, not for structural identification. Different parameterizations can generate similar predictive densities, and the labeling of components is not inherently identified. To interpret components as economic regimes, one would need additional restrictions, theory, or identification assumptions beyond predictive fit.
 :::
