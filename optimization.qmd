@@ -7,11 +7,11 @@ number-offset: [3, 0]  # This makes sections 2.1, 2.2, etc.
 
 ## Overview
 
-Training a machine learning model, especially a neural network, is an optimization problem. Our goal is to find the set of model parameters (weights and biases) that minimizes a **loss function**. The loss function measures how poorly the model is performing on the training data. Gradient-based optimization algorithms are the workhorses that allow us to navigate the complex, high-dimensional "loss landscape" to find this minimum.
+Training a machine learning model is an optimization problem. Our goal is to find the set of model parameters that minimizes a **loss function**. The loss function measures how poorly the model is performing on the training data. Gradient-based optimization algorithms are the workhorses that allow us to navigate the high-dimensional "loss landscape" to find this minimum.
 
 For econometricians, the key connection is that this is the same basic problem as nonlinear least squares or maximum likelihood estimation: choose parameters to minimize an objective function. What changes in machine learning is the scale of the parameter space, the non-convexity of the objective, and the reliance on iterative gradient-based updates.
 
-This chapter explains how these optimization methods work and why they matter for training neural networks.
+This chapter explains how these optimization methods work at a general level. The next chapter then applies this machinery to feed-forward neural networks and backpropagation.
 
 ## Roadmap
 
@@ -19,7 +19,7 @@ This chapter explains how these optimization methods work and why they matter fo
 2. We then compare **batch**, **stochastic**, and **mini-batch** updates, since this distinction is central in machine learning practice.
 3. Next, we discuss the main weaknesses of vanilla gradient descent and motivate more advanced optimizers.
 4. We then study **Momentum**, **AdaGrad**, **RMSprop**, and **Adam**.
-5. Finally, we compare their behavior visually and summarize practical lessons for neural-network training.
+5. Finally, we compare their behavior visually and summarize practical lessons for modern machine-learning estimation.
 
 ## The Core Idea for Optimization: Gradient Descent
 
@@ -51,7 +51,7 @@ To maintain notational consistency across all algorithms, we first establish our
 - $Y = \{y_i | i = 1, \dots, N\}$: the complete dataset
 
 :::{.callout-note}
-## Notation
+## Notation Convention
 For brevity, we write $\hat{y}_i$ instead of $\hat{y}_i(\boldsymbol{\theta})$, but remember that predictions always depend on the current parameters.
 :::
 
@@ -114,11 +114,11 @@ If you take
 
 :::{.callout-tip}
 ## Definition: Epoch
-An epoch refers to one full pass through the training data. With this notion introduced, we get the following quasi-code for neural-network optimization:
+An epoch refers to one full pass through the training data. With this notion introduced, we get the following quasi-code for mini-batch optimization in supervised learning:
 
 Define $n_e, n_{e,b} \in \mathbb{N}\setminus\{0\}$ the number of epochs for training and the number of batches for each epoch, respectively. 
 
-**Algorithm: Mini-Batch Gradient Descent Training for neural networks**
+**Algorithm: Mini-Batch Gradient Descent Training**
 
 ***Input:*** Training data $\{(x_i, y_i)\}_{i=1}^N$, learning rate $\eta$, batch size $|B|$
 
@@ -128,11 +128,11 @@ Define $n_e, n_{e,b} \in \mathbb{N}\setminus\{0\}$ the number of epochs for trai
 
 1. Shuffle training data $\{(x_i, y_i)\}_{i=1}^N$
 2. ***For each batch*** $B_j$ where $j = 1, \ldots, n_{e,b}$:
-   - ***Forward pass:*** Compute $\hat{y}_i = f(x_i; \boldsymbol{\theta}^{(t)})$ for $i$ such that $y_i \in B_j$
-   - ***Loss computation:*** $L_j = \frac{1}{|B_j|} \sum_{i \in B_j} \ell(y_i, \hat{y}_i)$
-   - ***Backward pass:*** $\boldsymbol{g}^{(t)} = \frac{1}{|B_j|} \sum_{i \in B_j} \nabla_{\boldsymbol{\theta}} \ell(y_i, f(x_i; \boldsymbol{\theta}^{(t)}))$
-   - ***Update:*** $\boldsymbol{\theta}^{(t+1)} = \boldsymbol{\theta}^{(t)} - \eta \boldsymbol{g}^{(t)}$
-   - ***Increment:*** $t \leftarrow t + 1$
+   - ***Compute fitted values:*** $\hat{y}_i = f(x_i; \boldsymbol{\theta}^{(t)})$ for all observations in $B_j$
+   - ***Compute batch loss:*** $L_j = \frac{1}{|B_j|} \sum_{i \in B_j} \ell(y_i, \hat{y}_i)$
+   - ***Compute batch gradient:*** $\boldsymbol{g}^{(t)} = \frac{1}{|B_j|} \sum_{i \in B_j} \nabla_{\boldsymbol{\theta}} \ell(y_i, f(x_i; \boldsymbol{\theta}^{(t)}))$
+   - ***Update parameters:*** $\boldsymbol{\theta}^{(t+1)} = \boldsymbol{\theta}^{(t)} - \eta \boldsymbol{g}^{(t)}$
+   - ***Increment counter:*** $t \leftarrow t + 1$
 
 ***Stopping rule:*** Stop if a convergence criterion is reached or maximum number of iterations $T$
 
@@ -755,98 +755,290 @@ plt.show()
 - Don't judge optimizers solely on toy 2D functions
 - Real neural networks have millions of parameters and complex loss landscapes
 - What works on simple problems may not scale to deep learning
+
+**Prerequisite Boundary**
+
+- This chapter teaches generic optimization ideas
+- Network architectures and backpropagation come in the next chapter
+- Exercises here should be solvable without prior neural-network notation
 :::
 
 
 ## Exercises
 
 :::{.callout-note}
-## Exercise 4.1: Conceptual - Adam vs. SGD
-It is sometimes observed that while Adam converges faster during training, models trained with SGD (with momentum and mini batches) can achieve slightly better performance on the test set. Provide a brief explanation for why this might happen, focusing on the nature of the minima found by each optimizer.
+## Exercise 4.1: Learning Rates in an Ill-Conditioned Quadratic Problem
 
-*At exam level but an exam question would be a little more specific to allow for clear grading criteria.*
+Consider the objective
+$$
+L(\theta_1,\theta_2)=\frac{1}{2}\left(a\theta_1^2+b\theta_2^2\right),
+\qquad a>b>0.
+$$
+Suppose we apply gradient descent with constant learning rate $\eta>0$:
+$$
+\boldsymbol{\theta}^{(t+1)}=\boldsymbol{\theta}^{(t)}-\eta \nabla L(\boldsymbol{\theta}^{(t)}).
+$$
+
+1. Derive the gradient and show that the updates satisfy
+   $$
+   \theta_1^{(t+1)}=(1-\eta a)\theta_1^{(t)},
+   \qquad
+   \theta_2^{(t+1)}=(1-\eta b)\theta_2^{(t)}.
+   $$
+2. Show that convergence to $(0,0)$ requires
+   $$
+   0<\eta<\frac{2}{a}.
+   $$
+3. Explain why, when $a\gg b$, a single global learning rate creates a tension between fast progress in the $\theta_2$ direction and stability in the $\theta_1$ direction. Relate this to the motivation for adaptive or preconditioned optimization methods.
+
+*Exam level. The exercise formalizes why optimization becomes difficult in ill-conditioned problems and why a single learning rate can be inadequate.*
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint for Part 1
+Differentiate the quadratic objective coordinate by coordinate.
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint for Part 2
+A scalar recursion $x_{t+1}=cx_t$ converges to zero if and only if $|c|<1$.
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint for Part 3
+Compare the learning rate that would be natural for the flat direction, $1/b$, with the stability restriction coming from the steep direction.
 :::
 
 :::{.callout-tip collapse="true"}
 ## Solution
 
-This phenomenon is often attributed to the "generalization gap" between adaptive optimizers and SGD.
+**Part 1**
 
-1.  **Sharp vs. Flat Minima**: The loss landscape of neural networks is complex. Some minima are very "sharp" (like a narrow ravine), while others are "flat" (like a wide valley).
-    
-    -   **Adam**: Its adaptive, per-parameter learning rates allow it to quickly find and converge to a minimum. However, this speed can sometimes lead it to settle in the nearest sharp minimum it finds.
-    -   **SGD with Momentum**: The inherent noise in SGD (from mini-batches) and the consistent step size can prevent it from immediately getting "stuck" in a sharp minimum. It might "bounce around" the walls of a sharp ravine and eventually settle in a wider, flatter minimum.
+The gradient is
+$$
+\nabla L(\theta_1,\theta_2)=
+\begin{pmatrix}
+a\theta_1\\
+b\theta_2
+\end{pmatrix}.
+$$
+Hence gradient descent gives
+$$
+\theta_1^{(t+1)}=\theta_1^{(t)}-\eta a\theta_1^{(t)}
+=(1-\eta a)\theta_1^{(t)},
+$$
+and
+$$
+\theta_2^{(t+1)}=\theta_2^{(t)}-\eta b\theta_2^{(t)}
+=(1-\eta b)\theta_2^{(t)}.
+$$
 
-2.  **Generalization**: Flat minima are generally thought to generalize better. A model that settles in a flat minimum is less sensitive to small shifts between the training and test data distributions. A model in a sharp minimum might perform very well on the training data, but a slight change in the input (as found in the test set) can lead to a large increase in the loss.
+**Part 2**
 
-Therefore, while Adam is an excellent tool for rapid prototyping and achieving good performance quickly, the slower, more explorative nature of SGD can sometimes lead it to find a more robust solution that generalizes better to unseen data.
+The iterates converge to zero if and only if both scalar recursions contract:
+$$
+|1-\eta a|<1
+\qquad\text{and}\qquad
+|1-\eta b|<1.
+$$
+These are equivalent to
+$$
+0<\eta<\frac{2}{a}
+\qquad\text{and}\qquad
+0<\eta<\frac{2}{b}.
+$$
+Since $a>b$, we have $\frac{2}{a}<\frac{2}{b}$, so the binding restriction is
+$$
+0<\eta<\frac{2}{a}.
+$$
+
+**Part 3**
+
+If $a\gg b$, then the objective is much steeper in the $\theta_1$ direction than in the $\theta_2$ direction. Stability forces
+$$
+\eta<\frac{2}{a},
+$$
+which can be very small. But then the update factor in the flat direction is
+$$
+1-\eta b,
+$$
+which stays close to 1, so convergence along $\theta_2$ is very slow.
+
+Thus a single global learning rate cannot be simultaneously well-tuned for both directions: a larger $\eta$ would help progress in the flat direction but would destabilize the steep direction. This is one of the main motivations for adaptive or preconditioned methods, which scale updates differently across coordinates.
 :::
 
 :::{.callout-note}
-## Exercise 4.2 : Mathematical - Gradient Derivation
-Consider a simple linear regression model $f(x; w, b) = wx + b$ and the Mean Squared Error loss $L = \frac{1}{2N} \sum_{i=1}^N (y_i - (wx_i + b))^2$. Derive the update rules for Batch Gradient Descent for the parameters $w$ and $b$.
+## Exercise 4.2: Mini-Batch Gradients as Noisy Gradient Estimators
 
-*I won't ask a specific question about optimization algorithm calculation in the exam, only intuition questions like the one above or below.*
+Let the full-sample objective be
+$$
+L(\boldsymbol{\theta}) = \frac{1}{N}\sum_{i=1}^N \ell_i(\boldsymbol{\theta}),
+$$
+and define the corresponding full-sample gradient
+$$
+g(\boldsymbol{\theta}) = \frac{1}{N}\sum_{i=1}^N \nabla_{\boldsymbol{\theta}} \ell_i(\boldsymbol{\theta}).
+$$
+Now draw a mini-batch $B$ of size $m$ uniformly at random from $\{1,\dots,N\}$ without replacement, and define the mini-batch gradient estimator
+$$
+\hat g_B(\boldsymbol{\theta}) = \frac{1}{m}\sum_{i\in B}\nabla_{\boldsymbol{\theta}} \ell_i(\boldsymbol{\theta}).
+$$
+
+1. Show that
+   $$
+   \mathbb{E}\left[\hat g_B(\boldsymbol{\theta})\right] = g(\boldsymbol{\theta}),
+   $$
+   so the mini-batch gradient is an unbiased estimator of the full gradient.
+2. Consider the scalar case where $\nabla_{\boldsymbol{\theta}} \ell_i(\boldsymbol{\theta})$ is replaced by $z_i \in \mathbb{R}$. Show that
+   $$
+   \mathrm{Var}\left(\frac{1}{m}\sum_{i\in B} z_i\right)
+   =
+   \frac{N-m}{m(N-1)} \cdot \frac{1}{N}\sum_{i=1}^N (z_i-\bar z)^2,
+   $$
+   where $\bar z = \frac{1}{N}\sum_{i=1}^N z_i$.
+3. Use Part 2 to explain why smaller mini-batches produce noisier updates. Then explain one reason why such noise may nevertheless be useful in optimization.
+
+*Exam level. The exercise formalizes why mini-batch updates are noisy but still useful approximations to the full gradient.*
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint for Part 1
+Write the mini-batch estimator as an average of terms multiplied by inclusion indicators.
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint for Part 2
+Use the standard variance formula for sampling without replacement, or derive it from inclusion probabilities.
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint for Part 3
+Inspect the factor
+$$
+\frac{N-m}{m(N-1)}.
+$$
 :::
 
 :::{.callout-tip collapse="true"}
 ## Solution
 
-The goal is to compute the gradients $\frac{\partial L}{\partial w}$ and $\frac{\partial L}{\partial b}$ and then plug them into the gradient descent update rule.
+**Part 1**
 
-**1. Gradient with respect to weight $w$:**
-
-We use the chain rule. Let $\hat{y}_i = wx_i + b$.
+Let
 $$
-\begin{align}
-\frac{\partial L}{\partial w} &= \frac{\partial}{\partial w} \left[ \frac{1}{2N} \sum_{i=1}^N (y_i - (wx_i + b))^2 \right] \\
-&= \frac{1}{2N} \sum_{i=1}^N 2(y_i - (wx_i + b)) \cdot \frac{\partial}{\partial w}(y_i - wx_i - b) \\
-&= \frac{1}{N} \sum_{i=1}^N (y_i - \hat{y}_i) \cdot (-x_i) \\
-&= -\frac{1}{N} \sum_{i=1}^N (y_i - \hat{y}_i)x_i
-\end{align}
+\mathbb{1}\{i \in B\}
+$$
+denote the inclusion indicator for observation $i$. Then
+$$
+\hat g_B(\boldsymbol{\theta})
+=
+\frac{1}{m}\sum_{i=1}^N \mathbb{1}\{i \in B\}\nabla_{\boldsymbol{\theta}}\ell_i(\boldsymbol{\theta}).
+$$
+Taking expectations and using
+$$
+\mathbb{E}[\mathbb{1}\{i \in B\}] = \frac{m}{N},
+$$
+$$
+\mathbb{E}[\hat g_B(\boldsymbol{\theta})]
+=
+\frac{1}{m}\sum_{i=1}^N \mathbb{E}[\mathbb{1}\{i \in B\}] \nabla_{\boldsymbol{\theta}}\ell_i(\boldsymbol{\theta})
+=
+\frac{1}{m}\sum_{i=1}^N \frac{m}{N}\nabla_{\boldsymbol{\theta}}\ell_i(\boldsymbol{\theta})
+=
+\frac{1}{N}\sum_{i=1}^N \nabla_{\boldsymbol{\theta}}\ell_i(\boldsymbol{\theta})
+= g(\boldsymbol{\theta}).
 $$
 
-**2. Gradient with respect to bias $b$:**
+So the mini-batch gradient is an unbiased estimator of the full gradient.
+
+**Part 2**
+
+For scalar values $z_1,\dots,z_N$, the sample mean over a simple random sample without replacement satisfies
 $$
-\begin{align}
-\frac{\partial L}{\partial b} &= \frac{\partial}{\partial b} \left[ \frac{1}{2N} \sum_{i=1}^N (y_i - (wx_i + b))^2 \right] \\
-&= \frac{1}{2N} \sum_{i=1}^N 2(y_i - (wx_i + b)) \cdot \frac{\partial}{\partial b}(y_i - wx_i - b) \\
-&= \frac{1}{N} \sum_{i=1}^N (y_i - \hat{y}_i) \cdot (-1) \\
-&= -\frac{1}{N} \sum_{i=1}^N (y_i - \hat{y}_i)
-\end{align}
+\mathrm{Var}\left(\frac{1}{m}\sum_{i\in B} z_i\right)
+=
+\frac{N-m}{m(N-1)}\,S_N^2,
+$$
+where
+$$
+S_N^2 = \frac{1}{N}\sum_{i=1}^N (z_i-\bar z)^2.
+$$
+Hence
+$$
+\mathrm{Var}\left(\frac{1}{m}\sum_{i\in B} z_i\right)
+=
+\frac{N-m}{m(N-1)} \cdot \frac{1}{N}\sum_{i=1}^N (z_i-\bar z)^2.
 $$
 
-**3. Update Rules:**
+This is exactly the stated formula.
 
-The Batch Gradient Descent update rules are:
-$$ w^{(t+1)} = w^{(t)} - \eta \frac{\partial L}{\partial w} = w^{(t)} + \frac{\eta}{N} \sum_{i=1}^N (y_i - \hat{y}_i)x_i $$
-$$ b^{(t+1)} = b^{(t)} - \eta \frac{\partial L}{\partial b} = b^{(t)} + \frac{\eta}{N} \sum_{i=1}^N (y_i - \hat{y}_i) $$
-These are the iterative steps that, when repeated, will find the same optimal parameters as the ordinary least squares (OLS) solution.
+**Part 3**
+
+The variance factor
+$$
+\frac{N-m}{m(N-1)}
+$$
+falls as $m$ increases. Therefore smaller mini-batches produce noisier gradient estimates and hence noisier parameter updates.
+
+That noise can nevertheless be useful because it can prevent the algorithm from following a rigid deterministic path. In non-convex problems, moderate noise may help the optimizer move away from poor local geometries such as narrow basins or saddle regions.
 :::
 
 :::{.callout-note}
-## Exercise 4.3: Practical - Diagnosing Training
- You are training a neural network. After many epochs, you plot the training loss and validation loss [(see our chapter on cross validation)](cross_validation.qmd). You observe that the training loss is still decreasing, but very, very slowly. The validation loss is also decreasing very slowly and is very close to the training loss. What is the most likely problem, and what are the first two things you should try to fix it?
+Before moving on to neural networks, note the chapter boundary: so far the objects being optimized were generic objective functions. In the next chapter, the same optimization ideas are applied to feed-forward networks, where gradients are computed by backpropagation.
+:::
 
- *Exam level*
+:::{.callout-note}
+## Exercise 4.3: Diagnosing Learning Curves
+
+For each of the following training scenarios, choose:
+
+- the most likely diagnosis from `{underfitting / optimization too slow, overfitting, learning rate too high}`
+- the most appropriate first response from `{increase learning rate, add regularization or early stopping, reduce learning rate}`
+
+Assume the model is trained with mini-batch gradient descent and performance is monitored on a validation set.
+
+1. The training loss and validation loss are both high, very close to each other, and both decrease only very slowly over many epochs.
+2. The training loss continues to fall, but the validation loss starts rising after an initial decline.
+3. Both the training loss and validation loss oscillate strongly from epoch to epoch and do not show a stable downward trend.
+
+*Exam level. The exercise turns learning-curve interpretation into a bounded diagnosis problem with definite answers.*
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint for Part 1
+A small train-validation gap usually points away from overfitting.
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint for Part 2
+Here the optimization on the training sample is still improving, but out-of-sample performance is deteriorating.
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint for Part 3
+Persistent oscillation is usually a sign that the optimization steps are too aggressive rather than too cautious.
 :::
 
 :::{.callout-tip collapse="true"}
 ## Solution
 
-**1. Diagnosis:**
+**Part 1**
 
-The most likely problem is **underfitting** or **slow convergence**. The key symptoms are:
+Diagnosis: **underfitting / optimization too slow**.  
+First response: **increase learning rate**.
 
--   **Slowly decreasing loss**: The optimizer is making very slow progress.
--   **Small gap between training and validation loss**: This indicates the model is not overfitting. It performs similarly on data it has seen and data it hasn't, which means it hasn't yet learned the training data well enough.
+Reason: both losses are high and close, so the model is not primarily suffering from overfitting. The main issue is that optimization is progressing too slowly.
 
-**2. Solutions to Try:**
+**Part 2**
 
-The goal is to speed up the learning process.
+Diagnosis: **overfitting**.  
+First response: **add regularization or early stopping**.
 
--   **First Action: Increase the Learning Rate ($\eta$)**. A learning rate that is too small is the most common cause of extremely slow convergence. By increasing $\eta$ (e.g., by a factor of 5 or 10), the optimizer will take larger steps down the gradient, and the loss should decrease much faster. You must be careful not to increase it too much, which would cause the loss to become unstable and diverge.
+Reason: training performance keeps improving, but validation performance deteriorates. That is the standard pattern of overfitting.
 
--   **Second Action: Use a More Advanced Optimizer**. If you are using basic SGD, switching to an optimizer with momentum and adaptive learning rates, like **Adam**, is a great next step. Adam is often much faster at converging than SGD, especially in the early stages of training, because it adapts the learning rate for each parameter separately.
+**Part 3**
 
+Diagnosis: **learning rate too high**.  
+First response: **reduce learning rate**.
+
+Reason: strong oscillation in both training and validation losses indicates unstable optimization steps that overshoot the local descent direction.
 :::
