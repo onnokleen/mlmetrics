@@ -506,6 +506,493 @@ For deep neural networks with many hyperparameters, consider:
 - **Nested Cross-Validation**: Use an outer loop for final performance assessment if hyperparameter search itself is extensive
 :::
 
+## Summary
+
+:::{.callout-important}
+## Key Takeaways
+1. Cross-validation is a validation device for model selection and tuning; it is not a substitute for a final untouched test set.
+2. A validation strategy is honest only if every data-dependent preprocessing step is recomputed inside each training fold.
+3. Repeatedly choosing the best specification from noisy validation scores creates selection-induced optimism, even when each candidate score is unbiased on its own.
+4. In time-series settings, cross-validation must respect the forecast-origin information set and the publication timing of predictors.
+5. Random K-fold is often inappropriate for dependent data because it can leak future information into the training sample.
+:::
+
+:::{.callout-warning}
+## Common Pitfalls
+- Using the test set repeatedly while tuning hyperparameters or architectures.
+- Standardizing, imputing, or selecting predictors on the full sample before cross-validation.
+- Treating random K-fold as automatically valid for time-series forecasting problems.
+- Forgetting that revised or delayed-release predictors may not belong to the real-time information set.
+:::
+
+## Exercises
+
+:::{.callout-note}
+## Exercise 2.1: Leakage from Full-Sample Standardization
+
+Consider leave-one-out cross-validation for a scalar predictor $x_1,\dots,x_T$. Let observation $j$ be the validation observation. Define
+$$
+\bar{x}=\frac{1}{T}\sum_{t=1}^{T}x_t
+\qquad\text{and}\qquad
+\bar{x}_{-j}=\frac{1}{T-1}\sum_{t\neq j}x_t,
+$$
+where $\bar{x}$ is the full-sample mean and $\bar{x}_{-j}$ is the mean computed only on the training fold.
+
+Define the corresponding second moments
+$$
+s^2=\frac{1}{T}\sum_{t=1}^{T}(x_t-\bar{x})^2,
+\qquad
+s_{-j}^2=\frac{1}{T-1}\sum_{t\neq j}(x_t-\bar{x}_{-j})^2.
+$$
+
+1. Show that
+   $$
+   \bar{x}=\bar{x}_{-j}+\frac{x_j-\bar{x}_{-j}}{T}.
+   $$
+2. Show that
+   $$
+   s^2=\frac{T-1}{T}s_{-j}^2+\frac{T-1}{T^2}(x_j-\bar{x}_{-j})^2.
+   $$
+3. Let
+   $$
+   z_j^{\text{full}}=\frac{x_j-\bar{x}}{s},
+   \qquad
+   z_j^{\text{honest}}=\frac{x_j-\bar{x}_{-j}}{s_{-j}},
+   \qquad
+   \Delta_j=\frac{x_j-\bar{x}_{-j}}{s_{-j}}.
+   $$
+   Show that
+   $$
+   z_j^{\text{full}}
+   =
+   \frac{\sqrt{T-1}\,\Delta_j}{\sqrt{T+\Delta_j^2}}.
+   $$
+4. Deduce that
+   $$
+   |z_j^{\text{full}}|<|z_j^{\text{honest}}|
+   \qquad\text{for every }\Delta_j\neq 0.
+   $$
+   Explain why this shows that full-sample standardization mechanically uses the validation observation to shrink its own standardized magnitude.
+
+*Exam level. The point is to show mathematically that preprocessing on the full sample contaminates the validation fold and changes the object being evaluated.*
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint for Part 1
+Write
+$$
+\sum_{t=1}^{T}x_t = \sum_{t\neq j}x_t + x_j
+$$
+and replace the sums by $(T-1)\bar{x}_{-j}$ and $T\bar{x}$.
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint for Part 2
+Use the identity
+$$
+\sum_{t=1}^{T}(x_t-\bar{x})^2
+=
+\sum_{t\neq j}(x_t-\bar{x})^2+(x_j-\bar{x})^2
+$$
+and rewrite $x_t-\bar{x}$ as $(x_t-\bar{x}_{-j})-(\bar{x}-\bar{x}_{-j})$.
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint for Part 3
+Use Parts 1 and 2 to write both numerator and denominator in terms of $\Delta_j$ and $T$.
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint for Part 4
+Compare the multiplicative factor linking $z_j^{\text{full}}$ and $\Delta_j$ with 1.
+:::
+
+:::{.callout-tip collapse="true"}
+## Solution
+
+**Part 1**
+
+We have
+$$
+T\bar{x}=\sum_{t=1}^{T}x_t=\sum_{t\neq j}x_t+x_j=(T-1)\bar{x}_{-j}+x_j.
+$$
+Dividing by $T$ gives
+$$
+\bar{x}=\frac{T-1}{T}\bar{x}_{-j}+\frac{x_j}{T}
+=\bar{x}_{-j}+\frac{x_j-\bar{x}_{-j}}{T}.
+$$
+
+**Part 2**
+
+We start from
+$$
+\sum_{t=1}^{T}(x_t-\bar{x})^2
+=
+\sum_{t\neq j}(x_t-\bar{x})^2+(x_j-\bar{x})^2.
+$$
+For $t\neq j$,
+$$
+x_t-\bar{x}
+=(x_t-\bar{x}_{-j})-(\bar{x}-\bar{x}_{-j}).
+$$
+Since $\sum_{t\neq j}(x_t-\bar{x}_{-j})=0$, we obtain
+$$
+\sum_{t\neq j}(x_t-\bar{x})^2
+=
+\sum_{t\neq j}(x_t-\bar{x}_{-j})^2
++(T-1)(\bar{x}-\bar{x}_{-j})^2.
+$$
+By Part 1,
+$$
+\bar{x}-\bar{x}_{-j}=\frac{x_j-\bar{x}_{-j}}{T},
+\qquad
+x_j-\bar{x}=\frac{T-1}{T}(x_j-\bar{x}_{-j}).
+$$
+Therefore
+$$
+\sum_{t=1}^{T}(x_t-\bar{x})^2
+=(T-1)s_{-j}^2+(T-1)\frac{(x_j-\bar{x}_{-j})^2}{T^2}
++\frac{(T-1)^2}{T^2}(x_j-\bar{x}_{-j})^2.
+$$
+Combining the last two terms gives
+$$
+\sum_{t=1}^{T}(x_t-\bar{x})^2
+=(T-1)s_{-j}^2+\frac{T-1}{T}(x_j-\bar{x}_{-j})^2.
+$$
+Dividing by $T$ yields
+$$
+s^2=\frac{T-1}{T}s_{-j}^2+\frac{T-1}{T^2}(x_j-\bar{x}_{-j})^2.
+$$
+
+**Part 3**
+
+From Part 1,
+$$
+x_j-\bar{x}=\frac{T-1}{T}(x_j-\bar{x}_{-j})
+=\frac{T-1}{T}\Delta_j s_{-j}.
+$$
+From Part 2,
+$$
+s^2=\frac{T-1}{T}s_{-j}^2+\frac{T-1}{T^2}\Delta_j^2 s_{-j}^2
+=\frac{T-1}{T}s_{-j}^2\left(1+\frac{\Delta_j^2}{T}\right).
+$$
+Hence
+$$
+s=s_{-j}\sqrt{\frac{T-1}{T}}\sqrt{1+\frac{\Delta_j^2}{T}}.
+$$
+Therefore
+$$
+z_j^{\text{full}}
+=\frac{x_j-\bar{x}}{s}
+=
+\frac{\frac{T-1}{T}\Delta_j s_{-j}}
+{s_{-j}\sqrt{\frac{T-1}{T}}\sqrt{1+\frac{\Delta_j^2}{T}}}
+=
+\frac{\sqrt{T-1}\,\Delta_j}{\sqrt{T+\Delta_j^2}}.
+$$
+
+**Part 4**
+
+We have
+$$
+z_j^{\text{honest}}=\Delta_j.
+$$
+So
+$$
+\left|\frac{z_j^{\text{full}}}{z_j^{\text{honest}}}\right|
+=
+\frac{\sqrt{T-1}}{\sqrt{T+\Delta_j^2}}
+<1
+\qquad\text{for every }\Delta_j\neq 0,
+$$
+because $T+\Delta_j^2>T-1$.
+
+Thus
+$$
+|z_j^{\text{full}}|<|z_j^{\text{honest}}|
+\qquad\text{whenever }\Delta_j\neq 0.
+$$
+This shows mathematically that full-sample standardization is not innocuous: the validation observation enters both the centering and scaling rule, which shrinks its own standardized magnitude. So the validation fold is no longer being evaluated under a preprocessing rule estimated only from the training data.
+:::
+
+:::{.callout-note}
+## Exercise 2.2: Why Model Search Creates Optimistic Validation Scores
+
+Suppose two candidate forecasting models, $A$ and $B$, have the same true out-of-sample risk $R$. Their validation-set risk estimates satisfy
+$$
+\hat{R}_A = R+\varepsilon_A,
+\qquad
+\hat{R}_B = R+\varepsilon_B,
+$$
+where $\varepsilon_A$ and $\varepsilon_B$ are independent with mean zero.
+
+The researcher selects the model with the smaller validation estimate.
+
+1. Show that
+   $$
+   \min(\hat{R}_A,\hat{R}_B)
+   =
+   R+\frac{\varepsilon_A+\varepsilon_B-|\varepsilon_A-\varepsilon_B|}{2}.
+   $$
+2. Deduce that
+   $$
+   \mathbb{E}\big[\min(\hat{R}_A,\hat{R}_B)\big]
+   =
+   R-\frac{1}{2}\mathbb{E}\big[|\varepsilon_A-\varepsilon_B|\big]
+   < R.
+   $$
+3. Suppose in addition that
+   $$
+   \varepsilon_A,\varepsilon_B \stackrel{\text{iid}}{\sim} \mathcal{N}(0,\sigma^2).
+   $$
+   Derive the exact expectation of the selected validation score and show that
+   $$
+   \mathbb{E}\big[\min(\hat{R}_A,\hat{R}_B)\big]
+   =
+   R-\frac{\sigma}{\sqrt{\pi}}.
+   $$
+4. Explain why the selected validation score is optimistically biased even though both $\hat{R}_A$ and $\hat{R}_B$ are individually unbiased estimates of $R$. Relate this result to repeated specification search in econometrics and explain why an untouched test set or nested cross-validation is needed after model selection.
+
+*Exam level. The exercise formalizes a central point of the chapter: validation is noisy, and searching across specifications makes the best observed score look too good.*
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint for Part 1
+Use the identity
+$$
+\min(a,b)=\frac{a+b-|a-b|}{2}.
+$$
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint for Part 2
+Take expectations and use $\mathbb{E}[\varepsilon_A]=\mathbb{E}[\varepsilon_B]=0$.
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint for Part 3
+Under the Gaussian assumption, $\varepsilon_A-\varepsilon_B$ is also Gaussian. Use the fact that if $Z\sim\mathcal{N}(0,\tau^2)$, then
+$$
+\mathbb{E}|Z|=\tau\sqrt{\frac{2}{\pi}}.
+$$
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint for Part 4
+Unbiasedness holds model by model. The bias appears after taking the minimum across noisy estimates.
+:::
+
+:::{.callout-tip collapse="true"}
+## Solution
+
+**Part 1**
+
+Apply the identity with $a=\hat{R}_A$ and $b=\hat{R}_B$:
+$$
+\min(\hat{R}_A,\hat{R}_B)
+=\frac{\hat{R}_A+\hat{R}_B-|\hat{R}_A-\hat{R}_B|}{2}.
+$$
+Substituting $\hat{R}_A=R+\varepsilon_A$ and $\hat{R}_B=R+\varepsilon_B$ gives
+$$
+\min(\hat{R}_A,\hat{R}_B)
+=\frac{2R+\varepsilon_A+\varepsilon_B-|\varepsilon_A-\varepsilon_B|}{2}
+=R+\frac{\varepsilon_A+\varepsilon_B-|\varepsilon_A-\varepsilon_B|}{2}.
+$$
+
+**Part 2**
+
+Taking expectations,
+$$
+\mathbb{E}\big[\min(\hat{R}_A,\hat{R}_B)\big]
+=
+R+\frac{\mathbb{E}[\varepsilon_A]+\mathbb{E}[\varepsilon_B]-\mathbb{E}[|\varepsilon_A-\varepsilon_B|]}{2}.
+$$
+Since both errors have mean zero,
+$$
+\mathbb{E}\big[\min(\hat{R}_A,\hat{R}_B)\big]
+=
+R-\frac{1}{2}\mathbb{E}[|\varepsilon_A-\varepsilon_B|].
+$$
+Because $|\varepsilon_A-\varepsilon_B|\ge 0$ and is strictly positive with positive probability unless the two errors are always identical,
+$$
+\mathbb{E}\big[\min(\hat{R}_A,\hat{R}_B)\big] < R.
+$$
+
+**Part 3**
+
+Under the additional assumption,
+$$
+\varepsilon_A-\varepsilon_B\sim \mathcal{N}(0,2\sigma^2).
+$$
+If $Z\sim\mathcal{N}(0,\tau^2)$, then
+$$
+\mathbb{E}|Z|=\tau\sqrt{\frac{2}{\pi}}.
+$$
+Here $\tau=\sqrt{2}\sigma$, so
+$$
+\mathbb{E}\big[|\varepsilon_A-\varepsilon_B|\big]
+=\sqrt{2}\sigma\sqrt{\frac{2}{\pi}}
+=\frac{2\sigma}{\sqrt{\pi}}.
+$$
+Substituting this into Part 2 gives
+$$
+\mathbb{E}\big[\min(\hat{R}_A,\hat{R}_B)\big]
+=
+R-\frac{1}{2}\cdot \frac{2\sigma}{\sqrt{\pi}}
+=
+R-\frac{\sigma}{\sqrt{\pi}}.
+$$
+
+**Part 4**
+
+Each candidate validation score is unbiased when viewed separately:
+$$
+\mathbb{E}[\hat{R}_A]=\mathbb{E}[\hat{R}_B]=R.
+$$
+But the researcher does not report one fixed model’s score; they report the *smaller* of two noisy scores. The minimum operator systematically picks negative noise realizations. That is why the selected validation score is optimistically biased.
+
+The same logic applies when an econometrician searches across many lag lengths, control sets, regularization parameters, or model classes using the same validation sample. The “best” validation score partly reflects good luck.
+
+An untouched test set or nested cross-validation is needed because model selection has already used the validation information. A final honest assessment requires a fresh evaluation sample that was not involved in the search.
+:::
+
+:::{.callout-note}
+## Exercise 2.3: Feasible and Infeasible Time-Series Forecasts
+
+Suppose the data-generating process is
+$$
+y_{t+1}=\beta z_t+u_{t+1},
+\qquad
+z_t=\rho z_{t-1}+\xi_t,
+$$
+where $|\rho|<1$, $\mathbb{E}[u_{t+1}]=\mathbb{E}[\xi_t]=0$, $\operatorname{Var}(u_{t+1})=\sigma_u^2$, $\operatorname{Var}(\xi_t)=\sigma_\xi^2$, and $u_{t+1}$ is independent of $\xi_t$ and of the past.
+
+Assume the predictor $z_t$ is published with a one-period delay, so at forecast origin $t$ we observe $z_{t-1}$ but not $z_t$. Let $\mathcal{F}_t=\sigma(z_{t-1},z_{t-2},\dots)$.
+
+Consider the two forecasting rules
+$$
+\hat{y}^{\,\text{oracle}}_{t+1\mid t}=\beta z_t,
+\qquad
+\hat{y}^{\,\text{rt}}_{t+1\mid t}=\mathbb{E}[y_{t+1}\mid \mathcal{F}_t].
+$$
+
+1. Derive the feasible real-time forecast $\hat{y}^{\,\text{rt}}_{t+1\mid t}$ as a function of $z_{t-1}$.
+2. Compute the one-step-ahead forecast error of the feasible real-time forecast and show that its MSPE is
+   $$
+   \operatorname{MSPE}_{\text{rt}}=\beta^2\sigma_\xi^2+\sigma_u^2.
+   $$
+3. Compute the forecast error of the infeasible oracle forecast $\hat{y}^{\,\text{oracle}}_{t+1\mid t}$ and show that
+   $$
+   \operatorname{MSPE}_{\text{oracle}}=\sigma_u^2.
+   $$
+4. Explain why a random cross-validation design that effectively allows the use of $z_t$ when forecasting $y_{t+1}$ will deliver an unduly optimistic estimate of real-time forecasting performance.
+
+*Exam level. The exercise formalizes the central econometric issue in time-series cross-validation: the validation design must match the real-time information set.*
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint for Part 1
+Use iterated expectations:
+$$
+\mathbb{E}[y_{t+1}\mid \mathcal{F}_t]
+=
+\beta\,\mathbb{E}[z_t\mid \mathcal{F}_t].
+$$
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint for Part 2
+Substitute the AR(1) representation of $z_t$ into the forecast error.
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint for Part 3
+The oracle forecast uses the contemporaneous but unavailable predictor $z_t$ directly.
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint for Part 4
+Compare the two MSPE formulas. Ask which one is relevant for the deployment problem faced by the econometrician.
+:::
+
+:::{.callout-tip collapse="true"}
+## Solution
+
+**Part 1**
+
+We have
+$$
+\mathbb{E}[y_{t+1}\mid \mathcal{F}_t]
+=
+\beta\,\mathbb{E}[z_t\mid \mathcal{F}_t]
+=
+\beta\,\mathbb{E}[\rho z_{t-1}+\xi_t\mid \mathcal{F}_t].
+$$
+Since $z_{t-1}\in \mathcal{F}_t$ and $\mathbb{E}[\xi_t\mid \mathcal{F}_t]=0$,
+$$
+\hat{y}^{\,\text{rt}}_{t+1\mid t}
+=
+\beta\rho z_{t-1}.
+$$
+
+**Part 2**
+
+The real-time forecast error is
+$$
+e^{\text{rt}}_{t+1}
+=
+y_{t+1}-\hat{y}^{\,\text{rt}}_{t+1\mid t}
+=
+\beta z_t+u_{t+1}-\beta\rho z_{t-1}.
+$$
+Using $z_t=\rho z_{t-1}+\xi_t$, this becomes
+$$
+e^{\text{rt}}_{t+1}
+=
+\beta\xi_t+u_{t+1}.
+$$
+Hence
+$$
+\operatorname{MSPE}_{\text{rt}}
+=
+\operatorname{Var}(\beta\xi_t+u_{t+1})
+=
+\beta^2\sigma_\xi^2+\sigma_u^2,
+$$
+using independence of $\xi_t$ and $u_{t+1}$.
+
+**Part 3**
+
+The oracle forecast error is
+$$
+e^{\text{oracle}}_{t+1}
+=
+y_{t+1}-\hat{y}^{\,\text{oracle}}_{t+1\mid t}
+=
+\beta z_t+u_{t+1}-\beta z_t
+=
+u_{t+1}.
+$$
+Therefore
+$$
+\operatorname{MSPE}_{\text{oracle}}=\operatorname{Var}(u_{t+1})=\sigma_u^2.
+$$
+
+**Part 4**
+
+The oracle forecast is better on paper because it uses information that is unavailable in real time:
+$$
+\operatorname{MSPE}_{\text{oracle}}=\sigma_u^2
+<
+\beta^2\sigma_\xi^2+\sigma_u^2
+=
+\operatorname{MSPE}_{\text{rt}}
+$$
+whenever $\beta\neq 0$ and $\sigma_\xi^2>0$.
+
+So a random cross-validation design that effectively lets the model exploit $z_t$ when predicting $y_{t+1}$ is evaluating an infeasible forecasting problem. It will produce an overly optimistic estimate of achievable real-time performance. The relevant validation design is the one that reproduces the actual forecast-origin information set, not the one with the lower but infeasible error.
+:::
+
 <!-- 
 ## References
 
