@@ -33,6 +33,7 @@ Exercises must be suitable for a **3-hour handwritten exam**:
 
 - **Pen-and-paper gradeable**: every exercise must be answerable with pen and paper. No "run this code and report" questions.
 - **Concrete, well-scoped sub-parts**: break exercises into numbered parts (Part 1, Part 2, ...) with clear, bounded scope. Each part should be independently gradeable.
+- **Flexible number of sub-parts**: use as many sub-parts as the exercise actually needs. Do not default mechanically to four parts; many good exercises will naturally have 2 or 3 parts, while 4 parts should be used only when the structure genuinely adds value.
 - **No open-ended questions**: avoid "discuss the implications" or "what do you think about" style questions. Each part should have a definitive correct answer or derivation.
 - **Gradual difficulty**: hints guide students through harder exercises; a strong student should be able to solve without hints, but hints make the exercise accessible to all.
 - **Difficulty annotation**: include an italic comment about exam suitability, e.g., `*Could be part of an exam if broken into sub-exercises with hints.*`
