@@ -1,4 +1,7 @@
 ---
+bibliography:
+  - '/Users/onnokleen/Dropbox (Personal)/library.bib'
+  - references-local.bib
 number-sections: true
 number-offset: [8, 0]
 ---
@@ -130,7 +133,7 @@ The HNN framework introduces two key ingredients to discipline the unstable MLE 
 
 ## Handling Complex Distributions: Mixture Density Networks (MDNs) {#sec-mdn}
 
-For distributions that are skewed, fat-tailed, or multi-modal, a single parametric form is too restrictive. **Mixture Density Networks (MDNs)** proposed by @Bishop1994 address this by modeling the conditional distribution as a mixture of simpler ones, like Gaussians:
+For distributions that are skewed, fat-tailed, or multi-modal, a single parametric form is too restrictive. **Mixture Density Networks (MDNs)** proposed by @Bishop1994MDN address this by modeling the conditional distribution as a mixture of simpler ones, like Gaussians:
 $$
 p(y \mid \mathbf{x})=\sum_{k=1}^K \pi_k(\mathbf{x})\,\mathcal{N}\!\big(y;\,\mu_k(\mathbf{x}),\,\sigma_k^2(\mathbf{x})\big)
 $$
@@ -179,40 +182,44 @@ An MDN is a flexible way to approximate a conditional density with latent regime
 ## Exercises {#sec-distnn-exercises}
 
 :::{.callout-note}
-## Exercise 9.1: Gaussian Distributional Network and NLL
+## Exercise 9.1: Why Joint Gaussian NLL Training Can Be Ill-Posed
 
-Consider a Gaussian distributional neural network for one-step-ahead forecasting:
+Consider a Gaussian distributional model for one-step-ahead forecasting. Maximizing the likelihood is equivalent to maximizing the log-likelihood, which in turn is equivalent to minimizing the negative log-likelihood. We therefore work with the per-observation Gaussian negative log-likelihood, up to an additive constant,
 $$
-y_{t+1} \mid \mathbf{x}_t \sim \mathcal{N}(\mu_t,\sigma_t^2), \qquad
-\mu_t = f_{\phi_\mu}(\mathbf{x}_t), \qquad
-\sigma_t^2 = g_{\phi_\sigma}(\mathbf{x}_t)>0.
+\ell(e_t,\sigma_t^2)=\frac{1}{2}\log(\sigma_t^2)+\frac{e_t^2}{2\sigma_t^2},
+\qquad e_t=y_{t+1}-\mu_t,\qquad \sigma_t^2>0.
 $$
 
-1. Derive the one-observation negative log-likelihood up to an additive constant.
-2. Suppose $\sigma_t^2 = \sigma^2$ is constant across all $t$, where $\sigma^2$ is fixed and known. Show that minimizing the total negative log-likelihood with respect to the mean function is equivalent to minimizing the sum of squared forecast errors.
-3. Explain why the variance head must be constrained to be positive, and give one neural-network output transformation that enforces this.
+1. For fixed $e_t \neq 0$, derive the value of $\sigma_t^2$ that minimizes $\ell(e_t,\sigma_t^2)$. Verify that this critical point is a minimum.
+2. Show that if $e_t=0$, then the infimum of $\ell(e_t,\sigma_t^2)$ over $\sigma_t^2>0$ equals $-\infty$ and is not attained at any finite variance value.
+3. Suppose an overparameterized mean network interpolates the training sample exactly, so that $e_t=0$ for all $t=1,\dots,T$, and the variance head can choose each $\sigma_t^2$ freely. Show that the sample Gaussian NLL has no finite minimizer.
+4. Suppose instead that the model imposes a variance floor $\sigma_t^2 \ge c$ for some constant $c>0$. Solve the constrained minimization problem for one observation and show that the optimal variance is
+   $$
+   \sigma_t^{2\ast}=\max\{e_t^2,c\}.
+   $$
+   Explain briefly why this removes the pathology from Part 3, but does not by itself guarantee good out-of-sample calibration.
 
-*Exam level. Part 3 would likely appear as a short conceptual sub-question.*
+*Exam level. Parts 2-4 are meant to test whether students understand the instability behind joint mean-variance training rather than just the Gaussian likelihood formula itself.*
 :::
 
 :::{.callout-warning collapse="true"}
 ## Hint for Part 1
-Start from the Gaussian density
-$$
-p(y_{t+1}\mid \mathbf{x}_t)=\frac{1}{\sqrt{2\pi\sigma_t^2}}
-\exp\left(-\frac{(y_{t+1}-\mu_t)^2}{2\sigma_t^2}\right).
-$$
-Take minus the log and drop constants that do not depend on the network parameters.
+Differentiate $\ell(e_t,\sigma_t^2)$ with respect to $\sigma_t^2$ and set the derivative equal to zero. Then check the second derivative at the critical point.
 :::
 
 :::{.callout-warning collapse="true"}
 ## Hint for Part 2
-If $\sigma_t^2=\sigma^2$ is fixed and known, then any term involving only $\sigma^2$ is constant for the optimization problem.
+Substitute $e_t=0$ into the objective. Then ask what happens as $\sigma_t^2 \downarrow 0$.
 :::
 
 :::{.callout-warning collapse="true"}
 ## Hint for Part 3
-Think about what would happen if the network were allowed to output a negative variance estimate.
+Write the sample NLL as a sum of the one-observation objectives from Part 2.
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint for Part 4
+First solve the unconstrained problem from Part 1. Then check whether that solution satisfies the inequality constraint $\sigma_t^2 \ge c$.
 :::
 
 :::{.callout-tip collapse="true"}
@@ -220,74 +227,117 @@ Think about what would happen if the network were allowed to output a negative v
 
 **Part 1**
 
-For one observation,
+Differentiate with respect to $\sigma_t^2$:
 $$
--\log p(y_{t+1}\mid \mathbf{x}_t)
-= \frac{1}{2}\log(2\pi) + \frac{1}{2}\log(\sigma_t^2)
-+ \frac{(y_{t+1}-\mu_t)^2}{2\sigma_t^2}.
+\frac{\partial \ell}{\partial \sigma_t^2}
+= \frac{1}{2\sigma_t^2}-\frac{e_t^2}{2(\sigma_t^2)^2}.
 $$
-Up to an additive constant, this is
+Setting this equal to zero gives
 $$
-\ell_t(\phi_\mu,\phi_\sigma)
-= \frac{1}{2}\log(\sigma_t^2)
-+ \frac{(y_{t+1}-\mu_t)^2}{2\sigma_t^2}.
+\frac{1}{2\sigma_t^2}=\frac{e_t^2}{2(\sigma_t^2)^2}
+\quad\Longrightarrow\quad
+\sigma_t^2=e_t^2.
 $$
+To verify that this is a minimum, compute the second derivative:
+$$
+\frac{\partial^2 \ell}{\partial (\sigma_t^2)^2}
+= -\frac{1}{2(\sigma_t^2)^2}+\frac{e_t^2}{(\sigma_t^2)^3}.
+$$
+Evaluating at $\sigma_t^2=e_t^2$ yields
+$$
+\frac{\partial^2 \ell}{\partial (\sigma_t^2)^2}\Big|_{\sigma_t^2=e_t^2}
+= \frac{1}{2e_t^4}>0.
+$$
+Hence the minimizer for fixed $e_t\neq 0$ is $\sigma_t^2=e_t^2$.
 
 **Part 2**
 
-If $\sigma_t^2=\sigma^2$ is constant across all $t$ and $\sigma^2$ is fixed, then the sample objective becomes
+If $e_t=0$, then
 $$
-\sum_{t=1}^{T}\ell_t
-= \frac{T}{2}\log(\sigma^2)
-+ \frac{1}{2\sigma^2}\sum_{t=1}^{T}(y_{t+1}-\mu_t)^2.
+\ell(0,\sigma_t^2)=\frac{1}{2}\log(\sigma_t^2).
 $$
-The first term is constant, and the factor $\frac{1}{2\sigma^2}$ in front of the sum of squared errors is also constant and positive. Therefore minimizing total NLL is equivalent to minimizing
+As $\sigma_t^2 \downarrow 0$,
 $$
-\sum_{t=1}^{T}(y_{t+1}-\mu_t)^2.
+\frac{1}{2}\log(\sigma_t^2)\to -\infty.
 $$
+Therefore the infimum of the objective is $-\infty$. However, no finite positive value of $\sigma_t^2$ attains this infimum, so the problem has no minimizer.
 
 **Part 3**
 
-The variance head must be constrained to be positive because a variance cannot be negative and because the Gaussian log-likelihood contains $\log(\sigma_t^2)$ and division by $\sigma_t^2$. A negative or zero value would make the likelihood invalid or numerically unstable. One common transformation is
+If the mean network interpolates the training sample exactly, then $e_t=0$ for all $t$. The sample objective is
 $$
-\sigma_t^2=\operatorname{softplus}(z_t)=\log(1+e^{z_t}),
+\sum_{t=1}^{T}\ell(0,\sigma_t^2)=\frac{1}{2}\sum_{t=1}^{T}\log(\sigma_t^2).
 $$
-which guarantees positivity.
+By sending each $\sigma_t^2$ arbitrarily close to zero, this sum can be made arbitrarily negative. Hence the training Gaussian NLL has no finite minimizer. This is the basic ill-posedness behind unstable joint training of very flexible mean and variance networks.
+
+**Part 4**
+
+From Part 1, the unconstrained minimizer is $\sigma_t^2=e_t^2$. Under the constraint $\sigma_t^2\ge c$, there are two cases:
+
+- If $e_t^2\ge c$, the unconstrained optimum is feasible, so $\sigma_t^{2\ast}=e_t^2$.
+- If $e_t^2<c$, the unconstrained optimum violates the constraint, so the constrained optimum lies at the boundary, $\sigma_t^{2\ast}=c$.
+
+Therefore
+$$
+\sigma_t^{2\ast}=\max\{e_t^2,c\}.
+$$
+
+This removes the pathology from Part 3 because even if $e_t=0$, the smallest admissible variance is now $c$, so the objective cannot be driven to $-\infty$ by shrinking the variance to zero. But this does not guarantee good out-of-sample calibration: a variance floor prevents a mathematical degeneracy, yet the learned variance process can still be badly misspecified for future data.
 :::
 
 :::{.callout-note}
-## Exercise 9.2: Mixture Density Outputs and Interpretation
+## Exercise 9.2: Moment-Matched Gaussian Forecasts versus MDNs
 
-Consider a two-component Gaussian mixture density network:
+Consider the symmetric two-component conditional density
 $$
-p(y \mid \mathbf{x}) = \pi(\mathbf{x})\,\mathcal{N}(y;\mu_1(\mathbf{x}),\sigma_1^2(\mathbf{x}))
-+ \big(1-\pi(\mathbf{x})\big)\,\mathcal{N}(y;\mu_2(\mathbf{x}),\sigma_2^2(\mathbf{x})).
+f_M(y\mid \mathbf{x}_t)
+= \frac{1}{2}\,\varphi(y;-m_t,s^2)+\frac{1}{2}\,\varphi(y;m_t,s^2),
+\qquad m_t>0,\ s>0,
 $$
+where $\varphi(y;\mu,\sigma^2)$ denotes the Gaussian density with mean $\mu$ and variance $\sigma^2$.
 
-1. Write the one-observation negative log-likelihood for realized outcome $y_i$ and feature vector $\mathbf{x}_i$.
-2. Explain why the mixing weight must satisfy $0 \le \pi(\mathbf{x}) \le 1$. Show how a two-component softmax output implies this, and explain why a sigmoid layer is an equivalent special case for a two-component mixture.
-3. Explain why the two mixture components should not automatically be interpreted as structural economic regimes.
+Now consider the Gaussian forecast
+$$
+f_G(y\mid \mathbf{x}_t)=\varphi(y;0,m_t^2+s^2),
+$$
+which matches the first two moments of $f_M$.
 
-*Exam level if broken into parts as written here.*
+1. Derive the conditional mean and conditional variance of $f_M(y\mid \mathbf{x}_t)$ and verify that $f_G$ indeed matches these two moments.
+2. Show that the point forecast that minimizes conditional MSE under both $f_M$ and $f_G$ is zero. Explain why an MSE comparison cannot distinguish these two forecast distributions.
+3. Evaluate both densities at the realized outcome $y_{t+1}=m_t$:
+   $$
+   f_M(m_t\mid \mathbf{x}_t)
+   \qquad\text{and}\qquad
+   f_G(m_t\mid \mathbf{x}_t).
+   $$
+   Show that as $m_t/s \to \infty$, the mixture density at $y_{t+1}=m_t$ stays bounded away from zero, while the Gaussian density goes to zero. Conclude that LogS can strongly prefer the MDN-style forecast even when MSE cannot distinguish the two models.
+4. Show formally that swapping the labels of the two mixture components leaves $f_M(y\mid \mathbf{x}_t)$ unchanged. Explain why this means that mixture components are not structurally identified without additional restrictions.
+
+*Exam level. The point of this exercise is that matching means and variances is not enough to match the predictive distribution, and that distributional scores can detect this while MSE cannot.*
 :::
 
 :::{.callout-warning collapse="true"}
 ## Hint for Part 1
-Evaluate the mixture density at $(y_i,\mathbf{x}_i)$ and then take minus the logarithm.
+Use the symmetry of the mixture. For the variance, compute $\mathbb{E}[y_{t+1}^2\mid \mathbf{x}_t]$ first.
 :::
 
 :::{.callout-warning collapse="true"}
 ## Hint for Part 2
-For a two-component softmax, the network can output two logits $a_1(\mathbf{x})$ and $a_2(\mathbf{x})$ and define
-$$
-\pi(\mathbf{x})=\frac{e^{a_1(\mathbf{x})}}{e^{a_1(\mathbf{x})}+e^{a_2(\mathbf{x})}}.
-$$
-You can recover a sigmoid form by setting $a(\mathbf{x})=a_1(\mathbf{x})-a_2(\mathbf{x})$.
+Recall that under squared-error loss, the optimal point forecast is the conditional mean.
 :::
 
 :::{.callout-warning collapse="true"}
 ## Hint for Part 3
-Think about the difference between a predictive decomposition and a structurally identified regime-switching model.
+For the mixture density, plug $y=m_t$ into both Gaussian components. For the Gaussian forecast, plug $y=m_t$ into the density with variance $m_t^2+s^2$ and then study the limit as $m_t/s\to\infty$.
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint for Part 4
+Write the mixture once as
+$$
+\frac{1}{2}\varphi(y;-m_t,s^2)+\frac{1}{2}\varphi(y;m_t,s^2)
+$$
+and once with the two terms reversed.
 :::
 
 :::{.callout-tip collapse="true"}
@@ -295,30 +345,73 @@ Think about the difference between a predictive decomposition and a structurally
 
 **Part 1**
 
-For observation $i$,
+By symmetry,
 $$
-\ell_i
-= -\log\Big[
-\pi(\mathbf{x}_i)\,\mathcal{N}(y_i;\mu_1(\mathbf{x}_i),\sigma_1^2(\mathbf{x}_i))
-+ \big(1-\pi(\mathbf{x}_i)\big)\,\mathcal{N}(y_i;\mu_2(\mathbf{x}_i),\sigma_2^2(\mathbf{x}_i))
-\Big].
+\mathbb{E}[y_{t+1}\mid \mathbf{x}_t]
+= \frac{1}{2}(-m_t)+\frac{1}{2}(m_t)=0.
 $$
+For the second moment,
+$$
+\mathbb{E}[y_{t+1}^2\mid \mathbf{x}_t]
+= \frac{1}{2}(m_t^2+s^2)+\frac{1}{2}(m_t^2+s^2)
+= m_t^2+s^2.
+$$
+Hence
+$$
+\operatorname{Var}(y_{t+1}\mid \mathbf{x}_t)
+= \mathbb{E}[y_{t+1}^2\mid \mathbf{x}_t]
+- \big(\mathbb{E}[y_{t+1}\mid \mathbf{x}_t]\big)^2
+= m_t^2+s^2.
+$$
+The Gaussian forecast $f_G(y\mid \mathbf{x}_t)=\varphi(y;0,m_t^2+s^2)$ therefore matches the conditional mean and variance of the mixture forecast.
 
 **Part 2**
 
-The mixing weight must satisfy $0 \le \pi(\mathbf{x}) \le 1$ because it represents a probability weight in a convex combination of densities. In a two-component softmax parameterization,
+Under squared-error loss, the optimal point forecast is the conditional mean. Since both forecast distributions have conditional mean zero, the MSE-optimal point forecast is
 $$
-\pi(\mathbf{x})=\frac{e^{a_1(\mathbf{x})}}{e^{a_1(\mathbf{x})}+e^{a_2(\mathbf{x})}}
+\hat{y}_{t+1}=0.
 $$
-always lies strictly between 0 and 1. Hence it guarantees a valid mixture weight.
-
-For a two-component mixture, this is equivalent to a sigmoid parameterization because
-$$
-\pi(\mathbf{x})=\frac{1}{1+e^{-(a_1(\mathbf{x})-a_2(\mathbf{x}))}}.
-$$
-So using a sigmoid output for one weight is just the special two-component case of softmax.
+Therefore an MSE comparison cannot distinguish the two forecast distributions: both imply exactly the same optimal point forecast, even though one forecast is bimodal and the other is unimodal.
 
 **Part 3**
 
-The two mixture components should not automatically be interpreted as structural economic regimes because the MDN is fitted for predictive accuracy, not for structural identification. Different parameterizations can generate similar predictive densities, and the labeling of components is not inherently identified. To interpret components as economic regimes, one would need additional restrictions, theory, or identification assumptions beyond predictive fit.
+For the mixture density at $y_{t+1}=m_t$,
+$$
+f_M(m_t\mid \mathbf{x}_t)
+= \frac{1}{2}\varphi(m_t;-m_t,s^2)+\frac{1}{2}\varphi(m_t;m_t,s^2).
+$$
+Using the Gaussian density formula,
+$$
+f_M(m_t\mid \mathbf{x}_t)
+= \frac{1}{2}\frac{1}{\sqrt{2\pi}s}e^{-2m_t^2/s^2}
++ \frac{1}{2}\frac{1}{\sqrt{2\pi}s}
+= \frac{1}{2\sqrt{2\pi}s}\Big(1+e^{-2m_t^2/s^2}\Big).
+$$
+
+For the Gaussian forecast,
+$$
+f_G(m_t\mid \mathbf{x}_t)
+= \frac{1}{\sqrt{2\pi(m_t^2+s^2)}}\exp\!\left(-\frac{m_t^2}{2(m_t^2+s^2)}\right).
+$$
+
+As $m_t/s\to\infty$, we have
+$$
+f_M(m_t\mid \mathbf{x}_t)\to \frac{1}{2\sqrt{2\pi}s},
+$$
+which is strictly positive, whereas
+$$
+f_G(m_t\mid \mathbf{x}_t)
+\sim \frac{e^{-1/2}}{\sqrt{2\pi}\,m_t}\to 0.
+$$
+So when the realization lands near one of the two modes and the modes are well separated, the mixture forecast assigns much higher density to the realized value. Therefore the mixture forecast gets a much better LogS, even though MSE cannot distinguish it from the moment-matched Gaussian.
+
+**Part 4**
+
+If we swap the component labels, the predictive density becomes
+$$
+\frac{1}{2}\varphi(y;m_t,s^2)+\frac{1}{2}\varphi(y;-m_t,s^2),
+$$
+which is exactly the same expression as the original density, just with the two terms reversed. Hence the predictive density is unchanged by relabeling the components.
+
+This is the label-switching problem. It implies that the two mixture components are not structurally identified from predictive fit alone. To interpret them as economic regimes, one would need additional restrictions, theory, or identifying assumptions beyond the MDN likelihood.
 :::
