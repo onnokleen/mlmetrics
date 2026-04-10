@@ -38,7 +38,7 @@ Exercises must be suitable for a **3-hour handwritten exam**:
 - **Gradual difficulty**: hints guide students through harder exercises; a strong student should be able to solve without hints, but hints make the exercise accessible to all.
 - **Difficulty annotation**: include an italic comment about exam suitability, e.g., `*Could be part of an exam if broken into sub-exercises with hints.*`
 
-### Difficulty calibration
+## Difficulty calibration
 
 Exercises should be calibrated for **MSc econometrics students with strong statistics/econometrics training**. The goal is not merely to check whether students recognize notation, but whether they can work through a statistically meaningful argument under exam conditions.
 
@@ -49,7 +49,7 @@ Exercises should be calibrated for **MSc econometrics students with strong stati
 - **Econometric framing**: whenever possible, at least one sub-part should connect the ML object to an econometric issue such as forecast evaluation, dependent data, heteroskedasticity, information sets, leakage, misspecification, or identification.
 - **Bounded but nontrivial**: the exercise should still be solvable with pen and paper in exam conditions. Avoid long proofs, excessive algebra with little insight, or questions that require ideas not developed in the notes.
 
-### Default exercise mix
+## Default exercise mix
 
 Unless the chapter genuinely does not support it, aim for exercises with this profile:
 
@@ -57,7 +57,7 @@ Unless the chapter genuinely does not support it, aim for exercises with this pr
 - **one comparison or implication part** that asks what changes across objectives, models, or assumptions
 - **one econometric-diagnostic part** that surfaces a pitfall involving dependence, uncertainty, identification, or misspecification
 
-### Final exercise self-check
+## Final exercise self-check
 
 Before keeping an exercise, check:
 
@@ -66,7 +66,7 @@ Before keeping an exercise, check:
 - Does the exercise go beyond formula recall?
 - Would the solution reveal whether the student actually understands the chapter?
 
-### Exercise format
+## Exercise format
 
 ```markdown
 :::{.callout-note}
@@ -100,7 +100,7 @@ Before keeping an exercise, check:
 
 ## Writing conventions
 
-### Chapter structure
+## Chapter structure
 
 Each chapter follows this skeleton:
 
@@ -108,40 +108,44 @@ Each chapter follows this skeleton:
 2. **`# Chapter Title`** (top-level heading)
 3. **`## Overview`** — what the chapter covers and why it matters for econometricians
 4. **`## Roadmap`** — numbered list previewing the section flow
-5. **Core content sections** (`##`, `###`, `####`)
+5. **Core content sections** (`##` only). Do not use `###` or deeper headings in chapter files; use bold run-in labels, lists, or callouts for local structure inside a section.
 6. **`## Summary`** — contains a Key Takeaways callout (`callout-important`) and, when useful, a Common Pitfalls callout (`callout-warning`). Both live under this single heading.
 7. **`## Exercises`** — pen-and-paper exercises with hints and solutions
 
-### Summary section
+Additional section-depth rule:
+
+- Chapters should have only one numbered section depth below the chapter title. In practice this means: after `# Chapter Title`, use `##` headings for numbered sections and avoid `###` / `####`.
+- Do not create a `##` section for only one short paragraph. If a local topic is that small, fold it into the surrounding section using a bold run-in label, a list item, or a callout title.
+- Use callout titles for exercise hints and solutions, but do not use nested section headings merely for visual spacing.
+
+## Summary section
 
 - Each chapter has a single `## Summary` heading that contains one or two callout boxes.
 - The **Key Takeaways** callout (`.callout-important` with `## Key Takeaways` title) always appears first, with a numbered list. It is styled green via `styles.css`.
 - An optional **Common Pitfalls** callout (`.callout-warning` with `## Common Pitfalls` title) follows when there are predictable misunderstandings, implementation mistakes, or exam traps. Include it when useful, omit when it would be artificial.
 
-### Callout types
+## Callout types
 
 | Type | Role | Collapsible? |
 |------|------|-------------|
-| `callout-note` | Key properties, notation, exercise statements | No |
-| `callout-definition` | Formal mathematical definitions | No |
-| `callout-example` | Worked examples | No |
+| `callout-note` | Key properties, notation, exercise statements, formal definitions with `title="Definition: ..."` | No |
 | `callout-warning` | Exercise hints, cautions, common pitfalls | Usually yes (`collapse="true"`); no for chapter-level `Common Pitfalls` boxes |
-| `callout-tip` | Exercise solutions, practical advice | Yes (`collapse="true"`) |
+| `callout-tip` | Exercise solutions, practical advice, worked examples with `title="Example: ..."` | Yes (`collapse="true"` for solutions; usually no for examples) |
 | `callout-important` | Critical econometric interpretations, "why this matters", boxed key takeaways | No |
 
-### Code chunks
+## Code chunks
 
 - Python is the primary language for code examples
 - Display figures: `#| echo: false`, `#| label: fig-descriptive-name`, `#| fig-cap: "Caption"`
 - Instructional code: `#| echo: true`
 - Global settings: `code-fold: true` (readers click "Show the code"), `cache: true`
 
-### Cross-references
+## Cross-references
 
 - Section anchors: `# Title {#sec-shortname}`
 - Reference sections: `@sec-shortname`, figures: `@fig-name`, citations: `@AuthorYear`
 
-### Python stack
+## Python stack
 
 Core: `numpy`, `matplotlib`, `scipy`, `sklearn`. Additional as needed: `pandas`, `properscoring`, `seaborn`. Don't add new dependencies without discussion.
 
