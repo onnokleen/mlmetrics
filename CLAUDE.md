@@ -124,13 +124,34 @@ Additional section-depth rule:
 - The **Key Takeaways** callout (`.callout-important` with `## Key Takeaways` title) always appears first, with a numbered list. It is styled green via `styles.css`.
 - An optional **Common Pitfalls** callout (`.callout-warning` with `## Common Pitfalls` title) follows when there are predictable misunderstandings, implementation mistakes, or exam traps. Include it when useful, omit when it would be artificial.
 
+## Self-reflection questions
+
+- Use short self-reflection prompts throughout chapters when they help students pause on an econometric interpretation, modeling tradeoff, or conceptual pitfall.
+- These prompts may be more reflective than final exam exercises, but they should still have a clear teaching point and should not be vague opinion questions.
+- Format each prompt as `:::{.callout-note title="Question for Reflection"}` followed immediately by a collapsed answer using `:::{.callout-tip collapse="true" title="Suggested Answer"}`.
+- Keep suggested answers concise. They should explain the intended reasoning, not become full exercise solutions.
+- Suggested answers should be answerable from material already introduced in the book. Do not introduce new scoring rules, risk measures, model classes, or terminology unless the surrounding chapter has already explained them or explicitly points to where they are introduced.
+- Avoid prompts whose main answer is a personal preference or "it depends." When asking about a model choice, specify the criterion or diagnostic evidence students should use.
+
+```markdown
+:::{.callout-note title="Question for Reflection"}
+
+[Short reflection question tied to the surrounding section.]
+:::
+
+:::{.callout-tip collapse="true" title="Suggested Answer"}
+
+[Concise answer explaining the intended reasoning.]
+:::
+```
+
 ## Callout types
 
 | Type | Role | Collapsible? |
 |------|------|-------------|
-| `callout-note` | Key properties, notation, exercise statements, formal definitions with `title="Definition: ..."` | No |
+| `callout-note` | Key properties, notation, exercise statements, reflection questions, formal definitions with `title="Definition: ..."` | No |
 | `callout-warning` | Exercise hints, cautions, common pitfalls | Usually yes (`collapse="true"`); no for chapter-level `Common Pitfalls` boxes |
-| `callout-tip` | Exercise solutions, practical advice, worked examples with `title="Example: ..."` | Yes (`collapse="true"` for solutions; usually no for examples) |
+| `callout-tip` | Exercise solutions, suggested answers to reflection questions, practical advice, worked examples with `title="Example: ..."` | Yes (`collapse="true"` for solutions and suggested answers; usually no for examples) |
 | `callout-important` | Critical econometric interpretations, "why this matters", boxed key takeaways | No |
 
 ## Code chunks
