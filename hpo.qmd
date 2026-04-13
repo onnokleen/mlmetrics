@@ -1,219 +1,574 @@
 ---
+bibliography:
+  - '/Users/onnokleen/Dropbox (Personal)/library.bib'
+  - references-local.bib
 number-sections: true
-number-offset: [13, 0]  # This makes sections 2.1, 2.2, etc.
+number-offset: [13, 0]
 ---
 
-# (Advanced) Hyperparameter Optimization
+# Advanced Hyperparameter Optimization {#sec-hpo}
 
-<!-- ## Empirical example -->
+## Overview
 
-<!-- [Jupyter notebook on HPO optimization](https://github.com/onnokleen/teachingML/blob/main/hpo_experiment.ipynb) -->
-<!-- 
-```{R, echo = FALSE}
-library(ggplot2)
-library(dplyr)
-library(patchwork)  # for side-by-side layout
+Hyperparameter optimization (HPO) is the problem of choosing settings that control how a model is estimated rather than parameters learned directly from the loss function. Examples include the penalty strength in ridge or lasso, tree depth and minimum leaf size, the number of trees in a forest, the learning rate in boosting, or the batch size and network width in a neural network.
 
-# Data
-x <- seq(0, 10, length.out = 400)
+For econometricians, HPO matters for two reasons. First, predictive performance can change materially across plausible settings. Second, the act of searching itself creates a statistical problem: if we try many specifications and keep the one with the best validation score, we are optimizing a noisy estimate of out-of-sample performance. Without a disciplined workflow, the selected model can look much better in validation than it will look in truly new data.
 
-# Define densities
-good_density <- dnorm(x, mean = 3, sd = 1)
-bad_density  <- dnorm(x, mean = 7, sd = 1.5)
+This chapter extends the basic validation ideas from the [Cross Validation chapter](cross_validation.qmd), especially the discussions of [Honest Workflow: Validation vs Test Set](cross_validation.qmd#sec-cv-honest-workflow), [Leakage Inside Cross-Validation](cross_validation.qmd#sec-cv-leakage), [K-Fold Cross-Validation](cross_validation.qmd#sec-cv-kfold), and [Time Series Cross-Validation](cross_validation.qmd#sec-cv-time-series). The goal here is not to repeat that chapter in full, but to show how those ideas change once hyperparameters themselves become the optimization target.
 
-# Normalize densities
-good_density <- good_density / sum(good_density)
-bad_density  <- bad_density / sum(bad_density)
+:::{.callout-note title="Definition: Parameters vs Hyperparameters"}
 
-# Ratio
-ratio <- good_density / (bad_density + 1e-8)
+**Parameters** are fitted from the training loss once the model class is fixed, such as regression coefficients or tree leaf values.
 
-# Find best point
-best_idx <- which.max(ratio)
-best_x <- x[best_idx]
+**Hyperparameters** are researcher-chosen settings that govern model complexity, regularization, optimization, or resampling design, such as a penalty parameter, tree depth, learning rate, number of trees, or window length.
+:::
 
-# Data frame
-df <- data.frame(
-  x = x,
-  good = good_density,
-  bad = bad_density,
-  ratio = ratio
-)
+## Roadmap
 
-# Left plot: densities
-p1 <- ggplot(df, aes(x)) +
-  geom_line(aes(y = good, color = "l(x): good configs")) +
-  geom_line(aes(y = bad, color = "g(x): bad configs")) +
-  geom_vline(xintercept = best_x, linetype = "dashed", color = "blue") +
-  labs(title = "TPE Densities",
-       x = "Hyperparameter value (x)",
-       y = "Density") +
-  scale_color_manual(values = c("l(x): good configs" = "green",
-                                "g(x): bad configs" = "red")) +
-  theme_minimal() +
-  theme(legend.title = element_blank(),
-  legend.position = "bottom")
+1. We begin with why honest HPO is statistically harder than fitting one fixed model.
+2. We then discuss how dependent data, overlapping targets, and preprocessing choices complicate HPO in econometric applications.
+3. Next we formalize HPO as the optimization of a noisy validation objective over a search space.
+4. We compare baseline search methods, Bayesian optimization, and multi-fidelity methods such as Hyperband.
+5. Finally, we summarize a practical workflow for choosing and validating tuning strategies in econometric work.
 
-# Right plot: ratio
-p2 <- ggplot(df, aes(x, ratio)) +
-  geom_line(color = "purple") +
-  geom_vline(xintercept = best_x, linetype = "dashed", color = "blue") +
-  geom_point(aes(x = best_x, y = ratio[best_idx]), color = "purple") +
-  labs(title = "Acquisition Function (Ratio)",
-       x = "Hyperparameter value (x)",
-       y = "l(x)/g(x)") +
-  theme_minimal()
+## Why Honest HPO Is Hard
 
-# Combine
-p1 + p2 + plot_annotation(
-  title = "Tree-structured Parzen Estimator (TPE): Next Point Selection"
-)
-```
- -->
+Suppose the true generalization error of a configuration $\lambda$ is $c(\lambda)$. We do not observe $c(\lambda)$ directly. We observe a noisy estimate from a validation split, cross-validation scheme, or rolling forecast exercise. If we evaluate many configurations and pick the one with the lowest estimated error, the winner is selected partly because of genuine quality and partly because of favorable noise in the estimate.
 
+The clean separation between training, validation, and test data from [Honest Workflow: Validation vs Test Set](cross_validation.qmd#sec-cv-honest-workflow) therefore becomes even more important in HPO. Training data estimate model parameters. Validation data compare hyperparameter settings. Test data remain untouched until the search procedure is finished.
+
+The danger is easy to miss. Re-using the same validation design for one or two candidate settings is often harmless. Re-using it for dozens or hundreds of settings turns the validation score into an optimization target. The minimum validation score across many trials is then usually optimistic. This is the hyperparameter version of specification search [@CawleyTalbot2010; @VarmaSimon2006].
+
+:::{.callout-note title="Selection Bias from Search"}
+
+Suppose configuration $j$ has true risk $c_j$ and validation estimate
+
+$$
+\hat c_j = c_j + \varepsilon_j,
+\qquad
+\mathbb{E}[\varepsilon_j] = 0.
+$$
+
+Even if each $\hat c_j$ is unbiased for $c_j$ when considered separately, the selected score
+
+$$
+\min_{1 \le j \le J} \hat c_j
+$$
+
+is typically optimistically biased as an estimate of the true risk of the selected configuration. Formally,
+
+$$
+\mathbb{E}\left[\min_{1 \le j \le J} \hat c_j\right]
+\le
+\min_{1 \le j \le J} \mathbb{E}[\hat c_j]
+=
+\min_{1 \le j \le J} c_j.
+$$
+
+The inequality is strict unless the same configuration always wins. The intuition is simple: after search, the winning validation score is partly low because the model is good and partly low because its realized validation noise happened to be favorable.
+:::
+
+Nested resampling is the clean benchmark when we want an honest assessment of the entire tuning procedure.
+
+- The **inner loop** tunes hyperparameters.
+- The **outer loop** estimates the out-of-sample performance of the tuned procedure.
+- The outer validation blocks must remain untouched by the inner search.
+
+In iid settings, the inner and outer loops can use the k-fold design reviewed in [K-Fold Cross-Validation](cross_validation.qmd#sec-cv-kfold). In dependent-data settings, the same logic applies but the folds must be time-aware. The important point is conceptual: the object being evaluated is not one model, but the whole pipeline "fit, tune, select, refit."
+
+:::{.callout-important}
+## Why HPO Is Harder Than Fitting a Single Model
+
+Once hyperparameters are tuned, the validation score is no longer a passive diagnostic. It becomes the objective being optimized.
+
+That changes the statistical interpretation:
+
+1. A good validation score for one fixed configuration is not the same as a good validation score after a large search.
+2. The more configurations we try, the more opportunity there is to overfit the validation design.
+3. Honest evaluation must assess the tuning procedure itself, not only the final chosen hyperparameters.
+:::
+
+## HPO with Dependent and Economic Data
+
+The earlier [Time Series Cross-Validation](cross_validation.qmd#sec-cv-time-series) discussion already showed why random k-fold is invalid when temporal order matters. In HPO the same issue is amplified, because an invalid validation scheme does not just distort one model estimate. It can systematically select the wrong hyperparameters.
+
+**Time-aware validation.** In forecasting problems, expanding-window validation is appropriate when the researcher would realistically re-estimate the model as the sample grows. Rolling-window validation is appropriate when old data may become stale because of structural change or evolving institutions. The choice is part of the research design, not a mere software option.
+
+**Regime change and autocorrelation.** When loss differentials are serially correlated or the conditional relationship between predictors and outcomes drifts over time, a single random split can be badly misleading. Hyperparameters that look optimal during one calm period may fail during recessions, crises, or policy shifts. That is why HPO in macro-finance applications should be evaluated over multiple forecast origins rather than one convenient split.
+
+**Overlapping targets and purging.** Suppose the target is 22-day-ahead realized volatility or a cumulative return over the next month. Then nearby observations can share future realizations. Even a time-ordered split can leak if training observations use outcome windows that overlap with the validation block. A practical fix is to purge or embargo observations close to the validation boundary so that the training sample does not contain targets built from the same future data.
+
+**Preprocessing inside folds.** The warning in [Leakage Inside Cross-Validation](cross_validation.qmd#sec-cv-leakage) becomes stricter in HPO. Scaling, winsorization thresholds estimated from the data, imputation, feature selection, principal components, lag selection, and target transformations chosen adaptively must all be learned inside each training fold. Otherwise the tuning criterion itself is contaminated.
+
+**Nested time-series tuning.** If we need an honest final assessment, the outer loop should use a time-aware split and the inner loop should tune hyperparameters using only the history available inside that outer training window. This is computationally expensive, but it is the right benchmark when the research claim depends on credible out-of-sample performance.
+
+:::{.callout-note title="Question for Reflection"}
+
+Why is it not enough to say "I never touched the test set" if the hyperparameters were tuned using a random k-fold scheme on time-series data?
+:::
+
+:::{.callout-tip collapse="true" title="Suggested Answer"}
+
+Because the problem is not only test-set contamination. A random k-fold scheme can already leak future information into the validation score, so the search is optimized against an invalid target. Even if the final test set is untouched, the chosen hyperparameters may have been selected by exploiting temporal dependence or overlapping information that would not be available in real forecasting use.
+:::
+
+## HPO as an Optimization Problem
+
+Write the hyperparameter vector as $\lambda \in \Lambda$, where $\Lambda$ is the search space. For example, $\lambda$ might contain tree depth, learning rate, minimum leaf size, and a regularization penalty. The ideal target is
+
+$$
+\lambda^\star = \arg\min_{\lambda \in \Lambda} c(\lambda),
+$$
+
+where $c(\lambda)$ denotes the true out-of-sample risk or expected forecast loss. In practice we do not observe $c(\lambda)$. We work with an estimate
+
+$$
+\hat c(\lambda),
+$$
+
+constructed from a validation split, cross-validation average, rolling-origin loss, or another resampling design.
+
+This formal view clarifies why HPO is not ordinary gradient-based optimization like the parameter fitting studied in [Optimization for Machine Learning](optimization.qmd#sec-optim). The map $\lambda \mapsto \hat c(\lambda)$ is often noisy, non-convex, partly discrete, and sometimes undefined outside admissible regions. Hyperparameters can be integers, categories, or conditional choices. Changing one tuning parameter can change the whole fitted model class, so differentiability is usually unavailable or unhelpful.
+
+A practical HPO problem therefore has four ingredients:
+
+1. a **search space** $\Lambda$
+2. an **evaluation rule** that produces $\hat c(\lambda)$
+3. a **search algorithm** for proposing new $\lambda$
+4. a **compute budget** limiting how many evaluations we can afford
+
+If the preferred performance measure is larger-is-better, such as an $R^2$ or utility proxy, we can either maximize that score directly or minimize its negative. The statistical issues are the same.
+
+**Search-space design matters.** A search space that is too narrow cannot recover good configurations. A search space that is too wide wastes budget on implausible values. In econometric applications the best default is usually a theory-informed box: plausible lag lengths, sensible regularization ranges, and model sizes that fit the available sample size.
+
+## Baseline Search Methods
+
+**Grid search.** Grid search fixes a finite lattice of candidate values for each hyperparameter and evaluates all combinations. It is simple and reproducible, and it can work well when there are only one or two genuinely important continuous hyperparameters. Its weakness is geometric: if there are many dimensions, the number of combinations grows quickly, and most grid points are spent refining dimensions that may barely matter.
+
+**Random search.** Random search samples configurations from pre-specified distributions over the search space. It looks naive, but it is a strong baseline because it spends trials on distinct combinations rather than exhaustively refining the same coordinates. When only a small subset of hyperparameters drives performance, random search typically covers the important directions more efficiently than a grid.
+
+This low-effective-dimensionality logic is especially relevant in machine learning applications and is one of the central arguments of @BergstraBengio2012. A researcher may tune ten settings, but perhaps only learning rate, tree depth, and regularization strength move performance materially. A grid wastes effort spreading points evenly in all ten dimensions. Random search has a better chance of stumbling into useful combinations along the few dimensions that actually matter.
+
+**When baseline methods are enough.** If model evaluations are cheap, the search space is modest, and parallel compute is available, random search is often enough. It is easy to parallelize, robust to noise, and honest about uncertainty: it does not pretend to have learned a precise surrogate relationship from a small number of noisy evaluations.
+
+## Bayesian Optimization
+
+**Generic idea.** Bayesian optimization (BO) treats HPO as a sequential learning problem. After each evaluation, it updates a surrogate model for the unknown function $\lambda \mapsto c(\lambda)$ and uses an acquisition rule to decide where to search next. The acquisition balances exploitation of promising regions against exploration of uncertain regions.
+
+**Gaussian-process BO.** A standard BO design places a Gaussian-process prior on the unknown objective. After observing data
+
+$$
+\mathcal{D}_t = \{(\lambda_j, \hat c_j)\}_{j=1}^t,
+$$
+
+the surrogate produces a posterior mean $m_t(\lambda)$ and posterior standard deviation $s_t(\lambda)$. The mean summarizes what the algorithm expects at a candidate point, while the standard deviation summarizes uncertainty. Acquisition rules then translate $(m_t, s_t)$ into a search priority.
+
+A common acquisition rule is expected improvement. If $c_{\min,t}$ is the best loss seen so far, the expected improvement at $\lambda$ is
+
+$$
+\operatorname{EI}_t(\lambda)
+=
+\mathbb{E}\left[\max\{c_{\min,t} - C(\lambda), 0\} \mid \mathcal{D}_t\right].
+$$
+
+Points with low predicted loss and points with high uncertainty can both have high expected improvement. That is the exploration-versus-exploitation tradeoff in one formula [@JonesSchonlauWelch1998; @SnoekLarochelleAdams2012].
+
+:::{.callout-note title="Expected Improvement Under a Gaussian Surrogate"}
+
+If the surrogate implies
+
+$$
+C(\lambda)\mid \mathcal{D}_t \sim \mathcal{N}(m_t(\lambda), s_t(\lambda)^2),
+$$
+
+then expected improvement has the closed form
+
+$$
+\operatorname{EI}_t(\lambda)
+=
+\bigl(c_{\min,t} - m_t(\lambda)\bigr)\Phi(z_t(\lambda))
++
+s_t(\lambda)\phi(z_t(\lambda)),
+$$
+
+where
+
+$$
+z_t(\lambda)
+=
+\frac{c_{\min,t} - m_t(\lambda)}{s_t(\lambda)},
+$$
+
+and $\Phi$ and $\phi$ denote the standard normal cdf and pdf. The first term rewards low predicted loss, while the second rewards uncertainty. This is the standard exploitation-versus-exploration decomposition used in classical Bayesian optimization.
+:::
+
+GP BO is most attractive when each evaluation is expensive and the search dimension is not too high. Its weaknesses are equally important:
+
+- surrogate fitting becomes harder as the search space grows
+- categorical and conditional hyperparameters are awkward
+- noisy validation scores can make the surrogate unstable
+- the algorithm is more sequential than plain random search
+
+**TPE.** Tree-structured Parzen Estimators are often used as a more practical BO alternative. Instead of modeling the loss as a function of $\lambda$ directly, TPE splits past trials into a good set and a bad set using a loss threshold $y^\ast$, often chosen as a lower quantile of observed losses. It then fits two densities:
+
+$$
+\ell(\lambda) = p(\lambda \mid y \le y^\ast),
+\qquad
+g(\lambda) = p(\lambda \mid y > y^\ast),
+$$
+
+where $y$ denotes the observed validation loss.
+
+The search idea is simple: propose candidates that look likely under the good-trial density and unlikely under the bad-trial density. In practice this means favoring large values of
+
+$$
+\frac{\ell(\lambda)}{g(\lambda)}.
+$$
+
+In the original TPE paper [@BergstraBardenetBengioKegl2011], this density-ratio criterion is linked directly to expected improvement under the TPE construction.
+
+TPE is appealing because it handles mixed and conditional search spaces more easily than a GP surrogate. It also avoids forcing a smooth global regression model onto a search space that may include integers, categories, and hard constraints.
+
+:::{.callout-note}
+## TPE Algorithm
+
+One practical TPE workflow can be summarized as follows.
+
+1. Evaluate an initial set of randomly sampled hyperparameter configurations.
+2. Split the evaluated archive into a good set and a bad set using a quantile threshold $\gamma$ on the observed validation loss.
+3. Fit the densities $\ell(\lambda)=p(\lambda\mid y \le y^\ast)$ and $g(\lambda)=p(\lambda\mid y > y^\ast)$.
+4. Sample candidate configurations from the good density and score them by the ratio $\ell(\lambda)/g(\lambda)$.
+5. Evaluate the highest-scoring candidate, update the archive, and repeat until the budget is exhausted.
+
+The tuning parameter $\gamma$ controls how selective the "good" set is. Smaller $\gamma$ focuses more aggressively on the currently best-performing trials.
+:::
+
+![One-dimensional illustration of TPE: the algorithm prefers candidate values that look likely under the good-trial density and unlikely under the bad-trial density.](figures/tpe_comparison.png){#fig-tpe-comparison fig-align="center" width="85%"}
+
+**GP BO versus TPE.** Both are sequential model-based search methods. GP BO is often cleaner conceptually when the search space is low-dimensional and mostly continuous. TPE is often more robust in practical AutoML-style settings with mixed types, wide ranges, or tree-structured conditional choices. The statistical point is the same: both use past evaluations to search more intelligently than random sampling.
+
+:::{.callout-note title="Question for Reflection"}
+
+Suppose validation runs are very expensive, the search space has four mainly continuous hyperparameters, and you can afford only 25 trials. Why might Bayesian optimization be preferable to plain random search?
+:::
+
+:::{.callout-tip collapse="true" title="Suggested Answer"}
+
+With only 25 trials, each evaluation is valuable. Bayesian optimization uses previous outcomes to guide later proposals toward regions that look promising or uncertain, so it can often extract more information from a small budget than random search. This advantage is strongest when the search space is not too high-dimensional and the objective is not completely erratic.
+:::
+
+## Multi-Fidelity Search
+
+When each model can be evaluated at different resource levels, full-budget tuning may be wasteful. The resource might be training epochs, sample size, number of boosting rounds, or another quantity that lets us obtain a cheap but noisy preview of eventual performance.
+
+**Successive halving.** Start with many configurations at a small budget $r$. Rank them by validation performance. Keep only the top fraction, typically $1/\eta$, and increase their budget to $\eta r$. Repeat until only a small set of configurations is left at high budget.
+
+This logic can save large amounts of computation because obviously poor configurations are discarded early. The key assumption is that early, cheap performance is informative about later, expensive performance.
+
+:::{.callout-note}
+## Successive Halving Algorithm
+
+Let $p^{[0]}$ denote the initial number of configurations, let $r^{[0]}$ denote the initial resource per configuration, and let $\eta > 1$ be the elimination rate.
+
+1. For rounds $t = 0,1,\ldots,s$, fit the current $p^{[t]}$ configurations using budget $r^{[t]}$.
+2. Rank configurations by validation performance and keep only the top fraction $1/\eta$.
+3. Update the candidate count and resource level as
+   $$
+   p^{[t+1]} = \left\lfloor \frac{p^{[t]}}{\eta} \right\rfloor,
+   \qquad
+   r^{[t+1]} = \eta r^{[t]}.
+   $$
+4. Stop when only a small set of candidates remains or when the total budget
+   $$
+   \sum_{t=0}^{s} p^{[t]} r^{[t]}
+   $$
+   reaches the allowed computational limit.
+
+Successive halving is efficient because it trades breadth for depth: many configurations get a cheap initial test, while only promising ones receive expensive training.
+:::
+
+**Hyperband.** Successive halving depends on the initial tradeoff between number of configurations and initial budget. Hyperband addresses this by running several halving brackets with different starting points. Some brackets try many configurations very cheaply. Others start with fewer configurations but give each one more initial resources. This hedges against the risk of choosing the wrong early-stopping aggressiveness [@LiJamiesonDeSalvoRostamizadehTalwalkar2017].
+
+:::{.callout-note}
+## Hyperband as a Family of Brackets
+
+Let $R$ denote the maximum resource per configuration and let $\eta > 1$ be the elimination rate. Define
+
+$$
+s_{\max} = \left\lfloor \log_{\eta}(R) \right\rfloor,
+\qquad
+B = (s_{\max}+1)R.
+$$
+
+Hyperband then runs several successive-halving brackets indexed by $s=s_{\max},\ldots,0$. A common parameterization is
+
+$$
+n_s = \left\lceil \frac{B}{R}\frac{\eta^s}{s+1} \right\rceil,
+\qquad
+r_s = R\eta^{-s},
+$$
+
+where bracket $s$ starts with $n_s$ configurations at resource level $r_s$. Large-$s$ brackets explore many configurations cheaply, while small-$s$ brackets explore fewer configurations more deeply from the start.
+:::
+
+**When multi-fidelity methods work well.** Hyperband is most attractive when:
+
+- full training runs are expensive
+- partial learning curves are informative
+- many hyperparameter settings are clearly poor and can be pruned early
+
+**Failure modes.** Hyperband can be unreliable when early scores are noisy, non-monotone, or systematically biased against slow starters. This is common in deep learning, but it can also occur in econometric forecasting when the validation block is short or when instability early in training is not informative about final performance. In those settings, a larger minimum budget or a less aggressive elimination rule may be needed.
+
+## Practical Workflow for Econometricians
+
+The tuning method should match the statistical design, not just the software defaults.
+
+1. **Choose the evaluation metric first.** Decide whether the target is mean squared forecast error, log score, CRPS, classification loss, or another application-specific measure. Hyperparameters should be selected against the criterion that actually matters.
+2. **Choose a validation design that respects the information set.** For iid data, k-fold cross-validation may be adequate. For dependent data, use expanding windows, rolling windows, or purged time-aware splits as appropriate.
+3. **Define a defensible search space.** Use theory, prior empirical knowledge, and sample-size limits to avoid absurd configurations.
+4. **Start with a baseline.** Random search is a strong default because it is simple, parallel, and robust.
+5. **Escalate only when the budget justifies it.** Use BO when evaluations are expensive enough that learning from past trials matters. Use Hyperband when partial-resource evaluations are genuinely informative.
+6. **Refit only after tuning is complete.** Once the hyperparameters are selected, refit the model on the full training sample available before the final test period.
+7. **Keep the final test set for one last check.** If the final test result disappoints, that is information about the procedure, not an invitation to keep tuning on the same test period.
+
+Packages such as Optuna make these search strategies convenient to run, especially random search, TPE, and pruning-based workflows. The statistical issues do not disappear just because the interface is convenient. Good tooling cannot rescue an invalid validation design.
+
+**Method comparison**
+
+| Method | Sample efficiency | Parallelism | Needs informative partial feedback | Best use setting |
+|---|---|---|---|---|
+| Grid search | Low once dimension grows | High | No | Very small search spaces with a few interpretable settings |
+| Random search | Moderate and often surprisingly strong | Very high | No | Strong baseline when evaluations are cheap or parallel compute is available |
+| GP Bayesian optimization | High when trials are expensive and dimension is modest | Limited to moderate | No | Small-to-medium continuous search spaces with tight budgets |
+| TPE | High in mixed or conditional spaces | Limited to moderate | No | Practical BO-style search when hyperparameters are heterogeneous |
+| Hyperband | High when early performance predicts final performance | High | Yes | Expensive training jobs where bad configurations can be pruned early |
+
+## Summary
+
+:::{.callout-important}
+## Key Takeaways
+1. Hyperparameter optimization searches over model settings using a noisy estimate of out-of-sample performance, so the search procedure itself can overfit.
+2. Honest HPO requires a clean separation between training, validation, and test data, and nested resampling is the benchmark when the entire tuning procedure must be evaluated credibly.
+3. In econometric applications, time order, overlapping targets, preprocessing leakage, and regime change are central design issues rather than technical afterthoughts.
+4. Random search is a strong baseline, Bayesian optimization uses past evaluations to guide future trials, and Hyperband uses cheap partial evaluations to save computation.
+5. The best HPO method depends on the evaluation design, search-space structure, and compute budget, not on a universal ranking of algorithms.
+:::
+
+:::{.callout-warning}
+## Common Pitfalls
+
+- **Tuning on the test set**: A test set used repeatedly is no longer a test set.
+- **Random cross-validation for dependent data**: If temporal order matters, random folds can select hyperparameters that exploit future information.
+- **Preprocessing outside the fold**: Standardization, imputation, feature selection, and adaptive transformations must be refit within each training fold.
+- **Assuming Bayesian optimization always dominates**: BO can struggle in noisy, high-dimensional, or highly discrete search spaces, and random search remains a strong baseline.
+- **Pruning too aggressively**: Hyperband can eliminate slow but ultimately good configurations when early learning curves are noisy or misleading.
+:::
 
 ## Exercises
 
+:::{.callout-note}
+## Exercise 14.1: Honest Hyperparameter Tuning for Time-Series Forecasts
 
-::: {.callout-note}
-## Exercise 14.1: Cross-Validation in Time Series
+You are tuning a gradient boosting model to forecast monthly industrial production growth. Candidate predictors include lags of the target, survey indicators, and financial variables. The researcher evaluates 12 hyperparameter configurations using the same expanding-window validation design and then keeps the configuration with the lowest average validation mean squared forecast error.
 
-You are training a gradient boosting model to forecast daily electricity demand using weather and calendar features. A research assistant proposes to use standard k-fold cross-validation (random splits of the dataset) for hyperparameter tuning.
-
-1. Explain why this choice may bias model evaluation in a time series setting.
-2. Suggest two alternative cross-validation schemes more appropriate for time series.
-3. Suppose the dataset contains strong weekly and yearly seasonal patterns. How would you adapt your cross-validation strategy to account for these?
+1. Explain why the minimum average validation loss across the 12 configurations is typically an optimistically biased estimate of the true out-of-sample loss of the selected configuration, even if each configuration's validation loss is a reasonable estimate when viewed in isolation.
+2. Suppose the research claim is that "tuned gradient boosting improves forecasting performance relative to a benchmark autoregression." Describe a nested time-series evaluation design that can assess this claim honestly.
+3. In one application, an expanding-window search selects a relatively deep tree with many boosting rounds, while a rolling-window search selects a shallower and more heavily regularized configuration. Give an econometric reason why these two validation schemes can favor different hyperparameters, and explain when the rolling-window choice would be more credible.
+4. Suppose the target is now 12-month-ahead cumulative output growth, so adjacent observations have overlapping outcome windows. Explain why this creates an additional leakage problem during tuning and how purging or an embargo around the validation block can help.
 
 *Exam level*
 :::
 
-::: {.callout-warning collapse = "true"}
+:::{.callout-warning collapse="true"}
 ## Hint for Part 1
 
-Time series data violate the i.i.d. assumption; random CV mixes past and future.
+The selected model is the one with the most favorable realized validation noise among the 12 candidates.
 :::
 
-::: {.callout-warning collapse = "true"}
+:::{.callout-warning collapse="true"}
 ## Hint for Part 2
 
-Expanding window and rolling window CV are the two main alternatives.
+Separate the job of choosing hyperparameters from the job of evaluating the entire tuning procedure.
 :::
 
-::: {.callout-warning collapse = "true"}
+:::{.callout-warning collapse="true"}
 ## Hint for Part 3
 
-Seasonality can be handled by aligning folds with full seasonal cycles.
+Think about structural change and whether older observations are still informative for the current forecasting environment.
 :::
 
-::: {.callout-tip collapse="true"}
+:::{.callout-warning collapse="true"}
+## Hint for Part 4
+
+Nearby training observations may share future realizations with the validation target when horizons overlap.
+:::
+
+:::{.callout-tip collapse="true"}
 ## Solution
 
-1. Standard k-fold mixes training and validation periods. This allows information from the future into training and causes optimistic bias in performance estimates.
+**Part 1: Selection bias from tuning**
 
-2. The two alternatives for time series are:
-	•	Expanding-window CV: train up to time t, validate on next period, expanding training set each fold.
-	•	Rolling-window CV: fixed training window size, validate on next block, and roll the window forward
+Even if the expanding-window validation loss for each fixed configuration is a reasonable estimate of that configuration's forecasting risk, the minimum across 12 configurations is not an unbiased estimate of the selected model's true out-of-sample loss. The reason is selection bias: the chosen configuration is selected partly because it is genuinely good and partly because its realized validation noise happened to be favorable. Once we optimize over many candidates, the winner tends to look too good on the same validation design that was used to select it. This is the HPO analogue of specification search.
 
-3. With strong weekly and yearly cycles, ensure validation folds cover complete cycles (e.g. multiples of 7 days that cover full years) to cover the entire periodic structure of the data in *both* the weekly and yearly cycles. 
+**Part 2: Nested time-series evaluation**
+
+Use an outer time-series split to evaluate the final tuned procedure and an inner time-series split to choose hyperparameters.
+
+1. In each outer split, reserve a future block as the outer validation block.
+2. Using only the data available before that block, run an inner expanding-window or rolling-window search across the 12 hyperparameter configurations.
+3. Select the configuration with the best inner-loop average validation loss.
+4. Refit gradient boosting on the full outer training history using the chosen hyperparameters.
+5. Evaluate once on the outer validation block.
+6. Repeat across outer forecast origins and compare the resulting outer-loop losses to the benchmark autoregression.
+
+The outer-loop losses estimate the out-of-sample performance of the full tuning-and-refit procedure rather than the in-sample winner of one search.
+
+**Part 3: Why window choice can change the selected hyperparameters**
+
+Expanding windows give heavy weight to older observations because the training sample keeps growing. If the predictor-response relationship is fairly stable, this can favor deeper or less regularized configurations that exploit structure visible over a long history. Rolling windows discard older data and therefore emphasize recent regimes. If the economy has experienced structural change, institutional shifts, or crisis-period breaks, a rolling-window search may prefer shallower or more regularized hyperparameters because older patterns are no longer reliable. The rolling-window choice is more credible when the forecaster believes the current environment is more similar to the recent past than to the distant past.
+
+**Part 4: Overlapping targets and purging**
+
+With a 12-month-ahead cumulative-growth target, adjacent observations can share some of the same future outcomes. Then a training observation near the validation boundary may contain target information built from months that also enter the validation target. This creates leakage even if the split respects calendar order. Purging or imposing an embargo removes training observations whose outcome windows overlap with the validation block, so the inner-loop validation score better matches the information structure of a genuine forecast exercise.
 :::
 
+:::{.callout-note}
+## Exercise 14.2: Bayesian Optimization and TPE
 
+Suppose you are tuning a forecasting model with four hyperparameters: `learning_rate`, `max_depth`, `min_samples_leaf`, and `subsample`. Each model evaluation requires a full rolling-window validation exercise and is therefore expensive.
 
-::: {.callout-note}
-## Exercise 14.2: Tree-structured Parzen Estimator (TPE)
-
-You are using the Tree-structured Parzen Estimator (TPE) algorithm to optimize the hyperparameters of a gradient boosting model. The search space includes:
-
-- `learning_rate` in `[1e-3, 0.5]` (log-uniform)
-- `max_depth` in `[2, 10]` (integer)
-
-1. Explain the core mechanism of TPE. How does it select the next hyperparameter configuration to evaluate? Your explanation should involve the densities $l(x)$ and $g(x)$.
-2. What are the main advantages of TPE compared to a simple random search?
-3. What are some potential weaknesses or limitations of the TPE approach, and in what scenarios might it perform poorly?
+1. Explain the main idea of Bayesian optimization. What are the roles of the surrogate model and the acquisition rule?
+2. In a Gaussian-process BO scheme, consider two candidate configurations. Configuration A has a lower predicted validation loss than Configuration B, but Configuration B has much higher posterior uncertainty. Why might an expected-improvement criterion still choose Configuration B?
+3. In a TPE scheme, three candidate configurations have estimated density ratios
+   $$
+   \frac{\ell(\lambda_A)}{g(\lambda_A)} = 1.2, \qquad
+   \frac{\ell(\lambda_B)}{g(\lambda_B)} = 2.8, \qquad
+   \frac{\ell(\lambda_C)}{g(\lambda_C)} = 0.9.
+   $$
+   Which candidate would TPE prefer next, and what is the economic interpretation of that choice?
+4. Give two conditions under which Bayesian optimization is likely to outperform plain random search, and one condition under which random search may still be preferable.
 
 *Exam level*
 :::
 
-::: {.callout-warning collapse = "true"}
+:::{.callout-warning collapse="true"}
 ## Hint for Part 1
 
-TPE models the density of good ($l(x)$) and bad ($g(x)$) configurations and tries to maximize the ratio $l(x)/g(x)$.
+Bayesian optimization learns from previous trials instead of treating each draw independently.
 :::
 
-::: {.callout-warning collapse = "true"}
+:::{.callout-warning collapse="true"}
 ## Hint for Part 2
 
-Think about how TPE uses information from past trials, whereas random search does not.
+Expected improvement values both a low predicted loss and the possibility of beating the current best because of uncertainty.
 :::
 
-::: {.callout-warning collapse = "true"}
+:::{.callout-warning collapse="true"}
 ## Hint for Part 3
 
-Consider how TPE handles interactions between parameters and its "greedy" nature.
+TPE prefers candidates that look much more like the good set than the bad set.
 :::
 
-::: {.callout-tip collapse="true"}
+:::{.callout-warning collapse="true"}
+## Hint for Part 4
+
+Think about evaluation cost, search dimension, and whether the objective looks learnable from a small number of noisy observations.
+:::
+
+:::{.callout-tip collapse="true"}
 ## Solution
 
-1. TPE works by modeling two separate probability distributions for the hyperparameters. It splits the observed trials into a "good" group (e.g., the top 25% of configurations based on the loss score) and a "bad" group (the rest). It then fits a density $l(x)$ to the good group and a density $g(x)$ to the bad group. To select the next point, it samples candidates and chooses the one that maximizes the ratio $l(x)/g(x)$, which corresponds to points that are likely under the "good" distribution but unlikely under the "bad" one.
+**Part 1: Core idea of Bayesian optimization**
 
-2. The main advantage of TPE over random search is **sample efficiency**. By learning from past trials, it focuses the search on promising regions of the hyperparameter space instead of exploring purely randomly. This often allows it to find good configurations with fewer evaluations. It also naturally handles conditional and categorical hyperparameters.
+Bayesian optimization treats validation loss as an unknown function of the hyperparameters. A surrogate model summarizes what past evaluations imply about that function, while the acquisition rule uses the surrogate to choose the next point. The acquisition balances exploitation of regions with low predicted loss against exploration of regions where uncertainty is still high.
 
-3. **Weaknesses of TPE include:**
-    *   **Myopic Nature**: TPE optimizes each hyperparameter independently, which means it may not effectively capture complex interactions between them.
-    *   **Sensitivity to the Quantile ($\gamma$)**: The choice of what percentage of trials are considered "good" is itself a hyperparameter that can affect performance.
-    *   **Local Optima**: Because it greedily maximizes $l(x)/g(x)$, it can sometimes get stuck in a local optimum and fail to explore other potentially promising regions. It performs poorly if the objective function is very rugged or has strong parameter interactions.
+**Part 2: Why expected improvement can prefer the more uncertain point**
+
+Expected improvement is not based only on the posterior mean. A configuration with higher uncertainty can still have a larger probability of producing a loss better than the current best observed value. Configuration B may therefore be preferred if its upside from learning is large enough, even though its mean prediction is slightly worse.
+
+**Part 3: TPE choice**
+
+TPE would prefer configuration B because it has the largest ratio $\ell(\lambda)/g(\lambda)$. That means B looks relatively likely under the density fitted to historically good trials and relatively unlikely under the density fitted to bad trials. Economically, the algorithm is concentrating scarce validation budget on a region of the search space that past evidence suggests is more promising.
+
+**Part 4: When BO should or should not beat random search**
+
+Bayesian optimization is likely to outperform random search when:
+
+1. each evaluation is expensive, so using past trials to guide future ones is valuable
+2. the search dimension is modest enough that a surrogate can learn something useful from a limited number of observations
+
+Random search may still be preferable when the search space is very high-dimensional, highly discrete, or so noisy that the surrogate learns little. It is also attractive when many evaluations can be run in parallel cheaply.
 :::
 
-::: {.callout-note}
-## Exercise 13.3: Hyperband Optimization
+:::{.callout-note}
+## Exercise 14.3: Hyperband Under Noisy Learning Curves
 
-You are training a large neural network to predict firm default probabilities on financial tabular data. Training each model to convergence takes ~4 hours. You consider using Hyperband for hyperparameter search.
+A neural network is trained to predict firm default probabilities from panel data. Training one configuration to completion takes 9 hours. You consider Hyperband with elimination rate $\eta = 3$.
 
-1.  Briefly explain the main idea of Hyperband and how it differs from Bayesian optimization.
-2.  Suppose the early learning curves (plots of validation loss vs. training epochs) are very "noisy," meaning the validation loss fluctuates significantly from one epoch to the next instead of decreasing smoothly. What risk does this pose for Hyperband's strategy of eliminating models based on early performance? How could you mitigate this risk?
-3.  Compare Hyperband to random search and Bayesian optimization in the context explained at the beginning of this exercise (efficiency, robustness, convergence).
+1. Suppose one successive-halving bracket starts with 27 configurations trained for 3 epochs each. How many configurations remain after each elimination round, and what budget does each surviving configuration receive if the budget is multiplied by $\eta$ at each stage?
+2. Explain why Hyperband can be much more computationally efficient than full-budget random search in this setting.
+3. Suppose validation loss is very noisy in the first few epochs and some good models learn slowly. What specific risk does this create for Hyperband?
+4. Compare Hyperband, random search, and Bayesian optimization for this problem. Under what condition would Hyperband clearly have the advantage?
 
 *Exam level*
 :::
 
-::: {.callout-warning collapse = "true"}
+:::{.callout-warning collapse="true"}
 ## Hint for Part 1
 
-Hyperband uses successive halving with adaptive resource allocation.
+Each round keeps the top one-third of the current configurations and triples the budget.
 :::
 
-::: {.callout-warning collapse = "true"}
+:::{.callout-warning collapse="true"}
 ## Hint for Part 2
 
-Unreliable noisy performance evaluations may cause premature elimination.
+Ask what happens to clearly poor configurations under ordinary random search.
 :::
 
-::: {.callout-tip collapse="true"}
+:::{.callout-warning collapse="true"}
+## Hint for Part 3
+
+If early rankings are unreliable, elimination can be a mistake rather than a saving.
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint for Part 4
+
+Hyperband needs partial training performance to be informative about full training performance.
+:::
+
+:::{.callout-tip collapse="true"}
 ## Solution
 
-1. Hyperband allocates small budgets (e.g. few epochs) to many configurations, then keeps only the top fraction, doubling budget each round. Unlike Bayesian optimization, it is bandit-based and does not use a surrogate/acquisition function.
+**Part 1: Successive-halving arithmetic**
 
-2. Noisy early curves risk eliminating good configurations. Mitigation strategies:
+Start with 27 configurations at 3 epochs.
 
-- Increase minimum budget before elimination.
-- Use multiple runs per configuration.
+1. After the first round, keep $27/3 = 9$ configurations and raise their budget to $3 \times 3 = 9$ epochs.
+2. After the second round, keep $9/3 = 3$ configurations and raise their budget to $9 \times 3 = 27$ epochs.
+3. After the third round, keep $3/3 = 1$ configuration and raise its budget to $27 \times 3 = 81$ epochs.
 
-3. Comparison in this context:
+So the sequence is:
 
-    *   **Random Search**:
-        *   *Efficiency*: Random search would be very inefficient. Since each full training run takes 4 hours, random search would waste most of its time fully training configurations that are clearly performing poorly after just a few epochs. It has no mechanism to stop unpromising trials early.
-        *   *Robustness & Parallelism*: Its main advantage is that it's simple and perfectly parallelizable. If you have a large compute cluster, you can launch dozens of 4-hour jobs simultaneously. It is also not easily fooled by local optima.
-        *   *Convergence*: Convergence to a good solution is purely by chance. Given the long evaluation time, you could only afford a small number of trials, making it unlikely to find a high-performing configuration.
+- 27 configurations at 3 epochs
+- 9 configurations at 9 epochs
+- 3 configurations at 27 epochs
+- 1 configuration at 81 epochs
 
-    *   **Bayesian Optimization (e.g., TPE)**:
-        *   *Efficiency*: It is much more sample-efficient than random search because it uses past results to inform future choices. This is a major benefit when each sample costs 4 hours. However, it is inherently sequential (evaluate a point, update the model, choose the next point), which makes large-scale parallelization less trivial than random search. It also doesn't inherently handle early stopping; it would still run each trial for the full 4 hours.
-        *   *Robustness*: It can be sensitive to the initial design and may get stuck in local optima if it decides to exploit a promising region too early.
-        *   *Convergence*: It generally converges to a good solution in fewer trials than random search.
+**Part 2: Why Hyperband can be efficient**
 
-    *   **Hyperband**:
-        *   *Efficiency*: This is the most efficient method for this specific problem. Its entire design is based on allocating a small budget (e.g., 15 minutes of training) to many configurations and aggressively pruning the poor performers. It avoids wasting the full 4 hours on bad models and concentrates the computational budget on the most promising candidates.
-        *   *Robustness*: Its primary weakness is its sensitivity to noisy learning curves, as discussed in the previous question. A good model that starts slow might be eliminated unfairly.
-        *   *Convergence*: It is very effective at quickly finding good, well-performing configurations within a fixed budget, even if it's not guaranteed to be the absolute best one. For problems with long training times, this is often the best practical choice.
+Full-budget random search would spend 9 hours on every sampled configuration, including obviously poor ones. Hyperband spends only a small initial budget on many candidates and discards weak configurations early. It therefore concentrates long training runs on a much smaller set of promising candidates.
 
+**Part 3: Risk from noisy early curves**
+
+If early validation loss is noisy or some good models improve only later, Hyperband may eliminate them before they have a chance to reveal their true quality. The algorithm then saves computation at the cost of selecting the wrong configurations.
+
+**Part 4: Comparison across methods**
+
+Random search is simple and highly parallel, but it wastes budget because every configuration receives the full 9-hour run. Bayesian optimization can be more sample-efficient than random search, but unless it is combined with pruning it still spends a full evaluation on each chosen configuration. Hyperband has the clearest advantage when partial training performance is informative about eventual full-budget performance, because then early stopping removes bad configurations cheaply without discarding many genuinely good ones.
+:::
+
+## References
+
+::: {#refs}
 :::
