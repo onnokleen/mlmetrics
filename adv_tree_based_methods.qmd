@@ -1,8 +1,213 @@
 ---
 number-sections: true
-number-offset: [12, 0]  # This makes sections 10.1, 10.2, etc.
+number-offset: [12, 0]
 ---
+
 # Advanced Tree-Based Methods
+
+## Overview
+
+The previous chapters treated trees, random forests, and gradient boosting mainly as tools for conditional-mean or conditional-event-probability prediction. In many econometric applications, that is not enough. A risk manager may need conditional quantiles of future losses, a central bank may care about the probability of extreme inflation outcomes, and an asset-pricing application may require a full predictive distribution rather than a point forecast.
+
+This chapter extends tree-based methods in that direction. The focus is on two ideas from the lecture slides:
+
+- **distributional and quantile random forests**, which reuse random-forest neighborhoods to estimate conditional distributions nonparametrically
+- **NGBoost**, which extends boosting to parametric predictive distributions and uses natural gradients to update distribution parameters
+
+The chapter remains predictive rather than structural. Generalized random forests, honesty for causal forests, and local-linear forests are important related topics, but they are beyond the scope of this chapter.
+
+## Roadmap
+
+1. We start from the standard random-forest weight representation and use it to diagnose what ordinary forests do and do not provide.
+2. We then define distributional and quantile random forests through weighted empirical CDFs and leaf-neighbor outcomes.
+3. Next we introduce NGBoost as a parametric distributional version of gradient boosting.
+4. We explain the role of Fisher information, natural gradients, and constrained parameterizations.
+5. We close with a comparison, summary, pitfalls, and exercises.
+
+## Standard Forests as Weighted Averages
+
+A standard random forest predicts a conditional mean by averaging outcomes of training observations that frequently land in the same leaves as the forecast point. Let $L_b(x)$ denote the terminal leaf reached by $x$ in tree $b$, and let $N_b(x)$ be the number of training observations in that leaf. The forest prediction can be written as
+$$
+\hat f_{\text{RF}}(x)
+=
+\sum_{i=1}^n w_i(x)y_i,
+\qquad
+w_i(x)
+=
+\frac{1}{B}\sum_{b=1}^B
+\frac{1\{x_i \in L_b(x)\}}{N_b(x)}.
+$$
+
+This is a useful way to read a forest. The weights $w_i(x)$ define a local neighborhood around $x$, but the neighborhood is learned by recursive splits rather than fixed by Euclidean distance.
+
+:::{.callout-important}
+## Why this matters
+
+The weight view separates two ingredients:
+
+1. the forest learns which training observations are local neighbors of $x$
+2. the prediction rule decides what to do with the outcomes of those neighbors
+
+A standard random forest uses those neighbors to estimate a conditional mean. A distributional forest uses the same neighbors to estimate a conditional distribution.
+:::
+
+## Limits of Standard Random Forests
+
+The weighted-average view also makes the limits of ordinary forests clear.
+
+**Only a point prediction**
+
+A standard regression forest estimates something like $\mathbb{E}[Y\mid X=x]$. It does not directly report tail probabilities, quantiles, skewness, or multimodality of $Y\mid X=x$.
+
+**Constant local model**
+
+Inside each leaf, the local prediction is an average. This is powerful and robust, but it can be inefficient if the relationship inside a neighborhood is locally smooth rather than locally constant.
+
+**Prediction, not causality**
+
+The forest neighborhood is chosen to improve prediction. A split or variable importance measure should not be interpreted as a treatment effect or structural parameter without an identification design.
+
+**Potential honesty problem**
+
+The same observations are often used both to choose the tree structure and to compute leaf averages. That adaptivity can create bias in some settings because the prediction rule reuses data that helped select the splits.
+
+## Distributional and Quantile Random Forests
+
+Distributional forests keep the forest neighborhood idea but change the object estimated from the neighbors. Instead of reporting only
+$$
+\sum_{i=1}^n w_i(x)y_i,
+$$
+they estimate the conditional CDF
+$$
+\hat F(y\mid X=x)
+=
+\sum_{i=1}^n w_i(x)1\{y_i \leq y\}.
+$$
+
+This is a weighted empirical distribution of the training outcomes. Once we have $\hat F(y\mid X=x)$, we can compute conditional medians, prediction intervals, lower-tail probabilities, and other distributional functionals.
+
+Quantile random forests focus on conditional quantiles. For a probability level $\alpha\in(0,1)$, the estimated conditional quantile is
+$$
+\hat q_\alpha(x)
+=
+\inf\{y:\hat F(y\mid X=x)\geq \alpha\}.
+$$
+
+An equivalent implementation view is to collect the training outcomes that share terminal leaves with $x$ across the forest, keep duplicates when an observation is a neighbor in multiple trees, and compute empirical quantiles of that pooled neighbor sample.
+
+:::{.callout-note title="Question for Reflection"}
+
+Why can two forests with the same conditional-mean prediction still give different conditional quantile estimates?
+:::
+
+:::{.callout-tip collapse="true" title="Suggested Answer"}
+
+The conditional mean uses only a weighted average of neighboring outcomes. Conditional quantiles depend on the full weighted empirical distribution of those outcomes. Two neighbor distributions can have the same mean but different spread, skewness, or tail mass, so their quantiles can differ even when the mean prediction is identical.
+:::
+
+## Econometric Use and Limits of Distributional Forests
+
+Distributional forests are attractive when heteroskedasticity or tail risk is central. Examples include volatility forecasting, downside return risk, firm default loss distributions, and macroeconomic fan charts. They can adapt prediction intervals to the covariates because the neighborhood around $x$ changes with the forest partitions.
+
+The main advantage is flexibility: the method is nonparametric in the conditional distribution and can represent skewness, fat tails, and multimodality through the empirical neighbor distribution. The main limitation is that the estimator is still local. If the relevant tail event is rare, the local neighborhood may contain little information about the tail. Like ordinary forests, distributional forests also need validation that respects dependence, publication lags, and forecast-origin information sets.
+
+## NGBoost: Parametric Distributional Boosting
+
+NGBoost takes a different route. Instead of estimating the conditional distribution nonparametrically from forest neighbors, it chooses a parametric family
+$$
+Y\mid X=x \sim P_{\theta(x)}
+$$
+and learns the parameter vector $\theta(x)$ by boosting. For example, a Gaussian predictive distribution might use $\theta(x)=(\mu(x),\sigma(x))$, while a positive target might use an exponential distribution with a rate parameter.
+
+The training objective is usually the negative log-likelihood
+$$
+\ell(\theta;y)=-\log p_\theta(y).
+$$
+
+This connects NGBoost to the distributional-network chapter and the predictive-distribution evaluation chapter: minimizing average NLL is the training analogue of optimizing the logarithmic score.
+
+:::{.callout-important}
+## Standard Boosting vs NGBoost
+
+Standard squared-error boosting learns one scalar prediction function, typically a conditional mean. NGBoost learns one or more functions that parameterize a full predictive distribution. The price of this richer output is that the researcher must choose a distributional family and handle parameter constraints carefully.
+:::
+
+## Natural Gradients and Fisher Scaling
+
+The distinctive feature of NGBoost is the use of the natural gradient. In an ordinary gradient step, parameters are updated using the Euclidean gradient of the loss. For distribution parameters, this can be poorly scaled: a one-unit change in a mean parameter and a one-unit change in a scale parameter need not have comparable effects on the predictive density.
+
+Let
+$$
+g_i
+=
+\nabla_\theta \ell(\theta(x_i);y_i)
+$$
+be the ordinary gradient for observation $i$. The Fisher information matrix is
+$$
+F(\theta)
+=
+\mathbb{E}_{Y\sim P_\theta}
+\left[
+\nabla_\theta \log p_\theta(Y)
+\nabla_\theta \log p_\theta(Y)^\top
+\right].
+$$
+
+The natural gradient rescales the ordinary gradient:
+$$
+\tilde g_i
+=
+F(\theta(x_i))^{-1}g_i.
+$$
+
+NGBoost fits a weak learner, often a shallow tree, to these natural-gradient targets and then updates the predicted distribution parameters. The intuition is that the Fisher matrix measures the local curvature of the statistical model, so the natural gradient makes steps that are more comparable across parameters.
+
+## Parameterization and Update Choices
+
+Distribution parameters often have constraints. A variance, standard deviation, rate, or scale parameter must be positive, and a probability must lie in $(0,1)$. NGBoost implementations therefore usually predict unconstrained functions and transform them into valid distribution parameters.
+
+Examples:
+
+- predict $\log \sigma(x)$ rather than $\sigma(x)$
+- use a `softplus` transformation for positive scale parameters
+- use a logistic transformation for probabilities
+
+For multi-parameter distributions, updates can be performed jointly or coordinate-wise. A joint update fits a multi-output learner to all components of the natural gradient at once. A coordinate update cycles through parameters, fitting one tree for the mean component, then one for the scale component, and so on. Coordinate updates can be easier to stabilize when the base learners are shallow.
+
+## QRF vs NGBoost
+
+Distributional forests and NGBoost answer the same high-level question in different ways.
+
+| Method | Distributional object | Main advantage | Main limitation |
+|---|---|---|---|
+| Quantile / distributional random forest | Weighted empirical CDF from forest neighbors | Nonparametric shape and adaptive intervals | Tail estimates can be noisy with few local tail observations |
+| NGBoost | Parametric density $P_{\theta(x)}$ | Smooth full predictive density and likelihood-based training | Sensitive to distributional misspecification |
+
+In econometric work, the choice depends on the forecasting object. If the goal is flexible local quantiles with few parametric assumptions, a distributional forest is natural. If the goal is a smooth parametric predictive density with likelihood-based training, NGBoost is more natural.
+
+## Summary
+
+:::{.callout-important}
+## Key Takeaways
+
+1. A standard random forest can be written as a weighted average of training outcomes, where the weights are determined by shared terminal leaves.
+2. Distributional and quantile random forests use the same weights to estimate a weighted empirical conditional CDF rather than only a conditional mean.
+3. Quantile random forests can produce conditional quantiles and prediction intervals without specifying a parametric distribution.
+4. NGBoost learns parameters of a predictive distribution by minimizing a proper scoring rule such as negative log-likelihood.
+5. Natural gradients rescale ordinary gradients by the Fisher information, which helps balance updates across distribution parameters.
+6. Both approaches remain predictive tools; they do not solve identification or dependence-aware validation problems automatically.
+:::
+
+:::{.callout-warning}
+## Common Pitfalls
+
+- Treating a distributional forest as calibrated without checking out-of-sample distributional scores or PIT-style diagnostics.
+- Forgetting that tail quantiles require enough relevant tail observations in the forest neighborhood.
+- Interpreting forest weights, splits, or importance measures causally.
+- Choosing an NGBoost distributional family whose support or tail behavior is inconsistent with the outcome.
+- Updating constrained parameters directly instead of using log, softplus, or other transformations that enforce valid distributions.
+- Using random validation splits for time-series or panel forecasting targets with dependence or publication lags.
+:::
 
 ## Exercises
 
@@ -17,231 +222,195 @@ You trained a Quantile Random Forest with $B=3$ trees. For a new test point $x_{
 
 Questions:
 
-1. What is the full set (with duplicates) of neighboring outcomes for $x_{\text{new}}$?
-2. What is the predicted conditional median (50th percentile)?
-3. What is the predicted conditional 25th percentile?
+1. What is the full set, with duplicates, of neighboring outcomes for $x_{\text{new}}$?
+2. What is the predicted conditional median?
+3. What is the predicted conditional 25th percentile using the simple $p(N+1)$ interpolation rule?
+4. Explain why duplicates should not automatically be removed in this pooled-neighbor calculation.
 
-*Exam level*
+*Exam level. Parts 1-3 test the mechanics of empirical quantile construction, while Part 4 checks the forest-neighborhood interpretation.*
 :::
 
 ::: {.callout-warning collapse="true"}
-## Hint 1 (Neighbors)
-Pool (concatenate) all leaf outcomes from all trees; keep duplicates; then sort.
+## Hint for Part 1
+
+Pool the leaf outcomes from all trees, keep duplicates, and sort the result.
 :::
 
 ::: {.callout-warning collapse="true"}
-## Hint 2 (Median)
-For $N$ odd, the median is the $\frac{N+1}{2}$-th smallest value.
+## Hint for Part 3
+
+For quantile level $p$, compute position $k=p(N+1)$. If $k$ is not an integer, interpolate between positions $\lfloor k\rfloor$ and $\lceil k\rceil$.
 :::
 
 ::: {.callout-warning collapse="true"}
-## Hint 3 (General Quantile)
-For quantile level $p$, compute position $k = p (N+1)$.  
-If $k$ not integer: interpolate between $\lfloor k \rfloor$ and $\lceil k \rceil$.
+## Hint for Part 4
+
+Ask what it means if the same training outcome shares a terminal leaf with $x_{\text{new}}$ in more than one tree.
 :::
 
 ::: {.callout-tip collapse="true"}
 ## Solution
 
-1. Pool: $\{10,12,15,8,11,12,12,14,20\}$ → sorted: $\{8,10,11,12,12,12,14,15,20\}$ ($N=9$).
-2. Median index: $(9+1)/2 = 5$ → 5th value $=12$ so $\hat q_{0.5}(x_{\text{new}})=12$.
-3. 25th percentile position: $0.25(9+1)=2.5$ → interpolate between 2nd (10) and 3rd (11): $10 + 0.5(11-10)=10.5$. Thus $\hat q_{0.25}(X_{\text{new}})=10.5$.
+**Part 1: Neighbor set**
 
-(Interpolation corresponds to the simple $p(N+1)$ rule; software may use alternative conventions.)
+Pooling gives
+$$
+\{10,12,15,8,11,12,12,14,20\}.
+$$
+Sorted, this is
+$$
+\{8,10,11,12,12,12,14,15,20\},
+$$
+with $N=9$.
+
+**Part 2: Median**
+
+The median position is
+$$
+\frac{N+1}{2}=\frac{10}{2}=5.
+$$
+The 5th sorted value is $12$, so $\hat q_{0.5}(x_{\text{new}})=12$.
+
+**Part 3: 25th percentile**
+
+For $p=0.25$,
+$$
+k=p(N+1)=0.25\cdot 10=2.5.
+$$
+Interpolate halfway between the 2nd value, $10$, and the 3rd value, $11$:
+$$
+\hat q_{0.25}(x_{\text{new}})
+=10+0.5(11-10)=10.5.
+$$
+
+**Part 4: Duplicates**
+
+Duplicates reflect forest weights. If an outcome appears as a neighbor in several trees, the forest has repeatedly placed that training observation in the same local neighborhood as $x_{\text{new}}$. Removing duplicates would discard part of the weighting information.
 :::
-
-
 
 ::: {.callout-note}
 ## Exercise 13.2: NGBoost with Exponential Likelihood
 
 Assume we model a positive target variable $Y$ with a conditional Exponential distribution:
 $$
-Y \mid X=x \sim \text{Exp}(\lambda(x)), \qquad \text{pdf is } f(y;\lambda)=\lambda e^{-\lambda y} \text{ for } y\ge 0.
+Y \mid X=x \sim \text{Exp}(\lambda(x)),
+\qquad
+f(y;\lambda)=\lambda e^{-\lambda y}
+\quad \text{for } y\ge 0.
 $$
 NGBoost can be used to learn the rate parameter function $\lambda(x)$.
 
-1.  **Conceptual:** In your own words, contrast NGBoost with (i) standard gradient boosting (using MSE) and (ii) Quantile Regression Forests.
-2.  **Loss & Gradient (Rate parameter $\lambda$):**
-    a. Write the per-observation negative log-likelihood (NLL), $\ell(\lambda;y)$.
-    b. Compute the ordinary gradient $\nabla_\lambda \ell = \partial \ell/\partial \lambda$.
-3.  **Natural Gradient (Rate parameter $\lambda$):**
-    a. The Fisher Information for $\lambda$ is $F_{\lambda\lambda} = 1/\lambda^2$. Calculate the natural gradient, $g^{\text{nat}}_\lambda = F_{\lambda\lambda}^{-1} \nabla_\lambda \ell$.
-    b. For a single data point with current prediction $\lambda=0.4$ and observed $y=3$, compute both the ordinary and natural gradients for $\lambda$.
-4.  **Reparameterization (Log-rate parameter $\theta$):** To ensure $\lambda>0$, we often model $\theta(x) = \log \lambda(x)$, so $\lambda = e^\theta$
-    a. Use the chain rule to find the ordinary gradient for $\theta$, $\nabla_\theta \ell = \partial \ell/\partial \theta$.
-    b. **Fisher Information Transformation Rule:** If $\theta = g(\lambda)$, then $F_{\theta\theta} = F_{\lambda\lambda} \cdot (\frac{d\lambda}{d\theta})^2$. Use this rule to find the Fisher Information $F_{\theta\theta}$ for our case where $\theta = \log \lambda$.
-    c. Calculate the natural gradient for $\theta$, $g^{\text{nat}}_\theta = F_{\theta\theta}^{-1} \nabla_\theta \ell$. What do you notice?
-5.  **Conclusion:** Why is the $\theta = \log \lambda$ parameterization often preferred in practice for NGBoost with an Exponential likelihood?
+Questions:
 
-Note that using the natural gradient is more important for multi-parameter densities where the natural gradient *standardizes* the gradients across parameters.
+1. Contrast NGBoost with standard gradient boosting under MSE and with Quantile Regression Forests.
+2. Write the per-observation negative log-likelihood $\ell(\lambda;y)$ and compute the ordinary gradient $\partial \ell/\partial \lambda$.
+3. The Fisher information for $\lambda$ is $F_{\lambda\lambda}=1/\lambda^2$. Compute the natural gradient $g^{\text{nat}}_\lambda=F_{\lambda\lambda}^{-1}\partial \ell/\partial \lambda$.
+4. For $\lambda=0.4$ and $y=3$, compute the ordinary gradient and the natural gradient for $\lambda$.
+5. Let $\theta(x)=\log \lambda(x)$, so $\lambda=e^\theta$. Compute $\partial \ell/\partial \theta$ and explain why this parameterization is useful.
 
-*Exam level*
+Note that the natural gradient is more important for multi-parameter densities, where it standardizes gradients across parameters.
+
+*Exam level. The exercise connects likelihood calculation, constrained parameters, and the natural-gradient idea in a one-parameter model.*
 :::
 
 ::: {.callout-warning collapse="true"}
-## Hint 1 (NLL)
-The NLL is $-\log f(y;\lambda)$. Remember that $\log(ab) = \log a + \log b$.
+## Hint for Part 2
+
+The negative log-likelihood is $-\log f(y;\lambda)$. Use $\log(ab)=\log a+\log b$.
 :::
 
 ::: {.callout-warning collapse="true"}
-## Hint 2 (Chain Rule)
-For Q4a, you'll need $\partial \ell/\partial \theta = (\partial \ell/\partial \lambda) \cdot (\partial \lambda/\partial \theta)$.
+## Hint for Part 3
+
+The natural gradient multiplies the ordinary gradient by $F_{\lambda\lambda}^{-1}$.
 :::
 
 ::: {.callout-warning collapse="true"}
-## Hint 3 (Transformation)
-For Q4b, you'll need the derivative of $\lambda = e^\theta$ with respect to $\theta$.
+## Hint for Part 5
+
+Use the chain rule:
+$$
+\frac{\partial \ell}{\partial \theta}
+=
+\frac{\partial \ell}{\partial \lambda}
+\frac{\partial \lambda}{\partial \theta}.
+$$
 :::
 
 ::: {.callout-tip collapse="true"}
 ## Solution
 
+**Part 1: Conceptual comparison**
 
-1. **Conceptual question:**  
-   - Standard gradient boosting (with MSE) learns a single point function (typically the conditional mean) by fitting weak learners to (negative) gradients of the loss; uncertainty is not modeled.  
-   - Quantile Regression Forests approximate the entire conditional distribution nonparametrically by pooling leaf observations from many trees; quantiles are read off the empirical distribution (no parametric assumptions, no explicit gradient optimization, no natural gradients).  
-   - NGBoost is a semi-parametric method: it specifies a parametric family (here Exponential with rate $\lambda(x)$) and trains weak learners to predict its parameters by minimizing a proper scoring rule (negative log-likelihood), using (natural) gradients. It gives full predictive distributions (mean, quantiles, tail probs) if the family is suitable. Trade‑off: risk of misspecification and added complexity (Fisher / natural gradient machinery).
+Standard gradient boosting under MSE learns a scalar point prediction, typically the conditional mean, by fitting trees to residuals or negative gradients. Quantile Regression Forests estimate the conditional distribution nonparametrically by using forest neighbors and empirical quantiles. NGBoost specifies a parametric predictive family and learns its parameters by minimizing a proper scoring rule such as NLL, using natural gradients.
 
-2.  **Loss & Gradient for $\lambda$:**
-    a. $\ell(\lambda;y) = -(\log \lambda - \lambda y) = -\log \lambda + \lambda y$.
-    b. $\nabla_\lambda \ell = -1/\lambda + y$.
+**Part 2: NLL and ordinary gradient**
 
-3.  **Natural Gradient for $\lambda$:**
-    a. $g^{\text{nat}}_\lambda = (\lambda^2) \cdot (-1/\lambda + y) = -\lambda + \lambda^2 y = \lambda(\lambda y - 1)$.
-    b. With $\lambda=0.4, y=3$:
-       - Ordinary: $\nabla_\lambda \ell = -1/0.4 + 3 = -2.5 + 3 = 0.5$.
-       - Natural: $g^{\text{nat}}_\lambda = -0.4 + (0.4^2 \cdot 3) = -0.4 + 0.48 = 0.08$.
-
-4.  **Reparameterization to $\theta = \log \lambda$:**
-    a. $\nabla_\theta \ell = (\partial \ell/\partial \lambda) \cdot (\partial \lambda/\partial \theta) = (-1/\lambda + y) \cdot e^\theta = (-1/e^\theta + y) \cdot e^\theta = -1 + y e^\theta$.
-    b. $F_{\theta\theta} = F_{\lambda\lambda} \cdot (\frac{d\lambda}{d\theta})^2 = (1/\lambda^2) \cdot (e^\theta)^2 = (1/(e^\theta)^2) \cdot (e^\theta)^2 = 1$.
-    c. $g^{\text{nat}}_\theta = F_{\theta\theta}^{-1} \nabla_\theta \ell = (1)^{-1} \cdot (-1 + y e^\theta) = -1 + y e^\theta$.
-       **Observation:** For the log-parameter $\theta$, the natural gradient is identical to the ordinary gradient.
-
-5.  **Conclusion:** The $\theta = \log \lambda$ parameterization is preferred for two main reasons:
-    - **Practical:** It transforms the constrained optimization problem ($\lambda>0$) into an unconstrained one for $\theta$, which can be learned by a standard tree booster.
-    - **Theoretical:** It is the "canonical" parameter of the Exponential family. In this space, the Fisher Information is constant (1), making the geometry of the parameter space flat. This means the ordinary gradient is already "natural," simplifying the algorithm as no scaling by the Fisher matrix is needed. The gradient steps are more stable.
-:::
-
-
-
-<!-- 
-
-::: {.callout-note}
-## Exercise: NGBoost with Exponential Likelihood (Positive Targets)
-
-Assume a conditional Exponential model
+The negative log-likelihood is
 $$
-Y \mid X=x \sim \text{Exp}(\lambda(x)), \qquad \lambda(x)>0,
+\ell(\lambda;y)
+=
+-\log(\lambda e^{-\lambda y})
+=
+-\log\lambda+\lambda y.
 $$
-with pdf $f(y;\lambda)=\lambda e^{-\lambda y}$ for $y\ge 0$.
+Therefore
+$$
+\frac{\partial \ell}{\partial \lambda}
+=
+-\frac{1}{\lambda}+y.
+$$
 
-1. Conceptual question: Contrast NGBoost (parametric probabilistic) with (i) standard gradient boosting (MSE) and (ii) Quantile Regression Forests in your own words.
-2. Write the per‑observation negative log-likelihood (NLL) $\ell(\lambda;y)$.
-3. Compute $\partial \ell/\partial \lambda$.
-4. Let $\theta = \log \lambda$ so $\lambda = e^{\theta}$. Show $\partial \ell/\partial \theta = e^{\theta} y - 1$.
-5. Fisher: $F_{\lambda\lambda}=1/\lambda^{2}$. Give $g^{\text{nat}}_\lambda = F_{\lambda\lambda}^{-1} \partial \ell/\partial \lambda$ and show in $\theta$ space Fisher $=1$.
-6. Numeric: $\lambda=0.4$, $y=3$. Compute (a) ordinary gradient in $\lambda$, (b) natural gradient in $\lambda$, (c) gradient in $\theta$.
-7. One advantage and one drawback of Exponential vs Gaussian for positive skewed targets.
+**Part 3: Natural gradient**
+
+Since $F_{\lambda\lambda}=1/\lambda^2$, its inverse is $\lambda^2$. Hence
+$$
+g^{\text{nat}}_\lambda
+=
+\lambda^2\left(-\frac{1}{\lambda}+y\right)
+=
+-\lambda+\lambda^2y
+=
+\lambda(\lambda y-1).
+$$
+
+**Part 4: Numeric calculation**
+
+With $\lambda=0.4$ and $y=3$,
+$$
+\frac{\partial \ell}{\partial \lambda}
+=
+-\frac{1}{0.4}+3
+=
+-2.5+3
+=
+0.5.
+$$
+The natural gradient is
+$$
+g^{\text{nat}}_\lambda
+=
+-0.4+(0.4)^2\cdot 3
+=
+-0.4+0.48
+=
+0.08.
+$$
+
+**Part 5: Log-rate parameterization**
+
+Because $\lambda=e^\theta$,
+$$
+\frac{\partial \lambda}{\partial \theta}=e^\theta=\lambda.
+$$
+Thus
+$$
+\frac{\partial \ell}{\partial \theta}
+=
+\left(-\frac{1}{\lambda}+y\right)\lambda
+=
+-1+y e^\theta.
+$$
+
+The log-rate parameterization is useful because it turns the constrained parameter $\lambda>0$ into an unconstrained parameter $\theta\in\mathbb{R}$. A tree booster can update $\theta$ freely, and the transformation guarantees that the implied rate $\lambda=e^\theta$ remains positive.
 :::
-
-::: {.callout-warning collapse="true"}
-## Hint 3 (NLL)
-Use $-\log f(y;\lambda)$.
-:::
-
-::: {.callout-warning collapse="true"}
-## Hint 3 (Chain Rule)
-$\partial \ell/\partial \theta = (\partial \ell/\partial \lambda)(\partial \lambda/\partial \theta)$.
-:::
-
-::: {.callout-warning collapse="true"}
-## Hint 5 (Fisher)
-Score $s(\lambda)=1/\lambda - y$; Fisher is its squared expectation.
-:::
-
-::: {.callout-warning collapse="true"}
-## Hint 4 (Natural Gradient)
-Multiply by $F^{-1}$.
-:::
-
-::: {.callout-tip collapse="true"}
-## Solution
-
-1. Conceptual question:  
-   - Standard gradient boosting (with MSE) learns a single point function (typically the conditional mean) by fitting weak learners to (negative) gradients of the loss; uncertainty is not modeled.  
-   - Quantile Regression Forests approximate the entire conditional distribution nonparametrically by pooling leaf observations from many trees; quantiles are read off the empirical distribution (no parametric assumptions, no explicit gradient optimization, no natural gradients).  
-   - NGBoost is probabilistic: it specifies a parametric family (here Exponential with rate $\lambda(x)$) and trains weak learners to predict its parameters by minimizing a proper scoring rule (negative log-likelihood), using (natural) gradients. It gives full predictive distributions (mean, quantiles, tail probs) if the family is suitable. Trade‑off: risk of misspecification and added complexity (Fisher / natural gradient machinery).
-
-2. $\ell(\lambda;y)= -\log \lambda + \lambda y$.
-
-3. $\partial \ell/\partial \lambda = -1/\lambda + y$.
-
-4. $\partial \ell/\partial \theta = (-1/\lambda + y)\lambda = -1 + \lambda y = e^{\theta} y - 1$.
-
-5. Natural in $\lambda$: $g^{\text{nat}}_\lambda = \lambda^{2}(-1/\lambda + y)= -\lambda + \lambda^{2} y = \lambda(\lambda y -1)$. In $\theta$ space Fisher $=1$, so natural = ordinary: $\lambda y -1$.
-
-6. $\lambda=0.4, y=3$:  
-   Ordinary: $-1/0.4 + 3 = 0.5$.  
-   Natural: $-0.4 + 0.16\cdot 3 = 0.08$.  
-   $\theta$ gradient: $0.4\cdot 3 -1 = 0.2$.
-
-::: -->
-
-<!-- :::
-
-```{python}
-"""
-True Quantile Regression Forest bands on heteroskedastic data
-Requires: numpy, matplotlib, quantile-forest (RandomForestQuantileRegressor)
-"""
-
-# pip install quantile-forest
-
-import numpy as np
-import matplotlib.pyplot as plt
-from quantile_forest import RandomForestQuantileRegressor  # true QRF
-
-# ---------- 1) synthetic heteroskedastic data ----------
-rng = np.random.RandomState(42)
-X = np.sort(5 * rng.rand(10000, 1) - 2.5, axis=0)      # x in [-2.5, 2.5]
-f_true = np.sin(X).ravel()                           # true conditional mean
-noise = (0.1 + 0.5 * (X.ravel() ** 2)) * rng.randn(X.shape[0])  # var increases with |x|
-y = f_true + noise
-
-# ---------- 2) fit true Quantile Regression Forest ----------
-qrf = RandomForestQuantileRegressor(
-    n_estimators=1000,
-    min_samples_leaf=50,
-    random_state=42,
-    n_jobs=-1,
-)
-qrf.fit(X, y)
-
-# ---------- 3) prediction grid & quantiles ----------
-Xg = np.linspace(-2.5, 2.5, 300).reshape(-1, 1)
-f_grid = np.sin(Xg).ravel()  # true mean for reference
-
-qs = [0.10, 0.25, 0.50, 0.75, 0.90]                # fractions in [0, 1]
-Q = qrf.predict(Xg, quantiles=qs)                   # shape: (n_points, 5)
-q10, q25, q50, q75, q90 = Q.T
-
-# ---------- 4) plot ----------
-plt.figure(figsize=(9, 5.5))
-plt.scatter(X.ravel(), y, s=10, alpha=0.04, label="Data")
-plt.plot(Xg.ravel(), f_grid, "k--", linewidth=1.7, label="True mean")
-plt.plot(Xg.ravel(), q50, linewidth=2.1, label="QRF median")
-
-# Shaded bands (same color, different opacity)
-plt.fill_between(Xg.ravel(), q10, q90, alpha=0.18, label="10–90%")
-plt.fill_between(Xg.ravel(), q25, q75, alpha=0.35, label="25–75%")
-
-plt.title("True Quantile Regression Forest (heteroskedastic noise)")
-plt.xlabel("x")
-plt.ylabel("y")
-plt.legend(loc="best")
-plt.tight_layout()
-plt.show()
-``` -->
-
