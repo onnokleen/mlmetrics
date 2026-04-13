@@ -127,6 +127,58 @@ Nested resampling is the clean benchmark when we want an honest assessment of th
 
 In iid settings, the inner and outer loops can use the k-fold design reviewed in [K-Fold Cross-Validation](cross_validation.qmd#sec-cv-kfold). In dependent-data settings, the same logic applies but the folds must be time-aware. The important point is conceptual: the object being evaluated is not one model, but the whole pipeline "fit, tune, select, refit."
 
+Figure @fig-hpo-nested-time-series gives a time-series version of this logic. The outer split determines where honest evaluation occurs. Inside the outer training window, the researcher runs a second, time-aware tuning exercise. Only after the inner loop selects hyperparameters is the model refit on the full outer training sample and evaluated once on the untouched outer validation block.
+
+```{python}
+#| label: fig-hpo-nested-time-series
+#| fig-cap: "Schematic of nested time-series hyperparameter tuning. The top row shows one outer split: an outer training window followed by an untouched outer validation block used only for final evaluation of the tuned procedure. The lower rows show two inner expanding-window folds constructed only inside the outer training window. In each inner fold, the left block is the inner training sample and the right block is the inner validation block used to compare hyperparameter configurations. After tuning, the selected configuration is refit on the full outer training window and then evaluated once on the outer validation block."
+#| echo: true
+
+import matplotlib.pyplot as plt
+from matplotlib.patches import Rectangle
+
+fig, ax = plt.subplots(figsize=(11.5, 4.8))
+ax.set_xlim(0, 100)
+ax.set_ylim(0, 4.4)
+ax.axis("off")
+
+rows = [
+    (3.35, "Outer split", [(8, 68, "Outer training", "#9ecae1"), (76, 16, "Outer validation", "#f4a6a6")]),
+    (2.35, "Inner fold 1", [(8, 34, "Inner train", "#c7e9c0"), (44, 10, "Inner validate", "#fdd49e")]),
+    (1.35, "Inner fold 2", [(8, 46, "Inner train", "#c7e9c0"), (58, 10, "Inner validate", "#fdd49e")]),
+    (0.35, "Refit", [(8, 68, "Refit on full outer training window", "#bcbddc")]),
+]
+
+for y, label, blocks in rows:
+    ax.text(0.8, y + 0.2, label, ha="left", va="center", fontsize=11, fontweight="bold")
+    for x0, width, text, color in blocks:
+        rect = Rectangle((x0, y), width, 0.42, facecolor=color, edgecolor="0.25", linewidth=1.0)
+        ax.add_patch(rect)
+        ax.text(x0 + width / 2, y + 0.21, text, ha="center", va="center", fontsize=10)
+
+for xpos, text in [(8, "Past"), (76, "Future")]:
+    ax.text(xpos, 4.02, text, ha="center", va="bottom", fontsize=10)
+
+ax.annotate(
+    "Inner folds are built only inside the outer training window",
+    xy=(42, 2.55),
+    xytext=(52, 3.95),
+    arrowprops={"arrowstyle": "->", "color": "0.25"},
+    fontsize=10,
+)
+ax.annotate(
+    "Final honest evaluation",
+    xy=(84, 3.56),
+    xytext=(79, 0.95),
+    arrowprops={"arrowstyle": "->", "color": "0.25"},
+    fontsize=10,
+)
+ax.text(42, 0.95, "Select hyperparameters from inner-loop performance, then refit before testing.", ha="center", fontsize=10)
+
+plt.tight_layout()
+plt.show()
+```
+
 :::{.callout-important}
 ## Why HPO Is Harder Than Fitting a Single Model
 
@@ -191,6 +243,18 @@ A practical HPO problem therefore has four ingredients:
 If the preferred performance measure is larger-is-better, such as an $R^2$ or utility proxy, we can either maximize that score directly or minimize its negative. The statistical issues are the same.
 
 **Search-space design matters.** A search space that is too narrow cannot recover good configurations. A search space that is too wide wastes budget on implausible values. In econometric applications the best default is usually a theory-informed box: plausible lag lengths, sensible regularization ranges, and model sizes that fit the available sample size.
+
+:::{.callout-tip title="Practical Search-Space Conventions"}
+
+When building a search space, a few conventions are usually sensible.
+
+1. Tune scale parameters such as learning rates and penalty strengths on a log scale, because moving from $10^{-4}$ to $10^{-3}$ is usually more consequential than moving from $0.100$ to $0.101$.
+2. Keep structural hyperparameters such as lag length, tree depth, or number of hidden units discrete and bounded by the sample size and the forecasting task.
+3. Use conditional spaces when appropriate. For example, if subsampling is fixed at one, then a second hyperparameter controlling row sampling may be irrelevant.
+4. Exclude values that are statistically implausible before the search begins. A good search space reflects prior econometric judgment rather than pretending every software-permitted setting is equally credible.
+
+These choices do not guarantee good performance, but they often improve HPO more than switching from one sophisticated search algorithm to another.
+:::
 
 ## Baseline Search Methods
 
@@ -476,8 +540,8 @@ Figure @fig-hyperband-brackets shows how these brackets differ. The wide bracket
 import matplotlib.pyplot as plt
 from matplotlib.patches import FancyBboxPatch
 
-fig, ax = plt.subplots(figsize=(11, 5.2))
-ax.set_xlim(0, 12)
+fig, ax = plt.subplots(figsize=(11.8, 5.0))
+ax.set_xlim(-1.2, 12)
 ax.set_ylim(0, 8)
 ax.axis("off")
 
@@ -493,7 +557,7 @@ brackets = [
 ]
 
 for bracket in brackets:
-    ax.text(0.15, bracket["y"], bracket["label"], ha="left", va="center", fontsize=11, fontweight="bold")
+    ax.text(-1.05, bracket["y"], bracket["label"], ha="left", va="center", fontsize=10.5, fontweight="bold")
     prev_x = None
     prev_y = None
     for xpos, count, budget in zip(stage_x, bracket["counts"], bracket["budget"]):
@@ -511,7 +575,8 @@ for bracket in brackets:
             alpha=0.22,
         )
         ax.add_patch(patch)
-        ax.text(xpos, bracket["y"] + 0.10, f"{count} configs", ha="center", va="center", fontsize=10)
+        count_label = "config" if count == 1 else "configs"
+        ax.text(xpos, bracket["y"] + 0.10, f"{count} {count_label}", ha="center", va="center", fontsize=10)
         ax.text(xpos, bracket["y"] - 0.14, f"budget {budget}", ha="center", va="center", fontsize=9)
         if prev_x is not None:
             ax.annotate(
@@ -523,7 +588,7 @@ for bracket in brackets:
         prev_x = xpos
         prev_y = bracket["y"]
 
-ax.text(6.0, 0.55, "Moving right: fewer configurations receive more resources.", ha="center", fontsize=10)
+    ax.text(5.7, 0.55, "Moving right: fewer configurations receive more resources.", ha="center", fontsize=10)
 
 plt.tight_layout()
 plt.show()
@@ -589,7 +654,7 @@ Packages such as Optuna make these search strategies convenient to run, especial
 
 You are tuning a gradient boosting model to forecast monthly industrial production growth. Candidate predictors include lags of the target, survey indicators, and financial variables. The researcher evaluates 12 hyperparameter configurations using the same expanding-window validation design and then keeps the configuration with the lowest average validation mean squared forecast error.
 
-1. Explain why the minimum average validation loss across the 12 configurations is typically an optimistically biased estimate of the true out-of-sample loss of the selected configuration, even if each configuration's validation loss is a reasonable estimate when viewed in isolation.
+1. Let $R$ denote the true out-of-sample loss of each configuration (assume all 12 share the same true risk for simplicity) and let $\hat{R}_k = R + \varepsilon_k$, $k=1,\dots,12$, where the $\varepsilon_k$ are iid mean-zero noise terms. Using the identity $\min(a,b)=\frac{a+b-|a-b|}{2}$, or otherwise, show that $\mathbb{E}[\min_k \hat{R}_k] < R$. Explain what this implies about the reported validation loss of the selected configuration.
 2. Suppose the research claim is that "tuned gradient boosting improves forecasting performance relative to a benchmark autoregression." Describe a nested time-series evaluation design that can assess this claim honestly.
 3. In one application, an expanding-window search selects a relatively deep tree with many boosting rounds, while a rolling-window search selects a shallower and more heavily regularized configuration. Give an econometric reason why these two validation schemes can favor different hyperparameters, and explain when the rolling-window choice would be more credible.
 4. Suppose the target is now 12-month-ahead cumulative output growth, so adjacent observations have overlapping outcome windows. Explain why this creates an additional leakage problem during tuning and how purging or an embargo around the validation block can help.
@@ -600,7 +665,7 @@ You are tuning a gradient boosting model to forecast monthly industrial producti
 :::{.callout-warning collapse="true"}
 ## Hint for Part 1
 
-The selected model is the one with the most favorable realized validation noise among the 12 candidates.
+For two candidates, use $\min(\hat{R}_1,\hat{R}_2) = R + \frac{\varepsilon_1+\varepsilon_2-|\varepsilon_1-\varepsilon_2|}{2}$ and take expectations. Then argue that the same logic extends to $K>2$.
 :::
 
 :::{.callout-warning collapse="true"}
@@ -626,7 +691,17 @@ Nearby training observations may share future realizations with the validation t
 
 **Part 1: Selection bias from tuning**
 
-Even if the expanding-window validation loss for each fixed configuration is a reasonable estimate of that configuration's forecasting risk, the minimum across 12 configurations is not an unbiased estimate of the selected model's true out-of-sample loss. The reason is selection bias: the chosen configuration is selected partly because it is genuinely good and partly because its realized validation noise happened to be favorable. Once we optimize over many candidates, the winner tends to look too good on the same validation design that was used to select it. This is the HPO analogue of specification search.
+For two configurations, using the identity $\min(\hat{R}_1,\hat{R}_2)=\frac{\hat{R}_1+\hat{R}_2-|\hat{R}_1-\hat{R}_2|}{2}$ and substituting $\hat{R}_k=R+\varepsilon_k$,
+$$
+\min(\hat{R}_1,\hat{R}_2)=R+\frac{\varepsilon_1+\varepsilon_2-|\varepsilon_1-\varepsilon_2|}{2}.
+$$
+Taking expectations and using $\mathbb{E}[\varepsilon_k]=0$,
+$$
+\mathbb{E}\big[\min(\hat{R}_1,\hat{R}_2)\big]=R-\tfrac{1}{2}\mathbb{E}\big[|\varepsilon_1-\varepsilon_2|\big]<R,
+$$
+since $|\varepsilon_1-\varepsilon_2|>0$ with positive probability. The same logic extends by induction: for any $K\ge 2$, $\mathbb{E}[\min_k \hat{R}_k]\le \mathbb{E}[\min(\hat{R}_1,\hat{R}_2)]<R$, because adding candidates can only lower the minimum further.
+
+This means the reported validation loss of the selected configuration is optimistically biased. The chosen configuration is selected partly because it is genuinely good and partly because its realized validation noise happened to be favorable. This is the HPO analogue of specification search in econometrics.
 
 **Part 2: Nested time-series evaluation**
 
@@ -656,7 +731,11 @@ With a 12-month-ahead cumulative-growth target, adjacent observations can share 
 Suppose you are tuning a forecasting model with four hyperparameters: `learning_rate`, `max_depth`, `min_samples_leaf`, and `subsample`. Each model evaluation requires a full rolling-window validation exercise and is therefore expensive.
 
 1. Explain the main idea of Bayesian optimization. What are the roles of the surrogate model and the acquisition rule?
-2. In a Gaussian-process BO scheme, consider two candidate configurations. Configuration A has a lower predicted validation loss than Configuration B, but Configuration B has much higher posterior uncertainty. Why might an expected-improvement criterion still choose Configuration B?
+2. In a Gaussian-process BO scheme, the current best observed validation loss is $f^\star=0.45$. The surrogate model predicts:
+   - Configuration A: posterior mean $\mu_A=0.42$, posterior standard deviation $\sigma_A=0.01$.
+   - Configuration B: posterior mean $\mu_B=0.47$, posterior standard deviation $\sigma_B=0.10$.
+
+   Expected improvement is $\mathrm{EI}(\lambda)=\sigma\left[z\,\Phi(z)+\phi(z)\right]$ where $z=(f^\star-\mu)/\sigma$, and $\Phi$, $\phi$ are the standard normal CDF and PDF. Using $\Phi(3)\approx 0.999$, $\phi(3)\approx 0.004$, $\Phi(-0.2)\approx 0.421$, and $\phi(-0.2)\approx 0.391$, compute $\mathrm{EI}$ for both configurations and explain which one the acquisition function prefers.
 3. In a TPE scheme, three candidate configurations have estimated density ratios
    $$
    \frac{\ell(\lambda_A)}{g(\lambda_A)} = 1.2, \qquad
@@ -678,7 +757,7 @@ Bayesian optimization learns from previous trials instead of treating each draw 
 :::{.callout-warning collapse="true"}
 ## Hint for Part 2
 
-Expected improvement values both a low predicted loss and the possibility of beating the current best because of uncertainty.
+Compute $z_A=(0.45-0.42)/0.01$ and $z_B=(0.45-0.47)/0.10$, then plug into the EI formula.
 :::
 
 :::{.callout-warning collapse="true"}
@@ -700,9 +779,17 @@ Think about evaluation cost, search dimension, and whether the objective looks l
 
 Bayesian optimization treats validation loss as an unknown function of the hyperparameters. A surrogate model summarizes what past evaluations imply about that function, while the acquisition rule uses the surrogate to choose the next point. The acquisition balances exploitation of regions with low predicted loss against exploration of regions where uncertainty is still high.
 
-**Part 2: Why expected improvement can prefer the more uncertain point**
+**Part 2: EI computation and exploration**
 
-Expected improvement is not based only on the posterior mean. A configuration with higher uncertainty can still have a larger probability of producing a loss better than the current best observed value. Configuration B may therefore be preferred if its upside from learning is large enough, even though its mean prediction is slightly worse.
+For Configuration A: $z_A=(0.45-0.42)/0.01=3$, so
+$$
+\mathrm{EI}_A=0.01\big[3\times\Phi(3)+\phi(3)\big]=0.01\big[3\times 0.999+0.004\big]=0.01\times 3.001\approx 0.030.
+$$
+For Configuration B: $z_B=(0.45-0.47)/0.10=-0.2$, so
+$$
+\mathrm{EI}_B=0.10\big[-0.2\times\Phi(-0.2)+\phi(-0.2)\big]=0.10\big[-0.2\times 0.421+0.391\big]=0.10\times 0.307\approx 0.031.
+$$
+Configuration B has slightly higher EI despite a worse posterior mean. The high posterior uncertainty creates enough probability of beating $f^\star$ that the exploration payoff outweighs A's lower point prediction. This is why expected improvement naturally balances exploitation and exploration.
 
 **Part 3: TPE choice**
 
@@ -721,7 +808,7 @@ Random search may still be preferable when the search space is very high-dimensi
 :::{.callout-note}
 ## Exercise 14.3: Hyperband Under Noisy Learning Curves
 
-A neural network is trained to predict firm default probabilities from panel data. Training one configuration to completion takes 9 hours. You consider Hyperband with elimination rate $\eta = 3$.
+A neural network is trained to predict firm default probabilities from panel data. Training one configuration to completion takes 9 hours, which in this setup corresponds to 81 epochs. You consider Hyperband with elimination rate $\eta = 3$.
 
 1. Suppose one successive-halving bracket starts with 27 configurations trained for 3 epochs each. How many configurations remain after each elimination round, and what budget does each surviving configuration receive if the budget is multiplied by $\eta$ at each stage?
 2. Explain why Hyperband can be much more computationally efficient than full-budget random search in this setting.
@@ -775,7 +862,7 @@ So the sequence is:
 
 **Part 2: Why Hyperband can be efficient**
 
-Full-budget random search would spend 9 hours on every sampled configuration, including obviously poor ones. Hyperband spends only a small initial budget on many candidates and discards weak configurations early. It therefore concentrates long training runs on a much smaller set of promising candidates.
+Full-budget random search would spend the full 81-epoch, 9-hour budget on every sampled configuration, including obviously poor ones. Hyperband spends only a small initial budget on many candidates and discards weak configurations early. It therefore concentrates long training runs on a much smaller set of promising candidates.
 
 **Part 3: Risk from noisy early curves**
 
