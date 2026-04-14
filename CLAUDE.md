@@ -103,6 +103,15 @@ Hints do not need to appear for every numbered part. Use only the hint boxes tha
 
 ## Writing conventions
 
+Write with a naive but attentive student in mind:
+
+- Assume the reader will notice and stumble over any imprecise wording, skipped condition, overloaded notation, or hidden assumption.
+- If a statement is true only under an additional condition, state that condition explicitly rather than leaving it implicit.
+- If a theorem or algorithm uses a convention, such as a sample split, a tie-breaking rule, positivity of a scale parameter, or a training-only estimation step, spell it out.
+- Avoid phrases that are heuristically suggestive but mathematically ambiguous when a more precise formulation is available.
+- When simplifying for intuition, signal clearly that you are giving intuition rather than the exact formal statement.
+- Prefer one extra clarifying sentence over a formulation that a literal-minded student could misread.
+
 ## Chapter structure
 
 Each chapter follows this skeleton:
