@@ -8,3 +8,5 @@ for source_file in ./*.qmd ./*.md; do
   base_name=${base_name:r}
   rm -f "./${base_name}.html"
 done
+
+rm -rf ./site_libs
