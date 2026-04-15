@@ -1,0 +1,114 @@
+---
+bibliography:
+  - '/Users/onnokleen/Dropbox (Personal)/library.bib'
+  - references-local.bib
+number-sections: true
+number-offset: [16, 0]
+---
+
+# Data Sets Used in This Book {#sec-datasets}
+
+This chapter is a reference appendix for the file-backed datasets shipped with the book repository. Earlier chapters link here instead of re-describing the source each time. Synthetic datasets generated inside code chunks are not listed here; they are documented where they appear.
+
+## FRED-QD
+
+FRED-QD is the quarterly U.S. macroeconomic database developed by @McCrackenNg2020FREDQD. A local copy of the current release is stored at [data/fred_qd_current.csv](/Users/onnokleen/Research-ML/Book_ML_Econometrics/data/fred_qd_current.csv).
+
+- **Unit of observation**: calendar quarter
+- **Coverage**: U.S. macro-financial series, 1959Q1 onward
+- **Frequency**: quarterly
+- **File layout**: the CSV contains two metadata rows before the actual data. The first row stores factor-group identifiers and the second row stores the authors' suggested transformation codes. The `sasdate` column holds the end-of-quarter date.
+
+The chapters in the book use the subset of series listed below. Full variable documentation is available in the FRED-QD release notes.
+
+| Mnemonic   | Description                                            |
+|------------|--------------------------------------------------------|
+| `GDPC1`    | Real gross domestic product, chained dollars           |
+| `CPIAUCSL` | Consumer price index, all urban consumers              |
+| `UNRATE`   | Civilian unemployment rate                             |
+| `FEDFUNDS` | Effective federal funds rate                           |
+| `GS10`     | 10-year Treasury constant-maturity yield               |
+| `TB3MS`    | 3-month Treasury bill secondary-market rate            |
+| `VIXCLSx`  | CBOE volatility index (VIX), quarterly closing value   |
+
+@fig-fredqd-series shows the series used in the book on a common standardized scale so that their timing can be compared across the sample. Magnitudes are not directly comparable on this scale.
+
+```{python}
+#| label: fig-fredqd-series
+#| fig-cap: "Selected FRED-QD series used in the book, standardized to mean zero and variance one. Real GDP growth is the annualized log difference of `GDPC1`; inflation is the annualized log difference of `CPIAUCSL`; the remaining series are shown as levels, with the term spread constructed as `GS10 - TB3MS` and log VIX as `log(VIXCLSx)`."
+#| echo: true
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+raw = pd.read_csv("data/fred_qd_current.csv")
+fred_qd = raw.iloc[2:].copy()
+fred_qd["sasdate"] = pd.to_datetime(fred_qd["sasdate"])
+
+for column in fred_qd.columns:
+    if column != "sasdate":
+        fred_qd[column] = pd.to_numeric(fred_qd[column], errors="coerce")
+
+gdp_growth = 400 * np.log(fred_qd["GDPC1"]).diff()
+inflation = 400 * np.log(fred_qd["CPIAUCSL"]).diff()
+term_spread = fred_qd["GS10"] - fred_qd["TB3MS"]
+log_vix = np.log(fred_qd["VIXCLSx"])
+
+plot_df = pd.DataFrame(
+    {
+        "date": fred_qd["sasdate"],
+        "GDP growth": gdp_growth,
+        "Inflation": inflation,
+        "Unemployment": fred_qd["UNRATE"],
+        "Fed funds": fred_qd["FEDFUNDS"],
+        "Term spread": term_spread,
+        "Log VIX": log_vix,
+    }
+).dropna()
+
+standardized = plot_df.copy()
+for column in standardized.columns[1:]:
+    standardized[column] = (
+        standardized[column] - standardized[column].mean()
+    ) / standardized[column].std()
+
+fig, ax = plt.subplots(figsize=(11.4, 4.8))
+for column in standardized.columns[1:]:
+    ax.plot(standardized["date"], standardized[column], linewidth=1.5, label=column)
+
+ax.set_xlabel("Quarter")
+ax.set_ylabel("Standardized value")
+ax.grid(True, alpha=0.2)
+ax.legend(frameon=False, ncol=3, loc="upper left")
+plt.tight_layout()
+plt.show()
+```
+
+## Loading FRED-QD
+
+The snippet below is the canonical way to load FRED-QD in this book. It skips the two metadata rows, parses `sasdate` as a date, and coerces the remaining columns to numeric.
+
+```{python}
+#| echo: true
+#| eval: false
+
+import pandas as pd
+
+raw = pd.read_csv("data/fred_qd_current.csv")
+fred_qd = raw.iloc[2:].copy()
+fred_qd["sasdate"] = pd.to_datetime(fred_qd["sasdate"])
+
+for column in fred_qd.columns:
+    if column != "sasdate":
+        fred_qd[column] = pd.to_numeric(fred_qd[column], errors="coerce")
+
+fred_qd = fred_qd.sort_values("sasdate").reset_index(drop=True)
+```
+
+The authors' transformation codes in the second metadata row are not applied here. Individual chapters construct the transformations they need directly from the raw levels so that the forecast origin and information set are explicit.
+
+## References
+
+::: {#refs}
+:::

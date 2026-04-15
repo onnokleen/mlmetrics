@@ -114,7 +114,7 @@ Write with a naive but attentive student in mind:
 
 ## Chapter structure
 
-Each chapter follows this skeleton:
+Each pedagogical chapter follows this skeleton:
 
 1. **YAML frontmatter**: `number-sections: true`, `number-offset: [N, 0]` (where N = chapter number - 1)
 2. **`# Chapter Title`** (top-level heading)
@@ -123,6 +123,8 @@ Each chapter follows this skeleton:
 5. **Core content sections** (`##` only). Do not use `###` or deeper headings in chapter files; use bold run-in labels, lists, or callouts for local structure inside a section.
 6. **`## Summary`** — contains a Key Takeaways callout (`callout-important`) and, when useful, a Common Pitfalls callout (`callout-warning`). Both live under this single heading.
 7. **`## Exercises`** — pen-and-paper exercises with hints and solutions
+
+**Reference appendix exception.** `datasets.qmd` is a reference appendix, not a teaching chapter. It documents the file-backed datasets shipped with the repo so other chapters can link to it instead of re-describing each source. It is exempt from the Overview/Roadmap/Summary/Exercises skeleton, the visual-pedagogy rule, and the self-reflection prompts. Keep it short and factual: source and citation, file path, unit of observation, frequency, any file-layout quirks, a table of the variables actually used, and one canonical loading snippet. Any future reference-style appendix should follow the same pattern.
 
 Additional section-depth rule:
 
