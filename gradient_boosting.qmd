@@ -414,6 +414,74 @@ If two boosted models have similar validation error, what evidence from the vali
 A small learning rate with many trees is better supported when the validation curve is flatter and overfitting appears later along the boosting path. A larger learning rate with fewer trees is better supported when the time-ordered validation curve is genuinely similar but the model reaches that performance with fewer boosting steps and lower computational cost. The comparison should be based on validation over the relevant forecast origins, not on in-sample fit.
 :::
 
+The same qualitative pattern appears on actual macroeconomic data. @fig-gb-fredqd shows training and validation MSE curves for annualized GDP growth in quarter $t+1$ from FRED-QD, using five predictors dated quarter $t$ — GDP growth, inflation, the term spread, log VIX, and the unemployment rate — and a time-ordered 75/25 split.[^gb-fredqd-final-vintage] With a small learning rate, the validation curve declines gradually and remains relatively flat; with a large learning rate, validation error reaches its minimum early and then begins to rise — the overfitting signal that early stopping is designed to detect. The absolute MSE values are large relative to the synthetic example because quarterly GDP growth is genuinely difficult to forecast: the 2020 contraction alone generates residuals of tens of annualized percentage points, which dominate the average squared error.
+
+[^gb-fredqd-final-vintage]: This is a pedagogical final-vintage FRED-QD example. A full real-time GDP forecasting evaluation would also need to account for release calendars and data revisions.
+
+```{python}
+#| label: fig-gb-fredqd
+#| fig-cap: "Training and validation MSE curves for gradient boosting on one-step-ahead GDP growth (annualized log-difference of GDPC1) from FRED-QD, with a time-ordered 75/25 split. Predictors are lagged GDP growth, inflation, the term spread (10y minus 3m Treasury yield), log VIX, and the unemployment rate. Left panel: learning rate 0.02; right panel: learning rate 0.2. Each model uses 250 trees with max depth 2. The high absolute MSE values reflect the difficulty of GDP growth forecasting: the 2020 contraction produces residuals of tens of annualized percentage points that dominate the average. The qualitative pattern — flatter validation curve under the small learning rate, earlier overfitting under the large one — is the key lesson."
+#| echo: true
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from sklearn.ensemble import GradientBoostingRegressor
+
+raw = pd.read_csv("data/fred_qd_current.csv")
+fred_qd = raw.iloc[2:].copy()
+fred_qd["sasdate"] = pd.to_datetime(fred_qd["sasdate"])
+for col in fred_qd.columns:
+    if col != "sasdate":
+        fred_qd[col] = pd.to_numeric(fred_qd[col], errors="coerce")
+fred_qd = fred_qd.sort_values("sasdate").reset_index(drop=True)
+
+gdp_growth  = 400 * np.log(fred_qd["GDPC1"]).diff()
+inflation   = 400 * np.log(fred_qd["CPIAUCSL"]).diff()
+term_spread = fred_qd["GS10"] - fred_qd["TB3MS"]
+log_vix     = np.log(fred_qd["VIXCLSx"])
+
+macro = pd.DataFrame({
+    "y":           gdp_growth.shift(-1),
+    "gdp_lag1":    gdp_growth,
+    "infl_lag1":   inflation,
+    "spread_lag1": term_spread,
+    "vix_lag1":    log_vix,
+    "unrate_lag1": fred_qd["UNRATE"],
+}).dropna()
+
+feature_cols = ["gdp_lag1", "infl_lag1", "spread_lag1", "vix_lag1", "unrate_lag1"]
+split = int(len(macro) * 0.75)
+X_train = macro.iloc[:split][feature_cols].values
+y_train = macro.iloc[:split]["y"].values
+X_test  = macro.iloc[split:][feature_cols].values
+y_test  = macro.iloc[split:]["y"].values
+
+configs = [(0.02, "C0"), (0.2, "C3")]
+fig, axes = plt.subplots(1, 2, figsize=(12, 4.5), sharey=True)
+
+for (lr, _), ax in zip(configs, axes):
+    model = GradientBoostingRegressor(
+        n_estimators=250, learning_rate=lr, max_depth=2,
+        min_samples_leaf=6, random_state=42,
+    )
+    model.fit(X_train, y_train)
+    train_mse, val_mse = [], []
+    for p_tr, p_te in zip(model.staged_predict(X_train), model.staged_predict(X_test)):
+        train_mse.append(np.mean((y_train - p_tr) ** 2))
+        val_mse.append(np.mean((y_test  - p_te) ** 2))
+    ax.plot(train_mse, color="C0", linewidth=2, label="Training MSE")
+    ax.plot(val_mse,   color="C3", linewidth=2, label="Validation MSE")
+    ax.set_title(f"Learning rate = {lr}")
+    ax.set_xlabel("Number of trees")
+    ax.grid(True, alpha=0.3)
+    ax.legend(frameon=False)
+
+axes[0].set_ylabel("Mean squared error")
+plt.tight_layout()
+plt.show()
+```
+
 ## Early Stopping and Validation {#sec-gb-early-stopping}
 
 Because boosting can continue to improve the training fit for many iterations, some external criterion is needed to decide when to stop. Early stopping uses a validation set or validation path to choose the number of trees.

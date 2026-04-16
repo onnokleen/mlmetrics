@@ -111,6 +111,93 @@ Distributional forests are attractive when heteroskedasticity or tail risk is ce
 
 The main advantage is flexibility: the method is nonparametric in the conditional distribution and can represent skewness, fat tails, and multimodality through the empirical neighbor distribution. The main limitation is that the estimator is still local. If the relevant tail event is rare, the local neighborhood may contain little information about the tail. Like ordinary forests, distributional forests also need validation that respects dependence, publication lags, and forecast-origin information sets.
 
+@fig-qrf-fredqd illustrates distributional forest forecasts on FRED-QD data. A quantile random forest is trained to predict annualized GDP growth in quarter $t+1$ from five predictors dated quarter $t$.[^qrf-fredqd-final-vintage] In the test period, the forecast interval widens noticeably around the 2020 contraction and its aftermath, where elevated VIX and deteriorating macro conditions shift the forest neighborhood toward more dispersed training observations. The median prediction broadly tracks realized growth, but the interval width is not constant — it adapts to predictor values in a way that a parametric homoskedastic model would not.
+
+[^qrf-fredqd-final-vintage]: This is a pedagogical final-vintage FRED-QD example. A full real-time GDP forecasting evaluation would also need to account for release calendars and data revisions.
+
+```{python}
+#| label: fig-qrf-fredqd
+#| fig-cap: "Quantile random forest forecasts for one-step-ahead GDP growth (annualized log-difference of GDPC1) on the FRED-QD test period (last 25% of available quarters). The shaded band spans the conditional 10th to 90th percentile; the solid blue line is the conditional median; the gray line is realized GDP growth. Conditional quantiles are estimated via the weighted empirical distribution of training outcomes that share terminal leaves with each test observation, averaged across 200 trees."
+#| echo: true
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from sklearn.ensemble import RandomForestRegressor
+
+raw = pd.read_csv("data/fred_qd_current.csv")
+fred_qd = raw.iloc[2:].copy()
+fred_qd["sasdate"] = pd.to_datetime(fred_qd["sasdate"])
+for col in fred_qd.columns:
+    if col != "sasdate":
+        fred_qd[col] = pd.to_numeric(fred_qd[col], errors="coerce")
+fred_qd = fred_qd.sort_values("sasdate").reset_index(drop=True)
+
+gdp_growth  = 400 * np.log(fred_qd["GDPC1"]).diff()
+inflation   = 400 * np.log(fred_qd["CPIAUCSL"]).diff()
+term_spread = fred_qd["GS10"] - fred_qd["TB3MS"]
+log_vix     = np.log(fred_qd["VIXCLSx"])
+
+macro = pd.DataFrame({
+    "date":        fred_qd["sasdate"],
+    "y":           gdp_growth.shift(-1),
+    "gdp_lag1":    gdp_growth,
+    "infl_lag1":   inflation,
+    "spread_lag1": term_spread,
+    "vix_lag1":    log_vix,
+    "unrate_lag1": fred_qd["UNRATE"],
+}).dropna()
+
+feature_cols = ["gdp_lag1", "infl_lag1", "spread_lag1", "vix_lag1", "unrate_lag1"]
+split = int(len(macro) * 0.75)
+X_train = macro.iloc[:split][feature_cols].values
+y_train = macro.iloc[:split]["y"].values
+X_test  = macro.iloc[split:][feature_cols].values
+y_test  = macro.iloc[split:]["y"].values
+test_dates = macro.iloc[split:]["date"]
+
+rf = RandomForestRegressor(n_estimators=200, max_features="sqrt", random_state=42)
+rf.fit(X_train, y_train)
+
+# QRF: weighted empirical quantiles via leaf assignments
+train_leaves = rf.apply(X_train)   # (n_train, n_trees)
+test_leaves  = rf.apply(X_test)    # (n_test,  n_trees)
+n_trees = train_leaves.shape[1]
+
+# For each test point, accumulate normalised weights across trees
+weights_matrix = np.zeros((len(X_test), len(X_train)))
+for t in range(n_trees):
+    same_leaf  = test_leaves[:, t:t+1] == train_leaves[np.newaxis, :, t]  # (n_test, n_train)
+    leaf_sizes = same_leaf.sum(axis=1, keepdims=True).clip(min=1)
+    weights_matrix += same_leaf / leaf_sizes
+weights_matrix /= n_trees
+
+# Weighted empirical quantiles
+sorted_idx = np.argsort(y_train)
+y_sorted   = y_train[sorted_idx]
+q10, q50, q90 = [], [], []
+for i in range(len(X_test)):
+    cum_w = np.cumsum(weights_matrix[i, sorted_idx])
+    cum_w /= cum_w[-1]
+    q10.append(y_sorted[np.searchsorted(cum_w, 0.10)])
+    q50.append(y_sorted[np.searchsorted(cum_w, 0.50)])
+    q90.append(y_sorted[np.searchsorted(cum_w, 0.90)])
+
+q10, q50, q90 = np.array(q10), np.array(q50), np.array(q90)
+
+fig, ax = plt.subplots(figsize=(11, 4.5))
+ax.fill_between(test_dates, q10, q90, alpha=0.25, color="C0", label="10–90% interval")
+ax.plot(test_dates, q50,    color="C0",  linewidth=2,   label="Median (QRF)")
+ax.plot(test_dates, y_test, color="0.35", linewidth=1.2, label="Realized GDP growth")
+ax.axhline(0, color="0.8", linewidth=0.7, linestyle="--")
+ax.set_xlabel("Quarter")
+ax.set_ylabel("pct. pts. ann.")
+ax.legend(frameon=False)
+ax.grid(True, alpha=0.25)
+plt.tight_layout()
+plt.show()
+```
+
 ## NGBoost: Parametric Distributional Boosting {#sec-adv-ngboost}
 
 NGBoost takes a different route. Instead of estimating the conditional distribution nonparametrically from forest neighbors, it chooses a parametric family

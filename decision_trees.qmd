@@ -388,6 +388,60 @@ But trees also have sharp limitations.
 
 For time-series econometrics, the extrapolation issue is especially important. If GDP growth, inflation, or asset volatility moves outside the historical range seen during training, a tree can only return the constant prediction from the outermost leaf. That is often too rigid for forecasting.
 
+@fig-dt-fredqd gives a concrete illustration using FRED-QD data. The target is annualized GDP growth in quarter $t+1$, while the predictors are macro and financial variables dated quarter $t$.[^dt-fredqd-final-vintage] In this fit, a depth-3 regression tree splits first on the term spread — a well-known leading indicator of business cycle turning points — then refines using unemployment and log VIX. The piecewise-constant structure is visible in the leaf values: regardless of how far predictors move during the test period, the tree can only return one of eight constants. This is a direct manifestation of the extrapolation limitation.
+
+[^dt-fredqd-final-vintage]: This is a pedagogical final-vintage FRED-QD example. A full real-time GDP forecasting evaluation would also need to account for release calendars and data revisions.
+
+```{python}
+#| label: fig-dt-fredqd
+#| fig-cap: "Depth-3 regression tree fit to one-step-ahead GDP growth (annualized log-difference of GDPC1) using five FRED-QD predictors. Each internal node shows the split variable and threshold; leaf nodes show the mean predicted value in percentage points annualized (value) and the number of training observations (samples). Colors indicate the leaf prediction: darker shading corresponds to higher predicted growth. The tree is trained on the first 75% of available quarters."
+#| echo: true
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from sklearn.tree import DecisionTreeRegressor, plot_tree
+
+raw = pd.read_csv("data/fred_qd_current.csv")
+fred_qd = raw.iloc[2:].copy()
+fred_qd["sasdate"] = pd.to_datetime(fred_qd["sasdate"])
+for col in fred_qd.columns:
+    if col != "sasdate":
+        fred_qd[col] = pd.to_numeric(fred_qd[col], errors="coerce")
+fred_qd = fred_qd.sort_values("sasdate").reset_index(drop=True)
+
+gdp_growth  = 400 * np.log(fred_qd["GDPC1"]).diff()
+inflation   = 400 * np.log(fred_qd["CPIAUCSL"]).diff()
+term_spread = fred_qd["GS10"] - fred_qd["TB3MS"]
+log_vix     = np.log(fred_qd["VIXCLSx"])
+
+macro = pd.DataFrame({
+    "y":           gdp_growth.shift(-1),
+    "gdp_lag1":    gdp_growth,
+    "infl_lag1":   inflation,
+    "spread_lag1": term_spread,
+    "vix_lag1":    log_vix,
+    "unrate_lag1": fred_qd["UNRATE"],
+}).dropna()
+
+feature_cols = ["gdp_lag1", "infl_lag1", "spread_lag1", "vix_lag1", "unrate_lag1"]
+split = int(len(macro) * 0.75)
+X_train = macro.iloc[:split][feature_cols].values
+y_train = macro.iloc[:split]["y"].values
+
+tree = DecisionTreeRegressor(max_depth=3, random_state=42)
+tree.fit(X_train, y_train)
+
+fig, ax = plt.subplots(figsize=(14, 5.5))
+plot_tree(
+    tree,
+    feature_names=["GDP growth", "Inflation", "Term spread", "Log VIX", "Unemployment"],
+    filled=True, rounded=True, impurity=False, precision=2, ax=ax, fontsize=7,
+)
+plt.tight_layout()
+plt.show()
+```
+
 ## Summary
 
 :::{.callout-important}

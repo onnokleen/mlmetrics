@@ -367,6 +367,76 @@ Forests are often accompanied by variable-importance measures. These can be usef
 
 Permutation importance is often more informative than raw impurity reductions, but even then the interpretation remains predictive rather than structural.
 
+@fig-rf-fredqd illustrates the variance-reduction argument directly on macroeconomic data. The target is annualized GDP growth in quarter $t+1$, while the predictors are FRED-QD variables dated quarter $t$.[^rf-fredqd-final-vintage] The top panel shows test-period predictions from a single unrestricted decision tree; the bottom panel shows predictions from a 500-tree random forest trained on the same predictors. The single-tree forecast is erratic — it jumps between a small set of leaf constants and follows the training data too closely. The forest average is smoother and tracks realized GDP growth more consistently, at the cost of slightly larger bias in the most extreme quarters.
+
+[^rf-fredqd-final-vintage]: This is a pedagogical final-vintage FRED-QD example. A full real-time GDP forecasting evaluation would also need to account for release calendars and data revisions.
+
+```{python}
+#| label: fig-rf-fredqd
+#| fig-cap: "Out-of-sample one-step-ahead GDP growth forecasts (test period, last 25% of FRED-QD sample) from a single deep decision tree (top) and a 500-tree random forest (bottom), each trained on five lagged FRED-QD predictors. Gray line is realized GDP growth (annualized log-difference of GDPC1). The forest produces a smoother prediction path by averaging out the high variance of individual trees."
+#| echo: true
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from sklearn.tree import DecisionTreeRegressor
+from sklearn.ensemble import RandomForestRegressor
+
+raw = pd.read_csv("data/fred_qd_current.csv")
+fred_qd = raw.iloc[2:].copy()
+fred_qd["sasdate"] = pd.to_datetime(fred_qd["sasdate"])
+for col in fred_qd.columns:
+    if col != "sasdate":
+        fred_qd[col] = pd.to_numeric(fred_qd[col], errors="coerce")
+fred_qd = fred_qd.sort_values("sasdate").reset_index(drop=True)
+
+gdp_growth  = 400 * np.log(fred_qd["GDPC1"]).diff()
+inflation   = 400 * np.log(fred_qd["CPIAUCSL"]).diff()
+term_spread = fred_qd["GS10"] - fred_qd["TB3MS"]
+log_vix     = np.log(fred_qd["VIXCLSx"])
+
+macro = pd.DataFrame({
+    "date":        fred_qd["sasdate"],
+    "y":           gdp_growth.shift(-1),
+    "gdp_lag1":    gdp_growth,
+    "infl_lag1":   inflation,
+    "spread_lag1": term_spread,
+    "vix_lag1":    log_vix,
+    "unrate_lag1": fred_qd["UNRATE"],
+}).dropna()
+
+feature_cols = ["gdp_lag1", "infl_lag1", "spread_lag1", "vix_lag1", "unrate_lag1"]
+split = int(len(macro) * 0.75)
+X_train = macro.iloc[:split][feature_cols].values
+y_train = macro.iloc[:split]["y"].values
+X_test  = macro.iloc[split:][feature_cols].values
+y_test  = macro.iloc[split:]["y"].values
+test_dates = macro.iloc[split:]["date"]
+
+single_tree = DecisionTreeRegressor(random_state=42)
+forest = RandomForestRegressor(n_estimators=500, max_features="sqrt", random_state=42)
+single_tree.fit(X_train, y_train)
+forest.fit(X_train, y_train)
+
+fig, axes = plt.subplots(2, 1, figsize=(11, 6), sharex=True)
+for ax, pred, label, color in zip(
+    axes,
+    [single_tree.predict(X_test), forest.predict(X_test)],
+    ["Single tree (unconstrained depth)", "Random forest (500 trees)"],
+    ["C1", "C0"],
+):
+    ax.plot(test_dates, y_test, color="0.5", linewidth=1, label="Realized GDP growth")
+    ax.plot(test_dates, pred,   color=color, linewidth=1.5, label=label)
+    ax.axhline(0, color="0.8", linewidth=0.7, linestyle="--")
+    ax.set_ylabel("pct. pts. ann.")
+    ax.legend(frameon=False, loc="upper right")
+    ax.grid(True, alpha=0.25)
+
+axes[1].set_xlabel("Quarter")
+plt.tight_layout()
+plt.show()
+```
+
 ## Summary
 
 :::{.callout-important}
