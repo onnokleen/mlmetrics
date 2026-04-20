@@ -127,9 +127,9 @@ Perplexity is only a meaningful predictive score under some form of exchangeabil
 
 ## From Words to Representations {#sec-fm-representations}
 
-Computing the conditionals $p_\theta(w_t \mid w_{1:t-1})$ requires turning the history $w_{1:t-1}$ into a numerical summary. Foundation models do this via **contextual embeddings**: each token position is associated with a vector in $\mathbb{R}^d$ that summarizes the relevant context. Two points matter for the econometric reader.
+Computing the conditionals $p_\theta(w_t \mid w_{1:t-1})$ requires turning the history $w_{1:t-1}$ into a numerical summary. Foundation models do this via **contextual embeddings**: each token position is associated with a vector in $\mathbb{R}^d$ that summarizes the relevant context. In a causal next-token model, the representation used to score $w_t$ must be measurable with respect to the preceding tokens $w_{1:t-1}$; many transformer expositions instead index the hidden state after reading $w_t$ and use it to predict $w_{t+1}$. We will keep the econometric conditioning notation $p_\theta(w_t \mid w_{1:t-1})$ and treat self-attention below as the representation-building mechanism, with causal masking imposed when the task is next-token prediction. Two points matter for the econometric reader.
 
-**Embeddings, fixed and contextual.** A *fixed* embedding is a map $\bar e: \mathcal{V} \to \mathbb{R}^d$ that assigns to each token $w \in \mathcal{V}$ a single vector $\bar e(w)$, independent of context. A *contextual* embedding is a sequence of vectors $\phi_1, \ldots, \phi_T \in \mathbb{R}^d$, where $\phi_t$ is produced by a function of the full sequence (for causal models, of $w_{1:t}$; for non-causal models, of $w_{1:T}$). Contextual embeddings are what let the word *bank* be represented by different vectors in "central bank" and "river bank".
+**Embeddings, fixed and contextual.** A *fixed* embedding is a map $\bar e: \mathcal{V} \to \mathbb{R}^d$ that assigns to each token $w \in \mathcal{V}$ a single vector $\bar e(w)$, independent of context. A *contextual* embedding is a sequence of vectors $\phi_1, \ldots, \phi_T \in \mathbb{R}^d$, where $\phi_t$ is produced by a function of the available sequence context (for causal models, only earlier and current positions; for non-causal models, potentially the full sequence $w_{1:T}$). Contextual embeddings are what let the word *bank* be represented by different vectors in "central bank" and "river bank".
 
 **Attention as a weighted average.** The dominant mechanism for producing contextual embeddings is **self-attention**. Consider a sequence of $T$ tokens with fixed embeddings stacked as rows of a matrix $E \in \mathbb{R}^{T \times d}$, so that row $t$ of $E$ is $\bar e(w_t)^\top$. Three linear maps $W_Q, W_K, W_V \in \mathbb{R}^{d \times d}$ produce queries, keys, and values,
 $$
@@ -151,9 +151,11 @@ $$
 $$ {#eq-fm-attention}
 where $\mathrm{softmax}_{\text{row}}$ indicates that the softmax is applied independently to each row of its argument. The $\sqrt{d}$ scaling has a simple motivation: if entries of $q_t$ and $k_s$ are independent with zero mean and unit variance, then $\mathrm{Var}(q_t^\top k_s) = d$, and without the rescaling the logits $q_t^\top k_s$ would grow with $d$, driving the softmax toward a one-hot vector and its gradient toward zero. We do not discuss multi-head attention, positional encodings, feed-forward blocks, or layer normalization; these are necessary engineering components but they do not change the econometric content.
 
-**From recurrent states to attention.** The previous chapter, [LSTM Networks](lstm_neural_networks.qmd#sec-lstm-networks), introduced a fixed-width hidden state $h_t$ that carries information across time steps. This forces all past relevant information to pass through a bottleneck whose size does not grow with the sequence length. Attention avoids the bottleneck: at position $t$, the contextual embedding $\phi_t$ is constructed as an explicit weighted average over representations of all positions. The similarity $q_t^\top k_s / \sqrt{d}$ acts as a learned relevance score: it measures how much position $s$ should contribute to the representation of position $t$. Nothing in @eq-fm-attention is recurrent.
+For a causal language model, @eq-fm-attn-weights is replaced by its masked version: position $t$ can place positive weight only on positions $s \le t$. The hidden state at position $t-1$ is then admissible for predicting $w_t$, because it depends only on $w_{1:t-1}$. The unmasked formula above is useful for understanding attention as weighted averaging; the causal mask is what aligns the architecture with the conditional probability $p_\theta(w_t \mid w_{1:t-1})$.
 
-### Derivation B: A Three-Token Self-Attention Example {#sec-fm-derivB}
+**From recurrent states to attention.** The previous chapter, [LSTM Networks](lstm_neural_networks.qmd#sec-lstm-networks), introduced a fixed-width hidden state $h_t$ that carries information across time steps. This forces all past relevant information to pass through a bottleneck whose size does not grow with the sequence length. Attention avoids the bottleneck: at position $t$, the contextual embedding $\phi_t$ is constructed as an explicit weighted average over representations of admissible positions -- all positions in the unmasked formula, and only positions $s \le t$ in a causal model. The similarity $q_t^\top k_s / \sqrt{d}$ acts as a learned relevance score: it measures how much position $s$ should contribute to the representation of position $t$. Nothing in @eq-fm-attention is recurrent.
+
+[**Derivation B: A Three-Token Self-Attention Example.**]{#sec-fm-derivB}
 
 Take a sequence of $T = 3$ tokens in $\mathbb{R}^2$ (so $d = 2$) with fixed embeddings
 $$
@@ -361,7 +363,7 @@ D_t \subseteq \mathcal{I}_t,
 $$ {#eq-fm-Isetincl}
 and, crucially, the random element $D_t$ together with the map $G$ that produces $x_t^{\text{text}}$ must be $\mathcal{I}_t$-measurable.
 
-### Derivation C: Why Retrieval Must Be $\mathcal{I}_t$-Measurable
+[**Derivation C: Why Retrieval Must Be $\mathcal{I}_t$-Measurable.**]{#sec-fm-derivC}
 
 Suppose the forecaster estimates a model of the form $\mathbb{E}[Y_{t+h} \mid \mathcal{I}_t]$ using features $x_t \in \mathbb{R}^{k_x}$ that include a text block $x_t^{\text{text}} = G(D_t)$. The pseudo-out-of-sample forecast at origin $t$ is
 $$
@@ -639,7 +641,7 @@ $$
 $$
 Show all steps starting from the OLS normal equations.
 
-**Part 2.** Now drop the assumption $\mathrm{Cov}(s_t, u_t) = 0$. Suppose instead $\mathrm{Cov}(s_t, u_t) = \rho \sigma_s \sigma_u$ with $\rho \in (-1, 1)$. Re-derive $\mathrm{plim}\,\hat\delta$ and determine, given $\gamma > 0$, the sign of the bias relative to Part 1 as a function of $\rho$. Interpret the case $\rho > 0$ in terms of a foundation model that is systematically more confident (smaller $|u_t|$) on high-$s_t$ documents.
+**Part 2.** Now drop the assumption $\mathrm{Cov}(s_t, u_t) = 0$. Suppose instead $\mathrm{Cov}(s_t, u_t) = \rho \sigma_s \sigma_u$ with $\rho \in (-1, 1)$. Re-derive $\mathrm{plim}\,\hat\delta$ and determine, given $\gamma > 0$, the sign of the difference relative to Part 1 as a function of $\rho$. Interpret the case $\rho > 0$ as directional measurement error: documents with larger latent stance $s_t$ tend to receive larger measurement errors $u_t$.
 
 **Part 3.** A researcher reports a highly significant positive $\hat\delta$ in Part 1's setting and concludes that "hawkish monetary-policy statements predict higher future bond yields". Another researcher argues that because $\hat\delta$ is attenuated, the conclusion is unwarranted. Evaluate the two positions. Your answer should distinguish clearly between the objective of estimating $\gamma$ (inference about the latent concept) and the objective of assessing whether $z_t$ has predictive content for $y_{t+1}$ (a forecasting statement). Conclude which of the two objectives each researcher is pursuing and which objective the data can address.
 
@@ -685,15 +687,21 @@ Therefore
 $$
 \mathrm{plim}\,\hat\delta = \gamma \cdot \frac{\sigma_s^2 + \rho \sigma_s \sigma_u}{\sigma_s^2 + 2\rho \sigma_s \sigma_u + \sigma_u^2}.
 $$
-Comparing to Part 1's $\gamma \lambda$, the ratio is
+Comparing to Part 1's $\gamma \lambda$, the difference is
 $$
 \frac{\sigma_s^2 + \rho \sigma_s \sigma_u}{\sigma_s^2 + 2\rho \sigma_s \sigma_u + \sigma_u^2} - \frac{\sigma_s^2}{\sigma_s^2 + \sigma_u^2}.
 $$
-For $\gamma > 0$ and $\rho > 0$, the numerator gains a term $\rho \sigma_s \sigma_u > 0$ while the denominator gains $2\rho \sigma_s \sigma_u$. The net effect on $\mathrm{plim}\,\hat\delta$ depends on which dominates. Differentiating with respect to $\rho$ at $\rho = 0$ gives
+Putting the two fractions over a common denominator gives
 $$
-\left.\frac{\partial}{\partial \rho}\right|_{\rho=0} = \gamma \cdot \frac{\sigma_s \sigma_u (\sigma_s^2 + \sigma_u^2) - \sigma_s^2 \cdot 2\sigma_s \sigma_u}{(\sigma_s^2 + \sigma_u^2)^2} = \gamma \cdot \frac{\sigma_s \sigma_u (\sigma_u^2 - \sigma_s^2)}{(\sigma_s^2 + \sigma_u^2)^2}.
+\mathrm{plim}\,\hat\delta - \gamma\lambda
+=
+\gamma\,
+\frac{\rho \sigma_s \sigma_u(\sigma_u^2-\sigma_s^2)}
+{(\sigma_s^2 + 2\rho \sigma_s \sigma_u + \sigma_u^2)(\sigma_s^2+\sigma_u^2)}.
 $$
-So positive $\rho$ attenuates further (moves $\hat\delta$ toward zero) when $\sigma_s^2 > \sigma_u^2$, and reduces the attenuation when $\sigma_s^2 < \sigma_u^2$. Interpretation: if the foundation model is *more* confident on high-$s_t$ documents, the measurement error is smaller in magnitude there, which in a low-noise regime makes the slope look even flatter, and in a high-noise regime partially offsets the baseline attenuation.
+The denominator is positive because it is the product of two variances. For $\gamma > 0$, the sign of the difference relative to Part 1 is therefore the sign of $\rho(\sigma_u^2-\sigma_s^2)$. If $\rho > 0$, the slope is smaller than the classical-measurement-error slope when $\sigma_s^2 > \sigma_u^2$, larger when $\sigma_u^2 > \sigma_s^2$, and unchanged when the two variances are equal. If $\rho < 0$, the signs reverse.
+
+Interpretation: positive $\rho$ is not a statement about confidence or smaller absolute error. It means the error is directionally related to the latent stance: high-$s_t$ documents tend to have positive $u_t$, so the measured signal exaggerates the stance for high-stance documents, while low-$s_t$ documents tend to have negative $u_t$. Depending on the relative variances of signal and error, this covariance can either steepen or flatten the regression on $z_t$ relative to the classical benchmark.
 
 **Part 3.** The two researchers are pursuing different objectives. The first is making a *forecasting* statement: $z_t$ carries information about $y_{t+1}$, in the sense that $\mathbb{E}[y_{t+1} \mid z_t] \neq \mathbb{E}[y_{t+1}]$. A consistent non-zero $\hat\delta$ in Part 1 is evidence for this, because $\hat\delta$ converges to $\gamma \lambda$, which is nonzero whenever $\gamma \neq 0$ and $\lambda > 0$. The attenuation does not undermine this conclusion; it only says $\hat\delta \neq \gamma$.
 
