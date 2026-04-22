@@ -130,11 +130,11 @@ Optional: If you are interested in more technical details, see @GneitingRaftery2
 
 :::{.callout-tip}
 ## The Gaming Problem with Improper Scoring Rules
-Suppose we evaluate forecasters using only the "hit rate" which we define to be zero when the realized outcome falls within their 90% prediction interval and 1 if the realization falls outside the prediction interval.
+Suppose we evaluate forecasters using only empirical coverage of their 90% prediction intervals, or equivalently a miss indicator that equals 0 when the realized outcome falls inside the interval and 1 when it falls outside.
 
-**A Gaming Strategy**: Given the hit rate evaluation, a strategic forecaster could report extremely wide intervals (e.g., [-1000, +1000] for inflation) to achieve a 100% hit rate while providing no useful information.
+**A Gaming Strategy**: Given the hit rate evaluation, a strategic forecaster could report an extremely wide interval such as $[-1000,1000]$ for inflation in 90% of forecast origins and an empty or irrelevant interval in the remaining 10%. This mechanically targets 90% coverage while providing almost no useful information.
 
-This would make the hit rate an improper scoring rule. Proper scoring rules include some sort of penalty to prevent such "underconfident" forecasts.
+This would make the hit rate an improper scoring rule. Proper scoring rules include a penalty for uninformative or underconfident forecasts rather than rewarding coverage alone.
 :::
 
 Two of the most widely used proper scoring rules are the **Logarithmic Score (LogS)** and the **Continuous Ranked Probability Score (CRPS)**.
@@ -222,7 +222,7 @@ The CRPS measures the "distance" between the forecast's cumulative distribution 
 
 **Definition**: For a forecast with CDF $F$ and a realized outcome $y$:
 $$\text{CRPS}(F, y) = \int_{-\infty}^{\infty} [F(z) - \mathbf{1}\{z \geq y\}]^2 dz$$
-where $\mathbf{1}\{z \geq y\}$ is the Heaviside step function, which represents the CDF of a perfect point forecast at $y$.
+where $\mathbf{1}\{z \geq y\}$ is the Heaviside step function, the CDF of a degenerate predictive distribution that places all probability mass at the realized outcome $y$.
 
 **Visual Interpretation**
 
@@ -281,9 +281,27 @@ $$ CRPS(F,y) = \mathbb{E} |X-y| - \frac{1}{2} \mathbb{E} |X-X'| \quad X,X'\stack
 -   It considers both the location and the spread of the forecast distribution.
 -   It can be computed even if you only have samples from the forecast distribution, without needing an explicit density function.
 
+:::{.callout-tip collapse="true"}
+## Why CRPS Reduces to MAE for a Point Forecast
+
+If the forecast distribution is degenerate at a point forecast $\hat y$, then $X=\hat y$ and $X'=\hat y$ with probability one. In the representation above,
+$$
+\mathbb{E}|X-y|=|\hat y-y|,
+\qquad
+\mathbb{E}|X-X'|=|\hat y-\hat y|=0.
+$$
+Therefore
+$$
+\text{CRPS}(F,y)=|\hat y-y|,
+$$
+which is exactly the absolute error.
+:::
+
 **Examples and Computation**
 
 For many standard distributions, the CRPS has a closed-form solution.
+
+When no convenient closed form is available, the sample representation makes CRPS useful in simulation-based forecasting. If $X_1,\ldots,X_M$ are Monte Carlo draws from the predictive distribution, the expectations in the representation above can be approximated by sample averages. This is especially practical when the model can simulate forecast paths but the predictive density or CDF is analytically inconvenient.
 
 **For a Normal Distribution**: If the forecast is $F = \mathcal{N}(\mu, \sigma^2)$, the CRPS is:
 $$\text{CRPS}(\mathcal{N}(\mu, \sigma^2), y) = \sigma\left[z\left(2\Phi(z) - 1\right) + 2\phi(z) - \frac{1}{\sqrt{\pi}}\right]$$
@@ -346,7 +364,7 @@ Beyond comparing models with scoring rules, we often want to diagnose *how* a mo
 
 The PIT is based on a fundamental statistical result: if a continuous random variable $Y$ is drawn from a distribution with cumulative distribution function (CDF) $F$, then the transformed random variable $U = F(Y)$ follows a Uniform distribution on the interval [0, 1].
 
-In forecasting, we can apply this principle to a sequence of forecasts and outcomes. If our model produces a series of predictive CDFs $F_t$ for a series of outcomes $y_t$, and if our forecasts are perfectly calibrated, then the resulting PIT values $u_t = F_t(y_t)$ should be independent and identically distributed draws from a Uniform(0, 1) distribution.
+In forecasting, we can apply this principle to a sequence of forecasts and outcomes. If our model produces a series of predictive CDFs $F_t$ for outcomes $y_t$, and if each conditional distribution is correctly specified relative to the forecast-origin information set, then the resulting PIT values $u_t = F_t(y_t)$ should be Uniform(0, 1). In time-series applications, it is useful to distinguish **marginal calibration** from **serial independence**: a PIT histogram can look uniform even when the PIT sequence remains autocorrelated. Conditional calibration requires both the right marginal shape and no predictable pattern left in the PIT sequence.
 
 We can visually check this by plotting a histogram of the PIT values. The shape of the histogram reveals systematic biases in the forecast distributions:
 
@@ -426,7 +444,7 @@ plt.tight_layout()
 plt.show()
 ```
 
-The PIT histogram is a powerful diagnostic tool. While a proper scoring rule gives a single number to rank models, the PIT histogram provides qualitative insights into *why* a model's predictive distributions might be deficient, guiding further model improvement.
+The PIT histogram is a powerful diagnostic tool. While a proper scoring rule gives a single number to rank models, the PIT histogram provides qualitative insights into *why* a model's predictive distributions might be deficient, guiding further model improvement. For dependent data, it should be paired with serial-dependence diagnostics on the PIT sequence; the broader distinction between marginal and conditional coverage reappears in the chapter on [conformal prediction](conformal_prediction.qmd).
 
 
 ## Connection to Information Theory
@@ -468,14 +486,16 @@ $$\text{CRPS}(G,y)=\int_{-\infty}^{\infty}\big(G(z)-\mathbf{1}\{z \geq y\}\big)^
 
 Taking expectation under $Y \sim F$,
 $$
-\begin{align}
+\begin{aligned}
 \mathbb{E}_{Y\sim F}[\text{CRPS}(G,Y)]
-&=\int \mathbb{E}\big[(G(z)-\mathbf{1}\{ z \geq Y\})^2\big]\,dz \\
-&=\int (G(z)-F(z))^2\,dz+\underbrace{\int F(z)(1-F(z))\,dz}_{\mathbb H_{\text{CRPS}}(F)},
-\end{align}$$
-where we used $\mathbb E[\mathbf{1}(z \geq Y)]=F(z)$ and $Var(\mathbf{1}(z \geq Y))=F(z)(1−F(z))$.
+&= \int \mathbb{E}\big[(G(z)-\mathbf{1}\{z \geq Y\})^2\big]\,dz \\
+&= \int (G(z)-F(z))^2\,dz
+   + \underbrace{\int F(z)(1-F(z))\,dz}_{\mathbb H_{\text{CRPS}}(F)}.
+\end{aligned}
+$$
+where we used $\mathbb E[\mathbf{1}\{z \geq Y\}]=F(z)$ and $\operatorname{Var}(\mathbf{1}\{z \geq Y\})=F(z)(1-F(z))$.
 
-- The term $\mathbb H_{CRPS}(F)=∫ F(1−F) dz$ is the generalized “CRPS entropy” of $F$.
+- The term $\mathbb H_{\text{CRPS}}(F)=\int F(z)(1-F(z))\,dz$ is the generalized "CRPS entropy" of $F$.
 - The excess risk
 $$D_{\text{CRPS}}(F,G)=\int_{-\infty}^{\infty} (F(z)-G(z))^2\,dz$$
 is the Cramér–von Mises distance, showing CRPS is strictly proper (minimized at $G(x)=F(x)$ for all $x$).
