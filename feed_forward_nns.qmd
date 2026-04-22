@@ -33,17 +33,17 @@ Throughout this chapter, the econometric interpretation remains central: a feed-
 - Weighted connections that adjust during learning
 - Feed-forward information flow from input to output
 
-**Start With One Activated Linear Index.** The easiest way to remove the mystery is to begin with a single unit. A perceptron takes predictors $\mathbf{x}$, forms a linear index $\mathbf{x}'\mathbf{w}+b$, and then applies an activation function:
+**Start With One Activated Affine Score.** The easiest way to remove the mystery is to begin with a single unit. A perceptron takes predictors $\mathbf{x}$, forms the affine score $\mathbf{x}'\mathbf{w}+b$ (a weighted linear combination plus an intercept), and then applies an activation function $g$:
 
 $$
 \hat y = g(\mathbf{x}'\mathbf{w}+b).
 $$
 
-If $g$ is the identity, this is just a linear regression-style mapping. If $g$ is a sigmoid, the same linear index becomes a probability-like output for binary classification. In econometric language, the perceptron is not yet "deep learning"; it is a familiar index model plus a nonlinear link.
+If $g$ is the identity, this is just a linear regression-style mapping. If $g$ is a sigmoid, the same affine score becomes a probability-like output for binary classification. In econometric language, the perceptron is not yet "deep learning"; it is a familiar index model plus a nonlinear link.
 
 ```{python}
 #| label: fig-perceptron-threshold
-#| fig-cap: "A single perceptron classifies observations by applying an activation to a linear index. The dashed line is the zero-index decision boundary $x_2 = 1.4 - 0.8x_1$. Points on opposite sides of the boundary receive different classifications."
+#| fig-cap: "A single perceptron classifies observations by applying an activation to an affine score. The dashed line is the zero-score decision boundary $x_2 = 1.4 - 0.8x_1$. Points on opposite sides of the boundary receive different classifications."
 #| echo: true
 
 import numpy as np
@@ -77,11 +77,13 @@ plt.tight_layout()
 plt.show()
 ```
 
-@fig-perceptron-threshold is worth reading slowly. The only nonlinear element is the activation or threshold applied after the linear index. A feed-forward network simply stacks many such units, so that the outputs of one layer become regressors for the next layer. That is why neural networks can be understood as learned basis expansions rather than as a fundamentally alien model class.
+@fig-perceptron-threshold is worth reading slowly. The only nonlinear element is the activation or threshold applied after the affine score. A feed-forward network simply stacks many such units, so that the outputs of one layer become regressors for the next layer. That is why neural networks can be understood as learned basis expansions rather than as a fundamentally alien model class. In a polynomial or spline regression, the transformed regressors are chosen before estimation; in a neural network, the hidden activations $a_j^{(l)}$ are themselves learned from the data.
 
-A feed-forward neural network with $L$ layers can be written as a composition of functions:
+A feed-forward neural network with $L$ layers (that is, $L-1$ hidden layers followed by an output layer indexed $L$) can be written as a composition
 
-$$f(\mathbf{x}; \boldsymbol{\theta}) = f^{(L)} \circ f^{(L-1)} \circ \cdots \circ f^{(1)}(\mathbf{x})$$
+$$
+\hat{\mathbf y} = \mathbf{a}^{(L)} = f^{(L)} \circ f^{(L-1)} \circ \cdots \circ f^{(1)}(\mathbf{x}),
+$$
 
 where each layer $l$ computes:
 
@@ -93,7 +95,7 @@ Here:
 - $\mathbf{W}^{(l)}$ is the weight matrix for layer $l$, with dimensions $H^{(l)} \times H^{(l-1)}$; the entry $W_{ij}^{(l)}$ connects neuron $j$ in layer $l-1$ to neuron $i$ in layer $l$
 - $\mathbf{b}^{(l)}$ is the bias vector for layer $l$
 - $g^{(l)}$ is the activation function for layer $l$, applied per vector entry
-- $\boldsymbol{\theta}$ represents all parameters $\{\mathbf{W}^{(1)}, \mathbf{b}^{(1)}, \ldots, \mathbf{W}^{(L)}, \mathbf{b}^{(L)}\}$
+- $\boldsymbol{\theta}$ represents all hidden-layer and output-layer parameters
 
 Moreover, we define the following quantity; the pre-activation value in layer $l$: $\mathbf{z}^{(l)} = \mathbf{W}^{(l)}\mathbf{a}^{(l-1)} + \mathbf{b}^{(l)}$.
 
@@ -264,6 +266,11 @@ plt.show()
 
 Each function provides a different kind of non-linearity, from the bounded "S-shape" of the sigmoid and tanh to the unbounded, one-sided linearity of ReLU and its smooth counterpart, Softplus.
 
+:::{.callout-note}
+## Non-Differentiability and Backpropagation
+ReLU is not differentiable at $z=0$. In practice, software chooses a convention for the derivative at the kink, usually 0 or another subgradient; see the discussion of ReLU and other activation functions in @GoodfellowBengioCourville2016. This convention rarely matters for continuous inputs because hitting exactly $z=0$ has probability zero under small perturbations, but it is worth remembering that backpropagation through piecewise-linear activations uses these derivative conventions at kink points.
+:::
+
 **Practical Selection Guidelines**
 
 *For Hidden Layers:*
@@ -294,15 +301,17 @@ Using the tools introduced in this chapter, a natural raw-scale choice is a `sof
 
 **Universal Approximation Theorem**
 
-**Theorem [@Cybenko1989; @Hornik1991]**: For any continuous function $f$ on a compact (i.e., bounded and closed) set $K$ and any $\varepsilon > 0$, there exists a function $\hat f$ of the form,
+**Theorem [@Cybenko1989; @Hornik1991]**: Suppose $g$ is a nonconstant, bounded, continuous activation function, such as a sigmoid. For any continuous function $f$ on a compact (i.e., bounded and closed) set $K$ and any $\varepsilon > 0$, there exist a positive integer $H$ and parameters $\{w_j^{(1)}, b_j^{(1)}, w_j^{(2)}\}_{j=1}^{H}$ and $b^{(2)}$ such that the function
 
-$$\hat f(x) = \sum_{j=1}^{H} w_j^{(2)} g(w_j^{(1)} x + b_j^{(1)}) + b^{(2)},$$
+$$\hat f(x) = \sum_{j=1}^{H} w_j^{(2)} g(w_j^{(1)} x + b_j^{(1)}) + b^{(2)}$$
 
-with a fixed number $H$ of hidden neurons such that
+satisfies
 
 $$\sup_{x \in K} |\hat f(x) - f(x)| < \varepsilon.$$
 
-The notation here matches the single-hidden-layer representation introduced above. The same result extends from scalar $x$ to vector-valued $\mathbf{x} \in \mathbb{R}^k$.
+The theorem is an **existence result**: it says a suitable width $H$ exists, but does not tell us how to pick $H$ or how to find the weights.
+
+The notation here matches the single-hidden-layer representation introduced above. The same result extends from scalar $x$ to vector-valued $\mathbf{x} \in \mathbb{R}^k$, and related formulations cover common unbounded activations such as ReLU.
 
 :::{.callout-note title="Practical Implications"}
 
@@ -330,7 +339,7 @@ The factor of $\frac{1}{2}$ is sometimes included for convenience when taking de
 
 **Cross-Entropy Loss (Classification)**
 
-For binary classification problems, we typically use the cross-entropy (log-likelihood) loss. If $y_i \in \{0, 1\}$ are the true class labels and $\hat{p}_i = g(f(x_i; \boldsymbol{\theta}))$ are the predicted probabilities (using sigmoid activation in the output layer):
+For binary classification problems, we typically use the cross-entropy (log-likelihood) loss. Let $s_i=f(x_i;\boldsymbol{\theta})$ denote the network's final real-valued score before the output sigmoid. If $y_i \in \{0, 1\}$ are the true class labels and $\hat{p}_i=\sigma(s_i)$ are the predicted probabilities, then
 
 $$L(\boldsymbol{\theta}) = -\frac{1}{n} \sum_{i=1}^n [y_i \log(\hat{p}_i) + (1-y_i) \log(1-\hat{p}_i)]$$
 
@@ -442,7 +451,7 @@ fig1.tight_layout()
 # -----------------------------
 fig2, ax2 = plt.subplots(figsize=(4, 3))
 
-f2 = lambda x: x**4 - x**2
+f2 = lambda x: x**4 - x**2 + 0.2 * x
 x = np.linspace(-1.2, 1.2, 400)
 ax2.plot(x, f2(x), 'k', lw=1.2)
 
@@ -450,7 +459,7 @@ def gd_path(x0, steps, alpha):
     xs = [x0]
     xk = x0
     for _ in range(steps):
-        grad = 4 * xk**3 - 2 * xk
+        grad = 4 * xk**3 - 2 * xk + 0.2
         xk = xk - alpha * grad
         xs.append(xk)
     return xs, [f2(v) for v in xs]
@@ -478,7 +487,7 @@ fig2.tight_layout()
 **Key Insights of @fig-gd-convex-vs-nonconvex:**
 
 - **Convex function (left):** Any initialization converges to the unique global minimum; step sizes naturally shrink as the gradient norm decreases.
-- **Non-convex function (right):** Different initializations can fall into different local minima; reaching the global minimum is not guaranteed.
+- **Non-convex function (right):** Different initializations can fall into different local minima; one of these can be worse than the global minimum.
 - **Neural networks:** Their highly non-convex loss landscapes make optimization sensitive to initialization and learning rate choices.
 
 **Gradient Descent in The Simplest of Networks**
@@ -488,7 +497,11 @@ $$f(x; \boldsymbol{\theta}) = w_2 g(w_1 x + b_1) + b_2$$
 
 *Note that we deviate from indicating the layer by superscripts because in one of the exercises we use the superscript to denote a gradient descent update for this simple network.*
 
-The gradients of the loss function for $n$ data points $(x_i, y_i)$ are computed using the **chain rule**:
+Use the mean squared error loss
+$$
+L(\boldsymbol{\theta})=\frac{1}{2n}\sum_{i=1}^n (y_i-f(x_i;\boldsymbol{\theta}))^2.
+$$
+For a sigmoid hidden activation, $g'(z)=g(z)(1-g(z))$. The gradients of this loss for $n$ data points $(x_i, y_i)$ are computed using the **chain rule**:
 
 Let $z = w_1 x + b_1$, $a = g(z)$, and $\hat{y} = w_2 a + b_2$.
 
@@ -644,7 +657,7 @@ The **Hessian matrix** contains all second partial derivatives:
 
 $$H_{jk} = \frac{\partial^2 L}{\partial \theta_j \partial \theta_k}$$
 
-A function is **convex** if its Hessian is positive semidefinite everywhere. For neural networks, the Hessian is generally **not** positive definite, making the optimization problem **non-convex**.
+A function is **convex** if its Hessian is positive semidefinite everywhere. For neural networks, the Hessian is generally **not** positive semidefinite, making the optimization problem **non-convex**.
 
 **Example: Non-convexity in Simple Networks**
 
@@ -731,7 +744,7 @@ The complexity of the optimization problem, together with large modern datasets,
 
 **1. Data Preprocessing**
 
-- **Standardize features**: Neural networks are sensitive to scale
+- **Standardize features**: Neural networks are sensitive to scale. If one predictor is measured in basis points and another in millions of euros, the same parameter step produces very different changes in fitted values across coordinates. Scaling improves the conditioning of the optimization problem, keeps gradient magnitudes comparable, and makes learning-rate choices more stable.
 - Split into training, validation, and test sets
 - For time-series applications, respect the information set available at the forecast date rather than shuffling observations at random
 
@@ -798,7 +811,7 @@ f(x)=\alpha_0+\alpha_1 x+\sum_{j=1}^K \gamma_j (x-c_j)_+,
 $$
 where the knots satisfy $c_1 < c_2 < \cdots < c_K$.
 
-1. Show that $f(x)$ is piecewise linear. More precisely, show that on the interval $[c_r,c_{r+1})$ its slope is
+1. Show that $f(x)$ is piecewise linear. More precisely, show that on each open interval $(c_r,c_{r+1})$ its slope is
    $$
    \alpha_1+\sum_{j=1}^r \gamma_j,
    $$
@@ -845,7 +858,7 @@ $$
 1, & x>c_j.
 \end{cases}
 $$
-Hence, on an interval where exactly the first $r$ knots have been crossed, that is, on $[c_r,c_{r+1})$, we have
+Hence, on an interval where exactly the first $r$ knots have been crossed, that is, on $(c_r,c_{r+1})$, we have
 $$
 \frac{d}{dx}f(x)
 =
