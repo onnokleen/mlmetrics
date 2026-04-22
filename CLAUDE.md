@@ -2,7 +2,7 @@
 
 ## Project overview
 
-Open-source Quarto textbook: **Machine Learning for Econometricians**. Rendered as a website (`quarto render`), deployed via SFTP. Licensed CC BY-NC-SA 4.0.
+Open-source Quarto textbook: **Machine Learning for Econometricians**. Rendered as a website (`quarto render`), deployed via Github pages. Licensed CC BY-NC-SA 4.0.
 
 **Author**: Onno Kleen, Assistant Professor, Erasmus University Rotterdam
 
