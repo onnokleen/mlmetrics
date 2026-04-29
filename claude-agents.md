@@ -9,7 +9,7 @@ Agent prompts for common authoring tasks on this textbook. Use with the Agent to
 > Reviews a chapter for flow, clarity, econometric framing, and adherence to project conventions.
 
 ```
-Review the chapter at /Users/onnokleen/Research-ML/Book_ML_Econometrics/CHAPTER.qmd.
+Review the chapter at CHAPTER.qmd.
 
 Read CLAUDE.md first for project conventions.
 
@@ -41,7 +41,7 @@ Report findings organized by dimension. For each issue, reference the specific l
 > Reviews exercises for exam-suitability and formatting.
 
 ```
-Review the exercises in /Users/onnokleen/Research-ML/Book_ML_Econometrics/CHAPTER.qmd.
+Review the exercises in CHAPTER.qmd.
 
 Read CLAUDE.md first, especially the "Exercise requirements" section.
 
@@ -71,7 +71,7 @@ Report findings per exercise, then give an overall assessment of the exercise se
 > Verifies mathematical derivations step-by-step.
 
 ```
-Check all mathematical derivations in /Users/onnokleen/Research-ML/Book_ML_Econometrics/CHAPTER.qmd.
+Check all mathematical derivations in CHAPTER.qmd.
 
 For each derivation (in the main text and in exercise solutions):
 
@@ -91,7 +91,7 @@ Report each issue with the specific equation or line reference and the correctio
 > Cross-chapter consistency audit.
 
 ```
-Perform a consistency audit across all chapters in /Users/onnokleen/Research-ML/Book_ML_Econometrics/.
+Perform a consistency audit across all chapters in ./.
 
 Read CLAUDE.md and _quarto.yml first.
 
@@ -119,9 +119,9 @@ Report findings grouped by issue type. Prioritize issues that would confuse stud
 > Generates a new pen-and-paper exercise for a given topic.
 
 ```
-Read CLAUDE.md in /Users/onnokleen/Research-ML/Book_ML_Econometrics/ for exercise conventions.
+Read CLAUDE.md in ./ for exercise conventions.
 
-Then read the chapter at /Users/onnokleen/Research-ML/Book_ML_Econometrics/CHAPTER.qmd to understand the content and existing exercises.
+Then read the chapter at CHAPTER.qmd to understand the content and existing exercises.
 
 Generate a new exercise on the topic: TOPIC
 
