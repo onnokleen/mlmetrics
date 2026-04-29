@@ -1,7 +1,4 @@
 ---
-bibliography:
-  - '/Users/onnokleen/Dropbox (Personal)/library.bib'
-  - references-local.bib
 number-sections: true
 number-offset: [15, 0]
 ---
@@ -21,6 +18,10 @@ This chapter introduces foundation models as econometric tools, not as chatbots.
 
 What this chapter does *not* do: it is not a software tutorial, not a prompt-engineering guide, and not a survey of transformer internals. Pre-training, fine-tuning, and the engineering details of attention architectures are discussed only to the extent necessary to read and evaluate empirical work that uses foundation models.
 
+:::{.callout-note title="How to read this chapter"}
+Keep three objects separate throughout. A language model $p_\theta$ assigns probabilities to token sequences; a labeling or scoring rule $g$ turns a document into a text-derived signal $z_t$; and a forecasting model uses $z_t$ together with ordinary predictors to form $\hat y_{t+h\mid t}$. Good token prediction does not by itself imply good measurement, and good measurement does not by itself imply an admissible real-time forecast.
+:::
+
 ## Roadmap
 
 1. We first formalize a language model as a distribution over token sequences and connect its log-likelihood to cross-entropy and perplexity.
@@ -29,7 +30,7 @@ What this chapter does *not* do: it is not a software tutorial, not a prompt-eng
 4. After that, we define a real-time information set $\mathcal{I}_t$ and state the admissibility condition $D_t \subseteq \mathcal{I}_t$ that retrieval, labeling, and scoring must satisfy.
 5. We then embed text-derived signals into standard predictive regressions and discuss pseudo-out-of-sample evaluation.
 6. We treat synthetic agents --- model-generated survey responses --- as a disciplined tool for exploring expectations, with explicit limitations.
-7. We close with a summary, including common pitfalls, and three pen-and-paper exercises.
+7. We close with a summary, including common pitfalls, and four pen-and-paper exercises.
 
 ## Language Models as Probabilistic Sequence Models {#sec-fm-sequence}
 
@@ -64,6 +65,10 @@ $$ {#eq-fm-ppl}
 Perplexity has the interpretation of an *effective vocabulary size per token* in the following specific sense: if at every position $t$ the conditional distribution $p_\theta(\,\cdot\, \mid w_{1:t-1})$ is uniform on some subset of $K$ tokens, then $\bar{\ell} = \log K$ and $\text{PPL} = K$. In general $\text{PPL}$ is the geometric mean of the reciprocals of the conditional probabilities assigned to the observed tokens. A lower perplexity means the model assigns, on average, a higher probability to the tokens that actually occur, and is better in a predictive-distribution sense in the terminology of [Evaluating Predictive Distributions](evaluating_distributions.qmd).
 
 Two remarks matter for econometric work. First, perplexity is computed on a *test sequence* and is therefore subject to the same pseudo-out-of-sample discipline as any predictive score: the test tokens must not have been seen during training, which for modern foundation models is a nontrivial condition to verify. Second, because $-\log p_\theta(w_t \mid w_{1:t-1}) \to \infty$ as $p_\theta(w_t \mid w_{1:t-1}) \to 0$, a single conditional probability below a threshold $\varepsilon$ contributes at least $-\log\varepsilon / T$ to $\bar{\ell}$, and hence multiplies $\text{PPL}$ by at least $\varepsilon^{-1/T}$. In consequence, a small number of very low-probability tokens can inflate perplexity substantially; this is relevant when evaluating a language model on crisis-period text whose vocabulary or topic composition departs from the training corpus.
+
+:::{.callout-important title="Econometric Interpretation"}
+A low perplexity number answers a narrow question: did $p_\theta$ assign high probability to the tokens that appeared in this corpus? It does **not** answer whether a downstream score is an unbiased measure of hawkishness, recession concern, or sentiment, and it does **not** answer whether the score was available at the forecast origin. Those are separate measurement and information-set questions.
+:::
 
 ```{python}
 #| label: fig-fm-nextoken
@@ -152,6 +157,14 @@ $$ {#eq-fm-attention}
 where $\mathrm{softmax}_{\text{row}}$ indicates that the softmax is applied independently to each row of its argument. The $\sqrt{d}$ scaling has a simple motivation: if entries of $q_t$ and $k_s$ are independent with zero mean and unit variance, then $\mathrm{Var}(q_t^\top k_s) = d$, and without the rescaling the logits $q_t^\top k_s$ would grow with $d$, driving the softmax toward a one-hot vector and its gradient toward zero. We do not discuss multi-head attention, positional encodings, feed-forward blocks, or layer normalization; these are necessary engineering components but they do not change the econometric content.
 
 For a causal language model, @eq-fm-attn-weights is replaced by its masked version: position $t$ can place positive weight only on positions $s \le t$. The hidden state at position $t-1$ is then admissible for predicting $w_t$, because it depends only on $w_{1:t-1}$. The unmasked formula above is useful for understanding attention as weighted averaging; the causal mask is what aligns the architecture with the conditional probability $p_\theta(w_t \mid w_{1:t-1})$.
+
+:::{.callout-note title="Question for Reflection"}
+Suppose an econometrician computes document embeddings using an unmasked model that lets each token representation depend on all tokens in the same document. Is this automatically a violation of the real-time information set $\mathcal{I}_t$ when the document itself was published before $t$?
+:::
+
+:::{.callout-tip collapse="true" title="Suggested Answer"}
+Not automatically. If the whole document was published before $t$, using all tokens inside that document is still $\mathcal{I}_t$-measurable for a document-level task such as classifying the document's stance. The problem arises when the task is next-token prediction, where $p_\theta(w_t \mid w_{1:t-1})$ must not use $w_t,\ldots,w_T$, or when the embedding model itself was trained or selected using post-$t$ information. Causal masking is a condition on the within-sequence prediction problem; real-time admissibility is a condition on what objects were available at the forecast origin.
+:::
 
 **From recurrent states to attention.** The previous chapter, [LSTM Networks](lstm_neural_networks.qmd#sec-lstm-networks), introduced a fixed-width hidden state $h_t$ that carries information across time steps. This forces all past relevant information to pass through a bottleneck whose size does not grow with the sequence length. Attention avoids the bottleneck: at position $t$, the contextual embedding $\phi_t$ is constructed as an explicit weighted average over representations of admissible positions -- all positions in the unmasked formula, and only positions $s \le t$ in a causal model. The similarity $q_t^\top k_s / \sqrt{d}$ acts as a learned relevance score: it measures how much position $s$ should contribute to the representation of position $t$. Nothing in @eq-fm-attention is recurrent.
 
@@ -525,6 +538,48 @@ $$
 $$ {#eq-fm-biasdecomp}
 The first term is a representativeness problem: if the distribution of personas used to prompt the model does not match the persona marginal in the real survey population, the synthetic mean is biased even when the model answers each persona correctly (i.e., even when $\mu_q \equiv \mu_F$). The second term is the more fundamental problem: conditional on a persona $a$, the model's answer distribution $q_\theta(\cdot \mid a)$ need not equal the real conditional $F(\cdot \mid a)$, and $\mu_q \ne \mu_F$ in general. Both terms can be nonzero even for a capable model and a carefully designed prompt.
 
+@fig-fm-synthetic-bias shows the same decomposition for a two-persona population. The purpose of the figure is not the numerical values; it is to separate the two ways the synthetic mean can be wrong. The left panel changes the persona weights while holding conditional means fixed. The right panel holds the persona weights fixed while changing the model-implied conditional means.
+
+```{python}
+#| label: fig-fm-synthetic-bias
+#| fig-cap: "Two components of synthetic-agent mean bias in a two-persona example. The left panel shows persona mismatch: the synthetic persona distribution $H$ overweights group B relative to the real survey distribution $F_A$. The right panel shows conditional bias: even when $H = F_A$, the model-implied conditional means $\\mu_q(a)$ differ from the real conditional means $\\mu_F(a)$."
+#| echo: true
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+groups = ["A", "B"]
+real_weights = np.array([0.70, 0.30])
+synthetic_weights = np.array([0.35, 0.65])
+mu_F = np.array([2.2, 4.4])
+mu_q = np.array([2.8, 3.5])
+
+fig, axes = plt.subplots(1, 2, figsize=(9.4, 3.6))
+x = np.arange(len(groups))
+width = 0.34
+
+axes[0].bar(x - width / 2, real_weights, width, label=r"$F_A$", color="C0", alpha=0.75)
+axes[0].bar(x + width / 2, synthetic_weights, width, label=r"$H$", color="C3", alpha=0.75)
+axes[0].set_xticks(x)
+axes[0].set_xticklabels(groups)
+axes[0].set_ylabel("Persona weight")
+axes[0].set_title("Persona-mismatch channel")
+axes[0].legend(frameon=False)
+axes[0].grid(True, axis="y", alpha=0.2)
+
+axes[1].bar(x - width / 2, mu_F, width, label=r"$\mu_F(a)$", color="C0", alpha=0.75)
+axes[1].bar(x + width / 2, mu_q, width, label=r"$\mu_q(a)$", color="C3", alpha=0.75)
+axes[1].set_xticks(x)
+axes[1].set_xticklabels(groups)
+axes[1].set_ylabel("Conditional mean response")
+axes[1].set_title("Conditional-bias channel")
+axes[1].legend(frameon=False)
+axes[1].grid(True, axis="y", alpha=0.2)
+
+plt.tight_layout()
+plt.show()
+```
+
 **Consequences for empirical practice.** Three implications follow.
 
 1. Synthetic agents should be used primarily for *exploring heterogeneity* within a population whose marginal distribution is known, not for replacing a real survey sample.
@@ -555,6 +610,7 @@ The Michigan Survey of Consumer Expectations reports cross-sectional distributio
 - Evaluating a text-augmented forecast against an AR($p$) baseline only. A dictionary baseline and a static-embedding baseline are necessary to attribute any gain to the foundation model rather than to text in general.
 - Treating perplexity as a universal quality metric. Perplexity evaluated on a test set whose distribution differs from the training distribution is not comparable across models and can be dominated by a small number of rare tokens.
 - Reading coefficients on $z_t$ as causal or structural. Foundation models are noisy measurement devices, not identification strategies.
+- Validating synthetic agents only by matching an aggregate mean. A correct mean can hide offsetting conditional biases across persona groups and says little about dispersion or tail behavior.
 :::
 
 ## Exercises
@@ -763,7 +819,7 @@ A valid protocol:
 *(i)* Objects re-estimated at each forecast origin $t$:
 
 - the retriever parameters $\psi_t$, trained on a corpus of documents published on or before $t$;
-- the predictive-regression parameters $\hat\theta_t$ in @eq-fm-workhorse;
+- the predictive-regression parameters $\hat\beta_t$ in @eq-fm-workhorse;
 - labeling thresholds if $z_t$ is a discretized score.
 
 *(ii)* Objects held fixed across origins (once chosen):
@@ -780,4 +836,152 @@ A valid protocol:
 - the exact prompt template.
 
 If the evaluation window extends back further than the earliest foundation model with a defensible cutoff, the honest conclusion is that a pseudo-out-of-sample evaluation on this window cannot be conducted with current models, and the researcher should either restrict the window or state the limitation explicitly. It is not admissible to use a model whose training cutoff post-dates the forecast origin and hope that the contamination is small.
+:::
+
+---
+
+:::{.callout-note}
+## Exercise 16.4: Persona mismatch and conditional bias in synthetic agents
+
+There are two persona groups, $A$ and $B$. Let
+$$
+F_A(A)=p, \qquad F_A(B)=1-p,
+$$
+with $p \in (0,1)$, denote the real survey population. Let
+$$
+H(A)=h, \qquad H(B)=1-h,
+$$
+with $h \in (0,1)$, denote the synthetic persona distribution. The real conditional means of a one-year-ahead inflation-expectations answer are
+$$
+\mu_F(A)=m_A, \qquad \mu_F(B)=m_B,
+$$
+while the model-implied conditional means are
+$$
+\mu_q(A)=m_A+b_A, \qquad \mu_q(B)=m_B+b_B,
+$$
+where $b_A$ and $b_B$ are group-specific conditional biases.
+
+**Part 1.** Starting from $\mathbb{E}_{H,q_\theta}[\tilde R]-\mathbb{E}_F[R]$, derive a two-group version of @eq-fm-biasdecomp. Your final expression should separate the bias due to $h \ne p$ from the bias due to $(b_A,b_B) \ne (0,0)$.
+
+**Part 2.** Show that reweighting the synthetic personas so that $H=F_A$ eliminates the persona-mismatch term but leaves the conditional-bias term
+$$
+p b_A + (1-p)b_B.
+$$
+Then characterize all pairs $(b_A,b_B)$ for which the aggregate synthetic mean is exactly correct even though at least one group-specific conditional mean is wrong.
+
+**Part 3.** Now set
+$$
+p=0.7,\quad h=0.4,\quad m_A=3,\quad m_B=6,\quad b_A=1,\quad b_B=-1.
+$$
+Compute the real population mean, the synthetic population mean, the total bias, and the two terms in the decomposition from Part 1. Verify that the decomposition adds up exactly.
+
+**Part 4.** Suppose the econometrician has access only to the aggregate real survey mean and tunes the prompt until, with $H=F_A$, the model-implied conditional means become
+$$
+\mu_q(A)=3.3, \qquad \mu_q(B)=5.3.
+$$
+Using $p=0.7$, $m_A=3$, and $m_B=6$, show that the aggregate synthetic mean exactly matches the real aggregate mean even though both group-specific conditional means are wrong. Explain the identification problem: what can and cannot be learned about $(b_A,b_B)$ from a single aggregate moment?
+
+*Exam-level. Parts 1 and 2 require a formal decomposition and characterization; Parts 3 and 4 apply the result to diagnose what aggregate validation of synthetic agents can and cannot establish.*
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint for Part 1
+Write
+$$
+\mathbb{E}_{H,q_\theta}[\tilde R]
+=h(m_A+b_A)+(1-h)(m_B+b_B)
+$$
+and
+$$
+\mathbb{E}_F[R]=p m_A+(1-p)m_B.
+$$
+Add and subtract $p(m_A+b_A)+(1-p)(m_B+b_B)$.
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint for Part 2
+With $H=F_A$, aggregate matching requires
+$$
+p b_A + (1-p)b_B=0.
+$$
+Solve this equation for $b_B$ as a function of $b_A$.
+:::
+
+:::{.callout-tip collapse="true"}
+## Solution
+
+**Part 1.** The total bias is
+$$
+\begin{aligned}
+B
+&:= \mathbb{E}_{H,q_\theta}[\tilde R]-\mathbb{E}_F[R] \\
+&= h(m_A+b_A)+(1-h)(m_B+b_B)-\{p m_A+(1-p)m_B\}.
+\end{aligned}
+$$
+Add and subtract $p(m_A+b_A)+(1-p)(m_B+b_B)$:
+$$
+\begin{aligned}
+B
+&= \{h(m_A+b_A)+(1-h)(m_B+b_B) \\
+&\quad - p(m_A+b_A)-(1-p)(m_B+b_B)\} \\
+&\quad + \{p(m_A+b_A)+(1-p)(m_B+b_B)-p m_A-(1-p)m_B\} \\
+&= (h-p)(m_A+b_A)+\{(1-h)-(1-p)\}(m_B+b_B) \\
+&\quad + p b_A+(1-p)b_B \\
+&= (h-p)\{(m_A+b_A)-(m_B+b_B)\}
+   + p b_A+(1-p)b_B.
+\end{aligned}
+$$
+The first term is the persona-mismatch bias: it is zero when $h=p$. The second term is the conditional bias averaged over the real persona distribution.
+
+**Part 2.** If $H=F_A$, then $h=p$ and the first term in Part 1 vanishes. The remaining bias is
+$$
+p b_A+(1-p)b_B.
+$$
+The aggregate mean is exactly correct if and only if
+$$
+p b_A+(1-p)b_B=0.
+$$
+Solving for $b_B$ gives
+$$
+b_B=-\frac{p}{1-p}b_A.
+$$
+Thus aggregate correctness does not imply $b_A=b_B=0$. It only restricts the conditional-bias vector to a one-dimensional line. For any nonzero $b_A$, choosing $b_B=-p b_A/(1-p)$ produces a correct aggregate mean with two incorrect group-specific means.
+
+**Part 3.** The real population mean is
+$$
+\mathbb{E}_F[R]=0.7\cdot 3+0.3\cdot 6=3.9.
+$$
+The model-implied conditional means are $\mu_q(A)=4$ and $\mu_q(B)=5$. The synthetic population mean is
+$$
+\mathbb{E}_{H,q_\theta}[\tilde R]=0.4\cdot 4+0.6\cdot 5=4.6.
+$$
+The total bias is $4.6-3.9=0.7$. The persona-mismatch component is
+$$
+(h-p)\{(m_A+b_A)-(m_B+b_B)\}
+=(0.4-0.7)(4-5)=0.3.
+$$
+The conditional-bias component is
+$$
+p b_A+(1-p)b_B=0.7(1)+0.3(-1)=0.4.
+$$
+The two components sum to $0.3+0.4=0.7$, which equals the total bias.
+
+**Part 4.** The real aggregate mean remains
+$$
+\mathbb{E}_F[R]=0.7\cdot 3+0.3\cdot 6=3.9.
+$$
+With $H=F_A$ and the tuned prompt,
+$$
+\mathbb{E}_{F_A,q_\theta}[\tilde R]
+=0.7\cdot 3.3+0.3\cdot 5.3
+=2.31+1.59
+=3.9.
+$$
+The aggregate mean matches exactly. But the conditional biases are
+$$
+b_A=3.3-3=0.3, \qquad b_B=5.3-6=-0.7,
+$$
+which are both nonzero and satisfy $0.7(0.3)+0.3(-0.7)=0$.
+
+The identification problem is that one aggregate moment provides only one equation in the two unknown conditional biases $(b_A,b_B)$. It can establish the weighted restriction $p b_A+(1-p)b_B=0$, but it cannot establish $b_A=0$ and $b_B=0$ separately. Therefore, validating synthetic agents by matching a single aggregate survey mean is insufficient: the procedure may still misrepresent subgroup means, heterogeneity, variances, and tail probabilities.
 :::
