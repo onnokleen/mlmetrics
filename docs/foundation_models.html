@@ -430,7 +430,20 @@ Experimental Chapter
 <h2 data-number="16.1" class="anchored" data-anchor-id="overview"><span class="header-section-number">16.1</span> Overview</h2>
 <p>A large and growing share of economic information arrives as text. Central-bank statements, monetary-policy minutes, press conferences, earnings disclosures, conference-call transcripts, analyst reports, and regulatory filings all carry signals about policy stance, risk, and expectations that are not fully captured by any scalar time series. Foundation models — large pre-trained language models such as the GPT and LLaMA families — can process this material and return numerical objects: conditional token probabilities, contextual embeddings, classification scores, or generated responses. A growing econometric literature studies exactly how these objects can be used in policy analysis, forecasting, and measurement without importing the methodological laxity of general-purpose machine-learning practice <span class="citation" data-cites="HaghighiEtAl2025">(<a href="#ref-HaghighiEtAl2025" role="doc-biblioref">Haghighi et al. 2025</a>)</span>.</p>
 <p>This chapter introduces foundation models as econometric tools, not as chatbots. The chapter has three aims. First, we put language models on formal ground as probabilistic sequence models, so that notions such as cross-entropy and perplexity mean exactly what they do in <a href="./information_theory.html">Information Theory</a>. Second, we recast outputs of a foundation model — scores, labels, embeddings — as <strong>noisy measurements of latent economic concepts</strong>, which connects immediately to classical errors-in-variables reasoning. Third, we insist that any use of text in forecasting respect a real-time information set: retrieval, labeling, and scoring must be <span class="math inline">\(\mathcal{I}_t\)</span>-measurable, or the forecast evaluation is not credible.</p>
-<p>What this chapter does <em>not</em> do: it is not a software tutorial, not a prompt-engineering guide, and not a survey of transformer internals. Pre-training, fine-tuning, and the engineering details of attention architectures are discussed only to the extent necessary to read and evaluate empirical work that uses foundation models.</p>
+<p>What this chapter does <em>not</em> do: it is not a software tutorial, not a prompt-engineering guide, and not a survey of transformer internals. Pre-training, fine-tuning, and the engineering details of attention architectures are discussed only to the extent necessary to read and evaluate empirical work that uses foundation models. The minimum technical lineage to keep in view is the transformer architecture <span class="citation" data-cites="VaswaniEtAl2017">(<a href="#ref-VaswaniEtAl2017" role="doc-biblioref">Vaswani et al. 2017</a>)</span>, bidirectional transformer representations such as BERT <span class="citation" data-cites="DevlinChangLeeToutanova2019">(<a href="#ref-DevlinChangLeeToutanova2019" role="doc-biblioref">Devlin et al. 2019</a>)</span>, and scaling-era autoregressive language models such as GPT-3 <span class="citation" data-cites="BrownEtAl2020">(<a href="#ref-BrownEtAl2020" role="doc-biblioref">Brown et al. 2020</a>)</span>.</p>
+<div class="callout callout-style-default callout-note callout-titled" title="How to read this chapter">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+How to read this chapter
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>Keep three objects separate throughout. A language model <span class="math inline">\(p_\theta\)</span> assigns probabilities to token sequences; a labeling or scoring rule <span class="math inline">\(g\)</span> turns a document into a text-derived signal <span class="math inline">\(z_t\)</span>; and a forecasting model uses <span class="math inline">\(z_t\)</span> together with ordinary predictors to form <span class="math inline">\(\hat y_{t+h\mid t}\)</span>. Good token prediction does not by itself imply good measurement, and good measurement does not by itself imply an admissible real-time forecast.</p>
+</div>
+</div>
 </section>
 <section id="roadmap" class="level2" data-number="16.2">
 <h2 data-number="16.2" class="anchored" data-anchor-id="roadmap"><span class="header-section-number">16.2</span> Roadmap</h2>
@@ -441,7 +454,7 @@ Experimental Chapter
 <li>After that, we define a real-time information set <span class="math inline">\(\mathcal{I}_t\)</span> and state the admissibility condition <span class="math inline">\(D_t \subseteq \mathcal{I}_t\)</span> that retrieval, labeling, and scoring must satisfy.</li>
 <li>We then embed text-derived signals into standard predictive regressions and discuss pseudo-out-of-sample evaluation.</li>
 <li>We treat synthetic agents — model-generated survey responses — as a disciplined tool for exploring expectations, with explicit limitations.</li>
-<li>We close with a summary, including common pitfalls, and three pen-and-paper exercises.</li>
+<li>We close with a summary, including common pitfalls, and four pen-and-paper exercises.</li>
 </ol>
 </section>
 <section id="sec-fm-sequence" class="level2" data-number="16.3">
@@ -486,6 +499,19 @@ H(p^\star, p_\theta) \;=\; -\,\mathbb{E}_{p^\star}\!\left[\log p_\theta(W_t \mid
 </div>
 <p> Perplexity has the interpretation of an <em>effective vocabulary size per token</em> in the following specific sense: if at every position <span class="math inline">\(t\)</span> the conditional distribution <span class="math inline">\(p_\theta(\,\cdot\, \mid w_{1:t-1})\)</span> is uniform on some subset of <span class="math inline">\(K\)</span> tokens, then <span class="math inline">\(\bar{\ell} = \log K\)</span> and <span class="math inline">\(\text{PPL} = K\)</span>. In general <span class="math inline">\(\text{PPL}\)</span> is the geometric mean of the reciprocals of the conditional probabilities assigned to the observed tokens. A lower perplexity means the model assigns, on average, a higher probability to the tokens that actually occur, and is better in a predictive-distribution sense in the terminology of <a href="./evaluating_distributions.html">Evaluating Predictive Distributions</a>.</p>
 <p>Two remarks matter for econometric work. First, perplexity is computed on a <em>test sequence</em> and is therefore subject to the same pseudo-out-of-sample discipline as any predictive score: the test tokens must not have been seen during training, which for modern foundation models is a nontrivial condition to verify. Second, because <span class="math inline">\(-\log p_\theta(w_t \mid w_{1:t-1}) \to \infty\)</span> as <span class="math inline">\(p_\theta(w_t \mid w_{1:t-1}) \to 0\)</span>, a single conditional probability below a threshold <span class="math inline">\(\varepsilon\)</span> contributes at least <span class="math inline">\(-\log\varepsilon / T\)</span> to <span class="math inline">\(\bar{\ell}\)</span>, and hence multiplies <span class="math inline">\(\text{PPL}\)</span> by at least <span class="math inline">\(\varepsilon^{-1/T}\)</span>. In consequence, a small number of very low-probability tokens can inflate perplexity substantially; this is relevant when evaluating a language model on crisis-period text whose vocabulary or topic composition departs from the training corpus.</p>
+<div class="callout callout-style-default callout-important callout-titled" title="Econometric Interpretation">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+Econometric Interpretation
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>A low perplexity number answers a narrow question: did <span class="math inline">\(p_\theta\)</span> assign high probability to the tokens that appeared in this corpus? It does <strong>not</strong> answer whether a downstream score is an unbiased measure of hawkishness, recession concern, or sentiment, and it does <strong>not</strong> answer whether the score was available at the forecast origin. Those are separate measurement and information-set questions.</p>
+</div>
+</div>
 <div id="cell-fig-fm-nextoken" class="cell" data-execution_count="2">
 <details class="code-fold">
 <summary>Show the code</summary>
@@ -537,7 +563,7 @@ Figure&nbsp;16.1: Next-token factorization schematic. A document is represented 
 </div>
 </div>
 <p>A compact check of <a href="#eq-fm-avgnll" class="quarto-xref">Equation&nbsp;16.2</a> and <a href="#eq-fm-ppl" class="quarto-xref">Equation&nbsp;16.4</a> on this toy sequence:</p>
-<div id="7b087c90" class="cell" data-execution_count="3">
+<div id="d38a90d2" class="cell" data-execution_count="3">
 <details class="code-fold">
 <summary>Show the code</summary>
 <div class="sourceCode cell-code" id="cb2"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a>chosen <span class="op">=</span> probs[np.arange(T), observed_idx]</span>
@@ -565,7 +591,7 @@ Question for Reflection
 </div>
 </div>
 <div class="callout callout-style-default callout-tip callout-titled" title="Suggested Answer">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-3-contents" aria-controls="callout-3" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-5-contents" aria-controls="callout-5" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -574,7 +600,7 @@ Suggested Answer
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-3" class="callout-3-contents callout-collapse collapse">
+<div id="callout-5" class="callout-5-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p>Perplexity is only a meaningful predictive score under some form of exchangeability between training and test tokens. A structural break in the inflation process changes both vocabulary frequencies and conditional patterns, so the cross-entropy <span class="math inline">\(H(p^\star, p_\theta)\)</span> evaluated on post-break text is computed against a different <span class="math inline">\(p^\star\)</span> than the one the model was trained under. Perplexity will typically rise, but the more important point is that comparisons across regimes are no longer tests of the same learning problem. This is the same caution that applies to any out-of-sample score under non-stationarity.</p>
 </div>
@@ -612,6 +638,35 @@ Q = E W_Q, \quad K = E W_K, \quad V = E W_V,
 </div>
 <p> where <span class="math inline">\(\mathrm{softmax}_{\text{row}}\)</span> indicates that the softmax is applied independently to each row of its argument. The <span class="math inline">\(\sqrt{d}\)</span> scaling has a simple motivation: if entries of <span class="math inline">\(q_t\)</span> and <span class="math inline">\(k_s\)</span> are independent with zero mean and unit variance, then <span class="math inline">\(\mathrm{Var}(q_t^\top k_s) = d\)</span>, and without the rescaling the logits <span class="math inline">\(q_t^\top k_s\)</span> would grow with <span class="math inline">\(d\)</span>, driving the softmax toward a one-hot vector and its gradient toward zero. We do not discuss multi-head attention, positional encodings, feed-forward blocks, or layer normalization; these are necessary engineering components but they do not change the econometric content.</p>
 <p>For a causal language model, <a href="#eq-fm-attn-weights" class="quarto-xref">Equation&nbsp;16.5</a> is replaced by its masked version: position <span class="math inline">\(t\)</span> can place positive weight only on positions <span class="math inline">\(s \le t\)</span>. The hidden state at position <span class="math inline">\(t-1\)</span> is then admissible for predicting <span class="math inline">\(w_t\)</span>, because it depends only on <span class="math inline">\(w_{1:t-1}\)</span>. The unmasked formula above is useful for understanding attention as weighted averaging; the causal mask is what aligns the architecture with the conditional probability <span class="math inline">\(p_\theta(w_t \mid w_{1:t-1})\)</span>.</p>
+<div class="callout callout-style-default callout-note callout-titled" title="Question for Reflection">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+Question for Reflection
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>Suppose an econometrician computes document embeddings using an unmasked model that lets each token representation depend on all tokens in the same document. Is this automatically a violation of the real-time information set <span class="math inline">\(\mathcal{I}_t\)</span> when the document itself was published before <span class="math inline">\(t\)</span>?</p>
+</div>
+</div>
+<div class="callout callout-style-default callout-tip callout-titled" title="Suggested Answer">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-7-contents" aria-controls="callout-7" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+Suggested Answer
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-7" class="callout-7-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
+<p>Not automatically. If the whole document was published before <span class="math inline">\(t\)</span>, using all tokens inside that document is still <span class="math inline">\(\mathcal{I}_t\)</span>-measurable for a document-level task such as classifying the document’s stance. The problem arises when the task is next-token prediction, where <span class="math inline">\(p_\theta(w_t \mid w_{1:t-1})\)</span> must not use <span class="math inline">\(w_t,\ldots,w_T\)</span>, or when the embedding model itself was trained or selected using post-<span class="math inline">\(t\)</span> information. Causal masking is a condition on the within-sequence prediction problem; real-time admissibility is a condition on what objects were available at the forecast origin.</p>
+</div>
+</div>
+</div>
 <p><strong>From recurrent states to attention.</strong> The previous chapter, <a href="./lstm_neural_networks.html#sec-lstm-networks">LSTM Networks</a>, introduced a fixed-width hidden state <span class="math inline">\(h_t\)</span> that carries information across time steps. This forces all past relevant information to pass through a bottleneck whose size does not grow with the sequence length. Attention avoids the bottleneck: at position <span class="math inline">\(t\)</span>, the contextual embedding <span class="math inline">\(\phi_t\)</span> is constructed as an explicit weighted average over representations of admissible positions – all positions in the unmasked formula, and only positions <span class="math inline">\(s \le t\)</span> in a causal model. The similarity <span class="math inline">\(q_t^\top k_s / \sqrt{d}\)</span> acts as a learned relevance score: it measures how much position <span class="math inline">\(s\)</span> should contribute to the representation of position <span class="math inline">\(t\)</span>. Nothing in <a href="#eq-fm-attention" class="quarto-xref">Equation&nbsp;16.7</a> is recurrent.</p>
 <p><span id="sec-fm-derivB"><strong>Derivation B: A Three-Token Self-Attention Example.</strong></span></p>
 <p>Take a sequence of <span class="math inline">\(T = 3\)</span> tokens in <span class="math inline">\(\mathbb{R}^2\)</span> (so <span class="math inline">\(d = 2\)</span>) with fixed embeddings </p>
@@ -824,7 +879,7 @@ Question for Reflection
 </div>
 </div>
 <div class="callout callout-style-default callout-tip callout-titled" title="Suggested Answer">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-6-contents" aria-controls="callout-6" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-10-contents" aria-controls="callout-10" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -833,7 +888,7 @@ Suggested Answer
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-6" class="callout-6-contents callout-collapse collapse">
+<div id="callout-10" class="callout-10-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p>The measurement error <span class="math inline">\(u_t\)</span> has a discontinuous distribution at the version-switch date: its variance, and potentially its mean, differ across the two subsamples. If the break is ignored, <span class="math inline">\(\hat\delta\)</span> is a weighted average of two regimes with different reliability ratios, and the attenuation is ambient and unknown. A minimal fix is to re-label the entire sample with a single frozen model version (ideally the earlier one, and the later one, separately) and report both slopes. A more careful fix would include a regime dummy and an interaction between the regime indicator and <span class="math inline">\(z_t\)</span>, which lets the slope differ by regime; the reliability ratio in each regime is still not identified from the regression alone, but cross-regime differences in the slope point directly to differences in either <span class="math inline">\(\gamma\)</span> or <span class="math inline">\(\lambda\)</span> across versions.</p>
 </div>
@@ -988,7 +1043,7 @@ y_{t+h} = \alpha + \beta^\top x_t + \pi^\top z_t + \varepsilon_{t+h},
 <li><em>Baseline.</em> The relevant comparison is not model-with-text versus AR(<span class="math inline">\(p\)</span>). It is model-with-foundation-model-text versus (i) model-with-dictionary-text and (ii) model-with-static-embedding-text. Otherwise any gain might be attributable to text <em>per se</em> rather than to the foundation model.</li>
 </ol>
 <p><strong>A minimal evaluation loop.</strong> The following code illustrates the structure of a rolling pseudo-out-of-sample evaluation. No API calls are involved; <span class="math inline">\(z_t\)</span> is treated as given.</p>
-<div id="b336d892" class="cell" data-execution_count="8">
+<div id="8728ac12" class="cell" data-execution_count="8">
 <details class="code-fold">
 <summary>Show the code</summary>
 <div class="sourceCode cell-code" id="cb7"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> numpy <span class="im">as</span> np</span>
@@ -1060,7 +1115,7 @@ Question for Reflection
 </div>
 </div>
 <div class="callout callout-style-default callout-tip callout-titled" title="Suggested Answer">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-9-contents" aria-controls="callout-9" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-13-contents" aria-controls="callout-13" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -1069,7 +1124,7 @@ Suggested Answer
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-9" class="callout-9-contents callout-collapse collapse">
+<div id="callout-13" class="callout-13-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p>Statistical explanation: <span class="math inline">\(z_t\)</span> is collinear with <span class="math inline">\(x_t\)</span> in-sample but adds no conditional information once <span class="math inline">\(x_t\)</span> is known at the relevant forecast horizon. This is diagnosed by comparing <span class="math inline">\(R^2\)</span> of a regression of <span class="math inline">\(z_t\)</span> on <span class="math inline">\(x_t\)</span> in-sample to the same object in rolling windows; high <span class="math inline">\(R^2\)</span> implies the in-sample improvement was due to over-fitting additional noise. Data-pipeline explanation: the in-sample construction of <span class="math inline">\(z_t\)</span> used information not available in real time (revised transcripts, retriever trained on the full corpus), so the in-sample gain is leakage that disappears once admissibility is enforced. The two can be distinguished by re-running the in-sample regression with <span class="math inline">\(z_t\)</span> constructed under strict admissibility; if the <span class="math inline">\(R^2\)</span> gain collapses, the problem is pipeline-contamination.</p>
 </div>
@@ -1107,6 +1162,57 @@ Suggested Answer
 \tag{16.11}\]</span></span></p>
 </div>
 <p> The first term is a representativeness problem: if the distribution of personas used to prompt the model does not match the persona marginal in the real survey population, the synthetic mean is biased even when the model answers each persona correctly (i.e., even when <span class="math inline">\(\mu_q \equiv \mu_F\)</span>). The second term is the more fundamental problem: conditional on a persona <span class="math inline">\(a\)</span>, the model’s answer distribution <span class="math inline">\(q_\theta(\cdot \mid a)\)</span> need not equal the real conditional <span class="math inline">\(F(\cdot \mid a)\)</span>, and <span class="math inline">\(\mu_q \ne \mu_F\)</span> in general. Both terms can be nonzero even for a capable model and a carefully designed prompt.</p>
+<p><a href="#fig-fm-synthetic-bias" class="quarto-xref">Figure&nbsp;16.6</a> shows the same decomposition for a two-persona population. The purpose of the figure is not the numerical values; it is to separate the two ways the synthetic mean can be wrong. The left panel changes the persona weights while holding conditional means fixed. The right panel holds the persona weights fixed while changing the model-implied conditional means.</p>
+<div id="cell-fig-fm-synthetic-bias" class="cell" data-execution_count="9">
+<details class="code-fold">
+<summary>Show the code</summary>
+<div class="sourceCode cell-code" id="cb9"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> numpy <span class="im">as</span> np</span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> matplotlib.pyplot <span class="im">as</span> plt</span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb9-4"><a href="#cb9-4" aria-hidden="true" tabindex="-1"></a>groups <span class="op">=</span> [<span class="st">"A"</span>, <span class="st">"B"</span>]</span>
+<span id="cb9-5"><a href="#cb9-5" aria-hidden="true" tabindex="-1"></a>real_weights <span class="op">=</span> np.array([<span class="fl">0.70</span>, <span class="fl">0.30</span>])</span>
+<span id="cb9-6"><a href="#cb9-6" aria-hidden="true" tabindex="-1"></a>synthetic_weights <span class="op">=</span> np.array([<span class="fl">0.35</span>, <span class="fl">0.65</span>])</span>
+<span id="cb9-7"><a href="#cb9-7" aria-hidden="true" tabindex="-1"></a>mu_F <span class="op">=</span> np.array([<span class="fl">2.2</span>, <span class="fl">4.4</span>])</span>
+<span id="cb9-8"><a href="#cb9-8" aria-hidden="true" tabindex="-1"></a>mu_q <span class="op">=</span> np.array([<span class="fl">2.8</span>, <span class="fl">3.5</span>])</span>
+<span id="cb9-9"><a href="#cb9-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb9-10"><a href="#cb9-10" aria-hidden="true" tabindex="-1"></a>fig, axes <span class="op">=</span> plt.subplots(<span class="dv">1</span>, <span class="dv">2</span>, figsize<span class="op">=</span>(<span class="fl">9.4</span>, <span class="fl">3.6</span>))</span>
+<span id="cb9-11"><a href="#cb9-11" aria-hidden="true" tabindex="-1"></a>x <span class="op">=</span> np.arange(<span class="bu">len</span>(groups))</span>
+<span id="cb9-12"><a href="#cb9-12" aria-hidden="true" tabindex="-1"></a>width <span class="op">=</span> <span class="fl">0.34</span></span>
+<span id="cb9-13"><a href="#cb9-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb9-14"><a href="#cb9-14" aria-hidden="true" tabindex="-1"></a>axes[<span class="dv">0</span>].bar(x <span class="op">-</span> width <span class="op">/</span> <span class="dv">2</span>, real_weights, width, label<span class="op">=</span><span class="vs">r"</span><span class="dv">$</span><span class="vs">F_A</span><span class="dv">$</span><span class="vs">"</span>, color<span class="op">=</span><span class="st">"C0"</span>, alpha<span class="op">=</span><span class="fl">0.75</span>)</span>
+<span id="cb9-15"><a href="#cb9-15" aria-hidden="true" tabindex="-1"></a>axes[<span class="dv">0</span>].bar(x <span class="op">+</span> width <span class="op">/</span> <span class="dv">2</span>, synthetic_weights, width, label<span class="op">=</span><span class="vs">r"</span><span class="dv">$</span><span class="vs">H</span><span class="dv">$</span><span class="vs">"</span>, color<span class="op">=</span><span class="st">"C3"</span>, alpha<span class="op">=</span><span class="fl">0.75</span>)</span>
+<span id="cb9-16"><a href="#cb9-16" aria-hidden="true" tabindex="-1"></a>axes[<span class="dv">0</span>].set_xticks(x)</span>
+<span id="cb9-17"><a href="#cb9-17" aria-hidden="true" tabindex="-1"></a>axes[<span class="dv">0</span>].set_xticklabels(groups)</span>
+<span id="cb9-18"><a href="#cb9-18" aria-hidden="true" tabindex="-1"></a>axes[<span class="dv">0</span>].set_ylabel(<span class="st">"Persona weight"</span>)</span>
+<span id="cb9-19"><a href="#cb9-19" aria-hidden="true" tabindex="-1"></a>axes[<span class="dv">0</span>].set_title(<span class="st">"Persona-mismatch channel"</span>)</span>
+<span id="cb9-20"><a href="#cb9-20" aria-hidden="true" tabindex="-1"></a>axes[<span class="dv">0</span>].legend(frameon<span class="op">=</span><span class="va">False</span>)</span>
+<span id="cb9-21"><a href="#cb9-21" aria-hidden="true" tabindex="-1"></a>axes[<span class="dv">0</span>].grid(<span class="va">True</span>, axis<span class="op">=</span><span class="st">"y"</span>, alpha<span class="op">=</span><span class="fl">0.2</span>)</span>
+<span id="cb9-22"><a href="#cb9-22" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb9-23"><a href="#cb9-23" aria-hidden="true" tabindex="-1"></a>axes[<span class="dv">1</span>].bar(x <span class="op">-</span> width <span class="op">/</span> <span class="dv">2</span>, mu_F, width, label<span class="op">=</span><span class="vs">r"</span><span class="dv">$\m</span><span class="vs">u_F</span><span class="kw">(</span><span class="vs">a</span><span class="kw">)</span><span class="dv">$</span><span class="vs">"</span>, color<span class="op">=</span><span class="st">"C0"</span>, alpha<span class="op">=</span><span class="fl">0.75</span>)</span>
+<span id="cb9-24"><a href="#cb9-24" aria-hidden="true" tabindex="-1"></a>axes[<span class="dv">1</span>].bar(x <span class="op">+</span> width <span class="op">/</span> <span class="dv">2</span>, mu_q, width, label<span class="op">=</span><span class="vs">r"</span><span class="dv">$\m</span><span class="vs">u_q</span><span class="kw">(</span><span class="vs">a</span><span class="kw">)</span><span class="dv">$</span><span class="vs">"</span>, color<span class="op">=</span><span class="st">"C3"</span>, alpha<span class="op">=</span><span class="fl">0.75</span>)</span>
+<span id="cb9-25"><a href="#cb9-25" aria-hidden="true" tabindex="-1"></a>axes[<span class="dv">1</span>].set_xticks(x)</span>
+<span id="cb9-26"><a href="#cb9-26" aria-hidden="true" tabindex="-1"></a>axes[<span class="dv">1</span>].set_xticklabels(groups)</span>
+<span id="cb9-27"><a href="#cb9-27" aria-hidden="true" tabindex="-1"></a>axes[<span class="dv">1</span>].set_ylabel(<span class="st">"Conditional mean response"</span>)</span>
+<span id="cb9-28"><a href="#cb9-28" aria-hidden="true" tabindex="-1"></a>axes[<span class="dv">1</span>].set_title(<span class="st">"Conditional-bias channel"</span>)</span>
+<span id="cb9-29"><a href="#cb9-29" aria-hidden="true" tabindex="-1"></a>axes[<span class="dv">1</span>].legend(frameon<span class="op">=</span><span class="va">False</span>)</span>
+<span id="cb9-30"><a href="#cb9-30" aria-hidden="true" tabindex="-1"></a>axes[<span class="dv">1</span>].grid(<span class="va">True</span>, axis<span class="op">=</span><span class="st">"y"</span>, alpha<span class="op">=</span><span class="fl">0.2</span>)</span>
+<span id="cb9-31"><a href="#cb9-31" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb9-32"><a href="#cb9-32" aria-hidden="true" tabindex="-1"></a>plt.tight_layout()</span>
+<span id="cb9-33"><a href="#cb9-33" aria-hidden="true" tabindex="-1"></a>plt.show()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</details>
+<div class="cell-output cell-output-display">
+<div id="fig-fm-synthetic-bias" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-fm-synthetic-bias-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="foundation_models_files/figure-html/fig-fm-synthetic-bias-output-1.png" class="img-fluid figure-img">
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-fm-synthetic-bias-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;16.6: Two components of synthetic-agent mean bias in a two-persona example. The left panel shows persona mismatch: the synthetic persona distribution <span class="math inline">\(H\)</span> overweights group B relative to the real survey distribution <span class="math inline">\(F_A\)</span>. The right panel shows conditional bias: even when <span class="math inline">\(H = F_A\)</span>, the model-implied conditional means <span class="math inline">\(\mu_q(a)\)</span> differ from the real conditional means <span class="math inline">\(\mu_F(a)\)</span>.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
 <p><strong>Consequences for empirical practice.</strong> Three implications follow.</p>
 <ol type="1">
 <li>Synthetic agents should be used primarily for <em>exploring heterogeneity</em> within a population whose marginal distribution is known, not for replacing a real survey sample.</li>
@@ -1166,6 +1272,7 @@ Common Pitfalls
 <li>Evaluating a text-augmented forecast against an AR(<span class="math inline">\(p\)</span>) baseline only. A dictionary baseline and a static-embedding baseline are necessary to attribute any gain to the foundation model rather than to text in general.</li>
 <li>Treating perplexity as a universal quality metric. Perplexity evaluated on a test set whose distribution differs from the training distribution is not comparable across models and can be dominated by a small number of rare tokens.</li>
 <li>Reading coefficients on <span class="math inline">\(z_t\)</span> as causal or structural. Foundation models are noisy measurement devices, not identification strategies.</li>
+<li>Validating synthetic agents only by matching an aggregate mean. A correct mean can hide offsetting conditional biases across persona groups and says little about dispersion or tail behavior.</li>
 </ul>
 </div>
 </div>
@@ -1241,7 +1348,7 @@ Exercise 16.1: Sequence probabilities, cross-entropy, and perplexity
 </div>
 </div>
 <div class="callout callout-style-default callout-warning callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-14-contents" aria-controls="callout-14" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-18-contents" aria-controls="callout-18" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -1250,14 +1357,14 @@ Hint for Part 3
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-14" class="callout-14-contents callout-collapse collapse">
+<div id="callout-18" class="callout-18-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p>Compute <span class="math inline">\(-\log(0.0001) \approx 9.21\)</span> and compare to the average of the other seven terms. Then ask what happens to <span class="math inline">\(\text{PPL}\)</span> if you replace the last token’s probability with <span class="math inline">\(10^{-2}\)</span> instead; the change in <span class="math inline">\(\text{PPL}\)</span> is the diagnostic quantity.</p>
 </div>
 </div>
 </div>
 <div class="callout callout-style-default callout-tip callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-15-contents" aria-controls="callout-15" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-19-contents" aria-controls="callout-19" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -1266,7 +1373,7 @@ Solution
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-15" class="callout-15-contents callout-collapse collapse">
+<div id="callout-19" class="callout-19-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p><strong>Part 1.</strong> The log-probabilities are </p>
 <div class="display-math-block">
@@ -1341,7 +1448,7 @@ y_{t+1} = \alpha + \delta\, z_t + \eta_{t+1}
 </div>
 </div>
 <div class="callout callout-style-default callout-warning callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-17-contents" aria-controls="callout-17" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-21-contents" aria-controls="callout-21" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -1350,14 +1457,14 @@ Hint for Part 1
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-17" class="callout-17-contents callout-collapse collapse">
+<div id="callout-21" class="callout-21-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p>Under mutual uncorrelatedness, <span class="math inline">\(\mathrm{plim}\,\hat\delta_{\text{OLS}} = \mathrm{Cov}(y_{t+1}, z_t) / \mathrm{Var}(z_t)\)</span>. Compute each object by substituting the model equations and using the zero-covariance assumptions.</p>
 </div>
 </div>
 </div>
 <div class="callout callout-style-default callout-warning callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-18-contents" aria-controls="callout-18" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-22-contents" aria-controls="callout-22" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -1366,14 +1473,14 @@ Hint for Part 3
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-18" class="callout-18-contents callout-collapse collapse">
+<div id="callout-22" class="callout-22-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p>Predictive content is about the joint distribution of <span class="math inline">\((y_{t+1}, z_t)\)</span>: it is enough that <span class="math inline">\(\mathbb{E}[y_{t+1} \mid z_t] \neq \mathbb{E}[y_{t+1}]\)</span>. Inference about <span class="math inline">\(\gamma\)</span> is about the coefficient on <span class="math inline">\(s_t\)</span>, a different object. A non-zero <span class="math inline">\(\hat\delta\)</span> is consistent with the first and uninformative about the second.</p>
 </div>
 </div>
 </div>
 <div class="callout callout-style-default callout-tip callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-19-contents" aria-controls="callout-19" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-23-contents" aria-controls="callout-23" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -1382,7 +1489,7 @@ Solution
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-19" class="callout-19-contents callout-collapse collapse">
+<div id="callout-23" class="callout-23-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p><strong>Part 1.</strong> Compute the covariance: </p>
 <div class="display-math-block">
@@ -1473,7 +1580,7 @@ Exercise 16.3: Real-time information sets and the retriever
 </div>
 </div>
 <div class="callout callout-style-default callout-warning callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-21-contents" aria-controls="callout-21" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-25-contents" aria-controls="callout-25" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -1482,14 +1589,14 @@ Hint for Part 2
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-21" class="callout-21-contents callout-collapse collapse">
+<div id="callout-25" class="callout-25-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p>Think of the retriever as a function whose behavior depends on its parameters <span class="math inline">\(\psi\)</span>. The admissibility condition must apply to the function, not only to its outputs. If <span class="math inline">\(\psi\)</span> depends on post-<span class="math inline">\(t\)</span> information, two different forecast origins using the same <span class="math inline">\(\psi\)</span> are both running a retriever that was not available in real time.</p>
 </div>
 </div>
 </div>
 <div class="callout callout-style-default callout-tip callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-22-contents" aria-controls="callout-22" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-26-contents" aria-controls="callout-26" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -1498,7 +1605,7 @@ Solution
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-22" class="callout-22-contents callout-collapse collapse">
+<div id="callout-26" class="callout-26-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p><strong>Part 1.</strong></p>
 <ul>
@@ -1515,7 +1622,7 @@ Solution
 <p><em>(i)</em> Objects re-estimated at each forecast origin <span class="math inline">\(t\)</span>:</p>
 <ul>
 <li>the retriever parameters <span class="math inline">\(\psi_t\)</span>, trained on a corpus of documents published on or before <span class="math inline">\(t\)</span>;</li>
-<li>the predictive-regression parameters <span class="math inline">\(\hat\theta_t\)</span> in <a href="#eq-fm-workhorse" class="quarto-xref">Equation&nbsp;16.10</a>;</li>
+<li>the predictive-regression parameters <span class="math inline">\(\hat\beta_t\)</span> in <a href="#eq-fm-workhorse" class="quarto-xref">Equation&nbsp;16.10</a>;</li>
 <li>labeling thresholds if <span class="math inline">\(z_t\)</span> is a discretized score.</li>
 </ul>
 <p><em>(ii)</em> Objects held fixed across origins (once chosen):</p>
@@ -1535,6 +1642,227 @@ Solution
 </div>
 </div>
 </div>
+<hr>
+<div class="callout callout-style-default callout-note callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+Exercise 16.4: Persona mismatch and conditional bias in synthetic agents
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>There are two persona groups, <span class="math inline">\(A\)</span> and <span class="math inline">\(B\)</span>. Let </p>
+<div class="display-math-block">
+<p><span class="math display">\[
+F_A(A)=p, \qquad F_A(B)=1-p,
+\]</span></p>
+</div>
+<p> with <span class="math inline">\(p \in (0,1)\)</span>, denote the real survey population. Let </p>
+<div class="display-math-block">
+<p><span class="math display">\[
+H(A)=h, \qquad H(B)=1-h,
+\]</span></p>
+</div>
+<p> with <span class="math inline">\(h \in (0,1)\)</span>, denote the synthetic persona distribution. The real conditional means of a one-year-ahead inflation-expectations answer are </p>
+<div class="display-math-block">
+<p><span class="math display">\[
+\mu_F(A)=m_A, \qquad \mu_F(B)=m_B,
+\]</span></p>
+</div>
+<p> while the model-implied conditional means are </p>
+<div class="display-math-block">
+<p><span class="math display">\[
+\mu_q(A)=m_A+b_A, \qquad \mu_q(B)=m_B+b_B,
+\]</span></p>
+</div>
+<p> where <span class="math inline">\(b_A\)</span> and <span class="math inline">\(b_B\)</span> are group-specific conditional biases.</p>
+<p><strong>Part 1.</strong> Starting from <span class="math inline">\(\mathbb{E}_{H,q_\theta}[\tilde R]-\mathbb{E}_F[R]\)</span>, derive a two-group version of <a href="#eq-fm-biasdecomp" class="quarto-xref">Equation&nbsp;16.11</a>. Your final expression should separate the bias due to <span class="math inline">\(h \ne p\)</span> from the bias due to <span class="math inline">\((b_A,b_B) \ne (0,0)\)</span>.</p>
+<p><strong>Part 2.</strong> Show that reweighting the synthetic personas so that <span class="math inline">\(H=F_A\)</span> eliminates the persona-mismatch term but leaves the conditional-bias term </p>
+<div class="display-math-block">
+<p><span class="math display">\[
+p b_A + (1-p)b_B.
+\]</span></p>
+</div>
+<p> Then characterize all pairs <span class="math inline">\((b_A,b_B)\)</span> for which the aggregate synthetic mean is exactly correct even though at least one group-specific conditional mean is wrong.</p>
+<p><strong>Part 3.</strong> Now set </p>
+<div class="display-math-block">
+<p><span class="math display">\[
+p=0.7,\quad h=0.4,\quad m_A=3,\quad m_B=6,\quad b_A=1,\quad b_B=-1.
+\]</span></p>
+</div>
+<p> Compute the real population mean, the synthetic population mean, the total bias, and the two terms in the decomposition from Part 1. Verify that the decomposition adds up exactly.</p>
+<p><strong>Part 4.</strong> Suppose the econometrician has access only to the aggregate real survey mean and tunes the prompt until, with <span class="math inline">\(H=F_A\)</span>, the model-implied conditional means become </p>
+<div class="display-math-block">
+<p><span class="math display">\[
+\mu_q(A)=3.3, \qquad \mu_q(B)=5.3.
+\]</span></p>
+</div>
+<p> Using <span class="math inline">\(p=0.7\)</span>, <span class="math inline">\(m_A=3\)</span>, and <span class="math inline">\(m_B=6\)</span>, show that the aggregate synthetic mean exactly matches the real aggregate mean even though both group-specific conditional means are wrong. Explain the identification problem: what can and cannot be learned about <span class="math inline">\((b_A,b_B)\)</span> from a single aggregate moment?</p>
+<p><em>Exam-level. Parts 1 and 2 require a formal decomposition and characterization; Parts 3 and 4 apply the result to diagnose what aggregate validation of synthetic agents can and cannot establish.</em></p>
+</div>
+</div>
+<div class="callout callout-style-default callout-warning callout-titled">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-28-contents" aria-controls="callout-28" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+Hint for Part 1
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-28" class="callout-28-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
+<p>Write </p>
+<div class="display-math-block">
+<p><span class="math display">\[
+\mathbb{E}_{H,q_\theta}[\tilde R]
+=h(m_A+b_A)+(1-h)(m_B+b_B)
+\]</span></p>
+</div>
+<p> and </p>
+<div class="display-math-block">
+<p><span class="math display">\[
+\mathbb{E}_F[R]=p m_A+(1-p)m_B.
+\]</span></p>
+</div>
+<p> Add and subtract <span class="math inline">\(p(m_A+b_A)+(1-p)(m_B+b_B)\)</span>.</p>
+</div>
+</div>
+</div>
+<div class="callout callout-style-default callout-warning callout-titled">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-29-contents" aria-controls="callout-29" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+Hint for Part 2
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-29" class="callout-29-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
+<p>With <span class="math inline">\(H=F_A\)</span>, aggregate matching requires </p>
+<div class="display-math-block">
+<p><span class="math display">\[
+p b_A + (1-p)b_B=0.
+\]</span></p>
+</div>
+<p> Solve this equation for <span class="math inline">\(b_B\)</span> as a function of <span class="math inline">\(b_A\)</span>.</p>
+</div>
+</div>
+</div>
+<div class="callout callout-style-default callout-tip callout-titled">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-30-contents" aria-controls="callout-30" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+Solution
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-30" class="callout-30-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
+<p><strong>Part 1.</strong> The total bias is </p>
+<div class="display-math-block">
+<p><span class="math display">\[
+\begin{aligned}
+B
+&amp;:= \mathbb{E}_{H,q_\theta}[\tilde R]-\mathbb{E}_F[R] \\
+&amp;= h(m_A+b_A)+(1-h)(m_B+b_B)-\{p m_A+(1-p)m_B\}.
+\end{aligned}
+\]</span></p>
+</div>
+<p> Add and subtract <span class="math inline">\(p(m_A+b_A)+(1-p)(m_B+b_B)\)</span>: </p>
+<div class="display-math-block">
+<p><span class="math display">\[
+\begin{aligned}
+B
+&amp;= \{h(m_A+b_A)+(1-h)(m_B+b_B) \\
+&amp;\quad - p(m_A+b_A)-(1-p)(m_B+b_B)\} \\
+&amp;\quad + \{p(m_A+b_A)+(1-p)(m_B+b_B)-p m_A-(1-p)m_B\} \\
+&amp;= (h-p)(m_A+b_A)+\{(1-h)-(1-p)\}(m_B+b_B) \\
+&amp;\quad + p b_A+(1-p)b_B \\
+&amp;= (h-p)\{(m_A+b_A)-(m_B+b_B)\}
+   + p b_A+(1-p)b_B.
+\end{aligned}
+\]</span></p>
+</div>
+<p> The first term is the persona-mismatch bias: it is zero when <span class="math inline">\(h=p\)</span>. The second term is the conditional bias averaged over the real persona distribution.</p>
+<p><strong>Part 2.</strong> If <span class="math inline">\(H=F_A\)</span>, then <span class="math inline">\(h=p\)</span> and the first term in Part 1 vanishes. The remaining bias is </p>
+<div class="display-math-block">
+<p><span class="math display">\[
+p b_A+(1-p)b_B.
+\]</span></p>
+</div>
+<p> The aggregate mean is exactly correct if and only if </p>
+<div class="display-math-block">
+<p><span class="math display">\[
+p b_A+(1-p)b_B=0.
+\]</span></p>
+</div>
+<p> Solving for <span class="math inline">\(b_B\)</span> gives </p>
+<div class="display-math-block">
+<p><span class="math display">\[
+b_B=-\frac{p}{1-p}b_A.
+\]</span></p>
+</div>
+<p> Thus aggregate correctness does not imply <span class="math inline">\(b_A=b_B=0\)</span>. It only restricts the conditional-bias vector to a one-dimensional line. For any nonzero <span class="math inline">\(b_A\)</span>, choosing <span class="math inline">\(b_B=-p b_A/(1-p)\)</span> produces a correct aggregate mean with two incorrect group-specific means.</p>
+<p><strong>Part 3.</strong> The real population mean is </p>
+<div class="display-math-block">
+<p><span class="math display">\[
+\mathbb{E}_F[R]=0.7\cdot 3+0.3\cdot 6=3.9.
+\]</span></p>
+</div>
+<p> The model-implied conditional means are <span class="math inline">\(\mu_q(A)=4\)</span> and <span class="math inline">\(\mu_q(B)=5\)</span>. The synthetic population mean is </p>
+<div class="display-math-block">
+<p><span class="math display">\[
+\mathbb{E}_{H,q_\theta}[\tilde R]=0.4\cdot 4+0.6\cdot 5=4.6.
+\]</span></p>
+</div>
+<p> The total bias is <span class="math inline">\(4.6-3.9=0.7\)</span>. The persona-mismatch component is </p>
+<div class="display-math-block">
+<p><span class="math display">\[
+(h-p)\{(m_A+b_A)-(m_B+b_B)\}
+=(0.4-0.7)(4-5)=0.3.
+\]</span></p>
+</div>
+<p> The conditional-bias component is </p>
+<div class="display-math-block">
+<p><span class="math display">\[
+p b_A+(1-p)b_B=0.7(1)+0.3(-1)=0.4.
+\]</span></p>
+</div>
+<p> The two components sum to <span class="math inline">\(0.3+0.4=0.7\)</span>, which equals the total bias.</p>
+<p><strong>Part 4.</strong> The real aggregate mean remains </p>
+<div class="display-math-block">
+<p><span class="math display">\[
+\mathbb{E}_F[R]=0.7\cdot 3+0.3\cdot 6=3.9.
+\]</span></p>
+</div>
+<p> With <span class="math inline">\(H=F_A\)</span> and the tuned prompt, </p>
+<div class="display-math-block">
+<p><span class="math display">\[
+\mathbb{E}_{F_A,q_\theta}[\tilde R]
+=0.7\cdot 3.3+0.3\cdot 5.3
+=2.31+1.59
+=3.9.
+\]</span></p>
+</div>
+<p> The aggregate mean matches exactly. But the conditional biases are </p>
+<div class="display-math-block">
+<p><span class="math display">\[
+b_A=3.3-3=0.3, \qquad b_B=5.3-6=-0.7,
+\]</span></p>
+</div>
+<p> which are both nonzero and satisfy <span class="math inline">\(0.7(0.3)+0.3(-0.7)=0\)</span>.</p>
+<p>The identification problem is that one aggregate moment provides only one equation in the two unknown conditional biases <span class="math inline">\((b_A,b_B)\)</span>. It can establish the weighted restriction <span class="math inline">\(p b_A+(1-p)b_B=0\)</span>, but it cannot establish <span class="math inline">\(b_A=0\)</span> and <span class="math inline">\(b_B=0\)</span> separately. Therefore, validating synthetic agents by matching a single aggregate survey mean is insufficient: the procedure may still misrepresent subgroup means, heterogeneity, variances, and tail probabilities.</p>
+</div>
+</div>
+</div>
 
 
 
@@ -1548,11 +1876,20 @@ Ahrens, Maximilian, Deniz Erdemlioglu, Michael McMahon, Christopher J. Neely, an
 <div id="ref-BertschEtAl2025" class="csl-entry" role="listitem">
 Bertsch, Christoph, Isaiah Hull, Robin L. Lumsdaine, and Xin Zhang. 2025. <span>“Central Bank Mandates and Monetary Policy Stances: Through the Lens of Federal Reserve Speeches.”</span> <em>Journal of Econometrics</em> 249: 105948. <a href="https://doi.org/10.1016/j.jeconom.2025.105948">https://doi.org/10.1016/j.jeconom.2025.105948</a>.
 </div>
+<div id="ref-BrownEtAl2020" class="csl-entry" role="listitem">
+Brown, Tom B., Benjamin Mann, Nick Ryder, Melanie Subbiah, Jared Kaplan, Prafulla Dhariwal, Arvind Neelakantan, et al. 2020. <span>“Language Models Are Few-Shot Learners.”</span> In <em>Advances in Neural Information Processing Systems 33</em>, 1877–1901.
+</div>
+<div id="ref-DevlinChangLeeToutanova2019" class="csl-entry" role="listitem">
+Devlin, Jacob, Ming-Wei Chang, Kenton Lee, and Kristina Toutanova. 2019. <span>“<span>BERT</span>: Pre-Training of Deep Bidirectional Transformers for Language Understanding.”</span> In <em>Proceedings of the 2019 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies</em>, 4171–86. <a href="https://doi.org/10.18653/v1/N19-1423">https://doi.org/10.18653/v1/N19-1423</a>.
+</div>
 <div id="ref-HaghighiEtAl2025" class="csl-entry" role="listitem">
 Haghighi, Maryam, Andreas Joseph, George Kapetanios, Christopher Kurz, Michele Lenza, and Juri Marcucci. 2025. <span>“Machine Learning for Economic Policy.”</span> <em>Journal of Econometrics</em> 249: 105970. <a href="https://doi.org/10.1016/j.jeconom.2025.105970">https://doi.org/10.1016/j.jeconom.2025.105970</a>.
 </div>
 <div id="ref-Siano2025" class="csl-entry" role="listitem">
 Siano, Federico. 2025. <span>“The News in Earnings Announcement Disclosures: Capturing Word Context Using <span>LLM</span> Methods.”</span> <em>Management Science</em> 71 (11): 9831–55. <a href="https://doi.org/10.1287/mnsc.2024.05417">https://doi.org/10.1287/mnsc.2024.05417</a>.
+</div>
+<div id="ref-VaswaniEtAl2017" class="csl-entry" role="listitem">
+Vaswani, Ashish, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N. Gomez, Lukasz Kaiser, and Illia Polosukhin. 2017. <span>“Attention Is All You Need.”</span> In <em>Advances in Neural Information Processing Systems 30</em>, 5998–6008.
 </div>
 <div id="ref-Zarifhonarvar2026" class="csl-entry" role="listitem">
 Zarifhonarvar, Ali. 2026. <span>“Generating Inflation Expectations with Large Language Models.”</span> <em>Journal of Monetary Economics</em> 157: 103859. <a href="https://doi.org/10.1016/j.jmoneco.2025.103859">https://doi.org/10.1016/j.jmoneco.2025.103859</a>.

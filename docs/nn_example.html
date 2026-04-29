@@ -102,6 +102,35 @@ ul.task-list li input[type="checkbox"] {
 })();
 </script>
 
+  <script src="https://cdnjs.cloudflare.com/polyfill/v3/polyfill.min.js?features=es6"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml-full.js" type="text/javascript"></script>
+
+<script type="text/javascript">
+const typesetMath = (el) => {
+  if (window.MathJax) {
+    // MathJax Typeset
+    window.MathJax.typeset([el]);
+  } else if (window.katex) {
+    // KaTeX Render
+    var mathElements = el.getElementsByClassName("math");
+    var macros = [];
+    for (var i = 0; i < mathElements.length; i++) {
+      var texText = mathElements[i].firstChild;
+      if (mathElements[i].tagName == "SPAN") {
+        window.katex.render(texText.data, mathElements[i], {
+          displayMode: mathElements[i].classList.contains('display'),
+          throwOnError: false,
+          macros: macros,
+          fleqn: false
+        });
+      }
+    }
+  }
+}
+window.Quarto = {
+  typesetMath
+};
+</script>
 
 <link rel="stylesheet" href="styles.css">
 </head>
@@ -302,7 +331,17 @@ ul.task-list li input[type="checkbox"] {
     <h2 id="toc-title">On this page</h2>
    
   <ul>
-  <li><a href="#empirical-example-neural-networks-for-time-series-prediction" id="toc-empirical-example-neural-networks-for-time-series-prediction" class="nav-link active" data-scroll-target="#empirical-example-neural-networks-for-time-series-prediction"><span class="header-section-number">8</span> Empirical Example: Neural Networks for Time Series Prediction</a></li>
+  <li><a href="#empirical-example-neural-networks-for-time-series-prediction" id="toc-empirical-example-neural-networks-for-time-series-prediction" class="nav-link active" data-scroll-target="#empirical-example-neural-networks-for-time-series-prediction"><span class="header-section-number">8</span> Empirical Example: Neural Networks for Time Series Prediction</a>
+  <ul class="collapse">
+  <li><a href="#overview" id="toc-overview" class="nav-link" data-scroll-target="#overview"><span class="header-section-number">8.1</span> Overview</a></li>
+  <li><a href="#roadmap" id="toc-roadmap" class="nav-link" data-scroll-target="#roadmap"><span class="header-section-number">8.2</span> Roadmap</a></li>
+  <li><a href="#forecasting-design" id="toc-forecasting-design" class="nav-link" data-scroll-target="#forecasting-design"><span class="header-section-number">8.3</span> Forecasting Design</a></li>
+  <li><a href="#model-comparisons" id="toc-model-comparisons" class="nav-link" data-scroll-target="#model-comparisons"><span class="header-section-number">8.4</span> Model Comparisons</a></li>
+  <li><a href="#validation-protocol" id="toc-validation-protocol" class="nav-link" data-scroll-target="#validation-protocol"><span class="header-section-number">8.5</span> Validation Protocol</a></li>
+  <li><a href="#interpreting-the-outcome" id="toc-interpreting-the-outcome" class="nav-link" data-scroll-target="#interpreting-the-outcome"><span class="header-section-number">8.6</span> Interpreting the Outcome</a></li>
+  <li><a href="#summary" id="toc-summary" class="nav-link" data-scroll-target="#summary"><span class="header-section-number">8.7</span> Summary</a></li>
+  <li><a href="#exercises" id="toc-exercises" class="nav-link" data-scroll-target="#exercises"><span class="header-section-number">8.8</span> Exercises</a></li>
+  </ul></li>
   </ul>
 </nav>
     </div>
@@ -317,8 +356,76 @@ ul.task-list li input[type="checkbox"] {
 
 <section id="empirical-example-neural-networks-for-time-series-prediction" class="level1" data-number="8">
 <h1 data-number="8"><span class="header-section-number">8</span> Empirical Example: Neural Networks for Time Series Prediction</h1>
-<p><a href="https://github.com/onnokleen/teachingML/blob/main/neural_networks.ipynb">Jupyter notebook comparison of FNN, RNN, and LSTM for neural network prediction</a></p>
-<p>The overall outcome may be summarized as follows: If we don’t apply any pre-aggregation to the lagged input series, the FNN is beaten by RNN and LSTM. However, the differences are marginal.</p>
+<section id="overview" class="level2" data-number="8.1">
+<h2 data-number="8.1" class="anchored" data-anchor-id="overview"><span class="header-section-number">8.1</span> Overview</h2>
+<p>The previous three chapters introduced feed-forward networks, recurrent neural networks, and LSTMs separately. This chapter explains how to compare them in a time-series forecasting exercise without violating the econometric discipline developed earlier in the book.</p>
+<p>The accompanying notebook, <a href="https://github.com/onnokleen/teachingML/blob/main/neural_networks.ipynb">neural network prediction comparison</a>, implements one version of the experiment. This chapter is the self-contained guide to the design: what is being compared, what the validation target is, and how to interpret small differences among flexible models.</p>
+<p>The central lesson is that architecture comparisons are only meaningful after the information set, forecast origin, preprocessing steps, and tuning protocol have been fixed. Otherwise, differences between an FNN, RNN, and LSTM can reflect leakage or tuning luck rather than genuine forecasting value.</p>
+</section>
+<section id="roadmap" class="level2" data-number="8.2">
+<h2 data-number="8.2" class="anchored" data-anchor-id="roadmap"><span class="header-section-number">8.2</span> Roadmap</h2>
+<ol type="1">
+<li>We first define the forecasting target and the real-time information set.</li>
+<li>We then write the three neural-network competitors in comparable notation.</li>
+<li>Next we describe a validation protocol for dependent macroeconomic data.</li>
+<li>We explain how to interpret small empirical differences across architectures.</li>
+<li>We close with a summary, common pitfalls, and an exam-style exercise.</li>
+</ol>
+</section>
+<section id="forecasting-design" class="level2" data-number="8.3">
+<h2 data-number="8.3" class="anchored" data-anchor-id="forecasting-design"><span class="header-section-number">8.3</span> Forecasting Design</h2>
+<p>Suppose the target is one-step-ahead monthly growth in an economic variable, </p>
+<div class="display-math-block">
+<p><span class="math display">\[
+y_{t+1},
+\]</span></p>
+</div>
+<p> and the information set at the forecast origin is <span class="math inline">\(\mathcal{F}_t\)</span>. The researcher observes lagged target values and possibly additional predictors, </p>
+<div class="display-math-block">
+<p><span class="math display">\[
+\{y_t,y_{t-1},\ldots\},
+\qquad
+\{\mathbf{x}_t,\mathbf{x}_{t-1},\ldots\}.
+\]</span></p>
+</div>
+<p>A valid comparison must specify exactly what is available at time <span class="math inline">\(t\)</span>. If a predictor is released with a one-month delay, then <span class="math inline">\(\mathbf{x}_t\)</span> may not belong to <span class="math inline">\(\mathcal{F}_t\)</span> even though it has calendar label <span class="math inline">\(t\)</span>. The same rule applies to transformations: scaling constants, imputation rules, principal components, and selected lag lengths must be learned inside the training window.</p>
+<p>For a simple comparison, let the input history have length <span class="math inline">\(p\)</span>. A training example at origin <span class="math inline">\(t\)</span> is then </p>
+<div class="display-math-block">
+<p><span class="math display">\[
+Z_t=(y_t,\ldots,y_{t-p+1},\mathbf{x}_t,\ldots,\mathbf{x}_{t-p+1}),
+\qquad
+\text{target } y_{t+1}.
+\]</span></p>
+</div>
+<p>The same <span class="math inline">\(Z_t\)</span> should be used across the competing architectures unless the research question is explicitly about memory length. Otherwise, the comparison mixes two questions: whether recurrence helps, and whether one model saw more history than another.</p>
+</section>
+<section id="model-comparisons" class="level2" data-number="8.4">
+<h2 data-number="8.4" class="anchored" data-anchor-id="model-comparisons"><span class="header-section-number">8.4</span> Model Comparisons</h2>
+<p><strong>Feed-forward network.</strong> The FNN treats the lag window as an ordinary feature vector: </p>
+<div class="display-math-block">
+<p><span class="math display">\[
+\hat y_{t+1\mid t}^{\mathrm{FNN}}=f_\theta(Z_t).
+\]</span></p>
+</div>
+<p> It has no internal state. Any memory must be encoded directly through the chosen lagged inputs.</p>
+<p><strong>Plain RNN.</strong> The RNN processes the sequence recursively: </p>
+<div class="display-math-block">
+<p><span class="math display">\[
+\mathbf{h}_s=g_\theta(\mathbf{h}_{s-1},\mathbf{u}_s),
+\qquad
+\hat y_{t+1\mid t}^{\mathrm{RNN}}=q_\theta(\mathbf{h}_t),
+\]</span></p>
+</div>
+<p> where <span class="math inline">\(\mathbf{u}_s\)</span> collects the variables observed at time <span class="math inline">\(s\)</span>. The model can, in principle, summarize a long history, but the previous chapter showed why vanishing gradients can make long-run dependence hard to learn.</p>
+<p><strong>LSTM.</strong> The LSTM replaces the plain hidden-state recursion with gated hidden and cell states: </p>
+<div class="display-math-block">
+<p><span class="math display">\[
+(\mathbf{h}_s,\mathbf{C}_s)=G_\theta(\mathbf{h}_{s-1},\mathbf{C}_{s-1},\mathbf{u}_s),
+\qquad
+\hat y_{t+1\mid t}^{\mathrm{LSTM}}=q_\theta(\mathbf{h}_t).
+\]</span></p>
+</div>
+<p> The additional gates can help preserve useful information over longer horizons, but they also add parameters. In short macroeconomic samples, that extra flexibility can be costly.</p>
 <div class="callout callout-style-default callout-note callout-titled" title="Question for Reflection">
 <div class="callout-header d-flex align-content-center">
 <div class="callout-icon-container">
@@ -344,12 +451,177 @@ Suggested Answer
 </div>
 <div id="callout-2" class="callout-2-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
-<p>The plain RNN is most exposed to vanishing gradients on long sequences: the FNN has no recurrence at all, and the LSTM introduces the gated cell-state path of Chapter 7 precisely to mitigate the problem. For the comparison itself, the appropriate design is time-ordered (rolling or expanding window) cross-validation from Chapter 2, not random K-fold, because the forecast-origin information set must be respected and random splits would leak future observations into training.</p>
+<p>The plain RNN is most exposed to vanishing gradients on long sequences: the FNN has no recurrence at all, and the LSTM introduces the gated cell-state path of Chapter 7 precisely to mitigate the problem. For the comparison itself, the appropriate design is time-ordered validation, such as rolling or expanding windows, not random K-fold. The forecast-origin information set must be respected, and random splits would leak future observations into training.</p>
+</div>
+</div>
+</div>
+</section>
+<section id="validation-protocol" class="level2" data-number="8.5">
+<h2 data-number="8.5" class="anchored" data-anchor-id="validation-protocol"><span class="header-section-number">8.5</span> Validation Protocol</h2>
+<p>A credible comparison evaluates the whole forecasting procedure, not only one trained network. A simple expanding-window design is:</p>
+<ol type="1">
+<li>Choose forecast origins <span class="math inline">\(t_1&lt;t_2&lt;\cdots&lt;t_K\)</span>.</li>
+<li>At each origin <span class="math inline">\(t_k\)</span>, estimate preprocessing rules using only observations available up to <span class="math inline">\(t_k\)</span>.</li>
+<li>Tune hyperparameters inside the training window, using a time-ordered inner validation scheme.</li>
+<li>Refit the selected specification on the full training window.</li>
+<li>Record the forecast error for <span class="math inline">\(y_{t_k+1}\)</span>.</li>
+<li>Compare models using the resulting sequence of out-of-sample losses.</li>
+</ol>
+<p>This protocol treats architecture choice as part of the model-selection problem. If the FNN, RNN, and LSTM each receive their own tuning search, then the final comparison must account for that search. Reusing the same validation block repeatedly until one architecture looks best creates the same optimism problem discussed in <a href="./hpo.html">Advanced Hyperparameter Optimization</a>.</p>
+</section>
+<section id="interpreting-the-outcome" class="level2" data-number="8.6">
+<h2 data-number="8.6" class="anchored" data-anchor-id="interpreting-the-outcome"><span class="header-section-number">8.6</span> Interpreting the Outcome</h2>
+<p>The notebook comparison can be summarized cautiously: without pre-aggregating the lagged input series, the FNN is beaten by the RNN and LSTM in that experiment, but the differences are marginal.</p>
+<p>The cautious wording matters. A small test-loss gap does not automatically establish that recurrence is economically important. Three alternative explanations are common:</p>
+<ul>
+<li>the recurrent models may have benefited from a slightly more favorable tuning path</li>
+<li>the sample may be too short for stable ranking of flexible architectures</li>
+<li>the relevant dependence may already be captured well by a fixed lag window</li>
+</ul>
+<p>In applied macro-finance work, the right conclusion is often not “LSTMs dominate FNNs.” It is more precise to say: after enforcing the same forecast-origin discipline and tuning budget, recurrence gives limited incremental gain in this dataset. That is still useful evidence, especially when the recurrent architecture is more expensive and harder to interpret.</p>
+</section>
+<section id="summary" class="level2" data-number="8.7">
+<h2 data-number="8.7" class="anchored" data-anchor-id="summary"><span class="header-section-number">8.7</span> Summary</h2>
+<div class="callout callout-style-default callout-important callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+Key Takeaways
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<ol type="1">
+<li>Neural-network architecture comparisons are only meaningful after the information set, lag window, preprocessing rules, and validation design are fixed.</li>
+<li>An FNN uses lagged inputs as ordinary features, while RNNs and LSTMs process the history through recursively updated states.</li>
+<li>Plain RNNs are most exposed to vanishing gradients; LSTMs mitigate this problem but introduce more parameters.</li>
+<li>Time-ordered validation is essential for macroeconomic and financial forecasting comparisons.</li>
+<li>Small loss differences across flexible architectures should be interpreted cautiously, especially in short dependent samples.</li>
+</ol>
+</div>
+</div>
+<div class="callout callout-style-default callout-warning callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+Common Pitfalls
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<ul>
+<li>Comparing architectures after giving one model a longer or cleaner information set.</li>
+<li>Scaling or imputing the full sample before the train-validation split.</li>
+<li>Using random K-fold validation for time-series forecasts.</li>
+<li>Treating the best architecture after many tuning attempts as if it had been chosen in advance.</li>
+<li>Interpreting a marginal loss improvement as evidence of a structural economic mechanism.</li>
+</ul>
+</div>
+</div>
+</section>
+<section id="exercises" class="level2" data-number="8.8">
+<h2 data-number="8.8" class="anchored" data-anchor-id="exercises"><span class="header-section-number">8.8</span> Exercises</h2>
+<div class="callout callout-style-default callout-note callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+Exercise 8.1: Comparing FNN, RNN, and LSTM Forecasts
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>You observe a monthly target <span class="math inline">\(y_t\)</span> and a monthly predictor vector <span class="math inline">\(\mathbf{x}_t\)</span>. The goal is to forecast <span class="math inline">\(y_{t+1}\)</span> from information available at time <span class="math inline">\(t\)</span>. Consider three models: </p>
+<div class="display-math-block">
+<p><span class="math display">\[
+\hat y_{t+1\mid t}^{A}=f_\theta(y_t,\ldots,y_{t-11},\mathbf{x}_t,\ldots,\mathbf{x}_{t-11}),
+\]</span></p>
+</div>
+<p> </p>
+<div class="display-math-block">
+<p><span class="math display">\[
+\mathbf{h}_s=g_\theta(\mathbf{h}_{s-1},\mathbf{u}_s),
+\qquad
+\hat y_{t+1\mid t}^{B}=q_\theta(\mathbf{h}_t),
+\]</span></p>
+</div>
+<p> and </p>
+<div class="display-math-block">
+<p><span class="math display">\[
+(\mathbf{h}_s,\mathbf{C}_s)=G_\theta(\mathbf{h}_{s-1},\mathbf{C}_{s-1},\mathbf{u}_s),
+\qquad
+\hat y_{t+1\mid t}^{C}=q_\theta(\mathbf{h}_t).
+\]</span></p>
+</div>
+<ol type="1">
+<li>Identify which model is the FNN, which is the plain RNN, and which is the LSTM. Explain the role of the hidden state and cell state where relevant.</li>
+<li>Suppose each model is tuned over 20 hyperparameter configurations using the same validation block, and the best validation score is then reported as the final performance estimate. Explain why this estimate is optimistically biased.</li>
+<li>Describe a nested expanding-window design that honestly compares the three architectures.</li>
+<li>If the final out-of-sample MSEs are nearly identical, give two econometric reasons why the simpler FNN might be preferable.</li>
+</ol>
+<p><em>Exam level. The exercise combines architecture notation with validation bias and forecast-origin discipline.</em></p>
+</div>
+</div>
+<div class="callout callout-style-default callout-warning callout-titled">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-6-contents" aria-controls="callout-6" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+Hint for Part 2
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-6" class="callout-6-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
+<p>Use the same reasoning as specification search: the minimum of many noisy validation scores is not an unbiased estimate of the selected model’s future loss.</p>
+</div>
+</div>
+</div>
+<div class="callout callout-style-default callout-warning callout-titled">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-7-contents" aria-controls="callout-7" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+Hint for Part 3
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-7" class="callout-7-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
+<p>Separate the loop that chooses hyperparameters from the loop that estimates final out-of-sample performance.</p>
+</div>
+</div>
+</div>
+<div class="callout callout-style-default callout-tip callout-titled">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-8-contents" aria-controls="callout-8" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+Solution
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-8" class="callout-8-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
+<p><strong>Part 1: Architecture labels</strong></p>
+<p>Model A is the FNN because it maps a fixed lag vector directly into a forecast. Model B is the plain RNN because it has a recursively updated hidden state <span class="math inline">\(\mathbf{h}_s\)</span>. Model C is the LSTM because it has both a hidden state <span class="math inline">\(\mathbf{h}_s\)</span> and a cell state <span class="math inline">\(\mathbf{C}_s\)</span>, with the cell state acting as the gated memory path.</p>
+<p><strong>Part 2: Optimistic validation bias</strong></p>
+<p>For one fixed configuration, a validation score may be an approximately unbiased estimate of future loss under the validation design. After searching over 20 configurations, the selected score is the minimum of 20 noisy estimates. Even if all configurations had the same true risk, the minimum would tend to pick a configuration with favorable validation noise. Reporting that selected validation score therefore understates the loss expected on new forecast origins.</p>
+<p><strong>Part 3: Nested expanding-window design</strong></p>
+<p>Choose outer forecast origins. For each outer origin, keep the next observation or block untouched for final evaluation. Inside the outer training window, run an expanding-window inner validation procedure to choose hyperparameters separately for each architecture. Then refit each selected architecture on the full outer training window and evaluate once on the untouched outer block. Average the outer losses across forecast origins.</p>
+<p><strong>Part 4: Why the FNN may be preferable</strong></p>
+<p>If out-of-sample MSEs are nearly identical, the FNN may be preferable because it has fewer moving parts and is less exposed to recurrent training instability. It may also be easier to audit for forecast-origin admissibility: the lag window is explicit, while recurrent states can obscure which historical information is being summarized. In a short macro sample, the extra parameters of an RNN or LSTM may add variance without producing a meaningful forecast gain.</p>
 </div>
 </div>
 </div>
 
 
+</section>
 </section>
 
 </main> <!-- /main -->

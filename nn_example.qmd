@@ -5,9 +5,69 @@ number-offset: [7, 0]
 
 # Empirical Example: Neural Networks for Time Series Prediction
 
-[Jupyter notebook comparison of FNN, RNN, and LSTM for neural network prediction](https://github.com/onnokleen/teachingML/blob/main/neural_networks.ipynb)
+## Overview
 
-The overall outcome may be summarized as follows: If we don't apply any pre-aggregation to the lagged input series, the FNN is beaten by RNN and LSTM. However, the differences are marginal.
+The previous three chapters introduced feed-forward networks, recurrent neural networks, and LSTMs separately. This chapter explains how to compare them in a time-series forecasting exercise without violating the econometric discipline developed earlier in the book.
+
+The accompanying notebook, [neural network prediction comparison](https://github.com/onnokleen/teachingML/blob/main/neural_networks.ipynb), implements one version of the experiment. This chapter is the self-contained guide to the design: what is being compared, what the validation target is, and how to interpret small differences among flexible models.
+
+The central lesson is that architecture comparisons are only meaningful after the information set, forecast origin, preprocessing steps, and tuning protocol have been fixed. Otherwise, differences between an FNN, RNN, and LSTM can reflect leakage or tuning luck rather than genuine forecasting value.
+
+## Roadmap
+
+1. We first define the forecasting target and the real-time information set.
+2. We then write the three neural-network competitors in comparable notation.
+3. Next we describe a validation protocol for dependent macroeconomic data.
+4. We explain how to interpret small empirical differences across architectures.
+5. We close with a summary, common pitfalls, and an exam-style exercise.
+
+## Forecasting Design
+
+Suppose the target is one-step-ahead monthly growth in an economic variable,
+$$
+y_{t+1},
+$$
+and the information set at the forecast origin is $\mathcal{F}_t$. The researcher observes lagged target values and possibly additional predictors,
+$$
+\{y_t,y_{t-1},\ldots\},
+\qquad
+\{\mathbf{x}_t,\mathbf{x}_{t-1},\ldots\}.
+$$
+
+A valid comparison must specify exactly what is available at time $t$. If a predictor is released with a one-month delay, then $\mathbf{x}_t$ may not belong to $\mathcal{F}_t$ even though it has calendar label $t$. The same rule applies to transformations: scaling constants, imputation rules, principal components, and selected lag lengths must be learned inside the training window.
+
+For a simple comparison, let the input history have length $p$. A training example at origin $t$ is then
+$$
+Z_t=(y_t,\ldots,y_{t-p+1},\mathbf{x}_t,\ldots,\mathbf{x}_{t-p+1}),
+\qquad
+\text{target } y_{t+1}.
+$$
+
+The same $Z_t$ should be used across the competing architectures unless the research question is explicitly about memory length. Otherwise, the comparison mixes two questions: whether recurrence helps, and whether one model saw more history than another.
+
+## Model Comparisons
+
+**Feed-forward network.** The FNN treats the lag window as an ordinary feature vector:
+$$
+\hat y_{t+1\mid t}^{\mathrm{FNN}}=f_\theta(Z_t).
+$$
+It has no internal state. Any memory must be encoded directly through the chosen lagged inputs.
+
+**Plain RNN.** The RNN processes the sequence recursively:
+$$
+\mathbf{h}_s=g_\theta(\mathbf{h}_{s-1},\mathbf{u}_s),
+\qquad
+\hat y_{t+1\mid t}^{\mathrm{RNN}}=q_\theta(\mathbf{h}_t),
+$$
+where $\mathbf{u}_s$ collects the variables observed at time $s$. The model can, in principle, summarize a long history, but the previous chapter showed why vanishing gradients can make long-run dependence hard to learn.
+
+**LSTM.** The LSTM replaces the plain hidden-state recursion with gated hidden and cell states:
+$$
+(\mathbf{h}_s,\mathbf{C}_s)=G_\theta(\mathbf{h}_{s-1},\mathbf{C}_{s-1},\mathbf{u}_s),
+\qquad
+\hat y_{t+1\mid t}^{\mathrm{LSTM}}=q_\theta(\mathbf{h}_t).
+$$
+The additional gates can help preserve useful information over longer horizons, but they also add parameters. In short macroeconomic samples, that extra flexibility can be costly.
 
 :::{.callout-note title="Question for Reflection"}
 
@@ -16,5 +76,112 @@ Suppose an FNN with 12 lagged inputs, a plain RNN, and an LSTM are compared on a
 
 :::{.callout-tip collapse="true" title="Suggested Answer"}
 
-The plain RNN is most exposed to vanishing gradients on long sequences: the FNN has no recurrence at all, and the LSTM introduces the gated cell-state path of Chapter 7 precisely to mitigate the problem. For the comparison itself, the appropriate design is time-ordered (rolling or expanding window) cross-validation from Chapter 2, not random K-fold, because the forecast-origin information set must be respected and random splits would leak future observations into training.
+The plain RNN is most exposed to vanishing gradients on long sequences: the FNN has no recurrence at all, and the LSTM introduces the gated cell-state path of Chapter 7 precisely to mitigate the problem. For the comparison itself, the appropriate design is time-ordered validation, such as rolling or expanding windows, not random K-fold. The forecast-origin information set must be respected, and random splits would leak future observations into training.
+:::
+
+## Validation Protocol
+
+A credible comparison evaluates the whole forecasting procedure, not only one trained network. A simple expanding-window design is:
+
+1. Choose forecast origins $t_1<t_2<\cdots<t_K$.
+2. At each origin $t_k$, estimate preprocessing rules using only observations available up to $t_k$.
+3. Tune hyperparameters inside the training window, using a time-ordered inner validation scheme.
+4. Refit the selected specification on the full training window.
+5. Record the forecast error for $y_{t_k+1}$.
+6. Compare models using the resulting sequence of out-of-sample losses.
+
+This protocol treats architecture choice as part of the model-selection problem. If the FNN, RNN, and LSTM each receive their own tuning search, then the final comparison must account for that search. Reusing the same validation block repeatedly until one architecture looks best creates the same optimism problem discussed in [Advanced Hyperparameter Optimization](hpo.qmd).
+
+## Interpreting the Outcome
+
+The notebook comparison can be summarized cautiously: without pre-aggregating the lagged input series, the FNN is beaten by the RNN and LSTM in that experiment, but the differences are marginal.
+
+The cautious wording matters. A small test-loss gap does not automatically establish that recurrence is economically important. Three alternative explanations are common:
+
+- the recurrent models may have benefited from a slightly more favorable tuning path
+- the sample may be too short for stable ranking of flexible architectures
+- the relevant dependence may already be captured well by a fixed lag window
+
+In applied macro-finance work, the right conclusion is often not "LSTMs dominate FNNs." It is more precise to say: after enforcing the same forecast-origin discipline and tuning budget, recurrence gives limited incremental gain in this dataset. That is still useful evidence, especially when the recurrent architecture is more expensive and harder to interpret.
+
+## Summary
+
+:::{.callout-important}
+## Key Takeaways
+1. Neural-network architecture comparisons are only meaningful after the information set, lag window, preprocessing rules, and validation design are fixed.
+2. An FNN uses lagged inputs as ordinary features, while RNNs and LSTMs process the history through recursively updated states.
+3. Plain RNNs are most exposed to vanishing gradients; LSTMs mitigate this problem but introduce more parameters.
+4. Time-ordered validation is essential for macroeconomic and financial forecasting comparisons.
+5. Small loss differences across flexible architectures should be interpreted cautiously, especially in short dependent samples.
+:::
+
+:::{.callout-warning}
+## Common Pitfalls
+
+- Comparing architectures after giving one model a longer or cleaner information set.
+- Scaling or imputing the full sample before the train-validation split.
+- Using random K-fold validation for time-series forecasts.
+- Treating the best architecture after many tuning attempts as if it had been chosen in advance.
+- Interpreting a marginal loss improvement as evidence of a structural economic mechanism.
+:::
+
+## Exercises
+
+:::{.callout-note}
+## Exercise 8.1: Comparing FNN, RNN, and LSTM Forecasts
+
+You observe a monthly target $y_t$ and a monthly predictor vector $\mathbf{x}_t$. The goal is to forecast $y_{t+1}$ from information available at time $t$. Consider three models:
+$$
+\hat y_{t+1\mid t}^{A}=f_\theta(y_t,\ldots,y_{t-11},\mathbf{x}_t,\ldots,\mathbf{x}_{t-11}),
+$$
+$$
+\mathbf{h}_s=g_\theta(\mathbf{h}_{s-1},\mathbf{u}_s),
+\qquad
+\hat y_{t+1\mid t}^{B}=q_\theta(\mathbf{h}_t),
+$$
+and
+$$
+(\mathbf{h}_s,\mathbf{C}_s)=G_\theta(\mathbf{h}_{s-1},\mathbf{C}_{s-1},\mathbf{u}_s),
+\qquad
+\hat y_{t+1\mid t}^{C}=q_\theta(\mathbf{h}_t).
+$$
+
+1. Identify which model is the FNN, which is the plain RNN, and which is the LSTM. Explain the role of the hidden state and cell state where relevant.
+2. Suppose each model is tuned over 20 hyperparameter configurations using the same validation block, and the best validation score is then reported as the final performance estimate. Explain why this estimate is optimistically biased.
+3. Describe a nested expanding-window design that honestly compares the three architectures.
+4. If the final out-of-sample MSEs are nearly identical, give two econometric reasons why the simpler FNN might be preferable.
+
+*Exam level. The exercise combines architecture notation with validation bias and forecast-origin discipline.*
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint for Part 2
+
+Use the same reasoning as specification search: the minimum of many noisy validation scores is not an unbiased estimate of the selected model's future loss.
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint for Part 3
+
+Separate the loop that chooses hyperparameters from the loop that estimates final out-of-sample performance.
+:::
+
+:::{.callout-tip collapse="true"}
+## Solution
+
+**Part 1: Architecture labels**
+
+Model A is the FNN because it maps a fixed lag vector directly into a forecast. Model B is the plain RNN because it has a recursively updated hidden state $\mathbf{h}_s$. Model C is the LSTM because it has both a hidden state $\mathbf{h}_s$ and a cell state $\mathbf{C}_s$, with the cell state acting as the gated memory path.
+
+**Part 2: Optimistic validation bias**
+
+For one fixed configuration, a validation score may be an approximately unbiased estimate of future loss under the validation design. After searching over 20 configurations, the selected score is the minimum of 20 noisy estimates. Even if all configurations had the same true risk, the minimum would tend to pick a configuration with favorable validation noise. Reporting that selected validation score therefore understates the loss expected on new forecast origins.
+
+**Part 3: Nested expanding-window design**
+
+Choose outer forecast origins. For each outer origin, keep the next observation or block untouched for final evaluation. Inside the outer training window, run an expanding-window inner validation procedure to choose hyperparameters separately for each architecture. Then refit each selected architecture on the full outer training window and evaluate once on the untouched outer block. Average the outer losses across forecast origins.
+
+**Part 4: Why the FNN may be preferable**
+
+If out-of-sample MSEs are nearly identical, the FNN may be preferable because it has fewer moving parts and is less exposed to recurrent training instability. It may also be easier to audit for forecast-origin admissibility: the lag window is explicit, while recurrent states can obscure which historical information is being summarized. In a short macro sample, the extra parameters of an RNN or LSTM may add variance without producing a meaningful forecast gain.
 :::
