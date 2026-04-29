@@ -41,7 +41,7 @@ parse_args <- function(args) {
   defaults <- list(
     symbol = "SPY",
     start = "2015-01-01",
-    end = "2025-12-31",
+    end = "2024-12-31",
     out = "data/taq_spy",
     user = Sys.getenv("WRDS_USER", unset = ""),
     exchanges = "N,T,Q,A,P",
