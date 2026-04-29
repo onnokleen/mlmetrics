@@ -200,7 +200,7 @@ Core: `numpy`, `matplotlib`, `scipy`, `sklearn`. Additional as needed: `pandas`,
 
 - **Render**: `quarto render` (output to `docs/`)
 - **Deploy**: manual SFTP upload
-- **Bibliography**: `~/Dropbox (Personal)/library.bib`, style: `apalike`, rendered as hover citations/footnotes
+- **Bibliography**: `references-local.bib`, style: `apalike`, rendered as hover citations/footnotes
 
 ---
 
