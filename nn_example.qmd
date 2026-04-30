@@ -14,15 +14,15 @@ Neural-network architectures are often introduced as if the main empirical quest
 
 This chapter makes those choices explicit in a single empirical illustration. The object is one-step-ahead forecasting of SPDR S&P 500 ETF (`SPY`) realized volatility, using the daily realized-variance measures described in [the dataset appendix](datasets.qmd#sec-spy-taq-realized).
 
-The empirical comparison has two purposes. First, it shows why modeling $\log(RV)$ is often more stable than modeling realized variance in levels. Second, conditional on the same forecast-origin discipline, it compares four neural-network specifications: a parsimonious HAR-FNN, a full feed-forward network, a Simple RNN, and an LSTM.
+The empirical comparison has two purposes. First, it shows why modeling $\log(RV)$ is often more stable than modeling realized variance in levels. Second, conditional on the same forecast-origin discipline, it compares a linear HAR-OLS benchmark with four neural-network specifications: a parsimonious HAR-FNN, a full feed-forward network, a Simple RNN, and an LSTM.
 
 ## Roadmap {.unnumbered}
 
 1. We define the realized-volatility target and the one-step-ahead forecast origin.
 2. We specify the local-data workflow and the time-ordered train-validation-test split.
-3. We define the HAR-FNN, full FNN, Simple RNN, and LSTM inputs.
-4. We tune the networks using only the validation block.
-5. We interpret the empirical results as evidence about target transformations and architecture choice.
+3. We define the HAR-OLS, HAR-FNN, full FNN, Simple RNN, and LSTM inputs.
+4. We tune the neural networks using only the validation block.
+5. We interpret the empirical results as evidence about target transformations, benchmark choice, and architecture choice.
 
 ## Data and Forecast Target
 
@@ -44,7 +44,7 @@ f_\theta(z_t,z_{t-1},\ldots,z_{t-21}),
 $$
 where the input window contains the previous 22 trading days, roughly one trading month. The forecast target $z_{t+1}$ is not part of the input window.
 
-The full-history models all use this same forecast-origin history. The full FNN receives the 22 lags as a flattened feature vector. The Simple RNN and LSTM receive the same values as an ordered sequence. The HAR-FNN is different by design: it receives a traditional volatility summary consisting of yesterday's realized variance $RV_t$, the trailing 5-day average, and the trailing 21-day average. These are all known at the forecast origin $t$.
+The full-history models all use this same forecast-origin history. The full FNN receives the 22 lags as a flattened feature vector. The Simple RNN and LSTM receive the same values as an ordered sequence. The HAR specifications are different by design: they receive a traditional volatility summary consisting of yesterday's realized variance $RV_t$, the trailing 5-day average, and the trailing 21-day average. These are all known at the forecast origin $t$.
 
 The local replication code expects the daily SPY realized-measures file documented in [the dataset appendix](datasets.qmd#sec-spy-taq-realized).
 
@@ -92,32 +92,33 @@ plt.tight_layout()
 plt.show()
 ```
 
-## From Notebook to Empirical Workflow
+## Empirical Workflow
 
-The original notebook used Keras/TensorFlow, Optuna, min-max scaling, and three architectures: FNN, Simple RNN, and LSTM. The workflow below keeps the notebook's computational intent but makes the econometric design explicit. In particular, the code constructs forecast origins before splitting the sample, estimates scaling constants only on the training block, and keeps the test block untouched until the final comparison.
+The workflow below makes the econometric design explicit: it constructs forecast origins before splitting the sample, estimates scaling constants only on the training block, and keeps the test block untouched until the final comparison. Replication uses the local SPY realized-variance file documented in [the dataset appendix](datasets.qmd#sec-spy-taq-realized).
 
-The local replication requires two ingredients that are not evaluated in the public render: the local realized-variance file documented in [the dataset appendix](datasets.qmd#sec-spy-taq-realized) and a Python environment with TensorFlow/Keras and Optuna. The public chapter can still be rendered without those ingredients because the data-loading and model-fitting chunks are shown but not run.
-
-The first chunk loads the local realized-variance series and constructs $z_t=\log(RV_t)$. Rows with missing or nonpositive realized variance are excluded before forming forecast origins.
+The first chunk loads the realized-variance series and constructs $z_t=\log(RV_t)$. Rows with missing or nonpositive realized variance are excluded before forming forecast origins.
 
 ```{python}
-#| eval: false
+#| label: setup-load
 #| echo: true
 
 import os
 os.environ["KERAS_BACKEND"] = "tensorflow"
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 
 import random
-import time
 import numpy as np
 import pandas as pd
 import optuna
 import keras
 from keras import layers
 from sklearn.metrics import mean_absolute_error, root_mean_squared_error
+from sklearn.linear_model import LinearRegression
 
+optuna.logging.set_verbosity(optuna.logging.WARNING)
 random.seed(0)
 np.random.seed(0)
+keras.utils.set_random_seed(0)
 
 path = "data/taq_spy/SPY_daily_measures.csv"
 rv = (
@@ -128,6 +129,7 @@ rv = (
 )
 rv = rv.loc[rv["rv"] > 0].reset_index(drop=True)
 rv["z"] = np.log(rv["rv"])
+print(f"observations: {len(rv)}, range: {rv['date'].min().date()} to {rv['date'].max().date()}")
 ```
 
 The next helper constructs the supervised forecasting problem. For each valid origin $t$, the full-history models see $(z_t,\ldots,z_{t-21})$ and forecast $z_{t+1}$. The HAR helper uses the same origin $t$ but replaces the 22 individual lags by three realized-variance summaries:
@@ -141,7 +143,7 @@ $$
 The training block is the first 64% of valid forecast origins, the validation block is the next 16%, and the test block is the final 20%.
 
 ```{python}
-#| eval: false
+#| label: setup-windows
 #| echo: true
 
 window = 22
@@ -168,12 +170,38 @@ def make_har_features(rv_values, target_values, window):
         target_index.append(end + 1)
     return np.asarray(X), np.asarray(y), np.asarray(target_index)
 
+def make_log_har_ols_features(rv_values, window):
+    X, y, target_index = [], [], []
+    for end in range(window - 1, len(rv_values) - 1):
+        X.append(
+            np.log(
+                [
+                    rv_values[end],
+                    rv_values[end - 4 : end + 1].mean(),
+                    rv_values[end - 20 : end + 1].mean(),
+                ]
+            )
+        )
+        y.append(np.log(rv_values[end + 1]))
+        target_index.append(end + 1)
+    return np.asarray(X), np.asarray(y), np.asarray(target_index)
+
 X_raw, y_raw, target_index = make_windows(rv["z"].to_numpy(), window)
+X_har_ols_log_raw, y_har_ols_log_raw, _ = make_log_har_ols_features(
+    rv["rv"].to_numpy(),
+    window,
+)
 X_har_raw, y_har_raw, target_index_har = make_har_features(
     rv["rv"].to_numpy(),
     rv["z"].to_numpy(),
     window,
 )
+X_har_rv_raw, y_har_rv_raw, _ = make_har_features(
+    rv["rv"].to_numpy(),
+    rv["rv"].to_numpy(),
+    window,
+)
+X_lag_rv_raw, y_lag_rv_raw, _ = make_windows(rv["rv"].to_numpy(), window)
 dates = rv.loc[target_index, "date"].reset_index(drop=True)
 
 n = len(y_raw)
@@ -183,17 +211,45 @@ valid_end = int(0.80 * n)
 X_train_raw, y_train_raw = X_raw[:train_end], y_raw[:train_end]
 X_valid_raw, y_valid_raw = X_raw[train_end:valid_end], y_raw[train_end:valid_end]
 X_test_raw, y_test = X_raw[valid_end:], y_raw[valid_end:]
-test_dates = dates.iloc[valid_end:]
+test_dates = dates.iloc[valid_end:].reset_index(drop=True)
 
 X_har_train_raw = X_har_raw[:train_end]
 X_har_valid_raw = X_har_raw[train_end:valid_end]
 X_har_test_raw = X_har_raw[valid_end:]
+
+X_har_ols_log_train_valid_raw = X_har_ols_log_raw[:valid_end]
+X_har_ols_log_test_raw = X_har_ols_log_raw[valid_end:]
+y_har_ols_log_train_valid = y_har_ols_log_raw[:valid_end]
+
+X_har_rv_train_raw = X_har_rv_raw[:train_end]
+X_har_rv_valid_raw = X_har_rv_raw[train_end:valid_end]
+X_har_rv_test_raw = X_har_rv_raw[valid_end:]
+y_rv_train_raw = y_har_rv_raw[:train_end]
+y_rv_valid_raw = y_har_rv_raw[train_end:valid_end]
+y_rv_test = y_har_rv_raw[valid_end:]
+X_har_ols_rv_train_valid_raw = X_har_rv_raw[:valid_end]
+X_har_ols_rv_test_raw = X_har_rv_raw[valid_end:]
+y_har_ols_rv_train_valid = y_har_rv_raw[:valid_end]
+
+X_lag_rv_train_raw = X_lag_rv_raw[:train_end]
+X_lag_rv_valid_raw = X_lag_rv_raw[train_end:valid_end]
+X_lag_rv_test_raw = X_lag_rv_raw[valid_end:]
 
 center = y_train_raw.mean()
 scale = y_train_raw.std()
 x_har_center = X_har_train_raw.mean(axis=0)
 x_har_scale = X_har_train_raw.std(axis=0)
 x_har_scale = np.where(x_har_scale == 0, 1, x_har_scale)
+
+x_har_rv_center = X_har_rv_train_raw.mean(axis=0)
+x_har_rv_scale = X_har_rv_train_raw.std(axis=0)
+x_har_rv_scale = np.where(x_har_rv_scale == 0, 1, x_har_rv_scale)
+y_rv_center = y_rv_train_raw.mean()
+y_rv_scale = y_rv_train_raw.std()
+
+x_lag_rv_center = X_lag_rv_train_raw.mean(axis=0)
+x_lag_rv_scale = X_lag_rv_train_raw.std(axis=0)
+x_lag_rv_scale = np.where(x_lag_rv_scale == 0, 1, x_lag_rv_scale)
 
 def standardize(a):
     return (a - center) / scale
@@ -204,6 +260,15 @@ def unstandardize(a):
 def standardize_har(a):
     return (a - x_har_center) / x_har_scale
 
+def standardize_har_rv(a):
+    return (a - x_har_rv_center) / x_har_rv_scale
+
+def unstandardize_rv(a):
+    return a * y_rv_scale + y_rv_center
+
+def standardize_lag_rv(a):
+    return (a - x_lag_rv_center) / x_lag_rv_scale
+
 X_train = standardize(X_train_raw)
 X_valid = standardize(X_valid_raw)
 X_test = standardize(X_test_raw)
@@ -212,18 +277,32 @@ X_har_valid = standardize_har(X_har_valid_raw)
 X_har_test = standardize_har(X_har_test_raw)
 y_train = standardize(y_train_raw)
 y_valid = standardize(y_valid_raw)
+
+X_har_rv_train = standardize_har_rv(X_har_rv_train_raw)
+X_har_rv_valid = standardize_har_rv(X_har_rv_valid_raw)
+X_har_rv_test = standardize_har_rv(X_har_rv_test_raw)
+y_rv_train = (y_rv_train_raw - y_rv_center) / y_rv_scale
+y_rv_valid = (y_rv_valid_raw - y_rv_center) / y_rv_scale
+
+X_lag_rv_train = standardize_lag_rv(X_lag_rv_train_raw)
+X_lag_rv_valid = standardize_lag_rv(X_lag_rv_valid_raw)
+X_lag_rv_test = standardize_lag_rv(X_lag_rv_test_raw)
+
+print(f"forecast origins: {n}")
+print(f"train: {train_end}, validation: {valid_end - train_end}, test: {n - valid_end}")
 ```
 
-## Comparable Architectures
+## Comparable Specifications
 
-The four specifications differ in how they represent the same forecasting problem.
+The specifications differ in how they represent the same forecasting problem.
 
+- The **HAR-OLS** benchmark is linear. For the log target, it regresses $\log(RV_{t+1})$ on the logs of the daily, weekly, and monthly HAR components. For the level target, it regresses $RV_{t+1}$ on the corresponding level components.
 - The **HAR-FNN** is the most structured specification. It uses three economically interpretable realized-variance summaries: daily, weekly, and monthly volatility components.
 - The **full FNN** uses the full 22-day history but treats it as an unordered vector of features.
 - The **Simple RNN** also uses the full 22-day history, but processes the lags sequentially through a recurrent state.
 - The **LSTM** processes the same sequence with gated memory, allowing the network to regulate how much past information is retained.
 
-@fig-nn-architectures summarizes these choices. The point of the comparison is not that each model has the same number of parameters; it is that the information available at forecast origin $t$ is fixed and documented.
+@fig-nn-architectures summarizes the neural specifications. The point of the comparison is not that each model has the same number of parameters; it is that the information available at forecast origin $t$ is fixed and documented. HAR-OLS is included because a nonlinear HAR-FNN is not informative unless it is compared with the linear HAR model it generalizes.
 
 All four neural networks are deliberately shallow. The HAR-FNN and full FNN have one hidden dense layer with a tuned width and a linear output layer. The Simple RNN and LSTM have one recurrent layer with a tuned number of units and a linear output layer. A deeper pyramidal FNN, for example 22 inputs to 64 hidden units to 32 hidden units to one output, would be a reasonable robustness check. It is not the baseline here because it would add another capacity choice while the chapter's main comparison is about target transformation and information representation.
 
@@ -398,20 +477,22 @@ best_rnn = tune_model(make_simple_rnn, as_sequence(X_train), as_sequence(X_valid
 best_lstm = tune_model(make_lstm, as_sequence(X_train), as_sequence(X_valid))
 ```
 
-For the local snapshot used in the results, the chronological validation step selected the following hyperparameters. Validation losses are comparable within a target scale, but not across the `log(rv)` and `rv` panels because the training targets have different units and variances.
+For the current local run, the chronological validation step selected the following hyperparameters. Validation losses are comparable within a target scale, but not across the `log(rv)` and `rv` panels because the training targets have different units and variances.
+
+HAR-OLS does not appear in this table because it has no neural tuning parameters. It is fit by ordinary least squares on the combined train-validation block before the final test evaluation.
 
 | Target fit | Model | Tuned width | Learning rate | Batch size | Validation loss |
 |---|---|---:|---:|---:|---:|
-| `log(rv)` | HAR-FNN | 56 | 0.000259 | 24 | 0.9584 |
-| `log(rv)` | FNN | 96 | 0.000951 | 40 | 0.4930 |
-| `log(rv)` | Simple RNN | 40 | 0.000473 | 28 | 0.4843 |
-| `log(rv)` | LSTM | 84 | 0.000687 | 64 | 0.4899 |
-| `rv` | HAR-FNN | 60 | 0.000257 | 44 | 9.5042 |
-| `rv` | FNN | 52 | 0.000757 | 28 | 9.4079 |
-| `rv` | Simple RNN | 28 | 0.000588 | 28 | 8.3829 |
-| `rv` | LSTM | 88 | 0.000296 | 40 | 9.2618 |
+| `log(rv)` | HAR-FNN | 72 | 0.000930 | 32 | 0.3643 |
+| `log(rv)` | FNN | 60 | 0.000656 | 32 | 0.2745 |
+| `log(rv)` | Simple RNN | 40 | 0.000318 | 28 | 0.2725 |
+| `log(rv)` | LSTM | 60 | 0.000468 | 36 | 0.2740 |
+| `rv` | HAR-FNN | 36 | 0.000664 | 44 | 0.0973 |
+| `rv` | FNN | 36 | 0.000497 | 28 | 0.1009 |
+| `rv` | Simple RNN | 80 | 0.000365 | 44 | 0.0959 |
+| `rv` | LSTM | 72 | 0.000930 | 32 | 0.0959 |
 
-The log-target full-history models have similar validation losses, so the final test comparison should not be read as a decisive ranking of recurrent memory versus a flattened lag vector. The level-target validation losses are larger and less stable, which is consistent with the heavy-tailed scale of realized variance in levels.
+The log-target full-history models have similar validation losses, so the final test comparison should not be read as a decisive ranking of recurrent memory versus a flattened lag vector. The level-target validation losses also cluster tightly. This is a useful warning: validation loss alone does not settle the target-transformation question because each panel is fit and scaled on a different target.
 
 After tuning, each selected model is refit on the combined train-validation block and evaluated once on the test block. This gives the final table a simple interpretation: each row is the out-of-sample performance of one target choice and one architecture under the same chronological split.
 
@@ -422,6 +503,38 @@ After tuning, each selected model is refit on the combined train-validation bloc
 def qlike(rv_true, rv_pred):
     rv_pred = np.maximum(rv_pred, 1e-12)
     return np.mean(rv_true / rv_pred - np.log(rv_true / rv_pred) - 1)
+
+def summarize_forecast(name, target, z_hat, rv_hat):
+    rv_true = np.exp(y_test)
+    z_for_log_loss = np.log(np.maximum(rv_hat, 1e-12))
+    return {
+        "target": target,
+        "model": name,
+        "rmse_log_rv": root_mean_squared_error(y_test, z_for_log_loss),
+        "mae_log_rv": mean_absolute_error(y_test, z_for_log_loss),
+        "rmse_rv": root_mean_squared_error(rv_true, rv_hat),
+        "mae_rv": mean_absolute_error(rv_true, rv_hat),
+        "qlike": qlike(rv_true, rv_hat),
+        "nonpositive_rv_forecasts": int(np.sum(rv_hat <= 0)),
+        "forecast": z_hat,
+    }
+
+def fit_har_ols_log():
+    model = LinearRegression().fit(
+        X_har_ols_log_train_valid_raw,
+        y_har_ols_log_train_valid,
+    )
+    z_hat = model.predict(X_har_ols_log_test_raw)
+    return summarize_forecast("HAR-OLS", "log(rv)", z_hat, np.exp(z_hat))
+
+def fit_har_ols_level():
+    model = LinearRegression().fit(
+        X_har_ols_rv_train_valid_raw,
+        y_har_ols_rv_train_valid,
+    )
+    rv_hat = model.predict(X_har_ols_rv_test_raw)
+    z_hat = np.log(np.maximum(rv_hat, 1e-12))
+    return summarize_forecast("HAR-OLS", "rv", z_hat, rv_hat)
 
 def fit_and_score(name, model_factory, params, X_trva, y_trva, X_te):
     model = model_factory(params["n_neurons"], params["learning_rate"])
@@ -435,24 +548,19 @@ def fit_and_score(name, model_factory, params, X_trva, y_trva, X_te):
     )
     z_hat = unstandardize(model.predict(X_te).ravel())
     rv_hat = np.exp(z_hat)
-    rv_true = np.exp(y_test)
-    return {
-        "model": name,
-        "rmse_log_rv": root_mean_squared_error(y_test, z_hat),
-        "mae_log_rv": mean_absolute_error(y_test, z_hat),
-        "qlike": qlike(rv_true, rv_hat),
-        "forecast": z_hat,
-    }
+    return summarize_forecast(name, "log(rv)", z_hat, rv_hat)
 
 X_train_valid = np.vstack([X_train, X_valid])
 X_har_train_valid = np.vstack([X_har_train, X_har_valid])
 y_train_valid = np.concatenate([y_train, y_valid])
 
 results = [
+    fit_har_ols_log(),
     fit_and_score("HAR-FNN", make_har_fnn, best_har_fnn, X_har_train_valid, y_train_valid, X_har_test),
     fit_and_score("FNN", make_fnn, best_fnn, X_train_valid, y_train_valid, X_test),
     fit_and_score("Simple RNN", make_simple_rnn, best_rnn, as_sequence(X_train_valid), y_train_valid, as_sequence(X_test)),
     fit_and_score("LSTM", make_lstm, best_lstm, as_sequence(X_train_valid), y_train_valid, as_sequence(X_test)),
+    fit_har_ols_level(),
 ]
 
 performance = pd.DataFrame(results).drop(columns=["forecast"])
@@ -461,9 +569,9 @@ performance
 
 ## Results
 
-The empirical output below comes from a local SPY realized-variance snapshot ending on 2022-03-22. The data source and file layout are documented in [the dataset appendix](datasets.qmd#sec-spy-taq-realized). The log-target rows come from the workflow shown above. The level-target rows repeat the same split, input construction, tuning budget, and evaluation protocol, but fit the networks to $RV_{t+1}$ rather than $\log(RV_{t+1})$. The tuning run used 20 Optuna trials per architecture.
+The empirical output below comes from the current local SPY realized-variance file after filtering to positive realized-variance observations; the usable modeling sample ends on 2024-12-31. The data source and file layout are documented in [the dataset appendix](datasets.qmd#sec-spy-taq-realized). The log-target rows come from the workflow shown above. The level-target rows repeat the same split, input construction, tuning budget, and evaluation protocol, but fit the models to $RV_{t+1}$ rather than $\log(RV_{t+1})$. The tuning run used 20 Optuna trials for each neural architecture.
 
-The columns answer different questions. RMSE on $\log(RV)$ evaluates forecasts on the scale used by the log-target models and is the main comparison criterion here. RMSE on $RV$ evaluates the implied variance forecasts after exponentiating log-target forecasts. QLIKE is the volatility loss
+The columns answer different questions. RMSE on $\log(RV)$ evaluates forecasts on the scale used by the log-target models and is the main comparison criterion here. For level-target models, the log-scale metrics are computed after clipping nonpositive variance forecasts to a small positive number before taking logs. RMSE on $RV$ evaluates the implied variance forecasts after exponentiating log-target forecasts. QLIKE is the volatility loss
 $$
 \frac{1}{n_{\text{test}}}\sum_{t}
 \left(
@@ -476,33 +584,39 @@ which is defined only for positive variance forecasts. All three measures are lo
 
 | Target fit | Model | RMSE log RV | RMSE RV | QLIKE |
 |---|---|---:|---:|---:|
-| `log(rv)` | HAR-FNN | 0.7246 | 0.6081 | 0.3260 |
-| `log(rv)` | FNN | 0.6973 | 0.6073 | 0.2682 |
-| `log(rv)` | Simple RNN | 0.6973 | 0.5949 | 0.2649 |
-| `log(rv)` | LSTM | 0.6928 | 0.6009 | 0.2726 |
-| `rv` | HAR-FNN | 0.7577 | 0.6184 | 0.2657 |
-| `rv` | FNN | 7.1232 | 0.6541 | $1.64\times 10^{10}$ |
-| `rv` | Simple RNN | 2.5761 | 0.6646 | $4.53\times 10^{9}$ |
-| `rv` | LSTM | 1.1937 | 0.7161 | 0.4528 |
+| `log(rv)` | HAR-OLS | 0.5992 | 0.4121 | 0.2124 |
+| `log(rv)` | HAR-FNN | 0.6258 | 0.4717 | 0.2367 |
+| `log(rv)` | FNN | 0.6039 | 0.4108 | 0.2002 |
+| `log(rv)` | Simple RNN | 0.6001 | 0.4118 | 0.2093 |
+| `log(rv)` | LSTM | 0.5989 | 0.4120 | 0.2099 |
+| `rv` | HAR-OLS | 0.6755 | 0.4197 | 0.1985 |
+| `rv` | HAR-FNN | 0.7055 | 0.4372 | 0.2048 |
+| `rv` | FNN | 0.6942 | 0.4506 | 0.2335 |
+| `rv` | Simple RNN | 0.6362 | 0.4198 | 0.1916 |
+| `rv` | LSTM | 0.7078 | 0.4364 | 0.2068 |
 
-The next table records whether a level-target model produced nonpositive variance forecasts. This is not a minor numerical detail: a negative variance forecast has no volatility interpretation, and QLIKE must be computed only after clipping such forecasts away from zero.
+The next table records whether a level-target model produced nonpositive variance forecasts. In this run none did. The diagnostic is still worth reporting because a negative variance forecast has no volatility interpretation, and QLIKE must be computed only after clipping such forecasts away from zero.
 
 | Target fit | Model | Nonpositive RV forecasts |
 |---|---|---:|
+| `log(rv)` | HAR-OLS | 0 |
 | `log(rv)` | HAR-FNN | 0 |
 | `log(rv)` | FNN | 0 |
 | `log(rv)` | Simple RNN | 0 |
 | `log(rv)` | LSTM | 0 |
+| `rv` | HAR-OLS | 0 |
 | `rv` | HAR-FNN | 0 |
-| `rv` | FNN | 27 |
-| `rv` | Simple RNN | 3 |
+| `rv` | FNN | 0 |
+| `rv` | Simple RNN | 0 |
 | `rv` | LSTM | 0 |
 
-![Derived empirical output from the local SPY realized-variance run. The left panel shows test-period realized log realized variance and log-target model forecasts, including the three-input HAR-FNN. The right panel compares models fit on `log(rv)` with models fit on `rv`, using test RMSE on log realized variance as a common scale; the vertical axis is logarithmic.](figures/nn-example-performance.png){#fig-nn-performance}
+![Derived empirical output from the local SPY realized-variance run. The left panel shows test-period realized log realized variance and log-target forecasts, including HAR-OLS and the three-input HAR-FNN. The right panel compares models fit on `log(rv)` with models fit on `rv`, using test RMSE on log realized variance as a common scale; the vertical axis is logarithmic.](figures/nn-example-performance.png){#fig-nn-performance}
 
-@fig-nn-performance makes the transformation choice visible. On the common log-realized-variance scale, the log-target full-history networks perform best. The unrestricted level-target FNN and Simple RNN perform poorly on this scale and also produce nonpositive variance forecasts, which are impossible under the volatility interpretation.
+@fig-nn-performance makes the transformation choice visible. On the common log-realized-variance scale, the LSTM is the best row, but HAR-OLS is essentially tied with the full FNN and Simple RNN. That is the main benchmark lesson: the neural networks are not automatically better just because they are more flexible. The level-target rows are well-behaved in this updated run, but they generally lose accuracy on the log-realized-variance scale.
 
-The HAR-FNN is a useful check on the cost of flexibility. It uses far fewer inputs than the full 22-lag FNN and remains well-behaved when fit in levels: no nonpositive variance forecasts and the lowest QLIKE in the table. On log-RV RMSE, however, the log-target full FNN, Simple RNN, and LSTM remain ahead. Among the log-target full-history networks, the LSTM has the lowest log-RV RMSE, the Simple RNN has the lowest QLIKE, and the differences are small.
+The two HAR rows help separate information design from neural nonlinearity. In the log-target panel, linear HAR-OLS is stronger than the HAR-FNN and nearly matches the full-history networks. In the level-target panel, HAR-OLS is stronger than the HAR-FNN on all three reported losses. For this sample, the nonlinear HAR-FNN does not improve on the linear HAR benchmark.
+
+QLIKE and log-RV RMSE also need not pick the same winner. QLIKE is a variance-scale loss and penalizes underprediction asymmetrically through the ratio $RV_t/\widehat{RV}_t$. That is why the Simple RNN fit in levels can have the lowest QLIKE while the LSTM fit on $\log(RV)$ has the lowest log-RV RMSE.
 
 The more important lesson is methodological: with dependent financial data, the architecture comparison is only credible after the forecast target, lag construction, scaling, validation block, and tuning protocol have been fixed.
 
@@ -511,22 +625,23 @@ The more important lesson is methodological: with dependent financial data, the 
 :::{.callout-important}
 ## Key Takeaways
 1. Empirical architecture comparisons must hold the forecast target, information set, preprocessing, validation design, and tuning budget fixed.
-2. In this volatility example, modeling $\log(RV_{t+1})$ is more stable than modeling $RV_{t+1}$ in levels.
-3. The HAR-FNN uses three realized-variance averages: yesterday, the trailing 5-day average, and the trailing 21-day average.
-4. The neural networks are intentionally shallow: one hidden or recurrent layer plus a linear output layer.
-5. Time-ordered validation is required because random splits would leak future volatility regimes into tuning.
-6. Small architecture differences should be interpreted as predictive evidence for this design, not as structural evidence that one architecture captures an economic mechanism.
+2. HAR-OLS is a strong baseline: neural networks must beat it before their added flexibility is empirically useful.
+3. In this volatility example, modeling $\log(RV_{t+1})$ gives the best log-scale accuracy, while level-target models can still be competitive under variance-scale losses.
+4. The HAR specifications use three realized-variance averages: yesterday, the trailing 5-day average, and the trailing 21-day average.
+5. The neural networks are intentionally shallow: one hidden or recurrent layer plus a linear output layer.
+6. Time-ordered validation is required because random splits would leak future volatility regimes into tuning.
+7. Small architecture differences should be interpreted as predictive evidence for this design, not as structural evidence that one architecture captures an economic mechanism.
 :::
 
 :::{.callout-warning}
 ## Common Pitfalls
 
 - Scaling the full volatility series before the train-validation-test split.
+- Skipping the linear HAR-OLS baseline and attributing gains to neural nonlinearity.
 - Giving the RNN or LSTM a longer history than the FNN and then attributing the gain to recurrence.
 - Accidentally computing HAR averages with the forecast target day included.
 - Treating a deeper pyramidal FNN as directly comparable without acknowledging the extra capacity choice.
 - Using Keras's `validation_split` mechanically when it does not match the desired chronological validation block.
 - Shuffling observations during training or validation for a time-series forecast.
-- Modeling realized variance in levels and forgetting that neural-network forecasts can become nonpositive.
-- Forgetting that the local data source is documented separately in [the dataset appendix](datasets.qmd#sec-spy-taq-realized).
+- Modeling realized variance in levels and forgetting to check whether neural-network forecasts become nonpositive.
 :::
