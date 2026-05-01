@@ -135,7 +135,7 @@ $$
 
 The gradient flow in LSTMs differs fundamentally from vanilla RNNs in three crucial ways:
 
-1. **Additive Structure**: The cell state update is additive ($C_t = f_t \odot C_{t-1} + \text{new information}$) rather than the multiplicative structure in RNNs ($h_t = \tanh(W_h h_{t-1} + \ldots)$).
+1. **Additive Highway**: The cell state update has an explicit additive path ($C_t = f_t \odot C_{t-1} + i_t \odot \tilde{C}_t$) that bypasses the tanh nonlinearity. In a vanilla RNN, all information is compressed through a single tanh ($h_t = \tanh(W_h h_{t-1} + W_x x_t + b)$), so gradients must pass through the activation's derivative at every step. The LSTM's cell state can carry a gradient signal backward with no activation derivative in the path when $f_t \approx 1$.
 
 2. **Controlled Forgetting**: The forget gate $f_t \in [0,1]$ (due to sigmoid activation) controls how much of the previous cell state to retain. When $f_t \approx 1$, gradients flow almost unimpeded.
 
@@ -145,7 +145,7 @@ The gradient flow in LSTMs differs fundamentally from vanilla RNNs in three cruc
 
 $$
 \begin{aligned}
-\text{Vanilla RNN:} \quad &\frac{\partial h_T}{\partial h_t} = \prod_{k=t+1}^T \frac{\partial h_k}{\partial h_{k-1}} = \prod_{k=t+1}^T W_h \cdot \text{diag}(\tanh'(\cdot)) \\
+\text{Vanilla RNN:} \quad &\frac{\partial h_T}{\partial h_t} = \prod_{k=t+1}^T \frac{\partial h_k}{\partial h_{k-1}} = \prod_{k=t+1}^T \text{diag}\!\bigl(\tanh'(W_h h_{k-1} + W_x x_k + b)\bigr)\, W_h \\
 \text{LSTM:} \quad &\frac{\partial C_T}{\partial C_t} = \prod_{k=t+1}^T f_k
 \end{aligned}
 $$
@@ -172,6 +172,8 @@ $$
 This means gradients can flow backward through many time steps without significant attenuation, enabling the learning of long-term dependencies.
 
 **Key Insight**: Unlike vanilla RNNs where gradient flow is strongly shaped by repeated multiplication with recurrent weight matrices, LSTMs learn *when* to allow gradients to flow through the forget gates. This learned control mechanism is what makes LSTMs useful for sequences with complex temporal dependence.
+
+**Scope of the result.** The expression $\partial C_T/\partial C_t = \prod_k f_k$ describes only the cell-state path. Parameter gradients also flow through the hidden state $h_t = o_t \odot \tanh(C_t)$ and through the gate-producing networks themselves, where they involve products of sigmoid and tanh derivatives that can attenuate just as in a vanilla RNN. The cell state acts as a gradient highway for *one component* of the backward pass; it does not eliminate all multiplicative factors and therefore does not formally resolve the vanishing-gradient problem. In practice it is enough to make long-range learning feasible, which is what matters for forecasting work.
 
 ## LSTM vs. Standard RNN
 
@@ -358,7 +360,7 @@ Consider an LSTM cell with a single unit (no peephole connections) processing on
 
 **Note:** Use sigmoid $\sigma(z) = \frac{1}{1+e^{-z}}$ for gates and $\tanh$ for candidate values and final hidden state computation.
 
-*Exam level. However, the exercise would not be in an exam as it is written here one to one. The skills necessary to solve this exercise can also be tested based on a much simpler network architecture.* 
+*Exam level.*
 :::
 
 :::{.callout-warning collapse="true"}
