@@ -14,9 +14,9 @@ Neural-network architectures are often introduced as if the main empirical quest
 
 This chapter makes those choices explicit in a single empirical illustration. The object is one-step-ahead forecasting of SPDR S&P 500 ETF (`SPY`) realized volatility, using the daily realized-variance measures described in [the dataset appendix](datasets.qmd#sec-spy-taq-realized).
 
-The empirical comparison has two purposes. First, it shows why modeling $\log(RV)$ is often more stable than modeling realized variance in levels. Second, conditional on the same forecast-origin discipline, it compares a linear HAR-OLS benchmark with four neural-network specifications: a parsimonious HAR-FNN, a full feed-forward network, a Simple RNN, and an LSTM.
+The empirical comparison has two purposes. First, it shows why modeling $\log(RV)$ is often more stable than modeling realized variance in levels. Second, it compares a linear HAR-OLS benchmark with four neural-network specifications — a parsimonious HAR-FNN, a full feed-forward network, a Simple RNN, and an LSTM — all evaluated under the same forecast-origin discipline. A central finding is that HAR-OLS is not easily beaten: the nonlinear HAR-FNN underperforms its linear counterpart on every loss, and the full-history neural networks match HAR-OLS without substantially improving on it.
 
-## Roadmap {.unnumbered}
+## Roadmap
 
 1. We define the realized-volatility target and the one-step-ahead forecast origin.
 2. We specify the local-data workflow and the time-ordered train-validation-test split.
@@ -138,7 +138,7 @@ RV_t,\quad
 \frac{1}{21}\sum_{j=0}^{20} RV_{t-j}
 \right).
 $$
-The training block is the first 64% of valid forecast origins, the validation block is the next 16%, and the test block is the final 20%.
+The training block is the first 64% of valid forecast origins, the validation block is the next 16%, and the test block is the final 20%. The validation block is sized to give enough forecast origins for stable hyperparameter selection via Optuna while keeping the test block large enough for a reliable out-of-sample comparison.
 
 ```{python}
 #| label: setup-windows
@@ -567,7 +567,7 @@ performance
 
 ## Results
 
-The empirical output below comes from the current local SPY realized-variance file after filtering to positive realized-variance observations; the usable modeling sample ends on 2024-12-31. The data source and file layout are documented in [the dataset appendix](datasets.qmd#sec-spy-taq-realized). The log-target rows come from the workflow shown above. The level-target rows repeat the same split, input construction, tuning budget, and evaluation protocol, but fit the models to $RV_{t+1}$ rather than $\log(RV_{t+1})$. The tuning run used 20 Optuna trials for each neural architecture.
+The model-fitting and tuning code above is shown for exposition but is not executed on render; the results below come from a local run with WRDS TAQ access. The empirical output uses the SPY realized-variance file described in [the dataset appendix](datasets.qmd#sec-spy-taq-realized), filtered to positive realized-variance observations; the usable modeling sample ends on 2024-12-31. The log-target rows come from the workflow shown above. The level-target rows repeat the same split, input construction, tuning budget, and evaluation protocol, but fit the models to $RV_{t+1}$ rather than $\log(RV_{t+1})$. The tuning run used 20 Optuna trials for each neural architecture. @fig-nn-performance is likewise a pre-generated figure from the same local run.
 
 The columns answer different questions. RMSE on $\log(RV)$ evaluates forecasts on the scale used by the log-target models and is the main comparison criterion here. For level-target models, the log-scale metrics are computed after clipping nonpositive variance forecasts to a small positive number before taking logs. RMSE on $RV$ evaluates the implied variance forecasts after exponentiating log-target forecasts. QLIKE is the volatility loss
 $$
@@ -610,11 +610,11 @@ The next table records whether a level-target model produced nonpositive varianc
 
 ![Derived empirical output from the local SPY realized-variance run. The left panel shows test-period realized log realized variance and log-target forecasts, including HAR-OLS and the three-input HAR-FNN. The right panel compares models fit on `log(rv)` with models fit on `rv`, using test RMSE on log realized variance as a common scale; the vertical axis is logarithmic.](figures/nn-example-performance.png){#fig-nn-performance}
 
-@fig-nn-performance makes the transformation choice visible. On the common log-realized-variance scale, the LSTM is the best row, but HAR-OLS is essentially tied with the full FNN and Simple RNN. That is the main benchmark lesson: the neural networks are not automatically better just because they are more flexible. The level-target rows are well-behaved in this updated run, but they generally lose accuracy on the log-realized-variance scale.
+@fig-nn-performance makes the transformation choice visible. On the common log-realized-variance scale, the LSTM is the best-performing model, but its RMSE advantage over HAR-OLS is 0.0003 log-RV units — a difference that is economically negligible. HAR-OLS essentially matches the full FNN and Simple RNN as well. That is the main benchmark lesson: the neural networks are not automatically better just because they are more flexible. The level-target rows are well-behaved in this updated run, but they generally lose accuracy on the log-realized-variance scale.
 
 The two HAR rows help separate information design from neural nonlinearity. In the log-target panel, linear HAR-OLS is stronger than the HAR-FNN and nearly matches the full-history networks. In the level-target panel, HAR-OLS is stronger than the HAR-FNN on all three reported losses. For this sample, the nonlinear HAR-FNN does not improve on the linear HAR benchmark.
 
-QLIKE and log-RV RMSE also need not pick the same winner. QLIKE is a variance-scale loss and penalizes underprediction asymmetrically through the ratio $RV_t/\widehat{RV}_t$. That is why the Simple RNN fit in levels can have the lowest QLIKE while the LSTM fit on $\log(RV)$ has the lowest log-RV RMSE.
+QLIKE and log-RV RMSE also need not pick the same winner. QLIKE is scale-equivariant: it measures whether $\widehat{RV}_t$ tracks $RV_t$ accurately in ratio terms, and it penalizes underprediction more heavily than overprediction through the ratio $RV_t/\widehat{RV}_t$. A model that calibrates the relative size of volatility spikes well can win on QLIKE while losing on log-RV RMSE — which is why the Simple RNN fit in levels has the lowest QLIKE while the LSTM fit on $\log(RV)$ has the lowest log-RV RMSE.
 
 The more important lesson is methodological: with dependent financial data, the architecture comparison is only credible after the forecast target, lag construction, scaling, validation block, and tuning protocol have been fixed.
 
@@ -625,7 +625,7 @@ The more important lesson is methodological: with dependent financial data, the 
 1. Empirical architecture comparisons must hold the forecast target, information set, preprocessing, validation design, and tuning budget fixed.
 2. HAR-OLS is a strong baseline: neural networks must beat it before their added flexibility is empirically useful.
 3. In this volatility example, modeling $\log(RV_{t+1})$ gives the best log-scale accuracy, while level-target models can still be competitive under variance-scale losses.
-4. The HAR specifications use three realized-variance averages: yesterday, the trailing 5-day average, and the trailing 21-day average.
+4. Adding a nonlinear hidden layer to HAR inputs (HAR-FNN) does not improve on linear HAR-OLS in this sample; the binding constraint is the choice of input features, not linearity.
 5. The neural networks are intentionally shallow: one hidden or recurrent layer plus a linear output layer.
 6. Time-ordered validation is required because random splits would leak future volatility regimes into tuning.
 7. Small architecture differences should be interpreted as predictive evidence for this design, not as structural evidence that one architecture captures an economic mechanism.
