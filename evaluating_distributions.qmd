@@ -518,6 +518,197 @@ The last expression can be used to define a multivariate CRPS analogue called "E
 - Quantile scores for specific percentiles of interest [@GneitingRaftery2007]
 :::
 
+## Empirical Application: GDP Growth Density Forecasts {#sec-eval-dist-empirical}
+
+The tools introduced in this chapter — LogS, CRPS, and PIT histograms — are most informative when applied to competing density forecasts on the same data. We use the same FRED-QD macro panel that appears in the tree chapters. The target is annualized one-step-ahead real GDP growth, and the predictors are five lagged macro and financial variables: lagged GDP growth, inflation, term spread, log VIX, and the unemployment rate.[^eval-dist-vintage]
+
+[^eval-dist-vintage]: This is a pedagogical final-vintage FRED-QD example. A full real-time evaluation would need to account for data revisions and publication lags.
+
+Readers who have not yet worked through the [random forests chapter](random_forests.qmd#sec-random-forests) only need the following idea for this application: a regression forest is a non-parametric ensemble method which combines multiple predictions into one. We use the following notion in this section: 
+- A **mean forest** redicts the conditional mean of the target variable given the predictors. 
+- A **variance forest** predicts the conditional variance of the target variable given the predictors.
+
+We compare three density forecasts, all Gaussian. The **AR(1) baseline** sets the point forecast to a least-squares AR(1) in lagged GDP growth and the variance to the expanding in-sample residual variance — a quantity that stays roughly constant once enough data are available. The **heteroskedastic random forest (in-sample)** uses two forests: a mean forest that predicts the conditional mean from all five predictors, and a variance forest that regresses the squared *in-sample* residuals of the first forest on the same predictors. This two-model construction is analogous to specifying a mean equation and a variance equation separately as, for example, done in GARCH models. The **heteroskedastic random forest (OOB)** uses the same architecture but feeds the variance forest squared *out-of-bag* residuals from the mean forest instead.[^hrf-note] We deliberately include both heteroskedastic variants because the two differ only in one design choice — how the residuals fed to the variance forest are produced — and that single choice will turn out to determine whether the model beats or loses to the AR(1) baseline.
+
+[^hrf-note]: All forests are re-estimated at each forecast origin using only data available at that point, so there is no look-ahead. The in-sample variant trains the variance forest on $\hat\varepsilon_t^2 = (y_t - \hat\mu_t)^2$, where $\hat\mu_t$ comes from the mean forest fit on the same training window. Because random forests fit the training data closely, these in-sample residuals understate the true conditional variance and the variance forest predicts overconfident scales. The OOB variant replaces $\hat\mu_t$ with the out-of-bag prediction from the mean forest — for each training observation, the average prediction across only those trees that did not see it during bootstrap. OOB residuals are unbiased estimates of out-of-sample errors, so the variance forest learns a realistic conditional scale. The `np.clip(..., 1e-6, None)` guard keeps the predicted variance positive, since RF predictions of the squared residual are not constrained to be nonnegative.
+
+All three models are evaluated on the last 25% of the sample — the same test window used in the tree chapters.
+
+```{python}
+#| label: fig-eval-dist-scores
+#| fig-cap: "Per-quarter LogS (top) and CRPS (bottom) for the AR(1) baseline, the in-sample heteroskedastic random forest, and the OOB heteroskedastic random forest, evaluated on the last 25% of the FRED-QD sample. The gray shading marks the COVID-19 contraction quarter (2020Q2). LogS spikes dramatically in that quarter for all three models while CRPS shows a much more moderate deterioration, illustrating the difference in tail sensitivity between the two scoring rules. The in-sample RF spike in LogS is by far the largest, because its variance forest had been predicting a small conditional variance just before the contraction. The OOB variant — same architecture but trained on out-of-bag residuals — keeps a realistic predictive variance and tracks the AR(1) closely, with a smaller LogS spike than the in-sample variant."
+#| echo: true
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from scipy.stats import norm
+from sklearn.linear_model import LinearRegression
+from sklearn.ensemble import RandomForestRegressor
+import properscoring as ps
+
+raw = pd.read_csv("data/fred_qd_current.csv")
+fred_qd = raw.iloc[2:].copy()
+fred_qd["sasdate"] = pd.to_datetime(fred_qd["sasdate"])
+for col in fred_qd.columns:
+    if col != "sasdate":
+        fred_qd[col] = pd.to_numeric(fred_qd[col], errors="coerce")
+fred_qd = fred_qd.sort_values("sasdate").reset_index(drop=True)
+
+gdp_growth  = 400 * np.log(fred_qd["GDPC1"]).diff()
+inflation   = 400 * np.log(fred_qd["CPIAUCSL"]).diff()
+term_spread = fred_qd["GS10"] - fred_qd["TB3MS"]
+log_vix     = np.log(fred_qd["VIXCLSx"])
+
+macro = pd.DataFrame({
+    "date":        fred_qd["sasdate"],
+    "y":           gdp_growth.shift(-1),
+    "gdp_lag1":    gdp_growth,
+    "infl_lag1":   inflation,
+    "spread_lag1": term_spread,
+    "vix_lag1":    log_vix,
+    "unrate_lag1": fred_qd["UNRATE"],
+}).dropna().reset_index(drop=True)
+
+feature_cols = ["gdp_lag1", "infl_lag1", "spread_lag1", "vix_lag1", "unrate_lag1"]
+split = int(len(macro) * 0.75)
+
+logs_ar, logs_rf, logs_oob = [], [], []
+crps_ar, crps_rf, crps_oob = [], [], []
+pit_ar,  pit_rf,  pit_oob  = [], [], []
+all_dates = []
+
+for t in range(split, len(macro)):
+    X_tr = macro.iloc[:t][feature_cols].values
+    y_tr = macro.iloc[:t]["y"].values
+    X_t  = macro.iloc[t][feature_cols].values.reshape(1, -1)
+    y_t  = float(macro.iloc[t]["y"])
+
+    # AR(1): univariate (only gdp_lag1), expanding in-sample mean and constant variance
+    ar_X = macro.iloc[:t][["gdp_lag1"]].values
+    ar_model = LinearRegression().fit(ar_X, y_tr)
+    mu_ar  = ar_model.predict([[macro.iloc[t]["gdp_lag1"]]])[0]
+    sig_ar = float(np.std(y_tr - ar_model.predict(ar_X), ddof=1))
+
+    # Heteroskedastic RF (in-sample residuals): mean forest + variance forest
+    rf_mean = RandomForestRegressor(n_estimators=200, max_features="sqrt", random_state=42)
+    rf_mean.fit(X_tr, y_tr)
+    mu_rf       = rf_mean.predict(X_t)[0]
+    sq_resid_in = (y_tr - rf_mean.predict(X_tr)) ** 2
+    rf_var_in   = RandomForestRegressor(n_estimators=200, max_features="sqrt", random_state=42)
+    rf_var_in.fit(X_tr, sq_resid_in)
+    sig_rf  = float(np.sqrt(np.clip(rf_var_in.predict(X_t)[0], 1e-6, None)))
+
+    # Heteroskedastic RF (OOB residuals): same architecture, but variance forest
+    # is trained on squared OOB residuals from the mean forest
+    rf_mean_oob = RandomForestRegressor(n_estimators=400, max_features="sqrt",
+                                        bootstrap=True, oob_score=True, random_state=42)
+    rf_mean_oob.fit(X_tr, y_tr)
+    mu_oob       = rf_mean_oob.predict(X_t)[0]
+    sq_resid_oob = (y_tr - rf_mean_oob.oob_prediction_) ** 2
+    rf_var_oob   = RandomForestRegressor(n_estimators=400, max_features="sqrt", random_state=42)
+    rf_var_oob.fit(X_tr, sq_resid_oob)
+    sig_oob = float(np.sqrt(np.clip(rf_var_oob.predict(X_t)[0], 1e-6, None)))
+
+    logs_ar.append(-norm.logpdf(y_t, mu_ar, sig_ar))
+    logs_rf.append(-norm.logpdf(y_t, mu_rf, sig_rf))
+    logs_oob.append(-norm.logpdf(y_t, mu_oob, sig_oob))
+    crps_ar.append(ps.crps_gaussian(y_t, mu=mu_ar, sig=sig_ar))
+    crps_rf.append(ps.crps_gaussian(y_t, mu=mu_rf, sig=sig_rf))
+    crps_oob.append(ps.crps_gaussian(y_t, mu=mu_oob, sig=sig_oob))
+    pit_ar.append(float(norm.cdf(y_t, mu_ar, sig_ar)))
+    pit_rf.append(float(norm.cdf(y_t, mu_rf, sig_rf)))
+    pit_oob.append(float(norm.cdf(y_t, mu_oob, sig_oob)))
+    all_dates.append(macro.iloc[t]["date"])
+
+test_dates = pd.to_datetime(all_dates)
+covid_start = pd.Timestamp("2020-04-01")
+covid_end   = pd.Timestamp("2020-06-30")
+
+fig, axes = plt.subplots(2, 1, figsize=(11, 6), sharex=True)
+for ax, vals_ar, vals_rf, vals_oob, ylabel in zip(
+    axes,
+    [logs_ar, crps_ar],
+    [logs_rf, crps_rf],
+    [logs_oob, crps_oob],
+    ["LogS (lower = better)", "CRPS (lower = better)"],
+):
+    ax.axvspan(covid_start, covid_end, color="0.85", label="2020Q2")
+    ax.plot(test_dates, vals_ar,  color="C1", linewidth=1.2, label="AR(1) baseline")
+    ax.plot(test_dates, vals_rf,  color="C3", linewidth=1.2, label="RF (in-sample)")
+    ax.plot(test_dates, vals_oob, color="C0", linewidth=1.2, label="RF (OOB)")
+    ax.set_ylabel(ylabel)
+    ax.legend(frameon=False)
+    ax.grid(True, alpha=0.25)
+
+axes[1].set_xlabel("Quarter")
+plt.tight_layout()
+plt.show()
+```
+
+The top panel of @fig-eval-dist-scores shows LogS over time. All three models register a sharp spike in 2020Q2, the quarter in which GDP fell by roughly 30 percent annualized. Because LogS evaluates the density at the realized outcome, a single quarter that falls far into the left tail — where any Gaussian forecast assigns near-zero probability — can inflate the average LogS dramatically. The spike is by far the largest for the in-sample RF: its variance forest had been predicting a small conditional variance going into 2020, so the resulting density at $-32.8\%$ is essentially zero. The OOB RF's variance forecast is on a more realistic scale, so its 2020Q2 spike is smaller; the AR(1) sits in between. The bottom panel plots CRPS over the same period. All three models deteriorate in 2020Q2, but more moderately than under LogS: CRPS integrates the CDF discrepancy over all values rather than evaluating density at one point, so it is less sensitive to a single catastrophic miss.
+
+```{python}
+#| label: fig-eval-dist-summary
+#| fig-cap: "Average LogS and CRPS for the three models (top-left), and PIT histograms for each model over the full test period (remaining panels). A well-calibrated model produces a flat PIT histogram close to the uniform density shown by the dashed red line. The AR(1) PIT is mildly hump-shaped — its constant in-sample residual variance is on average a bit too wide for the calmer post-2009 period. The in-sample RF PIT is sharply U-shaped, with very large mass at both edges: its variance forest predicts a much smaller conditional scale most of the time, so realizations land in the tails of the predictive density far more often than uniformity would imply. The OOB RF PIT is the flattest of the three, indicating the best calibration."
+#| echo: true
+
+fig, axes = plt.subplots(2, 2, figsize=(11, 8))
+ax_bar, ax_ar, ax_rf, ax_oob = axes.flatten()
+
+# Average scores bar chart
+labels = ["AR(1)", "RF\n(in-sample)", "RF\n(OOB)"]
+x = np.arange(len(labels))
+width = 0.35
+score_colors = ["C1", "C3", "C0"]
+ax_bar.bar(x - width/2,
+           [np.mean(logs_ar), np.mean(logs_rf), np.mean(logs_oob)],
+           width, label="LogS", color=score_colors, alpha=0.85)
+ax_bar.bar(x + width/2,
+           [np.mean(crps_ar), np.mean(crps_rf), np.mean(crps_oob)],
+           width, label="CRPS", color=score_colors, alpha=0.45, hatch="//")
+ax_bar.set_xticks(x)
+ax_bar.set_xticklabels(labels)
+ax_bar.set_ylabel("Average score (lower = better)")
+ax_bar.set_title("Average Scores")
+ax_bar.legend(frameon=False)
+ax_bar.grid(True, axis="y", alpha=0.3)
+
+# PIT histograms
+bins = np.linspace(0, 1, 16)
+for ax, pit_vals, title, color in zip(
+    [ax_ar, ax_rf, ax_oob],
+    [pit_ar, pit_rf, pit_oob],
+    ["PIT: AR(1) baseline", "PIT: RF (in-sample)", "PIT: RF (OOB)"],
+    ["C1", "C3", "C0"],
+):
+    ax.hist(pit_vals, bins=bins, density=True, color=color, edgecolor="white", alpha=0.8)
+    ax.axhline(1.0, color="red", linestyle="--", linewidth=1, label="Uniform")
+    ax.set_xlabel("PIT value")
+    ax.set_ylabel("Density")
+    ax.set_title(title)
+    ax.set_ylim(0, 5.2)
+    ax.legend(frameon=False)
+    ax.grid(True, alpha=0.25)
+
+plt.tight_layout()
+plt.show()
+```
+
+The top-left panel of @fig-eval-dist-summary reports average scores. The ranking is striking. The **in-sample heteroskedastic RF loses badly** to the AR(1) baseline on both LogS and CRPS — the gap is especially large for LogS, where the small predicted variance produces near-zero density at the COVID realization. The **OOB heteroskedastic RF wins** on both LogS and CRPS over the same test window. The two RFs differ only in whether the variance forest is trained on in-sample or out-of-bag residuals, yet that single design choice flips the ranking against the baseline.
+
+The PIT histograms in the remaining panels diagnose **why**. The AR(1) PIT is mildly hump-shaped: with its constant in-sample residual variance, it is, if anything, slightly *overdispersed* in the relatively calm post-2009 period. The in-sample RF PIT is sharply U-shaped, with very large mass near $0$ and $1$ — the classic signature of an underdispersed predictive distribution. This is the variance-forest construction biting back: training the variance equation on in-sample mean-forest residuals systematically underestimates the conditional variance, so the resulting Gaussian densities are too narrow and realizations land in the tails far more often than a calibrated forecast would imply. The OOB RF PIT is the flattest of the three, with no edge spikes and a mostly even spread across the unit interval. Replacing in-sample residuals with out-of-bag residuals removes the overfit and gives the variance forest a realistic target to learn.
+
+This is the central pedagogical point of the application. A flexible ML model that adds a learned variance equation does not automatically beat a simple AR(1) — *if* you train the variance equation on residuals that the mean equation has already overfit, you will lose to a model with no variance equation at all. The PIT histogram diagnoses this failure mode directly. But once that single design issue is fixed, the same architecture that lost on both scores now wins on both. The lesson is not that ML is too dangerous to use for density forecasting; it is that the diagnostics in this chapter — proper scoring rules together with calibration plots — are precisely what lets you tell a working ML pipeline apart from one that is broken in a way you would otherwise miss.
+
+:::{.callout-note title="Question for Reflection"}
+Both models use a Gaussian predictive distribution. How would you expect the PIT histogram to change if GDP growth were right-skewed in the test period? Which panel in @fig-pit-histograms corresponds to that pattern, and what model modification would address it?
+:::
+
+:::{.callout-tip collapse="true" title="Suggested Answer"}
+Right-skewed realized outcomes relative to a symmetric Gaussian forecast would produce an upward-sloping PIT histogram: more realizations fall in the right tail than the Gaussian allocates probability to, pushing PIT values toward 1. This corresponds to the miscalibrated-skewness panel in @fig-pit-histograms. The natural modification is to replace the Gaussian with a skewed distribution such as a skew-normal or a log-normal, or to fit a distributional neural network that learns the conditional skewness from the predictors directly.
+:::
+
 ## Summary
 
 :::{.callout-important}
@@ -536,6 +727,7 @@ The last expression can be used to define a multivariate CRPS analogue called "E
 - Using LogS without recognizing how strongly it punishes tail misspecification and near-zero assigned density.
 - Interpreting CRPS as “just another loss function” rather than a proper scoring rule for full predictive distributions.
 - Forgetting that calibration diagnostics must be applied out of sample, not on the estimation sample.
+- Building a two-stage density forecast by training a variance model on squared *in-sample* residuals from a flexible mean model. Overfitting in the mean model deflates the residuals, so the variance model learns an overconfident scale and the resulting Gaussian density becomes sharply underdispersed. Out-of-bag or held-out residuals avoid this leak.
 :::
 
 ## Exercises
