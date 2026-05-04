@@ -525,12 +525,12 @@ The tools introduced in this chapter — LogS, CRPS, and PIT histograms — are 
 [^eval-dist-vintage]: This is a pedagogical final-vintage FRED-QD example. A full real-time evaluation would need to account for data revisions and publication lags.
 
 Readers who have not yet worked through the [random forests chapter](random_forests.qmd#sec-random-forests) only need the following idea for this application: a regression forest is a non-parametric ensemble method which combines multiple predictions into one. We use the following notion in this section: 
-- A **mean forest** redicts the conditional mean of the target variable given the predictors. 
+- A **mean forest** predicts the conditional mean of the target variable given the predictors.
 - A **variance forest** predicts the conditional variance of the target variable given the predictors.
 
 We compare three density forecasts, all Gaussian. The **AR(1) baseline** sets the point forecast to a least-squares AR(1) in lagged GDP growth and the variance to the expanding in-sample residual variance — a quantity that stays roughly constant once enough data are available. The **heteroskedastic random forest (in-sample)** uses two forests: a mean forest that predicts the conditional mean from all five predictors, and a variance forest that regresses the squared *in-sample* residuals of the first forest on the same predictors. This two-model construction is analogous to specifying a mean equation and a variance equation separately as, for example, done in GARCH models. The **heteroskedastic random forest (OOB)** uses the same architecture but feeds the variance forest squared *out-of-bag* residuals from the mean forest instead.[^hrf-note] We deliberately include both heteroskedastic variants because the two differ only in one design choice — how the residuals fed to the variance forest are produced — and that single choice will turn out to determine whether the model beats or loses to the AR(1) baseline.
 
-[^hrf-note]: All forests are re-estimated at each forecast origin using only data available at that point, so there is no look-ahead. The in-sample variant trains the variance forest on $\hat\varepsilon_t^2 = (y_t - \hat\mu_t)^2$, where $\hat\mu_t$ comes from the mean forest fit on the same training window. Because random forests fit the training data closely, these in-sample residuals understate the true conditional variance and the variance forest predicts overconfident scales. The OOB variant replaces $\hat\mu_t$ with the out-of-bag prediction from the mean forest — for each training observation, the average prediction across only those trees that did not see it during bootstrap. OOB residuals are unbiased estimates of out-of-sample errors, so the variance forest learns a realistic conditional scale. The `np.clip(..., 1e-6, None)` guard keeps the predicted variance positive, since RF predictions of the squared residual are not constrained to be nonnegative.
+[^hrf-note]: All forests are re-estimated at each forecast origin using only data available at that point, so there is no look-ahead. The in-sample variant trains the variance forest on $\hat\varepsilon_t^2 = (y_t - \hat\mu_t)^2$, where $\hat\mu_t$ comes from the mean forest fit on the same training window. Because random forests fit the training data closely, these in-sample residuals understate the true conditional variance and the variance forest predicts overconfident scales. The OOB variant replaces $\hat\mu_t$ with the out-of-bag prediction from the mean forest — for each training observation, the average prediction across only those trees that did not see it during bootstrap. OOB residuals are not affected by same-sample overfitting and therefore give the variance forest a more realistic conditional-scale target than in-sample residuals (in dependent macro data they are not honest real-time forecast errors, but they are still substantially less overfit). The `np.clip(..., 1e-6, None)` guard keeps the predicted variance strictly positive, which prevents `LogS` from blowing up at near-zero leaf averages.
 
 All three models are evaluated on the last 25% of the sample — the same test window used in the tree chapters.
 
@@ -561,7 +561,7 @@ term_spread = fred_qd["GS10"] - fred_qd["TB3MS"]
 log_vix     = np.log(fred_qd["VIXCLSx"])
 
 macro = pd.DataFrame({
-    "date":        fred_qd["sasdate"],
+    "date":        fred_qd["sasdate"].shift(-1),  # target quarter (date of y)
     "y":           gdp_growth.shift(-1),
     "gdp_lag1":    gdp_growth,
     "infl_lag1":   inflation,
@@ -591,11 +591,11 @@ for t in range(split, len(macro)):
     sig_ar = float(np.std(y_tr - ar_model.predict(ar_X), ddof=1))
 
     # Heteroskedastic RF (in-sample residuals): mean forest + variance forest
-    rf_mean = RandomForestRegressor(n_estimators=200, max_features="sqrt", random_state=42)
+    rf_mean = RandomForestRegressor(n_estimators=400, max_features="sqrt", random_state=42)
     rf_mean.fit(X_tr, y_tr)
     mu_rf       = rf_mean.predict(X_t)[0]
     sq_resid_in = (y_tr - rf_mean.predict(X_tr)) ** 2
-    rf_var_in   = RandomForestRegressor(n_estimators=200, max_features="sqrt", random_state=42)
+    rf_var_in   = RandomForestRegressor(n_estimators=400, max_features="sqrt", random_state=42)
     rf_var_in.fit(X_tr, sq_resid_in)
     sig_rf  = float(np.sqrt(np.clip(rf_var_in.predict(X_t)[0], 1e-6, None)))
 
@@ -706,7 +706,7 @@ Both models use a Gaussian predictive distribution. How would you expect the PIT
 :::
 
 :::{.callout-tip collapse="true" title="Suggested Answer"}
-Right-skewed realized outcomes relative to a symmetric Gaussian forecast would produce an upward-sloping PIT histogram: more realizations fall in the right tail than the Gaussian allocates probability to, pushing PIT values toward 1. This corresponds to the miscalibrated-skewness panel in @fig-pit-histograms. The natural modification is to replace the Gaussian with a skewed distribution such as a skew-normal or a log-normal, or to fit a distributional neural network that learns the conditional skewness from the predictors directly.
+Right-skewed realized outcomes relative to a symmetric Gaussian forecast would produce an upward-sloping PIT histogram: more realizations fall in the right tail than the Gaussian allocates probability to, pushing PIT values toward 1. This corresponds to the miscalibrated-skewness panel in @fig-pit-histograms. The natural modification is to replace the Gaussian with a distribution that supports negative outcomes and allows for skewness, such as a skew-normal or skew-$t$, or to fit a distributional neural network that learns the conditional skewness from the predictors directly.
 :::
 
 ## Summary
@@ -1054,7 +1054,7 @@ $$
 
 :::{.callout-warning collapse="true"}
 ## Hint for Part 2
-Substitute $\sigma=1$ into the CDF or density from Parts 1-2.
+Substitute $\sigma=1$ into the CDF or density from Part 1.
 :::
 
 :::{.callout-warning collapse="true"}
