@@ -165,6 +165,240 @@ MDNs can be challenging to train due to issues like component collapse, where on
 An MDN is a flexible way to approximate a conditional density with latent regimes. It should not automatically be interpreted as a structural regime-switching model: the mixture components are learned predictive components unless additional economic restrictions are imposed.
 :::
 
+## Empirical Application: Distributional Network for SPY Realized Variance {#sec-distnn-empirical}
+
+The [SPY realized-volatility illustration](nn_example.qmd) produced point forecasts of $\log RV_{t+1}$ and evaluated them with squared and absolute losses. To turn that exercise into a density forecast and evaluate it with the proper scoring rules of [Chapter 3](evaluating_distributions.qmd), we need a conditional variance as well. We compare two Gaussian density forecasts on the same SPY data, the same log-HAR features, and the same chronological split.[^distnn-data]
+
+[^distnn-data]: The data file `data/taq_spy/SPY_daily_measures.csv` is documented in [the dataset appendix](datasets.qmd#sec-spy-taq-realized). The pipeline below uses 22 trading days as the maximum lag through the monthly HAR average and forecasts $\log RV_{t+1}$.
+
+The **HAR-OLS Gaussian baseline** sets the conditional mean to the linear HAR-OLS fit in log space — that is, a regression of $\log RV_{t+1}$ on $\log RV_t$, $\log\big(\tfrac{1}{5}\sum_{j=0}^{4} RV_{t-j}\big)$, and $\log\big(\tfrac{1}{21}\sum_{j=0}^{20} RV_{t-j}\big)$. The conditional variance is the in-sample residual variance from the same fit and stays constant over the test block. This baseline is homoskedastic in log-RV space.
+
+The **Gaussian distributional HAR-FNN** uses the same three log-HAR inputs but routes them through a single hidden layer with 32 softplus units, followed by two output heads: a linear mean head $\mu_\phi(\mathbf{x}_t)$ and a linear log-variance head $\eta_\phi(\mathbf{x}_t)$, with predictive variance $\sigma_\phi^2(\mathbf{x}_t)=\max\{\exp(\eta_\phi(\mathbf{x}_t)),c\}$ for a small floor $c$. The two heads share the hidden representation, in the spirit of the HNN common core in @sec-hnn but without the volatility-emphasis constraint or blocked subsampling. The model is trained by minimizing the Gaussian negative log likelihood, which by the discussion in @sec-distnn-training-scores is the neural-network analogue of minimizing the average log score on the training block. Both forecasts are then evaluated on the held-out test block using LogS, CRPS, and PIT, exactly as in @sec-eval-dist-empirical.
+
+```{python}
+#| label: distnn-setup
+#| echo: true
+#| cache: true
+
+import os
+os.environ["KERAS_BACKEND"] = "tensorflow"
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+
+import random
+import numpy as np
+import pandas as pd
+import keras
+from keras import layers, ops
+from sklearn.linear_model import LinearRegression
+from scipy.stats import norm
+import properscoring as ps
+import matplotlib.pyplot as plt
+
+random.seed(0)
+np.random.seed(0)
+keras.utils.set_random_seed(0)
+
+rv = (
+    pd.read_csv("data/taq_spy/SPY_daily_measures.csv", parse_dates=["date"])
+    .sort_values("date")
+    .loc[:, ["date", "rv"]]
+    .dropna()
+)
+rv = rv.loc[rv["rv"] > 0].reset_index(drop=True)
+
+window = 22
+
+def make_log_har(rv_arr):
+    X, y, idx = [], [], []
+    for end in range(window - 1, len(rv_arr) - 1):
+        X.append(np.log([
+            rv_arr[end],
+            rv_arr[end - 4 : end + 1].mean(),
+            rv_arr[end - 20 : end + 1].mean(),
+        ]))
+        y.append(np.log(rv_arr[end + 1]))
+        idx.append(end + 1)
+    return np.asarray(X), np.asarray(y), np.asarray(idx)
+
+X, y, target_idx = make_log_har(rv["rv"].to_numpy())
+dates = rv.loc[target_idx, "date"].reset_index(drop=True)
+
+n = len(y)
+split_valid = int(0.80 * n)
+X_trva, y_trva = X[:split_valid], y[:split_valid]
+X_te, y_te = X[split_valid:], y[split_valid:]
+dates_te = dates.iloc[split_valid:].reset_index(drop=True)
+
+x_center = X_trva.mean(axis=0)
+x_scale = X_trva.std(axis=0)
+y_center = float(y_trva.mean())
+y_scale = float(y_trva.std())
+
+Xs_trva = (X_trva - x_center) / x_scale
+ys_trva = (y_trva - y_center) / y_scale
+Xs_te = (X_te - x_center) / x_scale
+
+print(f"forecast origins: {n}, train+valid: {split_valid}, test: {n - split_valid}")
+print(f"test window: {dates_te.iloc[0].date()} to {dates_te.iloc[-1].date()}")
+```
+
+The `make_log_har` helper builds the same three HAR averages used in the [chapter 8 illustration](nn_example.qmd) but applies $\log(\cdot)$ before standardization, so the linear baseline is a log-log HAR regression and the FNN inputs are on the same scale. We standardize features and the target on the train+validation block, which avoids leaking test-block information into the scaling constants.
+
+The Gaussian baseline is just OLS plus an in-sample residual variance.
+
+```{python}
+#| label: distnn-baseline
+#| echo: true
+#| cache: true
+
+ols = LinearRegression().fit(X_trva, y_trva)
+mu_ols_te = ols.predict(X_te)
+resid_trva = y_trva - ols.predict(X_trva)
+sigma_ols = float(np.std(resid_trva, ddof=1))
+sigma_ols_te = np.full_like(mu_ols_te, sigma_ols)
+```
+
+The distributional HAR-FNN has two heads on top of a shared hidden layer. The custom loss implements the per-observation Gaussian NLL of @sec-distnn-training-scores, with a variance floor that prevents the log-variance head from producing a degenerate density when residuals are near zero (the pathology analyzed in Exercise 9.1).
+
+```{python}
+#| label: distnn-model
+#| echo: true
+#| cache: true
+
+VAR_FLOOR = 1e-3
+
+def make_dist_har_fnn(n_neurons=32, learning_rate=1e-3):
+    inputs = keras.Input(shape=(3,))
+    h = layers.Dense(n_neurons, activation="softplus")(inputs)
+    mu_head = layers.Dense(1)(h)
+    log_var_head = layers.Dense(1)(h)
+    outputs = layers.Concatenate()([mu_head, log_var_head])
+    model = keras.Model(inputs, outputs, name="DistHARFNN")
+
+    def gaussian_nll(y_true, y_pred):
+        mu = y_pred[..., 0:1]
+        log_var = y_pred[..., 1:2]
+        var = ops.maximum(ops.exp(log_var), VAR_FLOOR)
+        return 0.5 * (ops.log(2.0 * np.pi * var) + ops.square(y_true - mu) / var)
+
+    model.compile(loss=gaussian_nll, optimizer=keras.optimizers.Adam(learning_rate))
+    return model
+
+dist_model = make_dist_har_fnn(n_neurons=32, learning_rate=1e-3)
+dist_model.fit(
+    Xs_trva, ys_trva.reshape(-1, 1),
+    epochs=200, batch_size=32, verbose=0, shuffle=False,
+)
+
+pred_std = dist_model.predict(Xs_te, verbose=0)
+mu_std, log_var_std = pred_std[:, 0], pred_std[:, 1]
+mu_dist_te = mu_std * y_scale + y_center
+var_dist_te = np.maximum(np.exp(log_var_std), VAR_FLOOR) * (y_scale ** 2)
+sigma_dist_te = np.sqrt(var_dist_te)
+```
+
+Because the network is trained on the standardized target $\tilde y_t = (y_t-\bar y)/s_y$, the head $\eta_\phi$ predicts the log of the conditional variance of $\tilde y$, so the conditional variance of $y$ is $\exp(\eta_\phi(\mathbf{x}_t))\cdot s_y^2$. Without this rescaling, the predictive density would be on the wrong scale and the LogS comparison would not be meaningful.
+
+```{python}
+#| label: distnn-scores
+#| echo: true
+#| cache: true
+
+logs_ols = -norm.logpdf(y_te, mu_ols_te, sigma_ols_te)
+logs_dist = -norm.logpdf(y_te, mu_dist_te, sigma_dist_te)
+crps_ols = np.array([ps.crps_gaussian(y, mu=m, sig=s)
+                     for y, m, s in zip(y_te, mu_ols_te, sigma_ols_te)])
+crps_dist = np.array([ps.crps_gaussian(y, mu=m, sig=s)
+                      for y, m, s in zip(y_te, mu_dist_te, sigma_dist_te)])
+pit_ols = norm.cdf(y_te, mu_ols_te, sigma_ols_te)
+pit_dist = norm.cdf(y_te, mu_dist_te, sigma_dist_te)
+
+scores = pd.DataFrame({
+    "model": ["HAR-OLS Gaussian", "Distributional HAR-FNN"],
+    "mean_LogS": [logs_ols.mean(), logs_dist.mean()],
+    "mean_CRPS": [crps_ols.mean(), crps_dist.mean()],
+})
+scores.round(4)
+```
+
+```{python}
+#| label: fig-distnn-empirical-bands
+#| fig-cap: "Realized $\\log RV_{t+1}$ on the test block (gray) with one-step-ahead Gaussian density forecasts. The colored line is the predictive mean and the shaded band is the central 95% predictive interval. The HAR-OLS Gaussian band has constant width because its variance is the in-sample residual variance from the train+validation block. The distributional HAR-FNN band breathes with the data: the predictive standard deviation responds to the HAR features and varies by roughly a factor of 1.6 across the test block, while the baseline holds it constant."
+#| echo: true
+
+fig, axes = plt.subplots(2, 1, figsize=(11, 6.4), sharex=True)
+
+for ax, mu, sig, label, color in zip(
+    axes,
+    [mu_ols_te, mu_dist_te],
+    [sigma_ols_te, sigma_dist_te],
+    ["HAR-OLS Gaussian", "Distributional HAR-FNN"],
+    ["C1", "C0"],
+):
+    ax.plot(dates_te, y_te, color="0.55", linewidth=0.9, label="realized log RV")
+    ax.plot(dates_te, mu, color=color, linewidth=1.1, label=f"{label} mean")
+    ax.fill_between(dates_te, mu - 1.96 * sig, mu + 1.96 * sig,
+                    color=color, alpha=0.20, label="95% band")
+    ax.set_ylabel("log RV")
+    ax.set_title(label)
+    ax.legend(frameon=False, loc="upper right", ncol=3, fontsize=9)
+    ax.grid(True, alpha=0.25)
+
+axes[1].set_xlabel("Date")
+plt.tight_layout()
+plt.show()
+```
+
+The two predictive bands tell the first half of the story directly. The HAR-OLS Gaussian band is a parallel pair of lines: a single training-block residual variance is replayed at every test-block date, so the forecast distribution is just a translated copy of the same bell curve. The distributional HAR-FNN band tightens in quiet stretches where the HAR averages are small and widens in stress periods. The variance head has clearly learned a conditional scale.
+
+```{python}
+#| label: fig-distnn-empirical-summary
+#| fig-cap: "Average LogS and CRPS on the test block (top-left), and PIT histograms for the two forecasts (remaining panels). A well-calibrated forecast yields a flat PIT close to the uniform density (red dashed line). Both PIT histograms are broadly close to uniform, consistent with log-HAR residuals being approximately homoskedastic in this period. The distributional HAR-FNN slightly reduces edge mass relative to the baseline but does not improve the average LogS or CRPS."
+#| echo: true
+
+fig, (ax_bar, ax_pit_ols, ax_pit_dist) = plt.subplots(1, 3, figsize=(13, 4))
+
+labels = ["HAR-OLS\nGaussian", "Distributional\nHAR-FNN"]
+xpos = np.arange(len(labels))
+width = 0.35
+ax_bar.bar(xpos - width / 2, [logs_ols.mean(), logs_dist.mean()],
+           width, label="LogS", color=["C1", "C0"], alpha=0.85)
+ax_bar.bar(xpos + width / 2, [crps_ols.mean(), crps_dist.mean()],
+           width, label="CRPS", color=["C1", "C0"], alpha=0.45, hatch="//")
+ax_bar.set_xticks(xpos)
+ax_bar.set_xticklabels(labels)
+ax_bar.set_ylabel("Average score (lower = better)")
+ax_bar.set_title("Average Scores")
+ax_bar.legend(frameon=False)
+ax_bar.grid(True, axis="y", alpha=0.3)
+
+bins = np.linspace(0, 1, 16)
+for ax, pit_vals, title, color in zip(
+    [ax_pit_ols, ax_pit_dist],
+    [pit_ols, pit_dist],
+    ["PIT: HAR-OLS Gaussian", "PIT: Distributional HAR-FNN"],
+    ["C1", "C0"],
+):
+    ax.hist(pit_vals, bins=bins, density=True, color=color,
+            edgecolor="white", alpha=0.85)
+    ax.axhline(1.0, color="red", linestyle="--", linewidth=1, label="Uniform")
+    ax.set_xlabel("PIT value")
+    ax.set_ylabel("Density")
+    ax.set_title(title)
+    ax.set_ylim(0, 3.0)
+    ax.legend(frameon=False)
+    ax.grid(True, alpha=0.25)
+
+plt.tight_layout()
+plt.show()
+```
+
+The averages and PITs in @fig-distnn-empirical-summary tell the second, more cautionary half of the story. Despite the visible time variation in the predictive variance, the distributional HAR-FNN does not beat the homoskedastic baseline on either LogS or CRPS — the two scores are within rounding of each other, with the distributional model marginally worse. The PIT histograms are also broadly similar: both are roughly flat, with the distributional FNN reducing the mild edge mass at the price of a slightly bumpier interior.
+
+This is the empirical counterpart to the joint-training concern in @sec-hnn. The log-HAR residuals on this sample are close to homoskedastic, so a constant-variance forecast is already a strong baseline. Adding a flexible variance head with a shared hidden core, but no further discipline, does not reliably translate the learned conditional scale into a better density forecast: the joint maximum-likelihood objective lets the mean and variance heads trade off against each other in ways that need not improve out-of-sample log score. The Hemisphere Neural Network architecture introduces the volatility-emphasis constraint and blocked subsampling precisely to overcome this difficulty, so applying HNN here would be a natural next step.
+
+The pedagogical lesson is methodological. A practitioner who reads only the score table without inspecting the predictive bands or the PIT histograms might conclude that the variance head has learned nothing — in fact, it has learned a sensible conditional scale. A practitioner who reads only the predictive band might conclude that the distributional model is clearly better — in fact, the score and PIT diagnostics show no improvement. Only the combination of @fig-distnn-empirical-bands and @fig-distnn-empirical-summary reveals what the model actually does and what it actually achieves on the proper-scoring-rule metrics that motivate distributional forecasting in the first place.
+
 ## Summary
 
 :::{.callout-important}
