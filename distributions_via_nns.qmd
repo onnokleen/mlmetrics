@@ -124,11 +124,16 @@ This structure allows the model to learn both **reactive volatility** (where var
 
 The HNN framework introduces two key ingredients to discipline the unstable MLE procedure:
 
-1.  **Volatility-Emphasis Constraint**: Anchor the *average* predicted variance during training to a plausible level:
+1.  **Volatility-Emphasis Constraint**: By the law of total variance,
     $$
-    \frac{1}{T}\sum_t g_{\phi_\sigma}(\mathbf{x}_t) \approx \kappa\cdot \operatorname{Var}(y_{t+1})
+    \operatorname{Var}(y_{t+1}) = \mathbb{E}\bigl[\operatorname{Var}(y_{t+1}\mid \mathbf{x}_t)\bigr] + \operatorname{Var}\bigl(\mathbb{E}[y_{t+1}\mid \mathbf{x}_t]\bigr),
     $$
-    The target multiplier $\kappa$ is determined from the out-of-bag residuals of a standard non-distributional neural network. This forces both hemispheres to contribute to the fit.
+    so the average conditional variance is strictly less than the unconditional variance whenever the conditional mean varies with the predictors. The HNN constraint anchors the empirical average of conditional variances to a fraction of the unconditional variance:
+    $$
+    \frac{1}{T}\sum_t g_{\phi_\sigma}(\mathbf{x}_t) \approx \kappa\cdot \operatorname{Var}(y_{t+1}),
+    \qquad 0 < \kappa < 1.
+    $$
+    The multiplier $\kappa$ is calibrated from out-of-bag residuals of a non-distributional baseline. The constraint regularizes the variance hemisphere away from zero and prevents it from absorbing predictable variation that should be explained by the mean hemisphere.
 
 2.  **Blocked Subsampling (Time-Aware Bagging)**: The model is trained many times on different, non-overlapping time blocks ("bags"). The final predictions for $\mu_t$ and $\sigma_t^2$ are formed by averaging the predictions from models where time $t$ was held out-of-bag. This stabilizes the predictions and makes them robust to initialization.
 
@@ -297,7 +302,7 @@ var_dist_te = np.maximum(np.exp(log_var_std), VAR_FLOOR) * (y_scale ** 2)
 sigma_dist_te = np.sqrt(var_dist_te)
 ```
 
-Because the network is trained on the standardized target $\tilde y_t = (y_t-\bar y)/s_y$, the head $\eta_\phi$ predicts the log of the conditional variance of $\tilde y$, so the conditional variance of $y$ is $\exp(\eta_\phi(\mathbf{x}_t))\cdot s_y^2$. Without this rescaling, the predictive density would be on the wrong scale and the LogS comparison would not be meaningful.
+Because the network is trained on the standardized target $\tilde y_t = (y_t-\bar y)/s_y$, the head $\eta_\phi$ predicts the log of the conditional variance of $\tilde y$. Linear standardization is variance-equivariant: $\operatorname{Var}(y\mid \mathbf{x}) = s_y^2 \cdot \operatorname{Var}(\tilde y\mid \mathbf{x})$, so the back-transformed predictive variance is $\exp(\eta_\phi(\mathbf{x}_t)) \cdot s_y^2$. This identity is specific to linear scaling of the target. If the target itself were log-transformed (as with $z_t=\log RV_t$ in the [previous chapter](nn_example.qmd)), back-transforming a Gaussian predictive density in $z$ to a density in $RV$ would require the lognormal moment identity $\mathbb{E}[RV] = \exp(\mu + \sigma^2/2)$ instead. The model *ranking* under the commonly used scoring rules is in fact invariant under such linear rescalings of the data — @Kleen2024 shows this for LogS, CRPS, the quadratic score, and the pseudo-spherical score — so a like-for-like comparison of two models trained on the same standardized target on the standardized scale gives the same ranking as on the raw scale. The back-transformation here is needed only to compare against forecasts produced on the unstandardized scale, where the absolute score values matter.
 
 ```{python}
 #| label: distnn-scores
