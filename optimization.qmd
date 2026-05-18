@@ -176,23 +176,30 @@ Here, $\delta$ is the momentum coefficient, and the velocity $v_t$ accumulates a
 
 AdaGrad adapts the learning rate for each parameter individually, performing larger updates for infrequent parameters and smaller updates for frequent ones [@DuchiHazanSinger2011]. It achieves this by dividing the learning rate by the square root of the sum of all past squared gradients for that parameter.
 
-For that, let us define $\boldsymbol G_t = \sum_{\tau = 1}^t \boldsymbol g_\tau \boldsymbol g_\tau^\top + \varepsilon \boldsymbol I_m$ as the accumulated outer product of gradients with a small adjustment $\varepsilon > 0$, and let $\boldsymbol I_m$ denote the identity matrix of appropriate dimension. 
-The standard AdaGrad time step is:
-
+Two versions appear in the literature. The **full-matrix** version accumulates the outer products
 $$
-\boldsymbol{\theta}^{(t)} = \boldsymbol{\theta}^{(t-1)} - \eta \boldsymbol G_t^{-\frac{1}{2}}\boldsymbol g_t,$$
+\boldsymbol{\mathcal{G}}_t = \sum_{\tau=1}^{t} \boldsymbol g_\tau \boldsymbol g_\tau^\top + \varepsilon \boldsymbol I_m
+$$
+and updates
+$$
+\boldsymbol{\theta}^{(t)} = \boldsymbol{\theta}^{(t-1)} - \eta \, \boldsymbol{\mathcal{G}}_t^{-\frac{1}{2}}\boldsymbol g_t.
+$$
 
-or a simplified form
-
-$$\boldsymbol{\theta}^{(t)} = \boldsymbol{\theta}^{(t-1)} - \eta \ \mathrm{diag}(\boldsymbol G_t)^{-\frac{1}{2}}\boldsymbol g_t$$
-
-For illustration, we can consider the case of a one-dimensional parameter vector. Then, the simplified AdaGrad reads as follows:
-$$ \theta^{(t)} = \theta^{(t - 1)} - \frac{\eta}{\sqrt{G_{t} + \epsilon}} g_{t} \text{ with } G_{t} = \sum_{\tau=1}^{t} g_{\tau}^2.$$
-Here it becomes clear why we needed to add the small $\epsilon$ component: it is a small smoothing constant that prevents division by zero.
+This form is mathematically clean but computationally infeasible in modern networks: storing and inverting an $m \times m$ matrix with $m$ in the millions is impractical. The version actually used in software (and called *AdaGrad* below) replaces the full matrix with its diagonal: define the elementwise gradient accumulator
+$$
+\boldsymbol G_t = \sum_{\tau=1}^{t} \boldsymbol g_\tau \odot \boldsymbol g_\tau \in \mathbb{R}^m,
+$$
+and update each coordinate by
+$$
+\boldsymbol{\theta}^{(t)} = \boldsymbol{\theta}^{(t-1)} - \eta \, \frac{\boldsymbol g_t}{\sqrt{\boldsymbol G_t + \varepsilon}},
+$$
+where the division and square root are elementwise. For illustration, the one-dimensional case reads
+$$ \theta^{(t)} = \theta^{(t - 1)} - \frac{\eta}{\sqrt{G_{t} + \varepsilon}}\, g_{t}, \qquad G_{t} = \sum_{\tau=1}^{t} g_{\tau}^2.$$
+The small constant $\varepsilon > 0$ is a smoothing term that prevents division by zero. Throughout this book, *AdaGrad* refers to the diagonal version unless stated otherwise.
 
 :::{.callout-note}
 -   **Pros**: Excellent for sparse data (like in NLP), where some features appear infrequently.
--   **Cons**: The denominator term $G_t$ grows monotonically. This causes the learning rate to eventually become infinitesimally small, effectively stopping the training process.
+-   **Cons**: The denominator $\sqrt{\boldsymbol G_t + \varepsilon}$ grows monotonically. This causes the effective learning rate to eventually become infinitesimally small, effectively stopping the training process.
 :::
 
 **RMSprop (Root Mean Square Propagation)**
@@ -219,11 +226,13 @@ The algorithm maintains two moving averages:
 2. **Second moment estimate** (uncentered variance):
    $$ \boldsymbol v_t = \delta \boldsymbol v_{t-1} + (1 - \delta) \boldsymbol g_{t}^2 $$
 
-Since $\boldsymbol m_t$ and $\boldsymbol v_t$ are initialized as zero vectors, they are biased toward zero, especially during the initial time steps. Adam corrects for this bias:
+Since $\boldsymbol m_t$ and $\boldsymbol v_t$ are initialized as zero vectors, they are biased toward zero, especially during the initial time steps. Unrolling the recursion gives $\boldsymbol m_t = (1-\beta) \sum_{\tau=1}^{t} \beta^{t-\tau} \boldsymbol g_\tau$, so under a stationary gradient process with $\mathbb{E}[\boldsymbol g_\tau] = \boldsymbol \mu$ we have $\mathbb{E}[\boldsymbol m_t] = (1-\beta^t)\boldsymbol \mu$. Adam corrects this bias by rescaling:
 
 3. **Bias-corrected estimates**:
    $$ \hat{\boldsymbol m}_t = \frac{\boldsymbol m_t}{1 - \beta^t} $$
    $$ \hat{\boldsymbol v}_t = \frac{\boldsymbol v_t}{1 - \delta^t} $$
+
+The correction restores unbiasedness under stationarity; during actual training, gradient means and second moments drift across iterations, so the correction is approximate but still removes most of the initial zero-init bias.
 
 4. **Parameter update**:
    $$ \boldsymbol{\theta}^{(t)} = \boldsymbol{\theta}^{(t-1)} - \eta \frac{\hat{\boldsymbol m}_t}{\sqrt{\hat{\boldsymbol v}_t} + \varepsilon}. $$
