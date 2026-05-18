@@ -474,22 +474,23 @@ C_t = f_t \odot C_{t-1} + i_t \odot \tilde{C}_t
 </div>
 <p>This creates an <strong>additive path</strong> for information to move forward and for gradients to flow backward, unlike the purely multiplicative path in vanilla RNNs. The cell state acts as a “highway” that can carry gradient information across many time steps.</p>
 <p><strong>Mathematical Analysis of Gradient Flow</strong></p>
-<p>To understand how gradients flow through the cell state, let’s compute the partial derivative: </p>
+<p>To isolate the cell-state gradient path, fix the gate variables <span class="math inline">\(f_t,i_t,o_t\)</span> and the candidate <span class="math inline">\(\tilde C_t\)</span> as constants. Differentiating <span class="math inline">\(C_t = f_t \odot C_{t-1} + i_t \odot \tilde C_t\)</span> with respect to <span class="math inline">\(C_{t-1}\)</span>, holding gates fixed, gives </p>
 <div class="display-math-block">
 <p><span class="math display">\[
-\frac{\partial C_t}{\partial C_{t-1}} = f_t
+\frac{\partial C_t}{\partial C_{t-1}}\bigg|_{\text{gates fixed}} = f_t,
 \]</span></p>
 </div>
-<p>For gradient flow over multiple time steps from time <span class="math inline">\(T\)</span> back to time <span class="math inline">\(t\)</span>: </p>
+<p> and chaining this over <span class="math inline">\(T-t\)</span> steps yields the cell-state path </p>
 <div class="display-math-block">
 <p><span class="math display">\[
-\frac{\partial C_T}{\partial C_t} = \frac{\partial C_T}{\partial C_{T-1}} \frac{\partial C_{T-1}}{\partial C_{T-2}} \cdots \frac{\partial C_{t+1}}{\partial C_t} = \prod_{k=t+1}^T f_k
+\frac{\partial C_T}{\partial C_t}\bigg|_{\text{gates fixed}} = \prod_{k=t+1}^T f_k.
 \]</span></p>
 </div>
+<p>In a full backward pass, the gates themselves depend on <span class="math inline">\(h_{k-1} = o_{k-1} \odot \tanh(C_{k-1})\)</span>, so there is an additional indirect dependence through the gate-computing networks. We return to this in the <em>Scope of the result</em> note below; for the qualitative gradient-highway picture, holding the gates fixed is sufficient.</p>
 <p><strong>Key Differences from Vanilla RNNs</strong></p>
 <p>The gradient flow in LSTMs differs fundamentally from vanilla RNNs in three crucial ways:</p>
 <ol type="1">
-<li><p><strong>Additive Structure</strong>: The cell state update is additive (<span class="math inline">\(C_t = f_t \odot C_{t-1} + \text{new information}\)</span>) rather than the multiplicative structure in RNNs (<span class="math inline">\(h_t = \tanh(W_h h_{t-1} + \ldots)\)</span>).</p></li>
+<li><p><strong>Additive Highway</strong>: The cell state update has an explicit additive path (<span class="math inline">\(C_t = f_t \odot C_{t-1} + i_t \odot \tilde{C}_t\)</span>) that bypasses the tanh nonlinearity. In a vanilla RNN, all information is compressed through a single tanh (<span class="math inline">\(h_t = \tanh(W_h h_{t-1} + W_x x_t + b)\)</span>), so gradients must pass through the activation’s derivative at every step. The LSTM’s cell state can carry a gradient signal backward with no activation derivative in the path when <span class="math inline">\(f_t \approx 1\)</span>.</p></li>
 <li><p><strong>Controlled Forgetting</strong>: The forget gate <span class="math inline">\(f_t \in [0,1]\)</span> (due to sigmoid activation) controls how much of the previous cell state to retain. When <span class="math inline">\(f_t \approx 1\)</span>, gradients flow almost unimpeded.</p></li>
 <li><p><strong>Weight-Independent Gradients</strong>: The gradient magnitude depends only on forget gate values, not on weight matrices and their norms.</p></li>
 </ol>
@@ -497,12 +498,12 @@ C_t = f_t \odot C_{t-1} + i_t \odot \tilde{C}_t
 <div class="display-math-block">
 <p><span class="math display">\[
 \begin{aligned}
-\text{Vanilla RNN:} \quad &amp;\frac{\partial h_T}{\partial h_t} = \prod_{k=t+1}^T \frac{\partial h_k}{\partial h_{k-1}} = \prod_{k=t+1}^T W_h \cdot \text{diag}(\tanh'(\cdot)) \\
-\text{LSTM:} \quad &amp;\frac{\partial C_T}{\partial C_t} = \prod_{k=t+1}^T f_k
+\text{Vanilla RNN:} \quad &amp;\frac{\partial h_T}{\partial h_t} = \prod_{k=t+1}^T \frac{\partial h_k}{\partial h_{k-1}} = \prod_{k=t+1}^T \text{diag}\!\bigl(\tanh'(W_h h_{k-1} + W_x x_k + b)\bigr)\, W_h \\
+\text{LSTM (cell-state path, gates fixed):} \quad &amp;\frac{\partial C_T}{\partial C_t} = \prod_{k=t+1}^T f_k
 \end{aligned}
 \]</span></p>
 </div>
-<p>In RNNs, each factor involves the weight matrix <span class="math inline">\(W_h\)</span> and the derivative of the activation function, leading to exponential decay or explosion. In LSTMs, the factors are simply the forget gate values, which the network can learn to control.</p>
+<p>In vanilla RNNs, each factor involves the weight matrix <span class="math inline">\(W_h\)</span> and the derivative of the activation function, leading to exponential decay or explosion. In LSTMs, the cell-state-path factors are simply the forget-gate values, which the network can learn to set close to 1 when long-run information should be preserved.</p>
 <p><strong>Selective Memory Through Adaptive Gating</strong></p>
 <p>The forget gate <span class="math inline">\(f_t = \sigma(W_f \cdot [h_{t-1}, x_t] + b_f)\)</span> provides <strong>adaptive memory control</strong>:</p>
 <ol type="1">
@@ -760,7 +761,7 @@ Exercise 7.1: Manual LSTM Forward Pass
 <li><strong>Compute the final hidden state</strong> <span class="math inline">\(h_1\)</span> by applying the output gate to the transformed cell state.</li>
 </ol>
 <p><strong>Note:</strong> Use sigmoid <span class="math inline">\(\sigma(z) = \frac{1}{1+e^{-z}}\)</span> for gates and <span class="math inline">\(\tanh\)</span> for candidate values and final hidden state computation.</p>
-<p><em>Exam level. However, the exercise would not be in an exam as it is written here one to one. The skills necessary to solve this exercise can also be tested based on a much simpler network architecture.</em></p>
+<p><em>Exam level.</em></p>
 </div>
 </div>
 <div class="callout callout-style-default callout-warning callout-titled">

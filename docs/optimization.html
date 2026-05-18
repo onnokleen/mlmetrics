@@ -625,7 +625,7 @@ Challenges with Vanilla Gradient Descent
 <ul>
 <li>Choosing the right learning rate <span class="math inline">\(\eta\)</span> is difficult</li>
 <li>The same learning rate applies to all parameters, which may not be ideal</li>
-<li>It can get stuck in saddle points, which are common in high-dimensional landscapes</li>
+<li>It can get stuck in saddle points, which are common in high-dimensional landscapes <span class="citation" data-cites="DauphinPascanuGulcehreChoBengioGanguli2014">(<a href="#ref-DauphinPascanuGulcehreChoBengioGanguli2014" role="doc-biblioref">Dauphin et al. 2014</a>)</span></li>
 </ul>
 </div>
 </div>
@@ -643,20 +643,35 @@ Challenges with Vanilla Gradient Descent
 <p>Here, <span class="math inline">\(\delta\)</span> is the momentum coefficient, and the velocity <span class="math inline">\(v_t\)</span> accumulates a weighted average of past gradients. This creates a “ball rolling downhill” effect that helps overcome small local minima and accelerates convergence in consistent directions.</p>
 <p><strong>AdaGrad (Adaptive Gradient)</strong></p>
 <p>AdaGrad adapts the learning rate for each parameter individually, performing larger updates for infrequent parameters and smaller updates for frequent ones <span class="citation" data-cites="DuchiHazanSinger2011">(<a href="#ref-DuchiHazanSinger2011" role="doc-biblioref">Duchi, Hazan, and Singer 2011</a>)</span>. It achieves this by dividing the learning rate by the square root of the sum of all past squared gradients for that parameter.</p>
-<p>For that, let us define <span class="math inline">\(\boldsymbol G_t = \sum_{\tau = 1}^t \boldsymbol g_\tau \boldsymbol g_\tau^\top + \varepsilon \boldsymbol I_m\)</span> as the accumulated outer product of gradients with a small adjustment <span class="math inline">\(\varepsilon &gt; 0\)</span>, and let <span class="math inline">\(\boldsymbol I_m\)</span> denote the identity matrix of appropriate dimension. The standard AdaGrad time step is:</p>
+<p>Two versions appear in the literature. The <strong>full-matrix</strong> version accumulates the outer products </p>
 <div class="display-math-block">
 <p><span class="math display">\[
-\boldsymbol{\theta}^{(t)} = \boldsymbol{\theta}^{(t-1)} - \eta \boldsymbol G_t^{-\frac{1}{2}}\boldsymbol g_t,\]</span></p>
+\boldsymbol{\mathcal{G}}_t = \sum_{\tau=1}^{t} \boldsymbol g_\tau \boldsymbol g_\tau^\top + \varepsilon \boldsymbol I_m
+\]</span></p>
 </div>
-<p>or a simplified form</p>
+<p> and updates </p>
 <div class="display-math-block">
-<p><span class="math display">\[\boldsymbol{\theta}^{(t)} = \boldsymbol{\theta}^{(t-1)} - \eta \ \mathrm{diag}(\boldsymbol G_t)^{-\frac{1}{2}}\boldsymbol g_t\]</span></p>
+<p><span class="math display">\[
+\boldsymbol{\theta}^{(t)} = \boldsymbol{\theta}^{(t-1)} - \eta \, \boldsymbol{\mathcal{G}}_t^{-\frac{1}{2}}\boldsymbol g_t.
+\]</span></p>
 </div>
-<p>For illustration, we can consider the case of a one-dimensional parameter vector. Then, the simplified AdaGrad reads as follows: </p>
+<p>This form is mathematically clean but computationally infeasible in modern networks: storing and inverting an <span class="math inline">\(m \times m\)</span> matrix with <span class="math inline">\(m\)</span> in the millions is impractical. The version actually used in software (and called <em>AdaGrad</em> below) replaces the full matrix with its diagonal: define the elementwise gradient accumulator </p>
 <div class="display-math-block">
-<p><span class="math display">\[ \theta^{(t)} = \theta^{(t - 1)} - \frac{\eta}{\sqrt{G_{t} + \epsilon}} g_{t} \text{ with } G_{t} = \sum_{\tau=1}^{t} g_{\tau}^2.\]</span></p>
+<p><span class="math display">\[
+\boldsymbol G_t = \sum_{\tau=1}^{t} \boldsymbol g_\tau \odot \boldsymbol g_\tau \in \mathbb{R}^m,
+\]</span></p>
 </div>
-<p> Here it becomes clear why we needed to add the small <span class="math inline">\(\epsilon\)</span> component: it is a small smoothing constant that prevents division by zero.</p>
+<p> and update each coordinate by </p>
+<div class="display-math-block">
+<p><span class="math display">\[
+\boldsymbol{\theta}^{(t)} = \boldsymbol{\theta}^{(t-1)} - \eta \, \frac{\boldsymbol g_t}{\sqrt{\boldsymbol G_t + \varepsilon}},
+\]</span></p>
+</div>
+<p> where the division and square root are elementwise. For illustration, the one-dimensional case reads </p>
+<div class="display-math-block">
+<p><span class="math display">\[ \theta^{(t)} = \theta^{(t - 1)} - \frac{\eta}{\sqrt{G_{t} + \varepsilon}}\, g_{t}, \qquad G_{t} = \sum_{\tau=1}^{t} g_{\tau}^2.\]</span></p>
+</div>
+<p> The small constant <span class="math inline">\(\varepsilon &gt; 0\)</span> is a smoothing term that prevents division by zero. Throughout this book, <em>AdaGrad</em> refers to the diagonal version unless stated otherwise.</p>
 <div class="callout callout-style-default callout-note callout-titled">
 <div class="callout-header d-flex align-content-center">
 <div class="callout-icon-container">
@@ -669,7 +684,7 @@ Note
 <div class="callout-body-container callout-body">
 <ul>
 <li><strong>Pros</strong>: Excellent for sparse data (like in NLP), where some features appear infrequently.</li>
-<li><strong>Cons</strong>: The denominator term <span class="math inline">\(G_t\)</span> grows monotonically. This causes the learning rate to eventually become infinitesimally small, effectively stopping the training process.</li>
+<li><strong>Cons</strong>: The denominator <span class="math inline">\(\sqrt{\boldsymbol G_t + \varepsilon}\)</span> grows monotonically. This causes the effective learning rate to eventually become infinitesimally small, effectively stopping the training process.</li>
 </ul>
 </div>
 </div>
@@ -687,20 +702,13 @@ Note
 <li><strong>First moment estimate</strong> (momentum): <span class="math display">\[ \boldsymbol m_t = \beta \boldsymbol m_{t-1} + (1 - \beta) \boldsymbol g_{t} \]</span></li>
 <li><strong>Second moment estimate</strong> (uncentered variance): <span class="math display">\[ \boldsymbol v_t = \delta \boldsymbol v_{t-1} + (1 - \delta) \boldsymbol g_{t}^2 \]</span></li>
 </ol>
-<p>Since <span class="math inline">\(\boldsymbol m_t\)</span> and <span class="math inline">\(\boldsymbol v_t\)</span> are initialized as zero vectors, they are biased toward zero, especially during the initial time steps. Adam corrects for this bias:</p>
+<p>Since <span class="math inline">\(\boldsymbol m_t\)</span> and <span class="math inline">\(\boldsymbol v_t\)</span> are initialized as zero vectors, they are biased toward zero, especially during the initial time steps. Unrolling the recursion gives <span class="math inline">\(\boldsymbol m_t = (1-\beta) \sum_{\tau=1}^{t} \beta^{t-\tau} \boldsymbol g_\tau\)</span>, so under a stationary gradient process with <span class="math inline">\(\mathbb{E}[\boldsymbol g_\tau] = \boldsymbol \mu\)</span> we have <span class="math inline">\(\mathbb{E}[\boldsymbol m_t] = (1-\beta^t)\boldsymbol \mu\)</span>. Adam corrects this bias by rescaling:</p>
 <ol start="3" type="1">
-<li><p><strong>Bias-corrected estimates</strong>: </p>
-<div class="display-math-block">
-<p><span class="math display">\[ \hat{\boldsymbol m}_t = \frac{\boldsymbol m_t}{1 - \beta^t} \]</span></p>
-</div>
-<p> </p>
-<div class="display-math-block">
-<p><span class="math display">\[ \hat{\boldsymbol v}_t = \frac{\boldsymbol v_t}{1 - \delta^t} \]</span></p>
-</div></li>
-<li><p><strong>Parameter update</strong>: </p>
-<div class="display-math-block">
-<p><span class="math display">\[ \boldsymbol{\theta}^{(t)} = \boldsymbol{\theta}^{(t-1)} - \eta \frac{\hat{\boldsymbol m}_t}{\sqrt{\hat{\boldsymbol v}_t} + \varepsilon}. \]</span></p>
-</div></li>
+<li><strong>Bias-corrected estimates</strong>: <span class="math display">\[ \hat{\boldsymbol m}_t = \frac{\boldsymbol m_t}{1 - \beta^t} \]</span> <span class="math display">\[ \hat{\boldsymbol v}_t = \frac{\boldsymbol v_t}{1 - \delta^t} \]</span></li>
+</ol>
+<p>The correction restores unbiasedness under stationarity; during actual training, gradient means and second moments drift across iterations, so the correction is approximate but still removes most of the initial zero-init bias.</p>
+<ol start="4" type="1">
+<li><strong>Parameter update</strong>: <span class="math display">\[ \boldsymbol{\theta}^{(t)} = \boldsymbol{\theta}^{(t-1)} - \eta \frac{\hat{\boldsymbol m}_t}{\sqrt{\hat{\boldsymbol v}_t} + \varepsilon}. \]</span></li>
 </ol>
 <p>Adam is generally a good default choice for most deep learning problems due to its robustness and adaptive nature. A modern variant is <strong>AdamW</strong> <span class="citation" data-cites="LoshchilovHutter2019AdamW">(<a href="#ref-LoshchilovHutter2019AdamW" role="doc-biblioref">Loshchilov and Hutter 2019</a>)</span>, which decouples weight decay from the adaptive gradient update; this makes the regularization effect easier to tune than in vanilla Adam with an ordinary <span class="math inline">\(L_2\)</span> penalty.</p>
 </section>
@@ -1099,8 +1107,8 @@ Note on Algorithm Performance
 <span id="cb2-36"><a href="#cb2-36" aria-hidden="true" tabindex="-1"></a>        </span>
 <span id="cb2-37"><a href="#cb2-37" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> _ <span class="kw">in</span> <span class="bu">range</span>(n_steps):</span>
 <span id="cb2-38"><a href="#cb2-38" aria-hidden="true" tabindex="-1"></a>            gx, gy <span class="op">=</span> df_nonconvex(x, y)</span>
-<span id="cb2-39"><a href="#cb2-39" aria-hidden="true" tabindex="-1"></a>            vx <span class="op">=</span> beta <span class="op">*</span> vx <span class="op">+</span> gx</span>
-<span id="cb2-40"><a href="#cb2-40" aria-hidden="true" tabindex="-1"></a>            vy <span class="op">=</span> beta <span class="op">*</span> vy <span class="op">+</span> gy</span>
+<span id="cb2-39"><a href="#cb2-39" aria-hidden="true" tabindex="-1"></a>            vx <span class="op">=</span> beta <span class="op">*</span> vx <span class="op">+</span> (<span class="dv">1</span> <span class="op">-</span> beta) <span class="op">*</span> gx</span>
+<span id="cb2-40"><a href="#cb2-40" aria-hidden="true" tabindex="-1"></a>            vy <span class="op">=</span> beta <span class="op">*</span> vy <span class="op">+</span> (<span class="dv">1</span> <span class="op">-</span> beta) <span class="op">*</span> gy</span>
 <span id="cb2-41"><a href="#cb2-41" aria-hidden="true" tabindex="-1"></a>            x <span class="op">-=</span> lr <span class="op">*</span> vx</span>
 <span id="cb2-42"><a href="#cb2-42" aria-hidden="true" tabindex="-1"></a>            y <span class="op">-=</span> lr <span class="op">*</span> vy</span>
 <span id="cb2-43"><a href="#cb2-43" aria-hidden="true" tabindex="-1"></a>            path.append((x, y))</span>
@@ -1873,6 +1881,9 @@ p(\lambda)=\lambda^2-c\lambda+\delta.
 </section>
 
 <div id="quarto-appendix" class="default"><section class="quarto-appendix-contents" role="doc-bibliography" id="quarto-bibliography"><h2 class="anchored quarto-appendix-heading">References</h2><div id="refs" class="references csl-bib-body hanging-indent" data-entry-spacing="0" role="list">
+<div id="ref-DauphinPascanuGulcehreChoBengioGanguli2014" class="csl-entry" role="listitem">
+Dauphin, Yann N., Razvan Pascanu, Caglar Gulcehre, Kyunghyun Cho, Surya Ganguli, and Yoshua Bengio. 2014. <span>“Identifying and Attacking the Saddle Point Problem in High-Dimensional Non-Convex Optimization.”</span> In <em>Advances in Neural Information Processing Systems</em>. Vol. 27. Curran Associates.
+</div>
 <div id="ref-DuchiHazanSinger2011" class="csl-entry" role="listitem">
 Duchi, John, Elad Hazan, and Yoram Singer. 2011. <span>“Adaptive Subgradient Methods for Online Learning and Stochastic Optimization.”</span> <em>Journal of Machine Learning Research</em> 12: 2121–59.
 </div>
