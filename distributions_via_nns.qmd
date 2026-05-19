@@ -81,13 +81,13 @@ The per-time-step negative log-likelihood loss is (up to constants):
 $$
 \ell_t(\phi_\mu,\phi_\sigma)= \frac{(y_{t+1}-f_{\phi_\mu}(\mathbf{x}_t))^2}{g_{\phi_\sigma}(\mathbf{x}_t)} + \log g_{\phi_\sigma}(\mathbf{x}_t)
 $$
-In highly overparameterized models, jointly training for $\mu_t$ and $\sigma_t^2$ via MLE can be unstable. The model can achieve a low loss by letting the mean network overfit, which drives residuals and therefore the fitted variance toward zero, or by letting the variance network absorb too much variation. This is a distributional overfitting problem: the model has to learn both the location and the uncertainty, and the two tasks can interfere with each other.
+In overparameterized models, jointly training $\mu_t$ and $\sigma_t^2$ by MLE can be unstable. The model can achieve a low loss by letting the mean network overfit, which drives residuals and therefore the fitted variance toward zero, or by letting the variance network absorb too much variation. This is a distributional overfitting problem: the model has to learn both the location and the uncertainty, and the two tasks can interfere with each other.
 
 The **Hemisphere Neural Network (HNN)** architecture, proposed by @GouletCoulombeFrenetteKlieber2026, is designed to stabilize this process.
 
 **HNN Architecture**
 
-The core idea is to split the network after a shared "common core" into two specialized "hemispheres"—one for the mean and one for the variance.
+The architecture splits the network after a shared "common core" into two specialized "hemispheres" — one for the mean and one for the variance.
 
 -   **Common Core**: A set of shared layers that learn a common representation. This allows latent drivers to influence both the mean and variance, creating an implicit link similar to ARCH or volatility-in-mean effects.
 -   **Mean Hemisphere**: A dedicated set of layers with a linear output head to predict $\mu_t$.
@@ -162,7 +162,7 @@ MDNs are particularly useful for modeling phenomena with distinct underlying sta
 -   Asset returns with regime switching behavior.
 -   Labor market dynamics that might feature multiple equilibria.
 
-MDNs can be challenging to train due to issues like component collapse, where one component dominates, and numerical instability from near-zero variances. These are often managed with careful initialization, regularization on mixing weights, and setting a minimum floor for $\sigma_k$.
+MDNs are difficult to train. Components can collapse, with one component dominating; and the likelihood can blow up when any $\sigma_k$ approaches zero. Standard remedies are careful initialization, regularization of the mixing weights, and a positive floor on $\sigma_k$.
 
 :::{.callout-important}
 ## Econometric Interpretation
@@ -302,7 +302,7 @@ var_dist_te = np.maximum(np.exp(log_var_std), VAR_FLOOR) * (y_scale ** 2)
 sigma_dist_te = np.sqrt(var_dist_te)
 ```
 
-Because the network is trained on the standardized target $\tilde y_t = (y_t-\bar y)/s_y$, the head $\eta_\phi$ predicts the log of the conditional variance of $\tilde y$. Linear standardization is variance-equivariant: $\operatorname{Var}(y\mid \mathbf{x}) = s_y^2 \cdot \operatorname{Var}(\tilde y\mid \mathbf{x})$, so the back-transformed predictive variance is $\exp(\eta_\phi(\mathbf{x}_t)) \cdot s_y^2$. This identity is specific to linear scaling of the target. If the target itself were log-transformed (as with $z_t=\log RV_t$ in the [previous chapter](nn_example.qmd)), back-transforming a Gaussian predictive density in $z$ to a density in $RV$ would require the lognormal moment identity $\mathbb{E}[RV] = \exp(\mu + \sigma^2/2)$ instead. The model *ranking* under the commonly used scoring rules is in fact invariant under such linear rescalings of the data — @Kleen2024 shows this for LogS, CRPS, the quadratic score, and the pseudo-spherical score — so a like-for-like comparison of two models trained on the same standardized target on the standardized scale gives the same ranking as on the raw scale. The back-transformation here is needed only to compare against forecasts produced on the unstandardized scale, where the absolute score values matter.
+Because the network is trained on the standardized target $\tilde y_t = (y_t-\bar y)/s_y$, the head $\eta_\phi$ predicts the log of the conditional variance of $\tilde y$. Linear standardization is variance-equivariant: $\operatorname{Var}(y\mid \mathbf{x}) = s_y^2 \cdot \operatorname{Var}(\tilde y\mid \mathbf{x})$, so the back-transformed predictive variance is $\exp(\eta_\phi(\mathbf{x}_t)) \cdot s_y^2$. This identity is specific to linear scaling of the target. If the target itself were log-transformed (as with $z_t=\log RV_t$ in the [previous chapter](nn_example.qmd)), back-transforming a Gaussian predictive density in $z$ to a density in $RV$ would require the lognormal moment identity $\mathbb{E}[RV] = \exp(\mu + \sigma^2/2)$ instead. @Kleen2024 shows that under LogS, CRPS, the quadratic score, and the pseudo-spherical score, model *rankings* are invariant under linear rescaling of the data. Two models trained on the standardized target can therefore be compared on the standardized scale without back-transformation. The transformation matters only for comparisons against forecasts produced on the unstandardized scale, where absolute score values enter.
 
 ```{python}
 #| label: distnn-scores
@@ -354,7 +354,7 @@ plt.tight_layout()
 plt.show()
 ```
 
-The two predictive bands tell the first half of the story directly. The HAR-OLS Gaussian band is a parallel pair of lines: a single training-block residual variance is replayed at every test-block date, so the forecast distribution is just a translated copy of the same bell curve. The distributional HAR-FNN band tightens in quiet stretches where the HAR averages are small and widens in stress periods. The variance head has clearly learned a conditional scale.
+The two predictive bands give the first part of the story directly. The HAR-OLS Gaussian band is a parallel pair of lines: a single training-block residual variance is replayed at every test-block date, so the forecast distribution is just a translated copy of the same bell curve. The distributional HAR-FNN band tightens in quiet stretches where the HAR averages are small and widens in stress periods. The variance head has clearly learned a conditional scale.
 
 ```{python}
 #| label: fig-distnn-empirical-summary
@@ -398,11 +398,11 @@ plt.tight_layout()
 plt.show()
 ```
 
-The averages and PITs in @fig-distnn-empirical-summary tell the second, more cautionary half of the story. Despite the visible time variation in the predictive variance, the distributional HAR-FNN does not beat the homoskedastic baseline on either LogS or CRPS — the two scores are within rounding of each other, with the distributional model marginally worse. The PIT histograms are also broadly similar: both are roughly flat, with the distributional FNN reducing the mild edge mass at the price of a slightly bumpier interior.
+The averages and PITs in @fig-distnn-empirical-summary give the second part: scoring rules and calibration diagnostics do not point to the same winner. Despite the visible time variation in the predictive variance, the distributional HAR-FNN does not beat the homoskedastic baseline on either LogS or CRPS — the two scores are within rounding of each other, with the distributional model marginally worse. The PIT histograms are also broadly similar: both are roughly flat, with the distributional FNN reducing the mild edge mass at the price of a slightly bumpier interior.
 
 This is the empirical counterpart to the joint-training concern in @sec-hnn. The log-HAR residuals on this sample are close to homoskedastic, so a constant-variance forecast is already a strong baseline. Adding a flexible variance head with a shared hidden core, but no further discipline, does not reliably translate the learned conditional scale into a better density forecast: the joint maximum-likelihood objective lets the mean and variance heads trade off against each other in ways that need not improve out-of-sample log score. The Hemisphere Neural Network architecture introduces the volatility-emphasis constraint and blocked subsampling precisely to overcome this difficulty, so applying HNN here would be a natural next step.
 
-The pedagogical lesson is methodological. A practitioner who reads only the score table without inspecting the predictive bands or the PIT histograms might conclude that the variance head has learned nothing — in fact, it has learned a sensible conditional scale. A practitioner who reads only the predictive band might conclude that the distributional model is clearly better — in fact, the score and PIT diagnostics show no improvement. Only the combination of @fig-distnn-empirical-bands and @fig-distnn-empirical-summary reveals what the model actually does and what it actually achieves on the proper-scoring-rule metrics that motivate distributional forecasting in the first place.
+The methodological lesson is that no single diagnostic suffices. A practitioner who reads only the score table might conclude that the variance head has learned nothing — in fact, it has learned a sensible conditional scale. A practitioner who reads only the predictive band might conclude that the distributional model is clearly better — in fact, the score and PIT diagnostics show no improvement. Only the combination of @fig-distnn-empirical-bands and @fig-distnn-empirical-summary reveals both what the model does and what it achieves on the proper scoring rules that motivate distributional forecasting.
 
 ## Summary
 
