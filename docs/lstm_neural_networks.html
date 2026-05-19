@@ -384,7 +384,7 @@ window.Quarto = {
 <section id="overview" class="level2" data-number="7.1">
 <h2 data-number="7.1" class="anchored" data-anchor-id="overview"><span class="header-section-number">7.1</span> Overview</h2>
 <p>The previous chapter showed the central weakness of a plain RNN: the hidden state is recursively updated, but the gradients used for learning can vanish as they are propagated backward through many time steps. Long Short-Term Memory (LSTM) networks were designed to address precisely this problem.</p>
-<p>The key innovation is the introduction of a dedicated <strong>cell state</strong> <span class="math inline">\(C_t\)</span>, which acts as a more stable memory path through time. This memory path is controlled by <strong>gates</strong>: small neural-network components that decide what information to retain, what new information to add, and what part of the internal memory to expose as the hidden state.</p>
+<p>LSTMs add a dedicated <strong>cell state</strong> <span class="math inline">\(C_t\)</span> that acts as a stable memory path through time, controlled by <strong>gates</strong> — small neural-network components that decide what information to retain, what new information to add, and what part of the internal memory to expose as the hidden state.</p>
 <p>For econometricians, LSTMs are useful when the relevant predictive state may evolve over time and depend on information from more than only the most recent observations. Examples include asset pricing with time-varying macroeconomic states, macroeconomic forecasting with long predictor histories, and volatility or risk forecasting with persistent regimes.</p>
 <p>For optional visual intuition, <a href="https://colah.github.io/posts/2015-08-Understanding-LSTMs/">this blog post</a> gives a detailed informal discussion of LSTMs.</p>
 </section>
@@ -400,7 +400,7 @@ window.Quarto = {
 </section>
 <section id="lstm-architecture-and-notation" class="level2" data-number="7.3">
 <h2 data-number="7.3" class="anchored" data-anchor-id="lstm-architecture-and-notation"><span class="header-section-number">7.3</span> LSTM Architecture and Notation</h2>
-<p>Long Short-Term Memory (LSTM) networks introduced by <span class="citation" data-cites="HochreiterSchmidhuber1997">Hochreiter and Schmidhuber (<a href="#ref-HochreiterSchmidhuber1997" role="doc-biblioref">1997</a>)</span> extend vanilla RNNs by introducing a gating mechanism that controls long-term information flow. Before diving into the mathematical details, we need to establish the notation because LSTMs update several quantities at each time step.</p>
+<p>Long Short-Term Memory (LSTM) networks introduced by <span class="citation" data-cites="HochreiterSchmidhuber1997">Hochreiter and Schmidhuber (<a href="#ref-HochreiterSchmidhuber1997" role="doc-biblioref">1997</a>)</span> extend vanilla RNNs by adding a gating mechanism that controls long-term information flow. The notation below lists the several quantities the LSTM tracks at each time step.</p>
 <p>At each time step <span class="math inline">\(t\)</span>, an LSTM cell maintains:</p>
 <ul>
 <li><strong>Input</strong>: <span class="math inline">\(x_t \in \mathbb{R}^D\)</span>, the current input vector</li>
@@ -465,7 +465,7 @@ Figure&nbsp;7.1: LSTM Gating Mechanism.
 </section>
 <section id="gradient-flow-in-lstms" class="level2" data-number="7.4">
 <h2 data-number="7.4" class="anchored" data-anchor-id="gradient-flow-in-lstms"><span class="header-section-number">7.4</span> Gradient Flow in LSTMs</h2>
-<p>One of the key innovations of LSTMs is how they address the vanishing gradient problem in vanilla RNNs. The solution lies in the design of the cell state and its update mechanism.</p>
+<p>LSTMs address the vanishing-gradient problem of vanilla RNNs through the design of the cell state and its update rule.</p>
 <p><strong>The Cell State as a Gradient Highway</strong></p>
 <p>The LSTM introduces a separate cell state <span class="math inline">\(C_t\)</span> that follows the update rule: </p>
 <div class="display-math-block">
@@ -474,7 +474,6 @@ C_t = f_t \odot C_{t-1} + i_t \odot \tilde{C}_t
 \]</span></p>
 </div>
 <p>The cell-state update <span class="math inline">\(C_t = f_t \odot C_{t-1} + i_t \odot \tilde C_t\)</span> has an <strong>additive</strong> structure: when the forget gate <span class="math inline">\(f_t\)</span> is close to 1, the partial derivative <span class="math inline">\(\partial C_t/\partial C_{t-1}\)</span> is also close to 1, so gradient signal propagates with little attenuation. This is the structural contrast with a vanilla RNN, where the corresponding partial derivative is the <em>product</em> of a weight-matrix factor and an activation derivative.</p>
-<p><strong>Mathematical Analysis of Gradient Flow</strong></p>
 <p>To isolate the cell-state gradient path, fix the gate variables <span class="math inline">\(f_t,i_t,o_t\)</span> and the candidate <span class="math inline">\(\tilde C_t\)</span> as constants. Differentiating <span class="math inline">\(C_t = f_t \odot C_{t-1} + i_t \odot \tilde C_t\)</span> with respect to <span class="math inline">\(C_{t-1}\)</span>, holding gates fixed, gives </p>
 <div class="display-math-block">
 <p><span class="math display">\[
@@ -489,7 +488,7 @@ C_t = f_t \odot C_{t-1} + i_t \odot \tilde{C}_t
 </div>
 <p>In a full backward pass, the gates themselves depend on <span class="math inline">\(h_{k-1} = o_{k-1} \odot \tanh(C_{k-1})\)</span>, so there is an additional indirect dependence through the gate-computing networks. We return to this in the <em>Scope of the result</em> note below; for the qualitative gradient-highway picture, holding the gates fixed is sufficient.</p>
 <p><strong>Key Differences from Vanilla RNNs</strong></p>
-<p>The gradient flow in LSTMs differs fundamentally from vanilla RNNs in three crucial ways:</p>
+<p>The gradient flow in LSTMs differs from vanilla RNNs in three ways:</p>
 <ol type="1">
 <li><p><strong>Additive Highway</strong>: The cell state update has an explicit additive path (<span class="math inline">\(C_t = f_t \odot C_{t-1} + i_t \odot \tilde{C}_t\)</span>) that bypasses the tanh nonlinearity. In a vanilla RNN, all information is compressed through a single tanh (<span class="math inline">\(h_t = \tanh(W_h h_{t-1} + W_x x_t + b)\)</span>), so gradients must pass through the activation’s derivative at every step. The LSTM’s cell state can carry a gradient signal backward with no activation derivative in the path when <span class="math inline">\(f_t \approx 1\)</span>.</p></li>
 <li><p><strong>Controlled Forgetting</strong>: The forget gate <span class="math inline">\(f_t \in [0,1]\)</span> (due to sigmoid activation) controls how much of the previous cell state to retain. When <span class="math inline">\(f_t \approx 1\)</span>, gradients flow almost unimpeded.</p></li>
@@ -520,7 +519,7 @@ C_t = f_t \odot C_{t-1} + i_t \odot \tilde{C}_t
 \]</span></p>
 </div>
 <p>This means gradients can flow backward through many time steps without significant attenuation, enabling the learning of long-term dependencies.</p>
-<p><strong>Key Insight</strong>: Unlike vanilla RNNs where gradient flow is strongly shaped by repeated multiplication with recurrent weight matrices, LSTMs learn <em>when</em> to allow gradients to flow through the forget gates. This learned control mechanism is what makes LSTMs useful for sequences with complex temporal dependence.</p>
+<p>Unlike vanilla RNNs, where gradient flow is shaped by repeated multiplication with the recurrent weight matrix, LSTMs <em>learn</em> when to let gradients flow through the forget gates. This learned control is the mechanism by which an LSTM can represent long-run dependence at all.</p>
 <p><strong>Scope of the result.</strong> The expression <span class="math inline">\(\partial C_T/\partial C_t = \prod_k f_k\)</span> describes only the cell-state path. Parameter gradients also flow through the hidden state <span class="math inline">\(h_t = o_t \odot \tanh(C_t)\)</span> and through the gate-producing networks themselves, where they involve products of sigmoid and tanh derivatives that can attenuate just as in a vanilla RNN. The cell state acts as a gradient highway for <em>one component</em> of the backward pass; it does not eliminate all multiplicative factors and therefore does not formally resolve the vanishing-gradient problem. In practice it is enough to make long-range learning feasible, which is what matters for forecasting work.</p>
 </section>
 <section id="lstm-vs.-standard-rnn" class="level2" data-number="7.5">
@@ -608,7 +607,7 @@ Suggested Answer
 </section>
 <section id="research-application-deep-learning-in-asset-pricing" class="level2" data-number="7.6">
 <h2 data-number="7.6" class="anchored" data-anchor-id="research-application-deep-learning-in-asset-pricing"><span class="header-section-number">7.6</span> Research Application: Deep Learning in Asset Pricing</h2>
-<p>To see how LSTMs are used in state-of-the-art econometric research, consider the asset-pricing framework of <span class="citation" data-cites="ChenPelgerZhu2024">Chen, Pelger, and Zhu (<a href="#ref-ChenPelgerZhu2024" role="doc-biblioref">2024</a>)</span>.</p>
+<p>To see how LSTMs are used in current econometric research, consider the asset-pricing framework of <span class="citation" data-cites="ChenPelgerZhu2024">Chen, Pelger, and Zhu (<a href="#ref-ChenPelgerZhu2024" role="doc-biblioref">2024</a>)</span>.</p>
 <p><strong>The Core Research Question</strong></p>
 <p>The paper asks a fundamental question in finance: <strong>Can neural networks better model the relationship between firm characteristics and future stock returns?</strong></p>
 <ul>
@@ -675,7 +674,7 @@ Figure&nbsp;7.2: LSTM-Based Asset Pricing NN Architecture
 \]</span></p>
 </div>
 <p><strong>Step 3: Enforcing No-Arbitrage</strong></p>
-<p>The authors take a final step to enforce the economic constraint of no-arbitrage by using a Generative Adversarial Network (GAN) framework. This advanced technique adjusts the training objective beyond simple MSE to ensure the resulting model is economically consistent. We do not cover GANs in class.</p>
+<p>The authors take a final step to enforce the no-arbitrage constraint by using a Generative Adversarial Network (GAN) framework, which adjusts the training objective beyond MSE to penalize pricing errors that violate no-arbitrage. We do not cover GANs in class.</p>
 <p><strong>Empirical Results and Conclusions</strong></p>
 <ul>
 <li><strong>Performance:</strong> The full model (GAN-SDF) achieves an annual out-of-sample Sharpe ratio of approximately 2.6, compared with about 1.7 for linear models and 0.8 for the Fama-French 5-factor model.</li>
