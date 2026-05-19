@@ -50,7 +50,7 @@ For this course, the useful analogy is: an RNN is a nonlinear state-update model
 
 ## From a Lagged FNN to a Recurrent State
 
-**Recurrent Neural Networks (RNNs)** solve this problem by introducing a **loop**. The network maintains a **hidden state** $h$ (or "memory"), which captures information from all past steps. At each time step, the network updates this hidden state based on the current input and its previous state.
+An RNN replaces the fixed lag window by carrying a hidden state across time steps. At each step, the network updates the hidden state from the current input and the previous state, so all earlier observations enter the prediction through the current state.
 
 A feed-forward network with lagged inputs can approximate nonlinear autoregressive relationships, but it treats the chosen lag vector as the full input. If the relevant history changes over time or spans many periods, this fixed-window approach becomes limited.
 
@@ -143,25 +143,24 @@ with the following parameters:
   - $\mathbf{W}_{hy} \in \mathbb{R}^{O \times H}$ (hidden-to-output weights)
   - $\mathbf{b}_h \in \mathbb{R}^{H}$, $\mathbf{b}_y \in \mathbb{R}^{O}$ (bias terms)
 
-In RNN implementations, the tanh function is often used as the activation function $g$.
+RNN implementations typically use $\tanh$ as the activation $g$, because it is bounded and zero-centered.
 
 In the generic notation above, $\mathbf{y}_t$ denotes the output produced after seeing $\mathbf{x}_t$. In a one-step-ahead forecasting application, we would often interpret that output as $\hat{y}_{t+1}$ or as parameters of the predictive distribution for $y_{t+1} \mid \mathcal{F}_t$.
 
 **Key Properties**
 
-- **Parameter Sharing:** The same weight matrices ($\mathbf{W}_{hh}, \mathbf{W}_{xh}, \mathbf{W}_{hy}$) and biases are used at *every time step*. This makes the model efficient and allows it to generalize across sequences of different lengths.
-- **Memory:** The hidden state $\mathbf{h}_t$ is the crucial component that allows information to persist, enabling the network to learn from context that appeared many steps in the past.
+- **Parameter sharing:** The same weight matrices ($\mathbf{W}_{hh}, \mathbf{W}_{xh}, \mathbf{W}_{hy}$) and biases are used at *every time step*. The total parameter count is therefore independent of sequence length, so the same network can be applied to sequences of different lengths.
+- **Memory:** The hidden state $\mathbf{h}_t$ carries information from past inputs forward, so observations at $t-k$ for $k\geq 1$ can still influence $\hat y_{t+1}$ through the state.
 
 ## Econometric State-Variable Interpretation
 
 An RNN can be viewed as a flexible nonlinear generalization of classical time-series models with recursively updated states. A useful benchmark is the GARCH model of @Bollerslev1986.
 
-In the **GARCH(1,1)** model, the latent conditional variance of stock returns is modeled as:
+In the **GARCH(1,1)** model, the return at $t$ is decomposed as $r_t = \mu_t + \varepsilon_t$ where $\mu_t$ is the conditional mean and $\varepsilon_t$ is the innovation. The conditional variance of $\varepsilon_t$ then follows the recursion
 $$
-\sigma_t^2 = \omega + \alpha \varepsilon_{t-1}^2 + \beta \sigma_{t-1}^2
+\sigma_t^2 = \omega + \alpha \varepsilon_{t-1}^2 + \beta \sigma_{t-1}^2,
 $$
-
-Here, the state is the previous conditional variance $\sigma_{t-1}^2$, and the update rule is a simple linear function of the previous squared innovation and previous variance.
+where $\omega>0$, $\alpha,\beta\geq 0$, and $\alpha+\beta<1$ for covariance stationarity. The state is $\sigma_{t-1}^2$, and the update is linear in the lagged squared innovation and the lagged variance.
 
 An RNN-style volatility model could instead use
 $$
@@ -173,7 +172,7 @@ $$
 
 where $\mathbf{x}_t$ might contain lagged returns, squared returns, realized volatility measures, or macro-financial predictors known at time $t$. The hidden state $\mathbf{h}_t$ is a high-dimensional vector that learns a nonlinear summary of the relevant history. The softplus transformation ensures a positive variance forecast.
 
-The analogy is useful, but it should not be pushed too far. In a GARCH model, the conditional variance has a direct structural interpretation within a specified conditional distribution. In a standard RNN, the hidden state is primarily a predictive representation. It becomes a probabilistic econometric model only after we specify how the output maps into a conditional distribution or likelihood.
+The analogy has clear limits. In a GARCH model, the conditional variance has a direct structural interpretation within a specified conditional distribution. In a standard RNN, the hidden state is a predictive representation, not a structural object. It becomes a probabilistic econometric model only after we specify how the output maps into a conditional distribution or likelihood.
 
 :::{.callout-note}
 ## RNNs and Classical Time-Series Models
@@ -218,7 +217,7 @@ $\mathcal{F}_t$ should contain only the real-time data vintage available at the 
 
 ## Training Through Time
 
-Training an RNN presents a unique challenge due to its recurrent nature. Because the same weight matrices ($\mathbf{W}_{hh}, \mathbf{W}_{xh}$) are applied at every time step, their influence on the final loss is cumulative. The algorithm used to handle this is **Backpropagation Through Time (BPTT)**.
+Training an RNN raises a problem absent from feed-forward networks: because the same weight matrices ($\mathbf{W}_{hh}, \mathbf{W}_{xh}$) are applied at every time step, their gradient is the sum of contributions from every time step. The algorithm that handles this is **Backpropagation Through Time (BPTT)**.
 
 The core idea of BPTT is to **unroll** the network through time, as shown in @fig-rnn-side-by-side. This conceptually transforms the RNN into a deep feed-forward network where each time step becomes a layer, but with the critical constraint that the weights are shared across all layers. Once unrolled, standard backpropagation can be applied.
 
@@ -243,7 +242,7 @@ For econometric forecasting, this is the central limitation of a plain RNN. The 
 :::{.callout-important}
 ## Bridge to LSTM Networks
 
-The point of this chapter is not that plain RNNs are the best architecture for macroeconomic or financial sequences. The point is that plain RNNs make the core problem visible: learning long-run dependence requires gradients to carry information across many time steps. LSTMs modify the state update by adding gates and a cell state so that information can be preserved more reliably.
+Plain RNNs are rarely the best architecture for macroeconomic or financial sequences. Their value in this chapter is conceptual: they expose the structural problem that learning long-run dependence requires gradient signal across many time steps. LSTMs address this by modifying the state update with gates and a cell state that preserve information more reliably.
 :::
 
 ## Summary
