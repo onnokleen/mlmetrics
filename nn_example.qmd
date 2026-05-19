@@ -14,7 +14,7 @@ Neural-network architectures are often introduced as if the main empirical quest
 
 This chapter makes those choices explicit in a single empirical illustration. The object is one-step-ahead forecasting of SPDR S&P 500 ETF (`SPY`) realized volatility, using the daily realized-variance measures described in [the dataset appendix](datasets.qmd#sec-spy-taq-realized).
 
-The empirical comparison has two purposes. First, it shows why modeling $\log(RV)$ is often more stable than modeling realized variance in levels. Second, it compares a linear HAR-OLS benchmark with four neural-network specifications — a parsimonious HAR-FNN, a full feed-forward network, a Simple RNN, and an LSTM — all evaluated under the same forecast-origin discipline. A central finding is that HAR-OLS is not easily beaten: the nonlinear HAR-FNN underperforms its linear counterpart on every loss, and the full-history neural networks match HAR-OLS without substantially improving on it.
+The empirical comparison has two purposes. First, it shows why modeling $\log(RV)$ is often more stable than modeling realized variance in levels. Second, it compares a linear HAR-OLS benchmark with four neural-network specifications — a parsimonious HAR-FNN, a full feed-forward network, a Simple RNN, and an LSTM — all evaluated under the same forecast-origin discipline. A central finding is that HAR-OLS is hard to beat: the nonlinear HAR-FNN loses to its linear counterpart on every loss, and the full-history neural networks at best match HAR-OLS.
 
 ## Roadmap
 
@@ -295,12 +295,12 @@ print(f"train: {train_end}, validation: {valid_end - train_end}, test: {n - vali
 The specifications differ in how they represent the same forecasting problem.
 
 - The **HAR-OLS** benchmark is linear. For the log target, it regresses $\log(RV_{t+1})$ on the logs of the daily, weekly, and monthly HAR components. For the level target, it regresses $RV_{t+1}$ on the corresponding level components.
-- The **HAR-FNN** is the most structured specification. It uses three economically interpretable realized-variance summaries: daily, weekly, and monthly volatility components.
+- The **HAR-FNN** is the most structured specification. It uses the three HAR volatility-component summaries — daily, weekly, and monthly averages of realized variance — that follow the @CorsiHAR2009 model.
 - The **full FNN** uses the full 22-day history but treats it as an unordered vector of features.
 - The **Simple RNN** also uses the full 22-day history, but processes the lags sequentially through a recurrent state.
 - The **LSTM** processes the same sequence with gated memory, allowing the network to regulate how much past information is retained.
 
-@fig-nn-architectures summarizes the neural specifications. The point of the comparison is not that each model has the same number of parameters; it is that the information available at forecast origin $t$ is fixed and documented. HAR-OLS is included because a nonlinear HAR-FNN is not informative unless it is compared with the linear HAR model it generalizes.
+@fig-nn-architectures summarizes the neural specifications. The models differ in input representation, not in parameter count, and the information available at forecast origin $t$ is held fixed and documented across architectures. HAR-OLS is included because the nonlinear HAR-FNN is informative only as a comparison against the linear HAR model it generalizes.
 
 All four neural networks are deliberately shallow. The HAR-FNN and full FNN have one hidden dense layer with a tuned width and a linear output layer. The Simple RNN and LSTM have one recurrent layer with a tuned number of units and a linear output layer. A deeper pyramidal FNN, for example 22 inputs to 64 hidden units to 32 hidden units to one output, would be a reasonable robustness check. It is not the baseline here because it would add another capacity choice while the chapter's main comparison is about target transformation and information representation.
 
@@ -362,7 +362,7 @@ plt.tight_layout()
 plt.show()
 ```
 
-The Keras definitions below follow the notebook style. The input shapes enforce the intended information sets: three HAR features for the HAR-FNN, 22 flattened lags for the full FNN, and a 22-step sequence for the recurrent models.
+Each architecture below uses the same skeleton — one hidden layer of tuned width followed by a linear output. The input shapes enforce the intended information sets: three HAR features for the HAR-FNN, 22 flattened lags for the full FNN, and a 22-step sequence for the recurrent models.
 
 ```{python}
 #| eval: false
@@ -475,7 +475,7 @@ best_rnn = tune_model(make_simple_rnn, as_sequence(X_train), as_sequence(X_valid
 best_lstm = tune_model(make_lstm, as_sequence(X_train), as_sequence(X_valid))
 ```
 
-For the current local run, the chronological validation step selected the following hyperparameters. Validation losses are comparable within a target scale, but not across the `log(rv)` and `rv` panels because the training targets have different units and variances.
+In the local run that produced this chapter's output, chronological validation selected the following hyperparameters. Validation losses are comparable within a target scale but not across the `log(rv)` and `rv` panels, because the training targets have different units and variances.
 
 HAR-OLS does not appear in this table because it has no neural tuning parameters. It is fit by ordinary least squares on the combined train-validation block before the final test evaluation.
 
@@ -612,7 +612,7 @@ The next table records whether a level-target model produced nonpositive varianc
 
 @fig-nn-performance makes the transformation choice visible. On the common log-realized-variance scale, the LSTM is the best-performing model, but its RMSE advantage over HAR-OLS is 0.0003 log-RV units — a difference that is economically negligible. HAR-OLS essentially matches the full FNN and Simple RNN as well. That is the main benchmark lesson: the neural networks are not automatically better just because they are more flexible. The level-target rows are well-behaved in this updated run, but they generally lose accuracy on the log-realized-variance scale.
 
-Two notes on reading these rankings. First, the single test window contains a few hundred forecast origins, so the standard error of any per-model loss average is non-negligible: differences smaller than the standard deviation of the per-period squared-error differences should be read as ties. The 0.0003 log-RV-unit LSTM-versus-HAR-OLS gap is well within that band. A @DieboldMariano1995 test would formalize this, with a HAC variance under serial dependence in the loss differential; we omit it here to keep the chapter compact, but readers replicating the experiment should not interpret RMSE differences below roughly 0.01 as robust to test-window resampling. Second, the QLIKE loss reported below is the @Patton2011 quasi-likelihood loss for volatility, which is the standard convex robust loss in the high-frequency volatility-forecasting literature.
+Two notes on reading these rankings. First, the single test window contains a few hundred forecast origins, so the standard error of any per-model loss average is non-negligible: differences smaller than the standard deviation of the per-period squared-error differences should be read as ties. The 0.0003 log-RV-unit LSTM-versus-HAR-OLS gap is well within that band. A @DieboldMariano1995 test would formalize this, with a HAC variance under serial dependence in the loss differential; we omit it here to keep the chapter compact, but readers replicating the experiment should not interpret RMSE differences below roughly 0.01 as robust to test-window resampling. Second, the QLIKE column in the table above is the @Patton2011 quasi-likelihood loss for volatility, which is the standard convex robust loss in the high-frequency volatility-forecasting literature.
 
 The two HAR rows help separate information design from neural nonlinearity. In the log-target panel, linear HAR-OLS is stronger than the HAR-FNN and nearly matches the full-history networks. In the level-target panel, HAR-OLS is stronger than the HAR-FNN on all three reported losses. For this sample, the nonlinear HAR-FNN does not improve on the linear HAR benchmark.
 
