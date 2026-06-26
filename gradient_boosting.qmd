@@ -36,7 +36,7 @@ where:
 - $\nu \in (0,1]$ is the learning rate
 - $M$ is the number of boosting iterations
 
-Each new tree is not fit to the original target directly. Instead, it is chosen to improve the current ensemble in the direction that most reduces the loss.
+Each tree here plays the role of a *weak learner* (equivalently, a *base learner*): a deliberately low-complexity base model — in this chapter a shallow regression tree — that on its own fits the data only slightly better than a constant. Each new tree is not fit to the original target directly. Instead, it is chosen to improve the current ensemble in the direction that most reduces the loss.
 
 :::{.callout-important}
 ## Random Forests vs Boosting
@@ -91,7 +91,7 @@ $$
 r_{im} = y_i - \hat F_{m-1}(x_i).
 $$
 
-Under squared loss, these are exactly the negative gradients of the objective with respect to the current fitted values. Boosting therefore fits the next tree $\hat h_m(x)$ to the residuals:
+Under squared loss, these are exactly the negative gradients of the objective with respect to the current fitted values, since differentiating $L(F)$ gives $-\,\partial L/\partial F(x_i) = y_i - F(x_i)$, evaluated at $F = \hat F_{m-1}$. Boosting therefore fits the next tree $\hat h_m(x)$ to the residuals:
 
 $$
 \hat h_m \approx \arg\min_h \sum_{i=1}^n (r_{im} - h(x_i))^2.
@@ -197,7 +197,15 @@ $$
 
 The next tree is fit to these pseudo-residuals, and the ensemble is updated in the direction of steepest descent in function space. That is why the method is called **gradient** boosting.
 
-To see the gradient structure precisely, think of $F$ as a vector $(F(x_1), \ldots, F(x_n))^\top \in \mathbb{R}^n$, where each coordinate is the fitted value at one training observation. The total loss is a function of this vector, $\mathcal{L}(F) = \sum_{i=1}^n \ell(y_i, F(x_i))$, and the $i$-th coordinate of its negative gradient at $\hat F_{m-1}$ is exactly $r_{im}$. Boosting cannot step directly in this direction, because the result would be $n$ numbers with no way to generalize to new observations. Instead, each tree $\hat{h}_m$ approximates the negative gradient within a structured, tree-shaped function class. Fitting a tree to the pseudo-residuals is therefore fitting a generalizable approximation to the steepest-descent direction.
+To see the gradient structure precisely, think of $F$ as a vector $(F(x_1), \ldots, F(x_n))^\top \in \mathbb{R}^n$, where each coordinate is the fitted value at one training observation. The total loss is a function of this vector, $L(F) = \sum_{i=1}^n \ell(y_i, F(x_i))$ — the same training objective introduced for squared loss in @sec-gb-squared-error, now written for a general $\ell$ — and the $i$-th coordinate of its negative gradient at $\hat F_{m-1}$ is exactly $r_{im}$. Boosting cannot step directly in this direction, because the result would be $n$ numbers with no way to generalize to new observations. Instead, each tree $\hat{h}_m$ approximates the negative gradient within a structured, tree-shaped function class. Fitting a tree to the pseudo-residuals is therefore fitting a generalizable approximation to the steepest-descent direction.
+
+**Refining the leaf values.** Fitting a least-squares tree to the pseudo-residuals serves to determine the *split structure* — the partition of the predictor space into leaves $R_{jm}$ (the $j$-th leaf of the tree fit at iteration $m$) — but the least-squares leaf means need not be the loss-optimal constants on the scale of $\ell$. The loss-optimal leaf values are obtained by a separate one-dimensional minimization within each leaf,
+
+$$
+\gamma_{jm} = \arg\min_{\gamma} \sum_{i:\, x_i \in R_{jm}} \ell\big(y_i,\, \hat F_{m-1}(x_i) + \gamma\big),
+$$
+
+after which the update becomes $\hat F_m = \hat F_{m-1} + \nu \sum_j \gamma_{jm} \mathbf{1}\{x \in R_{jm}\}$ rather than $\hat F_{m-1} + \nu \hat h_m$. For the squared-error case the two coincide — the minimizing $\gamma_{jm}$ is just the mean pseudo-residual in the leaf — so the distinction only matters for general losses such as the log-odds-scale Bernoulli loss below. This per-leaf line search is Friedman's [@Friedman2001Greedy] TreeBoost refinement.
 
 **Classification with Bernoulli Log-Loss**
 
@@ -228,6 +236,8 @@ r_{im} = y_i - p_i.
 $$
 
 Classification boosting therefore retains the residual structure, but the residual is on the probability scale ($y_i \in \{0,1\}$ minus $p_i \in (0,1)$) rather than on the outcome scale.
+
+This is exactly a case where the leaf-value refinement above matters: the tree fit to the pseudo-residuals $r_{im} = y_i - p_i$ fixes only the splits, and because Bernoulli log-loss is not squared error, the leaf constants are then set by the per-leaf line search $\gamma_{jm}$ rather than by the mean residual in the leaf. That minimization has no closed form here, so implementations take a single Newton step, $\gamma_{jm} = \big(\sum_{i:\, x_i \in R_{jm}} (y_i - p_i)\big) \big/ \big(\sum_{i:\, x_i \in R_{jm}} p_i(1-p_i)\big)$, using the gradient $p_i - y_i$ and the curvature $p_i(1-p_i)$ evaluated at the current probabilities.
 
 :::{.callout-important}
 ## Connection to Cross-Entropy
@@ -294,7 +304,7 @@ The number of iterations $M$ controls how long the algorithm keeps refining the 
 
 - too few trees can underfit
 - too many trees can eventually overfit
-- the optimal $M$ is usually chosen by validation or early stopping
+- the optimal $M$ is usually chosen by validation or early stopping — that is, by halting the number of boosting iterations $M$ at the point where validation error is minimized (see @sec-gb-early-stopping)
 
 **Tree Depth**
 
