@@ -789,15 +789,16 @@ Figure&nbsp;14.3: Stylized comparison of grid search and random search under low
 \mathcal{D}_t = \{(\lambda_j, \hat c_j)\}_{j=1}^t,
 \]</span></p>
 </div>
-<p>the surrogate produces a posterior mean <span class="math inline">\(m_t(\lambda)\)</span> and posterior standard deviation <span class="math inline">\(s_t(\lambda)\)</span>. The mean summarizes what the algorithm expects at a candidate point, while the standard deviation summarizes uncertainty. Acquisition rules then translate <span class="math inline">\((m_t, s_t)\)</span> into a search priority.</p>
+<p>the surrogate produces a posterior mean <span class="math inline">\(m_t(\lambda)\)</span> and posterior standard deviation <span class="math inline">\(s_t(\lambda)\)</span>. The mean summarizes what the algorithm expects at a candidate point, while the standard deviation summarizes uncertainty. Acquisition rules then translate <span class="math inline">\((m_t, s_t)\)</span> into a search priority. Consistent with the noisy validation scores emphasized throughout this chapter, we adopt the noisy-observation convention: the GP treats each validation score as <span class="math inline">\(\hat c_j = c(\lambda_j) + \varepsilon_j\)</span>, with an explicit observation-noise term, rather than as a noiseless evaluation of <span class="math inline">\(c\)</span>.</p>
 <p>A common acquisition rule is expected improvement. If <span class="math inline">\(c_{\min,t}\)</span> is the best loss seen so far, the expected improvement at <span class="math inline">\(\lambda\)</span> is</p>
 <div class="display-math-block">
 <p><span class="math display">\[
 \operatorname{EI}_t(\lambda)
 =
-\mathbb{E}\left[\max\{c_{\min,t} - C(\lambda), 0\} \mid \mathcal{D}_t\right].
+\mathbb{E}\left[\max\{c_{\min,t} - C(\lambda), 0\} \mid \mathcal{D}_t\right],
 \]</span></p>
 </div>
+<p>where <span class="math inline">\(C(\lambda)\)</span> denotes the surrogate’s random prediction of the loss at <span class="math inline">\(\lambda\)</span>, i.e.&nbsp;the random variable with <span class="math inline">\(C(\lambda)\mid \mathcal{D}_t \sim N(m_t(\lambda), s_t(\lambda)^2)\)</span>, and <span class="math inline">\(c_{\min,t} = \min_{1 \le j \le t} \hat c_j\)</span>, the smallest validation loss observed so far in <span class="math inline">\(\mathcal{D}_t\)</span>.</p>
 <p>Points with low predicted loss and points with high uncertainty can both have high expected improvement. That is the exploration-versus-exploitation tradeoff in one formula <span class="citation" data-cites="JonesSchonlauWelch1998 SnoekLarochelleAdams2012">(<a href="#ref-JonesSchonlauWelch1998" role="doc-biblioref">Jones, Schonlau, and Welch 1998</a>; <a href="#ref-SnoekLarochelleAdams2012" role="doc-biblioref">Snoek, Larochelle, and Adams 2012</a>)</span>.</p>
 <p><a href="#fig-bo-ei" class="quarto-xref">Figure&nbsp;14.4</a> makes this tradeoff visual. The top panel shows a surrogate mean together with its uncertainty band and the currently evaluated configurations. The bottom panel converts that information into expected improvement. The candidate with the highest expected improvement is not necessarily the point with the lowest surrogate mean; it can also be a point with substantial uncertainty.</p>
 <div id="cell-fig-bo-ei" class="cell" data-execution_count="5">
@@ -909,7 +910,7 @@ z_t(\lambda)
 <li>noisy validation scores can make the surrogate unstable</li>
 <li>the algorithm is more sequential than plain random search</li>
 </ul>
-<p><strong>TPE.</strong> Tree-structured Parzen Estimators are often used as a more practical BO alternative. Instead of modeling the loss as a function of <span class="math inline">\(\lambda\)</span> directly, TPE splits past trials into a good set and a bad set using a loss threshold <span class="math inline">\(y^\ast\)</span>, often chosen as a lower quantile of observed losses. It then fits two densities:</p>
+<p><strong>TPE.</strong> Tree-structured Parzen Estimators are often used as a more practical BO alternative. Instead of modeling the loss as a function of <span class="math inline">\(\lambda\)</span> directly, TPE splits past trials into a good set and a bad set using a loss threshold <span class="math inline">\(y^\ast\)</span>. Let <span class="math inline">\(y\)</span> denote the observed validation loss of a trial. The threshold <span class="math inline">\(y^\ast\)</span> is chosen as the <span class="math inline">\(\gamma\)</span>-quantile of the observed losses, so that a fraction <span class="math inline">\(\gamma\)</span> of past trials fall into the good set. TPE then fits two densities:</p>
 <div class="display-math-block">
 <p><span class="math display">\[
 \ell(\lambda) = p(\lambda \mid y \le y^\ast),
@@ -917,7 +918,7 @@ z_t(\lambda)
 g(\lambda) = p(\lambda \mid y &gt; y^\ast),
 \]</span></p>
 </div>
-<p>where <span class="math inline">\(y\)</span> denotes the observed validation loss.</p>
+<p>where <span class="math inline">\(y\)</span> denotes the observed validation loss and <span class="math inline">\(\gamma\)</span> is the same threshold quantile used in the TPE algorithm box below.</p>
 <p>The search idea is simple: propose candidates that look likely under the good-trial density and unlikely under the bad-trial density. In practice this means favoring large values of</p>
 <div class="display-math-block">
 <p><span class="math display">\[
@@ -939,7 +940,7 @@ TPE Algorithm
 <p>One practical TPE workflow can be summarized as follows.</p>
 <ol type="1">
 <li>Evaluate an initial set of randomly sampled hyperparameter configurations.</li>
-<li>Split the evaluated archive into a good set and a bad set using a quantile threshold <span class="math inline">\(\gamma\)</span> on the observed validation loss.</li>
+<li>Split the evaluated archive into a good set and a bad set using a quantile threshold <span class="math inline">\(\gamma\)</span> on the observed validation loss, i.e.&nbsp;set the threshold <span class="math inline">\(y^\ast\)</span> equal to the <span class="math inline">\(\gamma\)</span>-quantile of the observed losses.</li>
 <li>Fit the densities <span class="math inline">\(\ell(\lambda)=p(\lambda\mid y \le y^\ast)\)</span> and <span class="math inline">\(g(\lambda)=p(\lambda\mid y &gt; y^\ast)\)</span>.</li>
 <li>Sample candidate configurations from the good density and score them by the ratio <span class="math inline">\(\ell(\lambda)/g(\lambda)\)</span>.</li>
 <li>Evaluate the highest-scoring candidate, update the archive, and repeat until the budget is exhausted.</li>
@@ -1006,7 +1007,7 @@ Successive Halving Algorithm
 <div class="callout-body-container callout-body">
 <p>Let <span class="math inline">\(p^{[0]}\)</span> denote the initial number of configurations, let <span class="math inline">\(r^{[0]}\)</span> denote the initial resource per configuration, and let <span class="math inline">\(\eta &gt; 1\)</span> be the elimination rate.</p>
 <ol type="1">
-<li>For rounds <span class="math inline">\(t = 0,1,\ldots,s\)</span>, fit the current <span class="math inline">\(p^{[t]}\)</span> configurations using budget <span class="math inline">\(r^{[t]}\)</span>.</li>
+<li>For rounds <span class="math inline">\(t = 0,1,\ldots,s\)</span>, fit the current <span class="math inline">\(p^{[t]}\)</span> configurations using budget <span class="math inline">\(r^{[t]}\)</span>, where <span class="math inline">\(s\)</span> is the terminal round index at which the procedure stops.</li>
 <li>Rank configurations by validation performance and keep only the top fraction <span class="math inline">\(1/\eta\)</span>.</li>
 <li>Update the candidate count and resource level as <span class="math display">\[
 p^{[t+1]} = \left\lfloor \frac{p^{[t]}}{\eta} \right\rfloor,
@@ -1039,7 +1040,7 @@ s_{\max} = \left\lfloor \log_{\eta}(R) \right\rfloor,
 B = (s_{\max}+1)R.
 \]</span></p>
 </div>
-<p>Hyperband then runs several successive-halving brackets indexed by <span class="math inline">\(s=s_{\max},\ldots,0\)</span>. A common parameterization is</p>
+<p>Hyperband then runs several successive-halving brackets indexed by <span class="math inline">\(s=s_{\max},\ldots,0\)</span>. Note that <span class="math inline">\(s\)</span> is reused here as the bracket index, a different role from the terminal round index <span class="math inline">\(s\)</span> in the successive-halving box above. A common parameterization is</p>
 <div class="display-math-block">
 <p><span class="math display">\[
 n_s = \left\lceil \frac{B}{R}\frac{\eta^s}{s+1} \right\rceil,

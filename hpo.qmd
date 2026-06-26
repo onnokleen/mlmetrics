@@ -318,15 +318,17 @@ $$
 \mathcal{D}_t = \{(\lambda_j, \hat c_j)\}_{j=1}^t,
 $$
 
-the surrogate produces a posterior mean $m_t(\lambda)$ and posterior standard deviation $s_t(\lambda)$. The mean summarizes what the algorithm expects at a candidate point, while the standard deviation summarizes uncertainty. Acquisition rules then translate $(m_t, s_t)$ into a search priority.
+the surrogate produces a posterior mean $m_t(\lambda)$ and posterior standard deviation $s_t(\lambda)$. The mean summarizes what the algorithm expects at a candidate point, while the standard deviation summarizes uncertainty. Acquisition rules then translate $(m_t, s_t)$ into a search priority. Consistent with the noisy validation scores emphasized throughout this chapter, we adopt the noisy-observation convention: the GP treats each validation score as $\hat c_j = c(\lambda_j) + \varepsilon_j$, with an explicit observation-noise term, rather than as a noiseless evaluation of $c$.
 
 A common acquisition rule is expected improvement. If $c_{\min,t}$ is the best loss seen so far, the expected improvement at $\lambda$ is
 
 $$
 \operatorname{EI}_t(\lambda)
 =
-\mathbb{E}\left[\max\{c_{\min,t} - C(\lambda), 0\} \mid \mathcal{D}_t\right].
+\mathbb{E}\left[\max\{c_{\min,t} - C(\lambda), 0\} \mid \mathcal{D}_t\right],
 $$
+
+where $C(\lambda)$ denotes the surrogate's random prediction of the loss at $\lambda$, i.e. the random variable with $C(\lambda)\mid \mathcal{D}_t \sim N(m_t(\lambda), s_t(\lambda)^2)$, and $c_{\min,t} = \min_{1 \le j \le t} \hat c_j$, the smallest validation loss observed so far in $\mathcal{D}_t$.
 
 Points with low predicted loss and points with high uncertainty can both have high expected improvement. That is the exploration-versus-exploitation tradeoff in one formula [@JonesSchonlauWelch1998; @SnoekLarochelleAdams2012].
 
@@ -423,7 +425,7 @@ GP BO is most attractive when each evaluation is expensive and the search dimens
 - noisy validation scores can make the surrogate unstable
 - the algorithm is more sequential than plain random search
 
-**TPE.** Tree-structured Parzen Estimators are often used as a more practical BO alternative. Instead of modeling the loss as a function of $\lambda$ directly, TPE splits past trials into a good set and a bad set using a loss threshold $y^\ast$, often chosen as a lower quantile of observed losses. It then fits two densities:
+**TPE.** Tree-structured Parzen Estimators are often used as a more practical BO alternative. Instead of modeling the loss as a function of $\lambda$ directly, TPE splits past trials into a good set and a bad set using a loss threshold $y^\ast$. Let $y$ denote the observed validation loss of a trial. The threshold $y^\ast$ is chosen as the $\gamma$-quantile of the observed losses, so that a fraction $\gamma$ of past trials fall into the good set. TPE then fits two densities:
 
 $$
 \ell(\lambda) = p(\lambda \mid y \le y^\ast),
@@ -431,7 +433,7 @@ $$
 g(\lambda) = p(\lambda \mid y > y^\ast),
 $$
 
-where $y$ denotes the observed validation loss.
+where $y$ denotes the observed validation loss and $\gamma$ is the same threshold quantile used in the TPE algorithm box below.
 
 The search idea is simple: propose candidates that look likely under the good-trial density and unlikely under the bad-trial density. In practice this means favoring large values of
 
@@ -449,7 +451,7 @@ TPE is appealing because it handles mixed and conditional search spaces more eas
 One practical TPE workflow can be summarized as follows.
 
 1. Evaluate an initial set of randomly sampled hyperparameter configurations.
-2. Split the evaluated archive into a good set and a bad set using a quantile threshold $\gamma$ on the observed validation loss.
+2. Split the evaluated archive into a good set and a bad set using a quantile threshold $\gamma$ on the observed validation loss, i.e. set the threshold $y^\ast$ equal to the $\gamma$-quantile of the observed losses.
 3. Fit the densities $\ell(\lambda)=p(\lambda\mid y \le y^\ast)$ and $g(\lambda)=p(\lambda\mid y > y^\ast)$.
 4. Sample candidate configurations from the good density and score them by the ratio $\ell(\lambda)/g(\lambda)$.
 5. Evaluate the highest-scoring candidate, update the archive, and repeat until the budget is exhausted.
@@ -486,7 +488,7 @@ This logic can save large amounts of computation because poorly performing confi
 
 Let $p^{[0]}$ denote the initial number of configurations, let $r^{[0]}$ denote the initial resource per configuration, and let $\eta > 1$ be the elimination rate.
 
-1. For rounds $t = 0,1,\ldots,s$, fit the current $p^{[t]}$ configurations using budget $r^{[t]}$.
+1. For rounds $t = 0,1,\ldots,s$, fit the current $p^{[t]}$ configurations using budget $r^{[t]}$, where $s$ is the terminal round index at which the procedure stops.
 2. Rank configurations by validation performance and keep only the top fraction $1/\eta$.
 3. Update the candidate count and resource level as
    $$
@@ -516,7 +518,7 @@ s_{\max} = \left\lfloor \log_{\eta}(R) \right\rfloor,
 B = (s_{\max}+1)R.
 $$
 
-Hyperband then runs several successive-halving brackets indexed by $s=s_{\max},\ldots,0$. A common parameterization is
+Hyperband then runs several successive-halving brackets indexed by $s=s_{\max},\ldots,0$. Note that $s$ is reused here as the bracket index, a different role from the terminal round index $s$ in the successive-halving box above. A common parameterization is
 
 $$
 n_s = \left\lceil \frac{B}{R}\frac{\eta^s}{s+1} \right\rceil,

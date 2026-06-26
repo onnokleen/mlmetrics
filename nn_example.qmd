@@ -92,7 +92,7 @@ plt.tight_layout()
 plt.show()
 ```
 
-The workflow below makes the econometric design explicit: it constructs forecast origins before splitting the sample, estimates scaling constants only on the training block, and keeps the test block untouched until the final comparison. Replication uses the local SPY realized-variance file documented in [the dataset appendix](datasets.qmd#sec-spy-taq-realized).
+The workflow below makes the econometric design explicit: it constructs forecast origins before splitting the sample, estimates scaling constants only on the training block, and keeps the test block untouched until the final comparison. Concretely, features and target are standardized to zero mean and unit variance using the training-block mean and standard deviation (cf. [the Cross-Validation chapter on fitting preprocessing on training data only](cross_validation.qmd#sec-cv-leakage)), and forecasts are mapped back to the original scale. Replication uses the local SPY realized-variance file documented in [the dataset appendix](datasets.qmd#sec-spy-taq-realized).
 
 The first chunk loads the realized-variance series and constructs $z_t=\log(RV_t)$. Rows with missing or nonpositive realized variance are excluded before forming forecast origins.
 
@@ -138,7 +138,7 @@ RV_t,\quad
 \frac{1}{21}\sum_{j=0}^{20} RV_{t-j}
 \right).
 $$
-The training block is the first 64% of valid forecast origins, the validation block is the next 16%, and the test block is the final 20%. The validation block is sized to give enough forecast origins for stable hyperparameter selection via Optuna while keeping the test block large enough for a reliable out-of-sample comparison.
+The training block is the first 64% of valid forecast origins, the validation block is the next 16%, and the test block is the final 20%. The validation block is sized to give enough forecast origins for stable hyperparameter selection via Optuna while keeping the test block large enough for a reliable out-of-sample comparison. Optuna is a hyperparameter-search library: a *trial* is one sampled hyperparameter configuration, evaluated on the validation objective, and its default sampler is TPE, a tree-structured Bayesian search strategy. See @sec-hpo for the underlying selection-bias and search-strategy issues.
 
 ```{python}
 #| label: setup-windows
@@ -569,7 +569,7 @@ performance
 
 The model-fitting and tuning code above is shown for exposition but is not executed on render; the results below come from a local run with WRDS TAQ access. The empirical output uses the SPY realized-variance file described in [the dataset appendix](datasets.qmd#sec-spy-taq-realized), filtered to positive realized-variance observations; the usable modeling sample ends on 2024-12-31. The log-target rows come from the workflow shown above. The level-target rows repeat the same split, input construction, tuning budget, and evaluation protocol, but fit the models to $RV_{t+1}$ rather than $\log(RV_{t+1})$. The tuning run used 20 Optuna trials for each neural architecture. @fig-nn-performance is likewise a pre-generated figure from the same local run.
 
-The columns answer different questions. RMSE on $\log(RV)$ evaluates forecasts on the scale used by the log-target models and is the main comparison criterion here. For level-target models, the log-scale metrics are computed after clipping nonpositive variance forecasts to a small positive number before taking logs. RMSE on $RV$ evaluates the implied variance forecasts after exponentiating log-target forecasts. QLIKE is the volatility loss
+The columns answer different questions. Here RMSE $=\sqrt{\frac{1}{n}\sum_t(\hat z_t-z_t)^2}$ is the square root of the mean squared error of the forecasts. RMSE on $\log(RV)$ evaluates forecasts on the scale used by the log-target models and is the main comparison criterion here. For level-target models, the log-scale metrics are computed after clipping nonpositive variance forecasts to a small positive number before taking logs. RMSE on $RV$ evaluates the implied variance forecasts after exponentiating log-target forecasts. QLIKE is the volatility loss
 $$
 \frac{1}{n_{\text{test}}}\sum_{t}
 \left(
@@ -616,7 +616,7 @@ Two notes on reading these rankings. First, the single test window contains a fe
 
 The two HAR rows help separate information design from neural nonlinearity. In the log-target panel, linear HAR-OLS is stronger than the HAR-FNN and nearly matches the full-history networks. In the level-target panel, HAR-OLS is stronger than the HAR-FNN on all three reported losses. For this sample, the nonlinear HAR-FNN does not improve on the linear HAR benchmark.
 
-QLIKE and log-RV RMSE also need not pick the same winner. QLIKE is scale-equivariant: it measures whether $\widehat{RV}_t$ tracks $RV_t$ accurately in ratio terms, and it penalizes underprediction more heavily than overprediction through the ratio $RV_t/\widehat{RV}_t$. A model that calibrates the relative size of volatility spikes well can win on QLIKE while losing on log-RV RMSE — which is why the Simple RNN fit in levels has the lowest QLIKE while the LSTM fit on $\log(RV)$ has the lowest log-RV RMSE.
+QLIKE and log-RV RMSE also need not pick the same winner. QLIKE is scale-equivariant: it depends on forecast and target only through the ratio $RV_t/\widehat{RV}_t$, so rescaling both by a common constant leaves the loss unchanged. It measures whether $\widehat{RV}_t$ tracks $RV_t$ accurately in ratio terms, and it penalizes underprediction more heavily than overprediction through the ratio $RV_t/\widehat{RV}_t$. A model that calibrates the relative size of volatility spikes well can win on QLIKE while losing on log-RV RMSE — which is why the Simple RNN fit in levels has the lowest QLIKE while the LSTM fit on $\log(RV)$ has the lowest log-RV RMSE.
 
 With dependent financial data, an architecture comparison is interpretable only after the forecast target, lag construction, scaling, validation block, and tuning protocol have been fixed. The numerical ranking of LSTM, HAR-OLS, and the FNN is secondary to that design discipline.
 

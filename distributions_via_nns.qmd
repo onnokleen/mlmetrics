@@ -26,7 +26,7 @@ As discussed in the [Feed-Forward Neural Networks chapter](feed_forward_nns.qmd)
 -   **Traditional NN Output**: $\hat{y} = f_\theta(\mathbf{x})$
 -   **Distributional NN Output**: $p_\phi(y \mid \mathbf{x}) = p(y \mid \boldsymbol{\eta}_\phi(\mathbf{x}))$, where $\boldsymbol{\eta}_\phi(\mathbf{x})$ are the distribution parameters learned by the network.
 
-The distributional version replaces the scalar output by one or more output heads that map features into distributional parameters. For example, a Gaussian distributional network can produce a conditional mean and variance, while a Student-t network can additionally produce a degrees-of-freedom parameter.
+The distributional version replaces the scalar output by one or more output heads that map features into distributional parameters. For example, a Gaussian distributional network can produce a conditional mean and variance, while a Student-t network can additionally produce a degrees-of-freedom parameter. For the Gaussian case the parameter vector is $\boldsymbol{\eta}_\phi(\mathbf{x})=(\mu(\mathbf{x}),\log\sigma^2(\mathbf{x}))$ (equivalently $(\mu(\mathbf{x}),\sigma^2(\mathbf{x}))$), so the scalar heads $\mu_t$ and $\sigma_t^2$ that appear later are recognizably its components.
 
 The model is typically trained by maximizing the log-likelihood of the data, which is equivalent to minimizing the negative log-likelihood loss:
 
@@ -91,7 +91,7 @@ The architecture splits the network after a shared "common core" into two specia
 
 -   **Common Core**: A set of shared layers that learn a common representation. This allows latent drivers to influence both the mean and variance, creating an implicit link similar to ARCH or volatility-in-mean effects.
 -   **Mean Hemisphere**: A dedicated set of layers with a linear output head to predict $\mu_t$.
--   **Variance Hemisphere**: A dedicated set of layers with a `softplus` output head to ensure the predicted variance $\sigma_t^2$ is always positive.
+-   **Variance Hemisphere**: A dedicated set of layers with a `softplus` output head — the softplus transform $\zeta(z)=\log(1+e^{z})>0$ (introduced in the [Feed-Forward Neural Networks chapter](feed_forward_nns.qmd#sec-def-multilayer-nn)), which maps any real pre-activation to a positive value — to ensure the predicted variance $\sigma_t^2$ is always positive.
 
 The resulting architecture is illustrated in @fig-hnn.
 
@@ -140,7 +140,7 @@ The HNN framework introduces two key ingredients to discipline the unstable MLE 
 **Practical Design Choices and Extensions**
 
 -   **Hyperparameters**: A typical HNN might use 2 hidden layers for the core and 2 for each hemisphere, with ReLU activations, Adam optimization, and dropout.
--   **Beyond Gaussian**: The hemisphere approach can be extended to other distributions (e.g., Student-t) by adding a third hemisphere for the degrees of freedom parameter, $\nu$.
+-   **Beyond Gaussian**: The hemisphere approach can be extended to other distributions (e.g., Student-t) by adding a third hemisphere for the degrees of freedom parameter, $\nu$. Since $\nu>0$ is required, this head needs its own positivity transform on its output (e.g., a softplus head), just like the scale parameter.
 -   **Temporal Dynamics**: To capture GARCH-like effects more directly, lagged outcomes or squared residuals can be included as features in $\mathbf{x}_t$. For more complex sequences, the common core could be an LSTM.
 
 ## Handling Complex Distributions: Mixture Density Networks (MDNs) {#sec-mdn}
@@ -152,7 +152,7 @@ $$
 
 The network has three output heads to predict the parameters for all $K$ components:
 
--   **Mixing Weights $\pi_k(\mathbf{x})$**: A `softmax` layer ensures the weights are positive and sum to 1.
+-   **Mixing Weights $\pi_k(\mathbf{x})$**: A `softmax` layer over the $K$ components, $\pi_k(\mathbf{x})=\exp(a_k(\mathbf{x}))/\sum_{j=1}^K \exp(a_j(\mathbf{x}))$, so $\pi_k>0$ and $\sum_{k=1}^K\pi_k=1$, where $K$ indexes the mixture components. This ensures the weights are positive and sum to 1.
 -   **Means $\mu_k(\mathbf{x})$**: A linear layer.
 -   **Standard Deviations $\sigma_k(\mathbf{x})$**: A `softplus` layer ensures positivity.
 
@@ -178,7 +178,7 @@ The [SPY realized-volatility illustration](nn_example.qmd) produced point foreca
 
 The **HAR-OLS Gaussian baseline** sets the conditional mean to the linear HAR-OLS fit in log space — that is, a regression of $\log RV_{t+1}$ on $\log RV_t$, $\log\big(\tfrac{1}{5}\sum_{j=0}^{4} RV_{t-j}\big)$, and $\log\big(\tfrac{1}{21}\sum_{j=0}^{20} RV_{t-j}\big)$. The conditional variance is the in-sample residual variance from the same fit and stays constant over the test block. This baseline is homoskedastic in log-RV space.
 
-The **Gaussian distributional HAR-FNN** uses the same three log-HAR inputs but routes them through a single hidden layer with 32 softplus units, followed by two output heads: a linear mean head $\mu_\phi(\mathbf{x}_t)$ and a linear log-variance head $\eta_\phi(\mathbf{x}_t)$, with predictive variance $\sigma_\phi^2(\mathbf{x}_t)=\max\{\exp(\eta_\phi(\mathbf{x}_t)),c\}$ for a small floor $c$. The two heads share the hidden representation, in the spirit of the HNN common core in @sec-hnn but without the volatility-emphasis constraint or blocked subsampling. The model is trained by minimizing the Gaussian negative log likelihood, which by the discussion in @sec-distnn-training-scores is the neural-network analogue of minimizing the average log score on the training block. Both forecasts are then evaluated on the held-out test block using LogS, CRPS, and PIT, exactly as in @sec-eval-dist-empirical.
+The **Gaussian distributional HAR-FNN** uses the same three log-HAR inputs but routes them through a single hidden layer with 32 softplus units, followed by two output heads: a linear mean head $\mu_\phi(\mathbf{x}_t)$ and a linear log-variance head $\eta_\phi(\mathbf{x}_t)$, with predictive variance $\sigma_\phi^2(\mathbf{x}_t)=\max\{\exp(\eta_\phi(\mathbf{x}_t)),c\}$ for a small floor $c$. Here we parameterize positivity through the log-variance, $\sigma^2(\mathbf{x})=\exp(\eta_\phi(\mathbf{x}))$ (an alternative to the softplus head above); both guarantee $\sigma^2>0$. The two heads share the hidden representation, in the spirit of the HNN common core in @sec-hnn but without the volatility-emphasis constraint or blocked subsampling. The model is trained by minimizing the Gaussian negative log likelihood, which by the discussion in @sec-distnn-training-scores is the neural-network analogue of minimizing the average log score on the training block. Both forecasts are then evaluated on the held-out test block using LogS, CRPS, and PIT, exactly as in @sec-eval-dist-empirical.
 
 ```{python}
 #| label: distnn-setup

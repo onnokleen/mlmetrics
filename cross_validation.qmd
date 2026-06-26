@@ -7,7 +7,7 @@ number-offset: [1, 0]
 
 ## Overview
 
-When building a machine learning model, we face several critical decisions that affect performance: which algorithm to use, what values to choose for hyperparameters such as learning rate or regularization strength, and for neural networks, how many layers and neurons to include. The shared challenge is that we cannot evaluate these choices on the same data used for fitting — doing so produces optimistic estimates that do not generalize to new observations.
+When building a machine learning model, we face several critical decisions that affect performance: which algorithm to use, what values to choose for hyperparameters such as learning rate or regularization strength, and for neural networks, how many layers and neurons to include. Here it is worth fixing terminology: ordinary **parameters** (such as regression coefficients $\beta$) are estimated by minimizing in-sample loss, whereas **hyperparameters** (such as the polynomial degree $d$, the number of folds $K$, the learning rate, or the regularization strength) are set before or around fitting and are chosen by out-of-sample criteria. The shared challenge is that we cannot evaluate these choices on the same data used for fitting — doing so produces optimistic estimates that do not generalize to new observations.
 
 This chapter introduces **cross-validation** as the principled answer to that challenge. Cross-validation simulates the experience of predicting on unseen data by systematically holding out portions of the training set. The idea dates to @Stone1974 and @Geisser1975, who proposed leave-one-out and predictive-sample-reuse procedures for model assessment well before "machine learning" was a separate field. For econometricians, the issues are familiar: overfitting, specification search, and the bias introduced by repeated use of the same data arise in classical model selection just as in machine learning. Nested validation — emphasized in @VarmaSimon2006 and @CawleyTalbot2010 — is the econometric analogue of what this chapter formalizes.
 
@@ -17,7 +17,7 @@ This chapter introduces **cross-validation** as the principled answer to that ch
 2. We introduce the **honest workflow** — separating training, validation, and test sets — and explain when each set should be touched.
 3. We define **K-fold cross-validation**, discuss common choices of $K$, and explain how leakage inside folds invalidates the estimate.
 4. We extend to **time-series cross-validation** (expanding and sliding windows) and explain why standard K-fold is inappropriate for dependent data.
-5. We close with a **practical example** of hyperparameter tuning using nested cross-validation on a neural network.
+5. We close with a **practical example** of hyperparameter tuning on a neural network, using cross-validation as the inner model-selection loop, and explain how an outer loop would turn this into nested cross-validation.
 
 ## A Simple Illustration of Overfitting
 
@@ -106,6 +106,16 @@ plt.show()
 
 The left panel shows the fitted mean functions. The high-degree polynomial is flexible enough to follow noise in the training sample, while the linear model is too rigid. The right panel shows the classic overfitting pattern: as model complexity rises, the training error falls monotonically, but the test error eventually rises again. Cross-validation is designed to detect exactly this problem before we commit to a model.
 
+**Loss, empirical risk, and generalization risk.** To make "training error" and "test error" precise, fix a **loss function** $L(y,\hat{y})$ that measures the cost of predicting $\hat{y}$ when the outcome is $y$; our running example is **squared loss** $L(y,\hat{y})=(y-\hat{y})^2$. For a fitted model $\hat{f}$ and a sample $(x_i,y_i)_{i=1}^n$, the **empirical risk** is the average loss on that sample,
+$$
+\hat{R}(\hat{f})=\frac{1}{n}\sum_{i=1}^{n}L\big(y_i,\hat{f}(x_i)\big),
+$$
+which under squared loss is just the mean squared error. The **generalization (prediction) risk** is the expected loss on a fresh draw $(X,Y)$ from the same distribution, independent of the data used to fit $\hat{f}$,
+$$
+R(\hat{f})=\mathbb{E}\big[L\big(Y,\hat{f}(X)\big)\big].
+$$
+With this language, **training error** is the empirical risk evaluated on the training data, and **test error** is the empirical risk evaluated on held-out data. The training error is optimistic for $R(\hat{f})$ because $\hat{f}$ was chosen to make it small; the test error, computed on data not used for fitting, is an honest estimate of $R(\hat{f})$. The whole point of cross-validation is to approximate $R(\hat{f})$ without sacrificing a one-time test set.
+
 ## The Problem with Simple Train-Test Splits
 
 A simple approach is to split our data into a **training set** and a **testing set**:
@@ -193,6 +203,13 @@ The most common type of cross-validation is **K-Fold Cross-Validation**. The pro
     b.  Use the remaining $K-1$ folds as a **training set**.
     c.  Train the model on the training set and evaluate it on the validation set.
 4.  **Average** the performance scores from the $K$ folds to obtain a single performance estimate.
+
+Formally, let $D_k$ be the index set of the observations in fold $k$, let $|D_k|$ be its size, and let $\hat{f}^{-k}$ denote the model **refit from scratch on all data except fold $k$** — that is, trained only on the $K-1$ remaining folds, including any data-dependent preprocessing re-estimated on those folds alone. The K-fold cross-validation estimate of the risk is
+$$
+\widehat{\mathrm{CV}}_K
+=\frac{1}{K}\sum_{k=1}^{K}\frac{1}{|D_k|}\sum_{i\in D_k}L\big(y_i,\hat{f}^{-k}(x_i)\big).
+$$
+When $K$ does not divide $n$, the folds differ in size; averaging the per-fold mean losses (rather than pooling all losses) is what the inner factor $1/|D_k|$ accounts for, and it is equivalent to averaging the per-observation losses fold by fold.
 
 :::{.callout-note}
 ## Common Choices for K
@@ -522,6 +539,8 @@ print(results_df.nsmallest(5, 'mean_cv_mse')[['hidden_layers', 'learning_rate', 
 The reported mean CV MSE ranks the candidate configurations, while the fold standard deviation tells us how stable that ranking is across validation splits. A configuration with a slightly lower mean but a much larger fold-to-fold standard deviation is not clearly better unless the improvement is large relative to that variability. In the plots, vertical separation across learning rates or architectures indicates which hyperparameters matter most for this synthetic example; clusters of nearly equal points should be read as practically tied rather than as precise rankings.
 :::
 
+The grid search above uses a single level of cross-validation: `cross_val_score` plays the role of the **inner tuning loop**, comparing configurations and selecting the best. By itself this gives an honest comparison *across* configurations, but the cross-validated score of the *selected* configuration is still optimistically biased, for exactly the reason formalized in Exercise 2.2 below: taking the best of many noisy validation scores favors lucky draws. **Nested cross-validation** removes this contamination by wrapping the tuning procedure in a second loop. An **outer CV loop** is used to estimate generalization performance, while an **inner CV loop** — run separately within each outer training fold — selects the hyperparameters; because tuning happens only inside the outer training folds, the outer test folds never enter the selection step, so the performance estimate is not contaminated by tuning.
+
 :::{.callout-tip}
 ## For Larger Networks
 
@@ -530,7 +549,7 @@ For deep neural networks with many hyperparameters, consider:
 - **Random Search**: Sample hyperparameters randomly instead of exhaustive grid search
 - **Bayesian Optimization**: Use libraries like `optuna` or `hyperopt` for more efficient search
 - **Early Stopping**: Monitor validation performance during training to avoid overfitting
-- **Nested Cross-Validation**: Use an outer loop for final performance assessment if hyperparameter search itself is extensive
+- **Nested Cross-Validation**: Use an outer loop for final performance assessment when the hyperparameter search itself is extensive, as described just above
 :::
 
 ## Summary

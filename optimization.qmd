@@ -33,7 +33,7 @@ This is the core intuition behind **Gradient Descent**.
 
 The update rule for the parameters is:
 $$ \boldsymbol \theta_{\text{new}} = \boldsymbol \theta_{\text{old}} - \eta \nabla_{\boldsymbol  \theta} L(\boldsymbol\theta_{\text{old}}) $$
-where $\eta$ is the **learning rate**, a hyperparameter that controls the size of the steps we take.
+where $\eta$ is the **learning rate**, a hyperparameter (a quantity chosen by the user rather than estimated from the data) that controls the size of the steps we take.
 
 The main challenge is how to compute the gradient $\nabla_{\boldsymbol \theta} L(\boldsymbol \theta)$. The way we use our training data to compute it leads to three main variants of gradient descent.
 
@@ -82,7 +82,7 @@ Using only one data point per update instead of all $i = 1, \dots, N$ is a coars
 
 :::{.callout-note}
 -   **Pros**: Fast per update and requires little memory; the noisy updates can also help the model escape shallow local minima.
--   **Cons**: The path to the minimum is noisy and erratic; the model does not converge to a fixed point but bounces around the minimum.
+-   **Cons**: The path to the minimum is noisy and erratic; with a *constant* step size the iterates do not converge to a fixed point but bounce around the minimum. Convergence is recovered with a diminishing step-size schedule satisfying the Robbins–Monro conditions $\sum_t \eta_t = \infty$ and $\sum_t \eta_t^2 < \infty$ [@RobbinsMonro1951].
 :::
 
 **Mini-Batch Gradient Descent**
@@ -99,7 +99,7 @@ $$
 \boldsymbol{\theta}^{(t)} = \boldsymbol{\theta}^{(t-1)} - \eta \frac{1}{\left|B_j\right|} \sum_{i \in B_j}\nabla_{\boldsymbol{\theta}}\ell_i(\boldsymbol{\theta}^{(t-1)}).
 $$
 
-A typical mini-batch size $m$ is 32, 64, or 128. The total number of iteration steps for the algorithm $T$ doesn't need to coincide with the number of batches $J$. Typically, we have $J \ll T$ such that, after going through all batches for updating the parameters, we draw new batches of the same size to continue updating our parameter.
+A typical mini-batch size $b = |B_j|$ is 32, 64, or 128. The total number of iteration steps for the algorithm $T$ doesn't need to coincide with the number of batches $J$. Typically, we have $J \ll T$ such that, after going through all batches for updating the parameters, we draw new batches of the same size to continue updating our parameter.
 
 
 
@@ -155,7 +155,7 @@ Define $n_e, n_{e,b} \in \mathbb{N}\setminus\{0\}$ the number of epochs for trai
 ## Challenges with Vanilla Gradient Descent
 - Choosing the right learning rate $\eta$ is difficult
 - The same learning rate applies to all parameters, which may not be ideal
-- It can get stuck in saddle points, which are common in high-dimensional landscapes [@DauphinPascanuGulcehreChoBengioGanguli2014]
+- It can get stuck in saddle points, where the gradient is zero but the point is neither a local minimum nor a local maximum, which are common in high-dimensional landscapes [@DauphinPascanuGulcehreChoBengioGanguli2014]
 :::
 
 To address these issues, researchers have developed **adaptive optimization algorithms** that adjust the learning rate for each parameter automatically.
@@ -165,12 +165,13 @@ In all of the following algorithms, we choose a learning rate $\eta > 0$ and a s
 
 **Momentum**
 
-The momentum idea traces to @Polyak1964, who introduced the "heavy ball" method to accelerate iterative optimization, and @Nesterov1983, whose accelerated-gradient variant achieves a provably better convergence rate on convex objectives. Momentum accelerates SGD in directions of persistent gradient and dampens oscillations. It does so by adding a fraction of the previous update vector to the current gradient, creating a "velocity" term that accumulates past gradients.
+The momentum idea traces to @Polyak1964, who introduced the "heavy ball" method to accelerate iterative optimization, and @Nesterov1983, whose accelerated-gradient variant achieves a provably better convergence rate on convex objectives. A function is **convex** if its graph lies below every chord joining two points on it, equivalently if its Hessian is positive semidefinite; convex objectives have no spurious local minima (every local minimum is global), which is why convergence guarantees are typically stated for them. Momentum accelerates SGD in directions of persistent gradient and dampens oscillations. It does so by adding a fraction of the previous update vector to the current gradient, creating a "velocity" term that accumulates past gradients.
 
 $$ \boldsymbol v_t = \delta \boldsymbol v_{t-1} + (1 - \delta) \boldsymbol g_t $$
 $$ \boldsymbol \theta^{(t+1)} = \boldsymbol \theta^{(t)} - \eta \boldsymbol v_t $$
+with $\boldsymbol v_0 = \mathbf 0$.
 
-Here, $\delta$ is the momentum coefficient, and the velocity $v_t$ accumulates a weighted average of past gradients. This creates a "ball rolling downhill" effect that helps overcome small local minima and accelerates convergence in consistent directions.
+Here, $\delta \in [0,1)$ is the momentum coefficient, and the velocity $v_t$ accumulates a weighted average of past gradients. This creates a "ball rolling downhill" effect that helps overcome small local minima and accelerates convergence in consistent directions.
 
 **AdaGrad (Adaptive Gradient)**
 
@@ -189,6 +190,7 @@ This form is mathematically clean but computationally infeasible in modern netwo
 $$
 \boldsymbol G_t = \sum_{\tau=1}^{t} \boldsymbol g_\tau \odot \boldsymbol g_\tau \in \mathbb{R}^m,
 $$
+where $\odot$ denotes the element-wise (Hadamard) product,
 and update each coordinate by
 $$
 \boldsymbol{\theta}^{(t)} = \boldsymbol{\theta}^{(t-1)} - \eta \, \frac{\boldsymbol g_t}{\sqrt{\boldsymbol G_t + \varepsilon}},
@@ -209,10 +211,10 @@ RMSprop modifies AdaGrad to resolve its main issue of a learning rate that aggre
 The update rules are (with $v_0 = 0$):
 
 1.  **Compute decaying average of squared gradients**:
-    $$ \boldsymbol v_t = \delta \boldsymbol v_{t-1} + (1 - \delta) \boldsymbol g_t^2 $$
+    $$ \boldsymbol v_t = \gamma \boldsymbol v_{t-1} + (1 - \gamma) \boldsymbol g_t^2 $$
 2.  **Update parameters**:
     $$ \boldsymbol{\theta}^{(t)} = \boldsymbol{\theta}^{(t-1)} - \eta \frac{1}{\sqrt{v_t} + \varepsilon}g_t $$
-Here, $v_t$ is the moving average of squared gradients, and $\delta$ is the decay rate (e.g., 0.9). By "forgetting" the distant past, RMSprop keeps the learning rate adaptive and responsive throughout training.
+Here, $v_t$ is the moving average of squared gradients, and $\gamma$ is the squared-gradient decay rate (e.g., 0.9), distinct from the momentum coefficient $\delta$ above. By "forgetting" the distant past, RMSprop keeps the learning rate adaptive and responsive throughout training.
 
 
 **Adam (Adaptive Moment Estimation)**
@@ -221,16 +223,16 @@ Adam is a widely used default optimizer for neural networks [@KingmaBa2015]. It 
 
 The algorithm maintains two moving averages:
 
-1. **First moment estimate** (momentum):
-   $$ \boldsymbol m_t = \beta \boldsymbol m_{t-1} + (1 - \beta) \boldsymbol g_{t} $$
-2. **Second moment estimate** (uncentered variance):
-   $$ \boldsymbol v_t = \delta \boldsymbol v_{t-1} + (1 - \delta) \boldsymbol g_{t}^2 $$
+1. **First moment estimate** (momentum), with first-moment decay $\beta_1$:
+   $$ \boldsymbol m_t = \beta_1 \boldsymbol m_{t-1} + (1 - \beta_1) \boldsymbol g_{t} $$
+2. **Second moment estimate** (uncentered variance), with second-moment decay $\beta_2$:
+   $$ \boldsymbol v_t = \beta_2 \boldsymbol v_{t-1} + (1 - \beta_2) \boldsymbol g_{t}^2 $$
 
-Since $\boldsymbol m_t$ and $\boldsymbol v_t$ are initialized as zero vectors, they are biased toward zero, especially during the initial time steps. Unrolling the recursion gives $\boldsymbol m_t = (1-\beta) \sum_{\tau=1}^{t} \beta^{t-\tau} \boldsymbol g_\tau$, so under a stationary gradient process with $\mathbb{E}[\boldsymbol g_\tau] = \boldsymbol \mu$ we have $\mathbb{E}[\boldsymbol m_t] = (1-\beta^t)\boldsymbol \mu$. Adam corrects this bias by rescaling:
+Here $\beta_1,\beta_2 \in [0,1)$ play the roles that $\delta$ and $\gamma$ played for Momentum and RMSprop, respectively. Since $\boldsymbol m_t$ and $\boldsymbol v_t$ are initialized as zero vectors, they are biased toward zero, especially during the initial time steps. Unrolling the recursion gives $\boldsymbol m_t = (1-\beta_1) \sum_{\tau=1}^{t} \beta_1^{t-\tau} \boldsymbol g_\tau$, so under a stationary gradient process with $\mathbb{E}[\boldsymbol g_\tau] = \boldsymbol \mu$ we have $\mathbb{E}[\boldsymbol m_t] = (1-\beta_1^t)\boldsymbol \mu$. Adam corrects this bias by rescaling:
 
 3. **Bias-corrected estimates**:
-   $$ \hat{\boldsymbol m}_t = \frac{\boldsymbol m_t}{1 - \beta^t} $$
-   $$ \hat{\boldsymbol v}_t = \frac{\boldsymbol v_t}{1 - \delta^t} $$
+   $$ \hat{\boldsymbol m}_t = \frac{\boldsymbol m_t}{1 - \beta_1^t} $$
+   $$ \hat{\boldsymbol v}_t = \frac{\boldsymbol v_t}{1 - \beta_2^t} $$
 
 The correction restores unbiasedness under stationarity; during actual training, gradient means and second moments drift across iterations, so the correction is approximate but still removes most of the initial zero-init bias.
 
@@ -251,7 +253,7 @@ The column **Optimizer state** reports the number of running state tensors the o
 | **Momentum** | 1 (velocity) | $\eta$, $\delta$ | Accelerates convergence, dampens oscillations | Can overshoot, needs tuning |
 | **AdaGrad** | 1 (squared-gradient sum) | $\eta$, $\epsilon$ | Adapts per-parameter rates | Learning rate decays to zero |
 | **RMSprop** | 1 (EMA of squared gradients) | $\eta$, $\gamma$, $\epsilon$ | Fixes AdaGrad's decay problem | No momentum component |
-| **Adam** | 2 (first and second moments) | $\eta$, $\beta$, $\delta$, $\epsilon$ | Combines momentum + adaptation | Can converge to suboptimal points |
+| **Adam** | 2 (first and second moments) | $\eta$, $\beta_1$, $\beta_2$, $\epsilon$ | Combines momentum + adaptation | Can converge to suboptimal points |
 
 ## Visualizing Optimizers
 
@@ -507,7 +509,7 @@ While Adam might not appear dramatically superior to other algorithms in this vi
 
 - **Highly non-convex** with many local minima and saddle points
 - **High-dimensional** (often millions of parameters)
-- **Ill-conditioned** with vastly different scales across parameters
+- **Ill-conditioned** with vastly different scales across parameters; ill-conditioning is measured by the condition number $\kappa = \lambda_{\max}/\lambda_{\min}$, the ratio of the largest to the smallest eigenvalue of the Hessian (the largest to smallest curvature), with large $\kappa$ indicating a poorly conditioned, hard-to-optimize landscape
 - **Noisy** due to mini-batch sampling
 
 In such challenging real-world scenarios, Adam's adaptive learning rates and momentum typically provide significant advantages over simpler methods. This simple 2D example serves to illustrate the core behavioral differences between optimizers rather than their relative performance on complex problems.
@@ -894,9 +896,9 @@ and define the corresponding full-sample gradient
 $$
 g(\boldsymbol{\theta}) = \frac{1}{N}\sum_{i=1}^N \nabla_{\boldsymbol{\theta}} \ell_i(\boldsymbol{\theta}).
 $$
-Now draw a mini-batch $B$ of size $m$ uniformly at random from $\{1,\dots,N\}$ without replacement, and define the mini-batch gradient estimator
+Now draw a mini-batch $B$ of size $b$ uniformly at random from $\{1,\dots,N\}$ without replacement, and define the mini-batch gradient estimator
 $$
-\hat g_B(\boldsymbol{\theta}) = \frac{1}{m}\sum_{i\in B}\nabla_{\boldsymbol{\theta}} \ell_i(\boldsymbol{\theta}).
+\hat g_B(\boldsymbol{\theta}) = \frac{1}{b}\sum_{i\in B}\nabla_{\boldsymbol{\theta}} \ell_i(\boldsymbol{\theta}).
 $$
 
 1. Show that
@@ -906,12 +908,12 @@ $$
    so the mini-batch gradient is an unbiased estimator of the full gradient.
 2. Consider the scalar case where $\nabla_{\boldsymbol{\theta}} \ell_i(\boldsymbol{\theta})$ is replaced by $z_i \in \mathbb{R}$. Show that
    $$
-   \mathrm{Var}\left(\frac{1}{m}\sum_{i\in B} z_i\right)
+   \mathrm{Var}\left(\frac{1}{b}\sum_{i\in B} z_i\right)
    =
-   \frac{N-m}{m(N-1)} \cdot \frac{1}{N}\sum_{i=1}^N (z_i-\bar z)^2,
+   \frac{N-b}{b(N-1)} \cdot \frac{1}{N}\sum_{i=1}^N (z_i-\bar z)^2,
    $$
    where $\bar z = \frac{1}{N}\sum_{i=1}^N z_i$.
-3. Use Part 2 to explain why smaller mini-batches produce noisier updates. Then explain one reason why such noise may nevertheless be useful in optimization.
+3. Use Part 2 to explain why smaller mini-batches (smaller $b$) produce noisier updates. Then explain one reason why such noise may nevertheless be useful in optimization.
 
 *Exam level. The exercise formalizes why mini-batch updates are noisy but still useful approximations to the full gradient.*
 :::
@@ -930,7 +932,7 @@ Use the standard variance formula for sampling without replacement, or derive it
 ## Hint for Part 3
 Inspect the factor
 $$
-\frac{N-m}{m(N-1)}.
+\frac{N-b}{b(N-1)}.
 $$
 :::
 
@@ -947,18 +949,18 @@ denote the inclusion indicator for observation $i$. Then
 $$
 \hat g_B(\boldsymbol{\theta})
 =
-\frac{1}{m}\sum_{i=1}^N \mathbb{1}\{i \in B\}\nabla_{\boldsymbol{\theta}}\ell_i(\boldsymbol{\theta}).
+\frac{1}{b}\sum_{i=1}^N \mathbb{1}\{i \in B\}\nabla_{\boldsymbol{\theta}}\ell_i(\boldsymbol{\theta}).
 $$
 Taking expectations and using
 $$
-\mathbb{E}[\mathbb{1}\{i \in B\}] = \frac{m}{N},
+\mathbb{E}[\mathbb{1}\{i \in B\}] = \frac{b}{N},
 $$
 $$
 \mathbb{E}[\hat g_B(\boldsymbol{\theta})]
 =
-\frac{1}{m}\sum_{i=1}^N \mathbb{E}[\mathbb{1}\{i \in B\}] \nabla_{\boldsymbol{\theta}}\ell_i(\boldsymbol{\theta})
+\frac{1}{b}\sum_{i=1}^N \mathbb{E}[\mathbb{1}\{i \in B\}] \nabla_{\boldsymbol{\theta}}\ell_i(\boldsymbol{\theta})
 =
-\frac{1}{m}\sum_{i=1}^N \frac{m}{N}\nabla_{\boldsymbol{\theta}}\ell_i(\boldsymbol{\theta})
+\frac{1}{b}\sum_{i=1}^N \frac{b}{N}\nabla_{\boldsymbol{\theta}}\ell_i(\boldsymbol{\theta})
 =
 \frac{1}{N}\sum_{i=1}^N \nabla_{\boldsymbol{\theta}}\ell_i(\boldsymbol{\theta})
 = g(\boldsymbol{\theta}).
@@ -970,9 +972,9 @@ So the mini-batch gradient is an unbiased estimator of the full gradient.
 
 For scalar values $z_1,\dots,z_N$, the sample mean over a simple random sample without replacement satisfies
 $$
-\mathrm{Var}\left(\frac{1}{m}\sum_{i\in B} z_i\right)
+\mathrm{Var}\left(\frac{1}{b}\sum_{i\in B} z_i\right)
 =
-\frac{N-m}{m(N-1)}\,S_N^2,
+\frac{N-b}{b(N-1)}\,S_N^2,
 $$
 where
 $$
@@ -980,9 +982,9 @@ S_N^2 = \frac{1}{N}\sum_{i=1}^N (z_i-\bar z)^2.
 $$
 Hence
 $$
-\mathrm{Var}\left(\frac{1}{m}\sum_{i\in B} z_i\right)
+\mathrm{Var}\left(\frac{1}{b}\sum_{i\in B} z_i\right)
 =
-\frac{N-m}{m(N-1)} \cdot \frac{1}{N}\sum_{i=1}^N (z_i-\bar z)^2.
+\frac{N-b}{b(N-1)} \cdot \frac{1}{N}\sum_{i=1}^N (z_i-\bar z)^2.
 $$
 
 This is exactly the stated formula.
@@ -991,9 +993,9 @@ This is exactly the stated formula.
 
 The variance factor
 $$
-\frac{N-m}{m(N-1)}
+\frac{N-b}{b(N-1)}
 $$
-falls as $m$ increases. Therefore smaller mini-batches produce noisier gradient estimates and hence noisier parameter updates.
+falls as $b$ increases. Therefore smaller mini-batches produce noisier gradient estimates and hence noisier parameter updates.
 
 That noise can nevertheless be useful because it can prevent the algorithm from following a rigid deterministic path. In non-convex problems, moderate noise may help the optimizer move away from poor local geometries such as narrow basins or saddle regions.
 :::
