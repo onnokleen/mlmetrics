@@ -7,13 +7,13 @@ number-offset: [1, 0]
 
 ## Overview
 
-When building a machine learning model, we face several critical decisions that affect performance: which algorithm to use, what values to choose for hyperparameters such as learning rate or regularization strength, and for neural networks, how many layers and neurons to include. Here it is worth fixing terminology: ordinary **parameters** (such as regression coefficients $\beta$) are estimated by minimizing in-sample loss, whereas **hyperparameters** (such as the polynomial degree $d$, the number of folds $K$, the learning rate, or the regularization strength) are set before or around fitting and are chosen by out-of-sample criteria. The shared challenge is that we cannot evaluate these choices on the same data used for fitting — doing so produces optimistic estimates that do not generalize to new observations.
+When building a machine learning model, we face several decisions that affect performance: which algorithm to use, what values to choose for hyperparameters such as learning rate or regularization strength, and for neural networks, how many layers and neurons to include. Here it is worth fixing terminology: ordinary **parameters** (such as regression coefficients $\beta$) are estimated by minimizing in-sample loss, whereas **hyperparameters** (such as the polynomial degree $d$, the number of folds $K$, the learning rate, or the regularization strength) are set before or around fitting and are chosen by out-of-sample criteria. The shared challenge is that we cannot evaluate these choices on the same data used for fitting — doing so produces optimistic estimates that do not generalize to new observations.
 
 This chapter introduces **cross-validation** as the principled answer to that challenge. Cross-validation simulates the experience of predicting on unseen data by systematically holding out portions of the training set. The idea dates to @Stone1974 and @Geisser1975, who proposed leave-one-out and predictive-sample-reuse procedures for model assessment well before "machine learning" was a separate field. For econometricians, the issues are familiar: overfitting, specification search, and the bias introduced by repeated use of the same data arise in classical model selection just as in machine learning. The econometric analogue of the problem is pretest and specification-search bias; nested validation as emphasized in @VarmaSimon2006 and @CawleyTalbot2010 is the machine-learning community's answer to it.
 
 ## Roadmap
 
-1. We illustrate **overfitting** with a polynomial regression example to motivate why training error is not a reliable guide to predictive performance.
+1. We illustrate **overfitting** with a polynomial regression example to motivate why the training MSE is not a reliable guide to predictive performance.
 2. We introduce the **honest workflow** — separating training, validation, and test sets — and explain when each set should be touched.
 3. We define **K-fold cross-validation**, discuss common choices of $K$, and explain how leakage inside folds invalidates the estimate.
 4. We extend to **time-series cross-validation** (expanding and sliding windows) and explain why standard K-fold is inappropriate for dependent data.
@@ -24,21 +24,37 @@ This chapter introduces **cross-validation** as the principled answer to that ch
 Consider a regression model with Gaussian errors:
 
 $$
-y_i = f(x_i) + \varepsilon_i, \qquad \varepsilon_i \sim \mathcal{N}(0,\sigma^2).
+y_i = f(x_i) + \varepsilon_i, \qquad \varepsilon_i \mid x_i \stackrel{\text{iid}}{\sim} \mathcal{N}(0,\sigma^2),
 $$
 
-Suppose we approximate the conditional mean function by a polynomial of degree $d$,
+so that $f(x) = \mathbb{E}[Y \mid X = x]$ is the conditional mean function. Suppose we approximate $f$ by a polynomial of degree $d$,
 
 $$
-\mu_d(x) = \beta_0 + \beta_1 x + \cdots + \beta_d x^d.
+\mu_d(x) = \beta_0 + \beta_1 x + \cdots + \beta_d x^d,
 $$
 
-As discussed in the previous chapter, under Gaussian errors with fixed variance, maximizing the likelihood is equivalent to minimizing the training sum of squared errors. This makes the overfitting problem transparent: if the degree $d$ is too large, the model can improve **in-sample fit** by chasing noise in the training data.
+and write $\hat{\mu}_d$ for the fit obtained by least squares on the training sample. This is the fitted model denoted generically by $\hat{f}$ below.
+
+In the illustration below we simulate $n = 25$ training observations and, separately, $200$ test observations drawn independently from the same process. The test sample is therefore not a split of the training data; it plays the role of the "fresh draw" in the definition of generalization risk given next.
+
+As discussed in the previous chapter, under Gaussian errors with fixed variance, maximizing the likelihood is equivalent to minimizing the training sum of squared errors — equivalently the training mean squared error, which differs only by the factor $1/n$. This makes the overfitting problem transparent: if the degree $d$ is too large, the model can improve **in-sample fit** by chasing noise in the training data.
+
+**Loss, empirical risk, and generalization risk.** To make the two error curves in @fig-overfitting-example precise, fix a **loss function** $L(y,\hat{y})$ that measures the cost of predicting $\hat{y}$ when the outcome is $y$; our running example is **squared loss** $L(y,\hat{y})=(y-\hat{y})^2$. For a fitted model $\hat{f}$ and a sample $(x_i,y_i)_{i=1}^n$, the **empirical risk** is the average loss on that sample,
+$$
+\hat{R}(\hat{f})=\frac{1}{n}\sum_{i=1}^{n}L\big(y_i,\hat{f}(x_i)\big),
+$$
+which under squared loss is the **mean squared error (MSE)** on that sample. The same functional applied to two different samples gives two different numbers: evaluating it on the training data gives the **training MSE**, $\hat{R}_{\text{train}}(\hat{f})$, and evaluating the same $\hat{f}$ on the held-out sample gives the **test MSE**, $\hat{R}_{\text{test}}(\hat{f})$. These are the two quantities plotted against polynomial degree in the right panel below.
+
+The **generalization (prediction) risk** is the expected loss on a fresh draw $(X,Y)$ from the same distribution, independent of the data used to fit $\hat{f}$,
+$$
+R(\hat{f})=\mathbb{E}_{(X,Y)}\big[L\big(Y,\hat{f}(X)\big)\,\big|\,\hat{f}\big].
+$$
+The conditioning bar is not decoration: $\hat{f}$ is held fixed and the expectation runs only over the new observation $(X,Y)$. The training MSE $\hat{R}_{\text{train}}(\hat{f})$ is optimistic for $R(\hat{f})$ because $\hat{f}$ was chosen to make it small; the test MSE $\hat{R}_{\text{test}}(\hat{f})$, computed on data not used for fitting, is an honest estimate of $R(\hat{f})$. Cross-validation is designed to estimate this kind of out-of-sample risk without sacrificing a one-time test set. However, as we describe below, its estimand is not exactly $R(\hat{f})$ for the final fitted model.
 
 ```{python}
 #| label: fig-overfitting-example
 #| fig-cap: "Overfitting in polynomial regression: flexible models can improve training fit while hurting test performance."
-#| echo: false
+#| echo: true
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -90,7 +106,7 @@ axes[0].set_ylabel('y')
 axes[0].legend(frameon=False)
 axes[0].grid(True, alpha=0.3)
 
-# Right panel: train vs test error
+# Right panel: training vs test MSE
 axes[1].plot(list(degrees), train_mse, 'o-', color='C0', label='Training MSE')
 axes[1].plot(list(degrees), test_mse, 'o-', color='C3', label='Test MSE')
 axes[1].axvline(12, color='gray', linestyle='--', alpha=0.7)
@@ -104,31 +120,21 @@ plt.tight_layout()
 plt.show()
 ```
 
-The left panel shows the fitted mean functions. The high-degree polynomial is flexible enough to follow noise in the training sample, while the linear model is too rigid. The right panel shows the classic overfitting pattern: as model complexity rises, the training error falls monotonically, but the test error eventually rises again. Cross-validation is designed to detect exactly this problem before we commit to a model.
-
-**Loss, empirical risk, and generalization risk.** To make "training error" and "test error" precise, fix a **loss function** $L(y,\hat{y})$ that measures the cost of predicting $\hat{y}$ when the outcome is $y$; our running example is **squared loss** $L(y,\hat{y})=(y-\hat{y})^2$. For a fitted model $\hat{f}$ and a sample $(x_i,y_i)_{i=1}^n$, the **empirical risk** is the average loss on that sample,
-$$
-\hat{R}(\hat{f})=\frac{1}{n}\sum_{i=1}^{n}L\big(y_i,\hat{f}(x_i)\big),
-$$
-which under squared loss is just the mean squared error. The **generalization (prediction) risk** is the expected loss on a fresh draw $(X,Y)$ from the same distribution, independent of the data used to fit $\hat{f}$,
-$$
-R(\hat{f})=\mathbb{E}\big[L\big(Y,\hat{f}(X)\big)\big].
-$$
-With this language, **training error** is the empirical risk evaluated on the training data, and **test error** is the empirical risk evaluated on held-out data. The training error is optimistic for $R(\hat{f})$ because $\hat{f}$ was chosen to make it small; the test error, computed on data not used for fitting, is an honest estimate of $R(\hat{f})$. Cross-validation is designed to estimate this kind of out-of-sample risk without sacrificing a one-time test set. However, as we describe below, its estimand is not exactly $R(\hat{f})$ for the final fitted model.
+The left panel shows the fitted mean functions. The high-degree polynomial is flexible enough to follow noise in the training sample, while the linear model is too rigid. The right panel shows the classic overfitting pattern: as model complexity rises, the training MSE falls monotonically, but the test MSE eventually rises again. Cross-validation is designed to detect exactly this problem before we commit to a model.
 
 ## The Problem with Simple Train-Test Splits
 
-A simple approach is to split our data into a **training set** and a **testing set**:
+A simple approach is to split our data into a **training set** and a **test set**:
 
 - Train different models/configurations on the training set
-- Evaluate their performance on the testing set
+- Evaluate their performance on the test set
 - Choose the best-performing option
 
 If this test set is used exactly once at the very end, it is a legitimate final evaluation device. The problem starts when we also use it to choose the model.
 
 However, this simple approach has major drawbacks:
 
-1. **High variance**: Model performance can be highly dependent on which specific data points ended up in each set
+1. **High variance**: the estimated performance varies with the random assignment of observations to the two sets, so a single split gives a noisy ranking
 2. **Test set contamination**: If we use the test set to make multiple decisions (choose hyperparameters, select architecture), we're effectively "training" on the test set, leading to overly optimistic performance estimates
 3. **Limited data usage**: We're not using all available data for training
 
@@ -140,7 +146,7 @@ However, this simple approach has major drawbacks:
 The clean workflow is:
 
 1. Use the **training data** to fit candidate models.
-2. Use a **validation strategy** to compare models and tune hyperparameters.
+2. Compare those candidates and tune hyperparameters on a **validation set**: data held out from fitting, used only to choose among models, and re-usable across many such comparisons.
 3. Keep the **test set** untouched until the very end for one final evaluation.
 
 Cross-validation is primarily a replacement for a single validation split, not for the final test set.
@@ -211,7 +217,7 @@ $$
 $$
 When $K$ does not divide $n$, the folds differ in size; averaging the per-fold mean losses (rather than pooling all losses) is what the inner factor $1/|D_k|$ accounts for, and it is equivalent to averaging the per-observation losses fold by fold.
 
-**What does $\widehat{\mathrm{CV}}_K$ estimate?** Each fold model $\hat{f}^{-k}$ is trained on only $n(K-1)/K$ observations, and the $K$ fold models all differ from the model $\hat{f}$ refit on the full sample. The average above therefore estimates the **expected risk of the fitting procedure at training-set size $n(K-1)/K$**. 
+**What does $\widehat{\mathrm{CV}}_K$ estimate?** Each fold model $\hat{f}^{-k}$ is trained on approximately $n(K-1)/K$ observations — exactly that many when $K$ divides $n$ — and the $K$ fold models all differ from the model $\hat{f}$ refit on the full sample. The average above therefore estimates the **expected risk of the fitting procedure at training-set size $n(K-1)/K$**. 
 This is an expectation over the draw of the training data rather than the risk $R(\hat{f})$ of the one model we actually deploy. Because the fold models are trained on fewer observations, $\widehat{\mathrm{CV}}_K$ is typically mildly pessimistic for the full-sample model; this training-size effect is exactly the bias referred to in the callout below. @BatesHastieTibshirani2024 make the distinction precise and show that cross-validation is better viewed as estimating the expected risk of the procedure than the risk of the fitted model in hand.
 
 :::{.callout-note}
@@ -226,7 +232,7 @@ The following figure illustrates the K-Fold process for $K=5$ in two equivalent 
 ```{python}
 #| label: fig-kfold-cv
 #| fig-cap: "Illustration of 5-Fold Cross-Validation. The top panel shows shuffled fold assignment, while the bottom panel shows the same logic as a contiguous partition into five exhaustive and non-overlapping folds."
-#| echo: false
+#| echo: true
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
@@ -321,7 +327,7 @@ This method uses a fixed-size training set that "slides" through time.
 2.  The next block of data is the validation set.
 3.  In the next iteration, both the training and validation windows slide forward by a specified step.
 
-This is preferred when the DGP exhibits slow non-stationarity or structural change, so that older observations are less informative about the current conditional distribution.
+This is preferred when the data-generating process (DGP) exhibits slow non-stationarity or structural change, so that older observations are less informative about the current conditional distribution.
 
 **Visualizing Time Series Cross-Validation**
 
@@ -330,7 +336,7 @@ The figure below illustrates the expanding and sliding window approaches.
 ```{python}
 #| label: fig-timeseries-cv
 #| fig-cap: "Illustration of Time Series Cross-Validation Methods."
-#| echo: false
+#| echo: true
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
@@ -398,12 +404,12 @@ Scikit-learn's `TimeSeriesSplit` implements the expanding window. A sliding wind
 
 ## Practical Example: Tuning a Neural Network with Cross-Validation
 
-Let's see how to use cross-validation to select the best hyperparameters for a simple neural network; see [Section 5](feed_forward_nns.qmd). We will tune the number of hidden units and the learning rate using scikit-learn.
+Let's see how to use cross-validation to select the best hyperparameters for a simple neural network; see the [chapter on feed-forward neural networks](feed_forward_nns.qmd). We will tune the hidden-layer architecture, the learning rate, and the L2 penalty using scikit-learn.
 
-To keep the example honest, we put standardization and model fitting into a single `Pipeline`. This ensures that scaling is learned separately inside each training fold rather than on the full dataset.
+To keep the example honest, we put standardization and model fitting into a single `Pipeline`. This ensures that scaling is learned separately inside each training fold rather than on the full dataset. @fig-nn-cv-tuning summarizes the search: each point is one configuration in the grid, plotted against the learning rate in the left panel and against the architecture in the right panel, with the red star marking the configuration attaining the lowest cross-validated MSE.
 
 ```{python}
-#| label: nn-cv-tuning
+#| label: fig-nn-cv-tuning
 #| fig-cap: "Cross-validation results for neural network hyperparameter tuning."
 #| echo: true
 import numpy as np
@@ -539,7 +545,7 @@ print(results_df.nsmallest(5, 'mean_cv_mse')[['hidden_layers', 'learning_rate', 
 3. **Leakage Prevention**: The `Pipeline` ensures that standardization is re-estimated inside each fold
 4. **Fair Comparison**: All models are evaluated on the same data splits, ensuring fair comparison
 
-The reported mean CV MSE ranks the candidate configurations, while the fold standard deviation tells us how stable that ranking is across validation splits. A configuration with a slightly lower mean but a much larger fold-to-fold standard deviation is not clearly better unless the improvement is large relative to that variability. In the plots, vertical separation across learning rates or architectures indicates which hyperparameters matter most for this synthetic example; clusters of nearly equal points should be read as practically tied rather than as precise rankings.
+The reported mean CV MSE ranks the candidate configurations, while the standard deviation of the $K$ fold scores — the `std_cv_mse` column above — tells us how stable that ranking is across validation splits. A configuration with a slightly lower mean but a much larger fold-to-fold standard deviation is not clearly better unless the improvement is large relative to that variability. In the plots, vertical separation across learning rates or architectures indicates which hyperparameters matter most for this synthetic example; clusters of nearly equal points should be read as practically tied rather than as precise rankings.
 :::
 
 The grid search above uses a single level of cross-validation: `cross_val_score` plays the role of the **inner tuning loop**, comparing configurations and selecting the best. By itself this gives an honest comparison *across* configurations, but the cross-validated score of the *selected* configuration is still optimistically biased, for exactly the reason formalized in Exercise 2.2 below: taking the best of many noisy validation scores favors lucky draws. **Nested cross-validation** removes this contamination by wrapping the tuning procedure in a second loop. An **outer CV loop** is used to estimate generalization performance, while an **inner CV loop** — run separately within each outer training fold — selects the hyperparameters; because tuning happens only inside the outer training folds, the outer test folds never enter the selection step, so the performance estimate is not contaminated by tuning.
