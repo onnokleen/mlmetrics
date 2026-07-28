@@ -21,7 +21,7 @@ For optional visual intuition, [this blog post](https://colah.github.io/posts/20
 2. We then work through the LSTM update equations and notation.
 3. Next, we explain why the cell state improves gradient flow relative to a plain RNN.
 4. We discuss when the additional complexity of an LSTM is useful in econometric forecasting.
-5. We close with a research application in asset pricing, key takeaways, common pitfalls, and a manual forward-pass exercise.
+5. We close with a research application in asset pricing, key takeaways, common pitfalls, and manual forward-pass and gradient-flow exercises.
 
 ## LSTM Architecture and Notation
 
@@ -200,30 +200,26 @@ The dimension with $f_k \approx 1$ at every step has $\prod f_k \approx 1$, so g
 
 ## Research Application: Deep Learning in Asset Pricing
 
-To see how LSTMs are used in current econometric research, consider the asset-pricing framework of @ChenPelgerZhu2024.
+To see how LSTMs are used in current econometric research, consider two closely related lines of work in empirical asset pricing: the return-prediction approach of @GuKellyXiu2020 and the no-arbitrage approach of @ChenPelgerZhu2024, which embeds an LSTM at its core.
 
 **The Core Research Question**
 
-The paper asks a fundamental question in finance: **Can neural networks better model the relationship between firm characteristics and future stock returns?**
+Both papers ask a fundamental question in finance: **Can neural networks better model the relationship between firm characteristics and future stock returns?**
 
 -   **The Traditional Approach (Linear Factor Models):** Assumes a simple linear relationship, $\mathbb{E}[r_{i,t+1}] = \beta_0 + \sum_k \beta_k \cdot \text{characteristic}_{i,t,k}$. This is restrictive, as it ignores non-linearities (e.g., threshold effects) and complex interactions between characteristics (e.g., value investing working best when momentum is low).
 
 -   **The Deep Learning Approach:** Lets a neural network learn the functional form directly from the data: $\mathbb{E}[r_{i,t+1}] = f(\text{characteristics}_{i,t})$. The network can approximate nonlinear functions and interactions that are difficult to specify manually.
 
-**Framing the Problem for a Neural Network**
+**Step 1: Prediction with a Feed-Forward Network**
 
-The task is a large-scale panel data regression, framed as a standard supervised learning problem.
+@GuKellyXiu2020 frame the task as a large-scale supervised prediction problem; that is, a panel regression with a flexible functional form.
 
 -   **Inputs ($\mathbf{x}_{i,t}$):** A vector of 94 firm-specific characteristics for stock $i$ at time $t$ (e.g., size, value, momentum, profitability).
 -   **Target ($y_{i,t+1}$):** The realized excess return of stock $i$ in the next month.
 -   **Objective:** Train a neural network $f_\theta$ to minimize the Mean Squared Error (MSE) between predicted and realized returns over a large dataset of all US stocks from 1957 to 2016.
     $$ \min_\theta \frac{1}{N \cdot T} \sum_{i,t} (r_{i,t+1} - f_\theta(\mathbf{x}_{i,t}))^2 $$
 
-The trained network $f_\theta(\cdot)$ is part of the estimated **Stochastic Discount Factor (SDF)**. The important point for this chapter is how the authors use an LSTM to represent time variation in the economic state.
-
-**Step 1: A Simple Feed-Forward Network (NN1)**
-
-A natural starting point is a standard feedforward neural network to model the cross-sectional relationship.
+The trained network is a **return forecaster**: economics enters primarily through the target, predictors, and portfolio evaluation, rather than through a no-arbitrage estimating equation. A natural architecture is a standard feed-forward network for the cross-sectional relationship.
 
 ```{mermaid}
 graph LR
@@ -241,11 +237,20 @@ graph LR
 
 The depth of the network allows it to learn a **hierarchy of features**. For example, the first layer might learn to combine basic accounting ratios into a value signal, and a deeper layer could then learn to model the interaction between this value signal and momentum signals.
 
-**Step 2: Adding Economic Structure with an LSTM (NN2)**
+**Step 2: From Prediction to a No-Arbitrage Objective**
+
+@ChenPelgerZhu2024 take a deliberately different route. Rather than forecasting returns, they estimate the **stochastic discount factor (SDF)** $M_{t+1}$ directly, and they replace the MSE objective with the no-arbitrage moment conditions that define the SDF:
+$$
+\mathbb{E}\big[M_{t+1}\, R^e_{i,t+1}\, g(I_t, I_{i,t})\big] = 0
+\quad \text{for all conditioning functions } g,
+$$
+where $R^e_{i,t+1}$ is the excess return on stock $i$, $I_t$ and $I_{i,t}$ collect the macroeconomic and firm-specific information available at time $t$, and $g(\cdot)$ plays the role of the test assets (instruments) in a conditional GMM problem. Their data are 46 firm characteristics together with 178 macroeconomic time series, for US stocks from 1967 to 2016. The estimation principle is therefore conditional generalized method of moments, not least-squares prediction. The authors argue that this distinction carries real weight: in their comparisons, machine-learning models trained on a pure prediction objective can perform *worse* than linear models that impose no-arbitrage.
+
+**Step 3: Adding Economic Structure with an LSTM**
 
 -   **Economic Argument:** Asset pricing theory (e.g., ICAPM) suggests that risk premia are not constant; they vary over time with the macroeconomic state.
--   **Problem with NN1:** It assumes the pricing function $f(\cdot)$ is the same every month, ignoring time-series dynamics.
--   **Solution (NN2):** Use an **LSTM** to explicitly model the time-varying economic state. The LSTM processes a sequence of macroeconomic variables (e.g., VIX, T-bill rates), and its hidden state $\mathbf{h}_t$ becomes a learned representation of the current "macro state." This state vector is then fed as an additional input to the main feed-forward network.
+-   **Problem:** Feeding all 178 raw macro series into the SDF network each month ignores that the economically relevant state is a persistent, low-dimensional summary of macroeconomic *history*, not the latest release of every series.
+-   **Solution:** Use an **LSTM** to process the sequence of macroeconomic variables, compressing it into a small hidden state $\mathbf{h}_t$; that is, a learned representation of the current "macro state." This state vector is then fed alongside the firm characteristics into the network that produces the SDF weights.
 
 ```{r}
 #| label: fig-pelger-architecture
@@ -278,21 +283,23 @@ paths <- if (knitr::is_html_output()) "figures/pelger_architecture.png" else "fi
 knitr::include_graphics(paths)
 ```
 
-This architecture allows the model to learn a state-dependent pricing function:
+This architecture allows the model to learn a state-dependent SDF: the discount factor is built from portfolio weights $\omega$ that depend on both firm-level and macro information,
 
 $$
-\mathbb{E}[r_{i,t+1}] = f(\text{characteristics}_{i,t}, \textbf{macro\_state}_t).
+M_{t+1} = 1 - \sum_{i} \omega\big(\text{characteristics}_{i,t},\, \mathbf{h}_t\big)\, R^e_{i,t+1},
 $$
 
-**Step 3: Enforcing No-Arbitrage**
+where the weight function $\omega$ is a feed-forward network and $\mathbf{h}_t$ is the LSTM's macro state.
 
-The authors take a final step to enforce the no-arbitrage constraint by using a Generative Adversarial Network (GAN) framework, which adjusts the training objective beyond MSE to penalize pricing errors that violate no-arbitrage. We do not cover GANs in class.
+**Step 4: The Adversarial Part — Choosing the Test Assets**
+
+The moment condition in Step 2 must hold for *all* conditioning functions $g$, which no finite procedure can impose directly. The authors' solution is a Generative Adversarial Network (GAN) framework: a second network chooses the conditioning function $g$ (in effect, the test assets) to make the pricing errors of the current SDF as large as possible, while the SDF network is trained to shrink them. The adversary thus supplies the hardest-to-price moments in the conditional GMM problem; it is an estimation device for the moment conditions, not an adjustment to a prediction loss. We do not cover GANs further in this book.
 
 **Empirical Results and Conclusions**
 
 -   **Performance:** The full model (GAN-SDF) achieves an annual out-of-sample Sharpe ratio of approximately 2.6, compared with about 1.7 for linear models and 0.8 for the Fama-French 5-factor model.
 -   **Explanatory Power:** The model explains over 90% of the cross-sectional variation in returns on 46 well-known anomaly portfolios.
--   **Main lesson:** The paper demonstrates that combining economic domain knowledge (no-arbitrage constraints, time-varying macro states) with modern machine learning techniques (LSTMs, GANs) yields superior results compared to using either approach in isolation.
+-   **Main lesson:** Combining economic structure (no-arbitrage moment conditions, a time-varying macro state) with machine-learning flexibility (LSTMs, adversarial estimation) outperforms both linear models and prediction-only machine learning. The economics does real work in the estimation objective — it is not merely decoration around a forecasting network.
 
 ## From Recurrent States to Attention
 
@@ -301,6 +308,8 @@ The LSTM cell state $C_t$ is a fixed-dimensional vector that summarizes the rele
 This design is efficient, but it has a structural cost. If the predictively relevant past at step $t$ requires distinguishing fine information from many earlier positions, an $H$-dimensional vector has to compress all of it into the same width. For moderately long sequences or for tasks where position-specific information matters --- a monetary-policy statement whose meaning depends on whether a given clause appears in paragraph two or paragraph eight, for instance --- the bottleneck becomes binding.
 
 One of the later chapters, [Foundation Models for Economic Text and Expectations](foundation_models.qmd#sec-foundation-models), introduces a different construction. The transition from recurrent states to attention is the single structural change that distinguishes the RNN/LSTM chapters from the foundation-model chapter. We return to it formally in [From Words to Representations](foundation_models.qmd#sec-fm-representations).
+
+**Where the implementation lives.** As in the previous chapter, we have not fit an LSTM in code here. The [empirical chapter on networks for time series](nn_example.qmd) trains an LSTM on realized-volatility data with the complete Python pipeline — sequence construction, chronological splits, training-only scaling, tuning, and evaluation against a HAR benchmark.
 
 ## Summary
 
@@ -489,6 +498,62 @@ This exercise demonstrates several important aspects of LSTM computation:
 
 4. **Computational Complexity**: Even for a single time step with one unit, LSTMs require computing four different weight-input combinations, highlighting why they are computationally more expensive than simple RNNs.
 
+:::
+
+:::{.callout-note}
+## Exercise 7.2: The Cell-State Gradient Highway
+
+Consider a scalar LSTM cell with state update
+$$
+C_k = f_k\, C_{k-1} + i_k\, \tilde{C}_k,
+$$
+where the forget gate $f_k \in (0,1)$, the input gate $i_k \in (0,1)$, and the candidate $\tilde{C}_k \in (-1,1)$ are computed from $(h_{k-1}, x_k)$ as in the chapter. In Parts 1 and 2, use the **gates-fixed approximation** from the chapter: treat $f_k$, $i_k$, and $\tilde{C}_k$ as fixed numbers that do not vary with the earlier cell state.
+
+1. Derive
+$$
+\frac{\partial C_T}{\partial C_t} = \prod_{k=t+1}^{T} f_k
+$$
+under the gates-fixed approximation, starting from the one-step derivative $\partial C_k / \partial C_{k-1}$.
+
+2. Compare this with the one-dimensional RNN sensitivity from Exercise 6.1, $\partial h_T/\partial h_t = \prod_{k=t+1}^{T} W_h \tanh'(z_k)$, whose magnitude is bounded by $|W_h|^{T-t}$. Suppose $W_h = 0.8$ (as in Exercise 6.2) while the LSTM has learned $f_k = 0.99$ for every $k$. For a horizon of $T-t = 30$ steps, evaluate both magnitudes (use $0.8^{30} \approx 0.0012$ and $0.99^{30} \approx 0.74$) and explain which two structural features of the cell-state update produce the difference: what replaces the repeated multiplication by $W_h$, and why does no activation derivative appear in the LSTM product?
+
+3. Part 1 holds the gates fixed. Identify the channels through which gradients flow in a *full* backward pass that this approximation ignores, and explain why the claim "LSTMs eliminate vanishing gradients" therefore does not follow from Part 1. State one practical implication for applied forecasting work.
+
+*Exam level. Part 1 is a short chain-rule derivation; Part 2 rewards understanding of what structurally differs between the two recursions; Part 3 tests whether students can locate the limits of the gates-fixed result.*
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint for Part 1
+Differentiate $C_k = f_k C_{k-1} + i_k \tilde{C}_k$ with respect to $C_{k-1}$; under the gates-fixed approximation, $f_k$, $i_k$, and $\tilde{C}_k$ are constants in that differentiation. Then chain the one-step derivatives.
+:::
+
+:::{.callout-tip collapse="true"}
+## Solution
+
+**Part 1: The gates-fixed derivation**
+
+Under the gates-fixed approximation, the only dependence of $C_k$ on $C_{k-1}$ is the explicit linear term:
+$$
+\frac{\partial C_k}{\partial C_{k-1}} = f_k,
+$$
+since $i_k \tilde{C}_k$ is treated as a constant. By the chain rule along the cell-state path,
+$$
+\frac{\partial C_T}{\partial C_t}
+= \prod_{k=t+1}^{T} \frac{\partial C_k}{\partial C_{k-1}}
+= \prod_{k=t+1}^{T} f_k.
+$$
+
+**Part 2: Comparison with the RNN recursion**
+
+For the RNN, $|\partial h_T/\partial h_t| \le |W_h|^{T-t}$ because $|\tanh'(z)| \le 1$; with $W_h = 0.8$ and $T-t = 30$, the bound is $0.8^{30} \approx 0.0012$ — the gradient signal from step $t$ is essentially extinguished. For the LSTM with $f_k = 0.99$, the cell-state path carries $0.99^{30} \approx 0.74$ — about three-quarters of the signal survives thirty steps.
+
+Two structural features produce the difference. First, the cell-state update is **additive**: $C_{k-1}$ enters linearly, multiplied only by the forget gate — a learned value in $(0,1)$ that the network can push toward 1 when long-run information matters. In the RNN, the state is multiplied by the *weight matrix* $W_h$ at every step, a quantity that also has to serve every other function of the recursion and cannot simply be set near 1. Second, the cell-state path **bypasses the activation function**: $C_{k-1}$ is not passed through a $\tanh$ on its way into $C_k$, so no activation derivative enters the product; in the RNN, every step contributes a factor $\tanh'(z_k) \le 1$ that attenuates further whenever the unit saturates.
+
+**Part 3: What the gates-fixed approximation ignores**
+
+In a full backward pass, gradients also flow through channels that Part 1 freezes: the hidden state $h_k = o_k \odot \tanh(C_k)$ feeds the gate computations at step $k+1$, so $f_k$, $i_k$, $o_k$, and $\tilde{C}_k$ all depend on earlier cell states through $h_{k-1}$. Those channels involve products of sigmoid and tanh derivatives with weight matrices and can attenuate exactly as in a plain RNN. In addition, the sigmoid never reaches 1 exactly, so $f_k < 1$ strictly and even the highway attenuates — just controllably slowly. Part 1 therefore establishes that *one component* of the backward pass has a weight-free, learnable path: a mitigation of the vanishing-gradient problem, not its elimination.
+
+Practical implication: do not assume the architecture alone guarantees that long-run dependence is learned. Long-horizon LSTM forecasts still require enough data and out-of-sample validation evidence — for instance, a comparison against a lagged feed-forward or HAR-type benchmark, as in the empirical chapter — before attributing performance to learned long memory.
 :::
 
 ## References

@@ -68,7 +68,7 @@ which leads us to the update rule
 $$\boldsymbol{\theta}^{(t)} = \boldsymbol{\theta}^{(t-1)} - \eta \frac{1}{N} \sum_{i=1}^N \nabla_{\boldsymbol{\theta}}\ell_i(\boldsymbol{\theta}^{(t-1)})$$
 
 :::{.callout-note}
--   **Pros**: The gradient is the exact training-set gradient, giving a stable and direct convergence path.
+-   **Pros**: The gradient is the exact training-set gradient, giving a smooth, deterministic path; see the convergence callout below for the conditions under which this path actually converges.
 -   **Cons**: Computationally expensive and memory-intensive on large datasets; infeasible to load millions of samples into memory at once.
 :::
 
@@ -82,7 +82,11 @@ Using only one data point per update instead of all $i = 1, \dots, N$ is a coars
 
 :::{.callout-note}
 -   **Pros**: Fast per update and requires little memory; the noisy updates can also help the model escape shallow local minima.
--   **Cons**: The path to the minimum is noisy and erratic; with a *constant* step size the iterates do not converge to a fixed point but bounce around the minimum. Convergence is recovered with a diminishing step-size schedule satisfying the Robbins–Monro conditions $\sum_t \eta_t = \infty$ and $\sum_t \eta_t^2 < \infty$ [@RobbinsMonro1951].
+-   **Cons**: The path to the minimum is noisy and erratic; with a *constant* step size the iterates do not converge to a fixed point but bounce around the minimum. For convex objectives, convergence to the minimizer is recovered with a diminishing step-size schedule satisfying the Robbins–Monro conditions $\sum_t \eta_t = \infty$ and $\sum_t \eta_t^2 < \infty$ [@RobbinsMonro1951].
+:::
+
+:::{.callout-note title="What Do Convergence Guarantees Actually Say?"}
+Convergence statements for gradient methods always carry conditions, and it is worth fixing them once. If $L$ is convex and its gradient is Lipschitz continuous with constant $C$, then batch gradient descent with step size $\eta \le 1/C$ drives $L(\boldsymbol\theta^{(t)})$ to the global minimum at rate $O(1/t)$; a step size that is too large can diverge even on a quadratic objective — Exercise 4.1 derives the exact stability threshold. Neural-network objectives, however, are **nonconvex**, and there the honest guarantee is much weaker: under smoothness, gradient methods can only be shown to drive the gradient norm to zero, $\|\nabla L(\boldsymbol\theta^{(t)})\| \to 0$ — convergence to a *stationary point*, which need not be a local (let alone global) minimum. Whenever this chapter speaks of an algorithm "converging" on a neural-network loss, it is this stationary-point notion that applies.
 :::
 
 **Mini-Batch Gradient Descent**
@@ -168,8 +172,8 @@ In all of the following algorithms, we choose a learning rate $\eta > 0$ and a s
 The momentum idea traces to @Polyak1964, who introduced the "heavy ball" method to accelerate iterative optimization, and @Nesterov1983, whose accelerated-gradient variant achieves a provably better convergence rate on convex objectives. A function is **convex** if its graph lies below every chord joining two points on it, equivalently if its Hessian is positive semidefinite; convex objectives have no spurious local minima (every local minimum is global), which is why convergence guarantees are typically stated for them. Momentum accelerates SGD in directions of persistent gradient and dampens oscillations. It does so by adding a fraction of the previous update vector to the current gradient, creating a "velocity" term that accumulates past gradients.
 
 $$ \boldsymbol v_t = \delta \boldsymbol v_{t-1} + (1 - \delta) \boldsymbol g_t $$
-$$ \boldsymbol \theta^{(t+1)} = \boldsymbol \theta^{(t)} - \eta \boldsymbol v_t $$
-with $\boldsymbol v_0 = \mathbf 0$.
+$$ \boldsymbol \theta^{(t)} = \boldsymbol \theta^{(t-1)} - \eta \boldsymbol v_t $$
+with $\boldsymbol v_0 = \mathbf 0$. (Note the timing: $\boldsymbol g_t$ is evaluated at $\boldsymbol \theta^{(t-1)}$, and the $t$th update produces $\boldsymbol \theta^{(t)}$ — the same convention as for the algorithms below.)
 
 Here, $\delta \in [0,1)$ is the momentum coefficient, and the velocity $v_t$ accumulates a weighted average of past gradients. This creates a "ball rolling downhill" effect that helps overcome small local minima and accelerates convergence in consistent directions.
 
@@ -228,7 +232,7 @@ The algorithm maintains two moving averages:
 2. **Second moment estimate** (uncentered variance), with second-moment decay $\beta_2$:
    $$ \boldsymbol v_t = \beta_2 \boldsymbol v_{t-1} + (1 - \beta_2) \boldsymbol g_{t}^2 $$
 
-Here $\beta_1,\beta_2 \in [0,1)$ play the roles that $\delta$ and $\gamma$ played for Momentum and RMSprop, respectively. Since $\boldsymbol m_t$ and $\boldsymbol v_t$ are initialized as zero vectors, they are biased toward zero, especially during the initial time steps. Unrolling the recursion gives $\boldsymbol m_t = (1-\beta_1) \sum_{\tau=1}^{t} \beta_1^{t-\tau} \boldsymbol g_\tau$, so under a stationary gradient process with $\mathbb{E}[\boldsymbol g_\tau] = \boldsymbol \mu$ we have $\mathbb{E}[\boldsymbol m_t] = (1-\beta_1^t)\boldsymbol \mu$. Adam corrects this bias by rescaling:
+Here $\beta_1,\beta_2 \in [0,1)$ play the roles that $\delta$ and $\gamma$ played for Momentum and RMSprop, respectively. Since $\boldsymbol m_t$ and $\boldsymbol v_t$ are initialized as zero vectors, they are biased toward zero, especially during the initial time steps. Unrolling the recursion gives $\boldsymbol m_t = (1-\beta_1) \sum_{\tau=1}^{t} \beta_1^{t-\tau} \boldsymbol g_\tau$. To speak of a *bias* we need randomness in the gradients, which is where the mini-batches suppressed from our notation re-enter: think of $\boldsymbol g_\tau$ as the gradient of a randomly drawn batch, with the expectation below taken over that batch sampling. If the batch gradients are stationary with $\mathbb{E}[\boldsymbol g_\tau] = \boldsymbol \mu$, then $\mathbb{E}[\boldsymbol m_t] = (1-\beta_1^t)\boldsymbol \mu$. Adam corrects this bias by rescaling:
 
 3. **Bias-corrected estimates**:
    $$ \hat{\boldsymbol m}_t = \frac{\boldsymbol m_t}{1 - \beta_1^t} $$
@@ -517,10 +521,12 @@ In such challenging real-world scenarios, Adam's adaptive learning rates and mom
 
 We can make the minimization problem more challenging by having multiple local minima and one global minimum. Of course, depending on the hyperparameters chosen, all algorithms may find the global minimum. The goal is to find an optimizer that is largely robust to different choices of hyperparameters.
 
+One disclosure is needed to read the figure honestly: the raw-gradient methods use much smaller learning rates (0.01 for batch gradient descent and SGD, 0.001 for momentum) than the adaptive methods (0.3 for AdaGrad, RMSprop, and Adam). This is deliberate rather than an unfair handicap — adaptive methods normalize the gradient scale, so they tolerate, and need, a much larger nominal step size, while plain gradient descent diverges on this surface at 0.3. But it means the panels compare algorithm designs *at workable tunings*, not the algorithms at a common learning rate.
+
 
 ```{python}
 #| label: fig-optimizers-nonconvex
-#| fig-cap: "Comparison of optimization algorithms on a non-convex loss landscape with multiple local minima."
+#| fig-cap: "Comparison of optimization algorithms on a non-convex loss landscape with multiple local minima. Learning rates differ by design: 0.01 for batch gradient descent and SGD, 0.001 for momentum, and 0.3 for the adaptive methods (AdaGrad, RMSprop, Adam), whose gradient normalization requires a larger nominal step size."
 #| code-fold: true
 import numpy as np
 import matplotlib.pyplot as plt
@@ -970,24 +976,50 @@ So the mini-batch gradient is an unbiased estimator of the full gradient.
 
 **Part 2: Variance Under Sampling Without Replacement**
 
-For scalar values $z_1,\dots,z_N$, the sample mean over a simple random sample without replacement satisfies
+Write the estimator with inclusion indicators, as in Part 1:
 $$
-\mathrm{Var}\left(\frac{1}{b}\sum_{i\in B} z_i\right)
+\frac{1}{b}\sum_{i\in B} z_i
 =
-\frac{N-b}{b(N-1)}\,S_N^2,
+\frac{1}{b}\sum_{i=1}^N \mathbb{1}\{i \in B\}\, z_i.
 $$
-where
+Under simple random sampling without replacement, the first- and second-order inclusion probabilities are
 $$
-S_N^2 = \frac{1}{N}\sum_{i=1}^N (z_i-\bar z)^2.
+\pi_i = \mathbb{P}(i \in B) = \frac{b}{N},
+\qquad
+\pi_{ij} = \mathbb{P}(i \in B,\ j \in B) = \frac{b(b-1)}{N(N-1)}
+\quad (i \neq j),
 $$
-Hence
+because $b$ of the $N$ slots are filled, and given $i \in B$ the probability that $j$ also entered is $(b-1)/(N-1)$. The indicator moments follow:
 $$
-\mathrm{Var}\left(\frac{1}{b}\sum_{i\in B} z_i\right)
-=
-\frac{N-b}{b(N-1)} \cdot \frac{1}{N}\sum_{i=1}^N (z_i-\bar z)^2.
+\mathrm{Var}\big(\mathbb{1}\{i\in B\}\big) = \pi_i(1-\pi_i) = \frac{b(N-b)}{N^2},
+\qquad
+\mathrm{Cov}\big(\mathbb{1}\{i\in B\},\mathbb{1}\{j\in B\}\big)
+= \pi_{ij}-\pi_i\pi_j
+= -\frac{b(N-b)}{N^2(N-1)},
 $$
+where the covariance is negative because drawing $i$ leaves one fewer slot for $j$.
 
-This is exactly the stated formula.
+Subtracting the constant $\bar z$ from every $z_i$ shifts the estimator by exactly $\bar z$ (every sample contains $b$ terms) and leaves its variance unchanged, so we may assume $\bar z = 0$ without loss of generality; then $\sum_{i\ne j} z_i z_j = \big(\sum_i z_i\big)^2 - \sum_i z_i^2 = -\sum_i z_i^2$. Expanding the variance of the weighted sum of indicators,
+$$
+\mathrm{Var}\left(\frac{1}{b}\sum_{i\in B} z_i\right)
+=
+\frac{1}{b^2}\left[\sum_{i=1}^N \pi_i(1-\pi_i)\, z_i^2
++ \sum_{i\neq j} \big(\pi_{ij}-\pi_i\pi_j\big)\, z_i z_j\right]
+=
+\frac{1}{b^2}\left[\frac{b(N-b)}{N^2}
++ \frac{b(N-b)}{N^2(N-1)}\right]\sum_{i=1}^N z_i^2,
+$$
+using the sign flip from $\sum_{i\ne j} z_i z_j = -\sum_i z_i^2$ in the second term. The bracket simplifies to $\frac{b(N-b)}{N^2}\cdot\frac{N}{N-1} = \frac{b(N-b)}{N(N-1)}$, so
+$$
+\mathrm{Var}\left(\frac{1}{b}\sum_{i\in B} z_i\right)
+=
+\frac{N-b}{b(N-1)}\cdot\frac{1}{N}\sum_{i=1}^N z_i^2
+=
+\frac{N-b}{b(N-1)}\, S_N^2,
+\qquad
+S_N^2 = \frac{1}{N}\sum_{i=1}^N (z_i-\bar z)^2,
+$$
+which is the stated formula (reinstating a general $\bar z$). Two sanity checks: at $b = N$ the variance is zero, i.e. the full sample is drawn with certainty, and at $b = 1$ it reduces to $S_N^2$, the variance of a single random draw.
 
 **Part 3: Why Gradient Noise Can Help**
 
