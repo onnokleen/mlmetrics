@@ -230,10 +230,16 @@ $$
 
 The term $\frac{\partial L_T}{\partial \mathbf{h}_t}$ captures how an adjustment to the hidden state at an early time $t$ affects the final loss at time $T$. This requires propagating the gradient backwards through every intermediate step, leading to a long product of Jacobian matrices:
 $$
-\frac{\partial \mathbf{h}_t}{\partial \mathbf{h}_k} = \prod_{i=k+1}^{t} \frac{\partial \mathbf{h}_i}{\partial \mathbf{h}_{i-1}} = \prod_{i=k+1}^{t} \mathbf{W}_{hh}^{\top}\,\operatorname{diag}\big(g'(\mathbf{z}_i)\big)
+\frac{\partial \mathbf{h}_t}{\partial \mathbf{h}_k}
+= \frac{\partial \mathbf{h}_t}{\partial \mathbf{h}_{t-1}}\,
+  \frac{\partial \mathbf{h}_{t-1}}{\partial \mathbf{h}_{t-2}}\cdots
+  \frac{\partial \mathbf{h}_{k+1}}{\partial \mathbf{h}_{k}},
+\qquad
+\frac{\partial \mathbf{h}_i}{\partial \mathbf{h}_{i-1}}
+= \operatorname{diag}\big(g'(\mathbf{z}_i)\big)\,\mathbf{W}_{hh},
 $$
 
-where $g'$ is the derivative of the activation function (e.g., $\tanh'$) and $\mathbf{z}_i = \mathbf{W}_{hh}\mathbf{h}_{i-1} + \mathbf{W}_{xh}\mathbf{x}_i + \mathbf{b}_h$ is its pre-activation input at step $i$. The detailed derivations for a one-dimensional hidden state can be found in a self-study exercise at the end of this section.
+where $g'$ is the derivative of the activation function (e.g., $\tanh'$) and $\mathbf{z}_i = \mathbf{W}_{hh}\mathbf{h}_{i-1} + \mathbf{W}_{xh}\mathbf{x}_i + \mathbf{b}_h$ is its pre-activation input at step $i$. Each one-step Jacobian follows from $\mathbf{h}_i = g(\mathbf{z}_i)$ with $\mathbf{z}_i$ affine in $\mathbf{h}_{i-1}$; note that the factors do not commute, so the product must be composed in the order shown, from step $t$ down to step $k+1$. (Backpropagation code often works with the transposed form $\mathbf{W}_{hh}^{\top}\operatorname{diag}(g'(\mathbf{z}_i))$ — that is the *adjoint*, used to propagate gradient vectors backwards, not the Jacobian $\partial \mathbf{h}_i/\partial \mathbf{h}_{i-1}$ itself.) The detailed derivations for a one-dimensional hidden state can be found in a self-study exercise at the end of this section.
 
 ## Vanishing Gradients as the Main Limitation
 
@@ -246,6 +252,8 @@ For econometric forecasting, this is the central limitation of a plain RNN. The 
 
 Plain RNNs are rarely the best architecture for macroeconomic or financial sequences. Their value in this chapter is conceptual: they expose the structural problem that learning long-run dependence requires gradient signal across many time steps. LSTMs address this by modifying the state update with gates and a cell state that preserve information more reliably.
 :::
+
+**Where the implementation lives.** This chapter deliberately stays at the conceptual level — recurrence, information sets, and gradient mechanics — without fitting a network in code. The [empirical chapter on networks for time series](nn_example.qmd) provides the full Python workflow (sequence construction from a time series, chronological splits, training-only scaling, tuning, and evaluation) that applies directly to the recurrent models introduced here and in the next chapter.
 
 ## Summary
 
@@ -408,7 +416,7 @@ The activation function for the hidden unit is $\tanh$ and the output is linear 
 1. Compute the hidden state $h_1$ and output $y_1$ at time step $t = 1$.
 2. Compute the hidden state $h_2$ and output $y_2$ at time step $t = 2$.
 3. Compute the hidden state $h_3$ and output $y_3$ at time step $t = 3$.
-4. The second input $x_2 = -0.5$ is large and negative, yet $h_2 \approx 0.008$ is nearly zero. Explain why the hidden-to-hidden weight $W_{hh} = 0.8$ partially offsets the current input, and discuss what this implies for the vanishing-gradient problem identified in Exercise 6.1: does the hidden state at $t=2$ carry much information about the input at $t=1$?
+4. The second input $x_2 = -0.5$ is large and negative, yet $h_2 \approx 0.008$ is nearly zero. Explain why the memory term $W_{hh} h_1$ and the bias $b_h$ together almost exactly cancel the input contribution at $t=2$. Then compute the sensitivity $\partial h_2/\partial x_1$ and use it to discuss what a near-zero *value* of the hidden state does and does not imply about the memory of $x_1$, connecting your answer to the geometric decay factor from Exercise 6.1.
 
 *Exam level.*
 :::
@@ -416,6 +424,11 @@ The activation function for the hidden unit is $\tanh$ and the output is linear 
 :::{.callout-warning collapse="true"}
 ## Hint for Parts 1–3
 Work through each time step sequentially using $h_t = \tanh(W_{ih} x_t + W_{hh} h_{t-1} + b_h)$ and $y_t = W_{ho} h_t + b_o$. Use $\tanh(0.2) \approx 0.197$, $\tanh(0.008) \approx 0.008$, and $\tanh(0.256) \approx 0.251$.
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint for Part 4
+The *value* of $h_2$ and the *sensitivity* of $h_2$ to an earlier input are two different things, and the question asks you to separate them. For the sensitivity, apply the chain rule along $x_1 \to h_1 \to h_2$. Recall that $\tanh'(z) = 1-\tanh^2(z)$ is largest exactly where $z=0$, and note where $z_2$ sits. You will need $\tanh'(0.2) \approx 0.961$ and $\tanh'(0.008) \approx 1.000$.
 :::
 
 :::{.callout-tip collapse="true"}
@@ -447,11 +460,21 @@ y_3 &= 1.2 \cdot 0.251 \approx 0.301
 \end{aligned}
 $$
 
-**Part 4: Information retention and the vanishing gradient**
+**Part 4: A near-zero state value is not the same as lost memory**
 
-At $t = 2$, the large negative input $W_{ih} x_2 = 0.5 \times (-0.5) = -0.25$ is almost exactly offset by the memory term $W_{hh} h_1 = 0.8 \times 0.197 = 0.158$ and the bias $b_h = 0.1$, giving a pre-activation near zero and thus $h_2 \approx 0$. As a result, almost all information about $x_1$ that was stored in $h_1$ has been overwritten.
+At $t = 2$, the input contribution $W_{ih} x_2 = 0.5 \times (-0.5) = -0.25$ is almost exactly offset by the memory term $W_{hh} h_1 = 0.8 \times 0.197 = 0.158$ plus the bias $b_h = 0.1$, giving a pre-activation near zero and thus $h_2 \approx 0$. This is *cancellation*: two sizable contributions of opposite sign happen to sum to nearly zero.
 
-This connects directly to the vanishing gradient in Exercise 6.1. The gradient of the loss at $T$ with respect to $h_1$ passes through the factor $W_{hh} \cdot \tanh'(\cdot)$. Since $\tanh'(z) \leq 1$ and $W_{hh} = 0.8$, each step multiplies the gradient by at most $0.8$. Over many steps this product decays toward zero, so the network cannot learn to preserve information from $t = 1$ through many subsequent time steps. The near-zero $h_2$ in this example is a concrete illustration: the hidden state at $t = 2$ carries essentially no memory of $x_1$.
+Cancellation of the value does **not** mean the memory of $x_1$ is gone. Memory in the gradient sense is the sensitivity
+$$
+\frac{\partial h_2}{\partial x_1}
+= \underbrace{\tanh'(z_2)\, W_{hh}}_{\partial h_2/\partial h_1}
+  \cdot
+  \underbrace{\tanh'(z_1)\, W_{ih}}_{\partial h_1/\partial x_1}
+\approx (1.000 \times 0.8) \times (0.961 \times 0.5) \approx 0.38,
+$$
+using $\tanh'(z) = 1 - \tanh^2(z)$ with $z_1 = 0.2$ and $z_2 = 0.008$. A sensitivity of $0.38$ after one recurrence step is substantial — in fact, because $z_2 \approx 0$ places $\tanh$ in its steepest region, $h_2$ is close to *maximally* sensitive to perturbations of $h_1$. Had $x_1$ been slightly different, $h_2$ would have been noticeably different: the state still remembers $x_1$ even though its value happens to sit near zero.
+
+The genuine connection to Exercise 6.1 runs through the *rate of decay*, not the value of the state. Each additional recurrence step multiplies the sensitivity by at most $W_{hh}\,\max_z \tanh'(z) = 0.8$, so the influence of $x_1$ fades geometrically over many steps ($0.8^{10} \approx 0.11$, $0.8^{30} \approx 0.001$). The two-part conclusion: after one step, the memory of $x_1$ is still strong despite the near-zero state value; over long horizons, it is the geometric factor from Exercise 6.1 — not value cancellation — that makes plain RNNs forget.
 :::
 
 ## References

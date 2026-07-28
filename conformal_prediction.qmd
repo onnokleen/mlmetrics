@@ -164,7 +164,9 @@ k = \left\lceil (1-\alpha)(n_{\text{cal}}+1)\right\rceil,
 \hat q = R_{(k)}.
 $$
 
-By convention, when $\lceil (1-\alpha)(n_{\text{cal}}+1)\rceil > n_{\text{cal}}$ (which can happen for small $n_{\text{cal}}$ relative to $\alpha$), no finite order statistic exists, so we set $\hat q = +\infty$ and the prediction set becomes all of $\mathbb{R}$. This matches the $\min(k, n_{\text{cal}})$ cap on the index used in the code below.
+By convention, when $\lceil (1-\alpha)(n_{\text{cal}}+1)\rceil > n_{\text{cal}}$, no finite order statistic exists, so we set $\hat q = +\infty$ and the prediction set becomes all of $\mathbb{R}$. This happens exactly when $n_{\text{cal}} < (1-\alpha)/\alpha$, so at $\alpha=0.1$ whenever $n_{\text{cal}} \le 8$. An infinite interval is uninformative but honest: with that few calibration points, no finite band can be guaranteed at the requested level.
+
+The helper function in the code below instead caps the index at $\min(k, n_{\text{cal}})$, which returns the largest calibration score rather than $+\infty$. That is a practical fallback, not the same rule: in the capped regime it reports a finite interval whose actual coverage guarantee is strictly below $1-\alpha$. The distinction does not bite in the application below, where $n_{\text{cal}}=48$ and $k=45$, so the cap never binds — but it would bite in a small-sample exercise, and a conformal implementation that silently caps rather than returning $+\infty$ is quietly discarding the guarantee it advertises.
 
 Then the conformal prediction set for a new predictor value $x$ is
 
@@ -390,7 +392,7 @@ $$
 **Two procedures, two coverage statements.** It is worth separating the unmodified procedure from the randomized one, because they are not the same algorithm.
 
 1. *Unmodified split conformal* (the procedure used in practice): the prediction set uses the order-statistic threshold $R_{(k)}$ defined from the calibration scores as written. When ties among scores have positive probability, the resulting marginal coverage is at least $1-\alpha$ but may strictly exceed it; the exchangeability argument delivers the lower bound but not equality.
-2. *Randomized split conformal* (a theoretical device): break ties by adding an i.i.d. infinitesimal perturbation $U_i$ to each score so that the augmented scores are continuously distributed and the ranks are almost-surely strict. For this modified procedure, the rank of $R_{n_{\text{cal}}+1}+U_{n_{\text{cal}}+1}$ is uniform on $\{1,\dots,n_{\text{cal}}+1\}$, and the coverage probability equals exactly $\lceil(1-\alpha)(n_{\text{cal}}+1)\rceil/(n_{\text{cal}}+1)$.
+2. *Randomized split conformal* (a theoretical device): break ties by adding i.i.d. perturbations $U_i \sim \mathrm{Uniform}(0,\delta)$ to each score, with $\delta>0$ small enough that the perturbation cannot reorder scores that were already distinct, so that the augmented scores are continuously distributed and the ranks are almost surely strict. For this modified procedure, the rank of $R_{n_{\text{cal}}+1}+U_{n_{\text{cal}}+1}$ is uniform on $\{1,\dots,n_{\text{cal}}+1\}$, and the coverage probability equals exactly $\lceil(1-\alpha)(n_{\text{cal}}+1)\rceil/(n_{\text{cal}}+1)$.
 
 The unmodified procedure in (1) inherits the coverage lower bound from (2) because the event $R_{n_{\text{cal}}+1}\le R_{(k)}$ contains the corresponding randomized-rank event. This is the core reason conformal prediction is finite-sample and distribution-free: the proof uses only exchangeability and ranks, not a parametric error law.
 
@@ -415,12 +417,14 @@ The theorem is strong, but it is important to read it correctly.
 **Not conditional coverage.** The theorem does not imply
 
 $$
-\Pr\{Y_{n+1}\in C(X_{n+1})\mid X_{n+1}=x\}\ge 1-\alpha
+\Pr\{Y_{n_{\text{cal}}+1}\in C(X_{n_{\text{cal}}+1})\mid X_{n_{\text{cal}}+1}=x\}\ge 1-\alpha
 \qquad
 \text{for every } x.
 $$
 
 This distinction matters for econometrics because uncertainty often differs sharply across subgroups, regimes, income levels, leverage levels, or business-cycle states. A method can achieve nominal marginal coverage while still undercovering in high-volatility regions and overcovering in quiet regions.
+
+The gap is not an artifact of a clumsy method; it is fundamental. Distribution-free *exact* conditional coverage is impossible for any procedure producing nontrivial intervals: a method that guaranteed conditional coverage at every $x$, under every distribution, would be forced to produce intervals of infinite expected length at non-atomic covariate values [@Vovk2012ConditionalValidity; @LeiWasserman2014; @FoygelBarberCandesRamdasTibshirani2021Limits]. Better nonconformity scores — the normalized and quantile-based scores introduced later in this chapter — improve *approximate* conditional behavior, but no choice of score can turn the marginal guarantee into a conditional one.
 
 This is not just a verbal warning. For constant-width intervals, the failure of exact conditional coverage under heteroskedasticity can be shown directly.
 
@@ -432,7 +436,7 @@ $$
 Y=\mu(X)+\sigma(X)\varepsilon,
 $$
 
-where $\varepsilon$ is independent of $X$, has a continuous symmetric distribution, and $\sigma(X)$ is not almost surely constant. Consider a constant-width interval centered at the conditional mean,
+where $\varepsilon$ is independent of $X$, has a symmetric distribution with a density that is strictly positive on all of $\mathbb{R}$, and $\sigma(X)>0$ is not almost surely constant. Consider a constant-width interval centered at the conditional mean,
 
 $$
 C_q(x)=[\mu(x)-q,\mu(x)+q],
@@ -460,7 +464,9 @@ Y\in C_q(x)
 |\varepsilon|\le \frac{q}{\sigma(x)}.
 $$
 
-If the distribution of $|\varepsilon|$ has a continuous CDF, that CDF is strictly increasing on its support. Hence the conditional coverage changes with $q/\sigma(x)$ and therefore with $x$ whenever $\sigma(x)$ is not constant. This is the formal reason a constant-width split conformal interval struggles in heteroskedastic settings.
+Because $\varepsilon$ has a strictly positive density on $\mathbb{R}$, the CDF of $|\varepsilon|$ is strictly increasing on $[0,\infty)$. Hence $\Pr\{|\varepsilon| \le q/\sigma(x)\}$ is a strictly decreasing function of $\sigma(x)$, so conditional coverage genuinely varies with $x$ whenever $\sigma(x)$ is not constant. This is the formal reason a constant-width split conformal interval struggles in heteroskedastic settings.
+
+The positive-density condition is doing real work and is not a technicality. If $\varepsilon$ instead had bounded support, say $\varepsilon \sim \mathrm{Uniform}(-1,1)$ with $\sigma(x)$ taking the two values $0.1$ and $0.2$, then $q=1$ would give $q/\sigma(x) \in \{5,10\}$, and $\Pr\{|\varepsilon| \le q/\sigma(x)\}$ would equal one at both values. Conditional coverage would then be constant in $x$ despite the heteroskedasticity, simply because the band is wide enough to cover the entire conditional support everywhere. The proposition therefore describes the interesting case, in which the band is not trivially wide.
 
 That phenomenon is illustrated in @fig-marginal-vs-conditional-coverage. The left panel shows a heteroskedastic data-generating process and a constant-width interval centered at the true conditional mean. The right panel then shows that local coverage varies with the predictor even though the average coverage is close to the target. The point is not that conformal fails. The point is that marginal validity is weaker than conditional validity.
 
@@ -598,7 +604,7 @@ The logic is visualized in @fig-cqr-recalibration. The dashed band is the raw qu
 
 ```{python}
 #| label: fig-cqr-recalibration
-#| fig-cap: "Conformalized quantile regression in a heteroskedastic setting. The dashed curves are the initial lower and upper quantile predictions from a quantile model. The solid curves are the conformalized bounds after subtracting and adding the calibration correction term \\(\\hat q\\). The widening is largest where the underlying quantile band is already wide, so the final interval remains adaptive rather than constant-width."
+#| fig-cap: "Conformalized quantile regression in a heteroskedastic setting. The dashed curves are the initial lower and upper quantile predictions from a quantile model. The solid curves are the conformalized bounds after subtracting and adding the calibration correction term \\(\\hat q\\). The correction shifts each bound by the same amount at every value of x, so the vertical widening is uniform; the final band remains adaptive only because the initial quantile band already varies in width."
 #| echo: true
 
 import numpy as np
@@ -650,7 +656,11 @@ To keep the empirical section transparent, we use only one method here: a split 
 2. calibration sample from 2000Q1 through 2011Q4
 3. test sample from 2012Q1 onward
 
+One data-handling detail matters for the code below: FRED-QD dates each quarter by its final month, so 1999Q4 appears as `1999-12-01`. The cutoffs are therefore placed at quarter-end dates, which ensures every quarter lands in exactly one of the three subsamples.
+
 ```{python}
+#| label: tbl-conformal-fredqd
+#| tbl-cap: "Split conformal results for one-quarter-ahead U.S. real GDP growth. The base predictor is a random forest fit on data through 1999Q4, calibrated on 2000Q1-2011Q4 absolute residuals at $\\alpha=0.10$, and evaluated from 2012Q1 onward. Coverage, width, and MAE are computed on the test sample; the high-VIX rows restrict to the top quintile of test quarters by lagged log VIX. Growth rates and interval widths are in annualized percentage points."
 #| echo: true
 
 import numpy as np
@@ -689,12 +699,12 @@ macro = pd.DataFrame(
     }
 ).dropna().reset_index(drop=True)
 
-train = macro[macro["date"] <= pd.Timestamp("1999-10-01")].copy()
+train = macro[macro["date"] <= pd.Timestamp("1999-12-31")].copy()
 cal = macro[
-    (macro["date"] >= pd.Timestamp("2000-01-01"))
-    & (macro["date"] <= pd.Timestamp("2011-10-01"))
+    (macro["date"] > pd.Timestamp("1999-12-31"))
+    & (macro["date"] <= pd.Timestamp("2011-12-31"))
 ].copy()
-test = macro[macro["date"] >= pd.Timestamp("2012-01-01")].copy()
+test = macro[macro["date"] > pd.Timestamp("2011-12-31")].copy()
 
 features = [column for column in macro.columns if column not in ["date", "y_next"]]
 
@@ -751,9 +761,13 @@ summary = pd.DataFrame(
 display(summary.round(3))
 ```
 
-This split produces 149 training quarters, 47 calibration quarters, and 53 test quarters. Overall test coverage is about 94%, which is slightly above the nominal 90% target. That is plausible because conformal coverage is finite-sample discrete, so mild overcoverage is common. The average interval width is about 13.7 annualized growth points, and the point-forecast MAE is about 3.15 points.
+The results are collected in @tbl-conformal-fredqd. This split produces 150 training quarters, 48 calibration quarters, and 53 test quarters. Overall test coverage is about 94%, above the nominal 90% target. Finite-sample discreteness cannot explain the excess: with $n_{\text{cal}} = 48$ and $k = \lceil 0.9 \times 49 \rceil = 45$, discreteness caps *expected* coverage at $45/49 \approx 91.8\%$ under exchangeability. The gap to 94% instead reflects sampling variation in a short evaluation window. With only 53 test quarters, the binomial standard error of a coverage estimate near 0.9 is roughly 4 percentage points; moreover, the coverage rate conditional on a given calibration draw is itself random (under continuity it follows a Beta$(k,\, n_{\text{cal}}+1-k)$ distribution across calibration draws, here with a standard deviation of about 4 percentage points as well). And on top of both effects, quarterly macro data are not exchangeable to begin with, so the theorem's coverage statement holds only approximately here. The average interval width is about 13.5 annualized growth points, and the point-forecast MAE is about 3.16 points.
 
-The more revealing result is the subgroup comparison. If we classify the top quintile of test quarters by lagged VIX as high-volatility quarters, coverage falls to about 82% in that subgroup. That is exactly the lesson from the earlier theory discussion: marginal coverage can look adequate even though the method undercovers in a practically important regime.
+The subgroup comparison is suggestive, but it must be read with more care than the overall figure. If we classify the top quintile of test quarters by lagged VIX as high-volatility quarters, coverage in that subgroup falls to about 82%. The direction is what the theory predicts, since a constant-width band should undercover where dispersion is largest. The evidence, however, is thin. That subgroup contains only 11 quarters and exactly two misses, so the binomial standard error attached to the 82% figure is roughly 12 percentage points, and the gap to the 90% target is well under one standard error.
+
+The composition of those two misses matters even more than their count. Both are 2020Q1 and 2020Q2, the COVID collapse and rebound, with realized annualized growth of $-32.8$% and $+29.9$%. Excluding calendar 2020 entirely, the high-VIX subgroup covers seven quarters out of seven. No band calibrated on 2000-2011 residuals could have contained a $-33$% quarter, so what this subgroup mainly records is an unprecedented outlier rather than systematic conditional undercoverage.
+
+The right conclusion is therefore methodological rather than empirical. The marginal-versus-conditional distinction is genuine, and it is established above by the proposition and by @fig-marginal-vs-conditional-coverage, where the sample is large enough for the pattern to be visible. A 53-quarter evaluation window with an 11-quarter subgroup is simply too short to demonstrate it convincingly. That limitation is itself worth absorbing: subgroup coverage diagnostics are appealing in principle, but in quarterly macroeconomic samples the subgroups are usually far too small to distinguish a real conditional-coverage failure from a couple of unusual quarters.
 
 @fig-conformal-fredqd-example makes the same point visually. The left panel plots the split-conformal band over the test period. The right panel compares overall coverage with the coverage in the high-VIX subgroup. The nominal 90% line is included so the interpretation stays tied to the calibration target rather than to a vague notion of “good” performance.
 
@@ -822,7 +836,7 @@ plt.tight_layout()
 plt.show()
 ```
 
-This example should not be overread. It is not a theorem check for dependent data, and it is not meant as a horse race among conformal variants. Its purpose is narrower: to show how a manual conformal workflow looks in a realistic macro forecasting design, and to make the distinction between overall coverage and regime-specific coverage concrete before we move on to more data-efficient conformal variants.
+This example should not be overread. It is not a theorem check for dependent data, it is not a horse race among conformal variants, and as the subgroup discussion above shows, it is not strong evidence about conditional coverage either. Its purpose is narrower: to show how a manual conformal workflow looks in a realistic macro forecasting design, and to make concrete both how such a workflow is assembled and how little a short evaluation window can settle.
 
 ## Improving Data Efficiency: CV+ and Jackknife+
 
@@ -1019,7 +1033,7 @@ So the operational difference is not conceptual but computational:
 2. CV+ omits one fold at a time
 3. both methods propagate out-of-sample residuals into lower and upper candidate bounds at the new point
 
-These methods often tighten intervals because the base models use more data than in a single split while the residuals remain out-of-sample. Jackknife+ in particular comes with a finite-sample marginal coverage result under exchangeability for broad classes of fitted predictors. CV+ follows the same construction logic with $K$-fold refits, but the chapter should not be read as claiming that every CV+ variant automatically inherits exactly the same theorem in exactly the same form [@BarberCandesRamdasTibshirani2021]. The practical tradeoff is computational cost. In econometric forecasting settings with expensive rolling validation, that cost can be substantial.
+These methods often tighten intervals because the base models use more data than in a single split while the residuals remain out-of-sample. Jackknife+ in particular comes with a finite-sample marginal coverage result under exchangeability — but its level must be quoted carefully. For any fitting algorithm that is *symmetric* in the training observations (invariant to permuting them), @BarberCandesRamdasTibshirani2021 prove coverage of at least $1-2\alpha$. Note the $2\alpha$: although the interval is indexed to target $1-\alpha$, the worst-case finite-sample guarantee is the weaker $1-2\alpha$; empirical coverage is typically close to the nominal $1-\alpha$, but that is an empirical regularity, not the content of the theorem. CV+ follows the same construction logic with $K$-fold refits and carries a worst-case guarantee of the same $1-2\alpha$ type (up to a small additional term), but the chapter should not be read as claiming that every CV+ variant automatically inherits exactly the same theorem in exactly the same form [@BarberCandesRamdasTibshirani2021]. The practical tradeoff is computational cost. In econometric forecasting settings with expensive rolling validation, that cost can be substantial.
 
 ## Conformal Prediction for Time Series
 
@@ -1120,7 +1134,7 @@ For applied work, the right conformal design depends on the data structure and t
 
 **Evaluate more than raw coverage.** Coverage should be checked together with interval width and stability across relevant subgroups or regimes. A method that attains 95% coverage by giving nearly uselessly wide intervals may satisfy the theorem and still fail the applied forecasting task.
 
-This chapter therefore complements rather than replaces Chapter 3. Proper scores and distributional evaluation remain useful when the researcher cares about the whole predictive distribution, not only coverage. Conformal prediction is a calibration layer, not a universal substitute for all distributional modeling.
+This chapter therefore complements rather than replaces [Evaluating Predictive Distributions](evaluating_distributions.qmd). Proper scores and distributional evaluation remain useful when the researcher cares about the whole predictive distribution, not only coverage. Conformal prediction is a calibration layer, not a universal substitute for all distributional modeling.
 
 ## Summary
 
@@ -1418,23 +1432,24 @@ A natural diagnostic is to check coverage separately by leverage group or by bin
 ::: {.callout-note}
 ## Exercise 15.3: Jackknife+ by Hand
 
-Suppose you have $n=4$ observations and target miscoverage $\alpha=0.2$. For a new point $x_{\text{new}}$, the four leave-one-out models produce
+Suppose you have $n=5$ observations and target miscoverage $\alpha=0.2$. For a new point $x_{\text{new}}$, the five leave-one-out models produce
 
 $$
-\hat \mu^{(-1)}(x_{\text{new}})=4.9,\;
-\hat \mu^{(-2)}(x_{\text{new}})=5.2,\;
-\hat \mu^{(-3)}(x_{\text{new}})=4.7,\;
-\hat \mu^{(-4)}(x_{\text{new}})=5.0.
+\hat \mu^{(-1)}(x_{\text{new}})=2.1,\;
+\hat \mu^{(-2)}(x_{\text{new}})=1.7,\;
+\hat \mu^{(-3)}(x_{\text{new}})=2.4,\;
+\hat \mu^{(-4)}(x_{\text{new}})=2.0,\;
+\hat \mu^{(-5)}(x_{\text{new}})=2.6.
 $$
 
 The corresponding leave-one-out residuals are
 
 $$
-R_1=0.4,\quad R_2=0.6,\quad R_3=0.5,\quad R_4=0.3.
+R_1=0.5,\quad R_2=0.8,\quad R_3=0.3,\quad R_4=0.6,\quad R_5=0.4.
 $$
 
-1. Compute the four candidate lower bounds $L_i(x_{\text{new}})$ and upper bounds $U_i(x_{\text{new}})$, sort them, and compute the jackknife+ interval.
-2. Suppose instead that all four leave-one-out predictions at $x_{\text{new}}$ were equal to the same value $m$. Show that with $n=4$ and $\alpha=0.2$, the jackknife+ interval reduces to
+1. Compute the five candidate lower bounds $L_i(x_{\text{new}})$ and upper bounds $U_i(x_{\text{new}})$, sort them, determine the required order-statistic indices (note that $(1-\alpha)(n+1)$ is not an integer here), and compute the jackknife+ interval.
+2. Suppose instead that all five leave-one-out predictions at $x_{\text{new}}$ were equal to the same value $m$. Show that with $n=5$ and $\alpha=0.2$, the jackknife+ interval reduces to
    $$
    [m-\max_i R_i,\;m+\max_i R_i].
    $$
@@ -1447,7 +1462,7 @@ $$
 ::: {.callout-warning collapse="true"}
 ## Hint for Part 2
 
-If all leave-one-out predictions equal $m$, then the candidate bounds become $m-R_i$ and $m+R_i$. With $n=4$ and $\alpha=0.2$, the lower index is 1 and the upper index is 4.
+If all leave-one-out predictions equal $m$, then the candidate bounds become $m-R_i$ and $m+R_i$. With $n=5$ and $\alpha=0.2$, the lower index is 1 and the upper index is 5.
 :::
 
 ::: {.callout-warning collapse="true"}
@@ -1465,48 +1480,50 @@ The candidate lower bounds are
 
 $$
 \begin{aligned}
-L_1 &= 4.9-0.4 = 4.5,\\
-L_2 &= 5.2-0.6 = 4.6,\\
-L_3 &= 4.7-0.5 = 4.2,\\
-L_4 &= 5.0-0.3 = 4.7.
+L_1 &= 2.1-0.5 = 1.6,\\
+L_2 &= 1.7-0.8 = 0.9,\\
+L_3 &= 2.4-0.3 = 2.1,\\
+L_4 &= 2.0-0.6 = 1.4,\\
+L_5 &= 2.6-0.4 = 2.2.
 \end{aligned}
 $$
 
 So the sorted lower bounds are
 
 $$
-L_{(1)}=4.2,\quad L_{(2)}=4.5,\quad L_{(3)}=4.6,\quad L_{(4)}=4.7.
+L_{(1)}=0.9,\quad L_{(2)}=1.4,\quad L_{(3)}=1.6,\quad L_{(4)}=2.1,\quad L_{(5)}=2.2.
 $$
 
 The candidate upper bounds are
 
 $$
 \begin{aligned}
-U_1 &= 4.9+0.4 = 5.3,\\
-U_2 &= 5.2+0.6 = 5.8,\\
-U_3 &= 4.7+0.5 = 5.2,\\
-U_4 &= 5.0+0.3 = 5.3.
+U_1 &= 2.1+0.5 = 2.6,\\
+U_2 &= 1.7+0.8 = 2.5,\\
+U_3 &= 2.4+0.3 = 2.7,\\
+U_4 &= 2.0+0.6 = 2.6,\\
+U_5 &= 2.6+0.4 = 3.0.
 \end{aligned}
 $$
 
 So the sorted upper bounds are
 
 $$
-U_{(1)}=5.2,\quad U_{(2)}=5.3,\quad U_{(3)}=5.3,\quad U_{(4)}=5.8.
+U_{(1)}=2.5,\quad U_{(2)}=2.6,\quad U_{(3)}=2.6,\quad U_{(4)}=2.7,\quad U_{(5)}=3.0.
 $$
 
 Because
 
 $$
-\lfloor \alpha(n+1)\rfloor=\lfloor 0.2 \times 5\rfloor = 1
+\lfloor \alpha(n+1)\rfloor=\lfloor 0.2 \times 6\rfloor = 1
 \qquad \text{and} \qquad
-\lceil (1-\alpha)(n+1)\rceil=\lceil 0.8 \times 5\rceil = 4,
+\lceil (1-\alpha)(n+1)\rceil=\lceil 0.8 \times 6\rceil = \lceil 4.8\rceil = 5,
 $$
 
-the jackknife+ interval is
+where the ceiling genuinely rounds up because $4.8$ is not an integer, the jackknife+ interval is
 
 $$
-[L_{(1)},U_{(4)}]=[4.2,5.8].
+[L_{(1)},U_{(5)}]=[0.9,\,3.0].
 $$
 
 **Part 2: Equal fitted values case**
@@ -1521,12 +1538,12 @@ $$
 
 The sorted lower bounds run from the smallest value $m-\max_i R_i$ upward, while the sorted upper bounds run from the smallest value $m+\min_i R_i$ up to the largest value $m+\max_i R_i$.
 
-With $n=4$ and $\alpha=0.2$, the lower index is 1 and the upper index is 4, so
+With $n=5$ and $\alpha=0.2$, the lower index is $\lfloor 0.2 \times 6\rfloor = 1$ and the upper index is $\lceil 0.8 \times 6\rceil = 5$, so
 
 $$
 L_{(1)}=m-\max_i R_i,
 \qquad
-U_{(4)}=m+\max_i R_i.
+U_{(5)}=m+\max_i R_i.
 $$
 
 Therefore the jackknife+ interval becomes
