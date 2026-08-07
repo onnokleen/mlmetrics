@@ -7,17 +7,17 @@ number-offset: [1, 0]
 
 ## Overview
 
-When building a machine learning model, we face several decisions that affect performance: which algorithm to use, what values to choose for hyperparameters such as learning rate or regularization strength, and for neural networks, how many layers and neurons to include. Here it is worth fixing terminology: ordinary **parameters** (such as regression coefficients $\beta$) are estimated by minimizing in-sample loss, whereas **hyperparameters** (such as the polynomial degree $d$, the number of folds $K$, the learning rate, or the regularization strength) are set before or around fitting and are chosen by out-of-sample criteria. The shared challenge is that we cannot evaluate these choices on the same data used for fitting — doing so produces optimistic estimates that do not generalize to new observations.
+When building a machine learning model, we face several decisions that affect performance: which algorithm to use, and what values to choose for the tuning constants that govern a model's flexibility — for instance, the degree of a polynomial regression or the weight on a penalty term added to the loss. Here it is worth fixing terminology: ordinary **parameters** (such as regression coefficients $\beta$) are estimated by minimizing in-sample loss, whereas **hyperparameters** (such as the polynomial degree $d$ of this chapter's running example, the weight on a penalty term, or the number of folds $K$ in the validation schemes defined below) are set before or around fitting and are chosen by out-of-sample criteria. The shared challenge is that we cannot evaluate these choices on the same data used for fitting — doing so produces optimistic estimates that do not generalize to new observations.
 
-This chapter introduces **cross-validation** as the principled answer to that challenge. Cross-validation simulates the experience of predicting on unseen data by systematically holding out portions of the training set. The idea dates to @Stone1974 and @Geisser1975, who proposed leave-one-out and predictive-sample-reuse procedures for model assessment well before "machine learning" was a separate field. For econometricians, the issues are familiar: overfitting, specification search, and the bias introduced by repeated use of the same data arise in classical model selection just as in machine learning. The econometric analogue of the problem is pretest and specification-search bias; nested validation as emphasized in @VarmaSimon2006 and @CawleyTalbot2010 is the machine-learning community's answer to it.
+This chapter introduces **cross-validation** as the principled answer to that challenge. Cross-validation simulates the experience of predicting on unseen data by systematically holding out portions of the training set. The idea dates to @Stone1974 and @Geisser1975, who proposed leave-one-out and predictive-sample-reuse procedures for model assessment well before "machine learning" was a separate field. For econometricians, the issues are familiar: overfitting, specification search, and the bias introduced by repeated use of the same data arise in classical model selection just as in machine learning. The econometric analogue of the problem is pretest and specification-search bias; the machine-learning community's answer to it is **nested validation** — carrying out model selection on one layer of held-out data while keeping a separate outer layer untouched for the final performance assessment [@VarmaSimon2006; @CawleyTalbot2010] — an idea we develop at the end of this chapter.
 
 ## Roadmap
 
 1. We illustrate **overfitting** with a polynomial regression example to motivate why the training MSE is not a reliable guide to predictive performance.
 2. We introduce the **honest workflow** — separating training, validation, and test sets — and explain when each set should be touched.
-3. We define **K-fold cross-validation**, discuss common choices of $K$, and explain how leakage inside folds invalidates the estimate.
+3. We define **K-fold cross-validation**, discuss common choices of $K$, and explain why letting information from held-out observations slip into the training step makes the estimated predictive performance look better than it is.
 4. We extend to **time-series cross-validation** (expanding and sliding windows) and explain why standard K-fold is inappropriate for dependent data.
-5. We close with a **practical example** of hyperparameter tuning on a neural network, using cross-validation as the inner model-selection loop, and explain how an outer loop would turn this into nested cross-validation.
+5. We close with a **practical example** of hyperparameter tuning, in which cross-validation selects among candidate model configurations, and explain why an honest performance estimate for the selected configuration requires a second, outer layer of validation around the selection step (**nested cross-validation**).
 
 ## A Simple Illustration of Overfitting
 
@@ -37,7 +37,7 @@ and write $\hat{\mu}_d$ for the fit obtained by least squares on the training sa
 
 In the illustration below we simulate $n = 25$ training observations and, separately, $200$ test observations drawn independently from the same process. The test sample is therefore not a split of the training data; it plays the role of the "fresh draw" in the definition of generalization risk given next.
 
-As discussed in the previous chapter, under Gaussian errors with fixed variance, maximizing the likelihood is equivalent to minimizing the training sum of squared errors — equivalently the training mean squared error, which differs only by the factor $1/n$. This makes the overfitting problem transparent: if the degree $d$ is too large, the model can improve **in-sample fit** by chasing noise in the training data.
+Recall from the [previous chapter](information_theory.qmd) that maximizing the likelihood is the same as minimizing the sample average negative log-likelihood. Under Gaussian errors with fixed variance, the negative log-likelihood is, up to an additive constant, proportional to the sum of squared errors, so maximum likelihood amounts to minimizing the training sum of squared errors — equivalently the training mean squared error, which differs only by the factor $1/n$. This makes the overfitting problem transparent: if the degree $d$ is too large, the model can improve **in-sample fit** by chasing noise in the training data.
 
 **Loss, empirical risk, and generalization risk.** To make the two error curves in @fig-overfitting-example precise, fix a **loss function** $L(y,\hat{y})$ that measures the cost of predicting $\hat{y}$ when the outcome is $y$; our running example is **squared loss** $L(y,\hat{y})=(y-\hat{y})^2$. For a fitted model $\hat{f}$ and a sample $(x_i,y_i)_{i=1}^n$, the **empirical risk** is the average loss on that sample,
 $$
@@ -163,40 +163,7 @@ Cross-validation serves two main purposes:
 2. **Model Selection**: Choose between different hyperparameters, architectures, or algorithms based on their cross-validated performance.
 :::
 
-For neural networks specifically, cross-validation helps us choose:
-
-- **Number of hidden layers** (network depth)
-- **Number of neurons per layer** (network width)
-- **Learning rate** and **batch size**
-- **Regularization parameters** (dropout rate, weight decay)
-- **Activation functions** and **optimization algorithms**
-
-:::{.callout-note}
-## Leakage Inside Cross-Validation {#sec-cv-leakage}
-
-Cross-validation only works if each fold is treated like genuinely unseen data. The general principle is:
-
-> Inside each fold, every preprocessing or transformation rule used to build features or targets must be a function of the *training portion of that fold only*. Any rule whose computed value depends on the validation-fold observations contaminates the validation distribution.
-
-Concretely, the following steps must be re-estimated inside each training fold rather than once on the full sample:
-
-- scaling and standardization
-- imputation of missing values
-- feature selection or dimensionality reduction
-- target transformations chosen from the data
-
-If these steps are computed on the full dataset before cross-validation, the validation folds share information with the training step and the reported performance is optimistically biased. Exercise 2.1 below proves a special case of this principle for full-sample standardization: the validation observation enters its own scaling rule, which shrinks its standardized magnitude relative to honest leave-one-out scaling.
-:::
-
-:::{.callout-note title="Question for Reflection"}
-
-In the leakage examples listed above, which preprocessing steps must be re-estimated inside each training fold rather than once on the full sample, and why?
-:::
-
-:::{.callout-tip collapse="true" title="Suggested Answer"}
-
-Any step that learns quantities from the data must be estimated using only the training part of the fold. Examples from the chapter include scaling and standardization, imputation of missing values, feature selection or dimensionality reduction, target transformations chosen from the data, and hyperparameter choices. Pure deterministic transformations fixed before looking at the sample can be applied outside the fold, but anything using information from the validation fold creates leakage.
-:::
+Typical choices made this way include the polynomial degree of this chapter's running example, the weight on a regularization penalty, and — once we reach richer model classes — the many architecture and estimation settings of [neural networks](feed_forward_nns.qmd) and [tree-based methods](decision_trees.qmd) in later chapters.
 
 ## K-Fold Cross-Validation {#sec-cv-kfold}
 
@@ -223,6 +190,33 @@ This is an expectation over the draw of the training data rather than the risk $
 :::{.callout-note}
 ## Common Choices for K
 A common choice for $K$ is 5 or 10. A higher $K$ means each fold model is trained on close to the full sample, so the training-size bias described above is smaller at a higher computational cost. How the *variance* of $\widehat{\mathrm{CV}}_K$ moves with $K$ has no universal answer: it depends on the stability of the fitting algorithm and on the correlation between fold estimates, and either direction can occur [@ArlotCelisse2010].
+:::
+
+:::{.callout-note}
+## Leakage Inside Cross-Validation {#sec-cv-leakage}
+
+Cross-validation only works if each fold is treated like genuinely unseen data. The general principle is:
+
+> Inside each fold, every preprocessing or transformation rule used to build features or targets must be a function of the *training portion of that fold only*. Any rule whose computed value depends on the validation-fold observations contaminates the validation distribution.
+
+Concretely, the following steps must be re-estimated inside each training fold rather than once on the full sample:
+
+- scaling and standardization
+- imputation of missing values
+- feature selection or dimensionality reduction
+- target transformations chosen from the data
+
+If these steps are computed on the full dataset before cross-validation, the validation folds share information with the training step and the reported performance is optimistically biased. Exercise 2.1 below proves a special case of this principle for full-sample standardization: the validation observation enters its own scaling rule, which shrinks its standardized magnitude relative to honest leave-one-out scaling.
+:::
+
+:::{.callout-note title="Question for Reflection"}
+
+In the leakage examples listed above, which preprocessing steps must be re-estimated inside each training fold rather than once on the full sample, and why?
+:::
+
+:::{.callout-tip collapse="true" title="Suggested Answer"}
+
+Any step that learns quantities from the data must be estimated using only the training part of the fold. Examples from the chapter include scaling and standardization, imputation of missing values, feature selection or dimensionality reduction, target transformations chosen from the data, and hyperparameter choices. Pure deterministic transformations fixed before looking at the sample can be applied outside the fold, but anything using information from the validation fold creates leakage.
 :::
 
 **Visualizing K-Fold Cross-Validation**
@@ -404,7 +398,7 @@ Scikit-learn's `TimeSeriesSplit` implements the expanding window. A sliding wind
 
 ## Practical Example: Tuning a Neural Network with Cross-Validation
 
-Let's see how to use cross-validation to select the best hyperparameters for a simple neural network; see the [chapter on feed-forward neural networks](feed_forward_nns.qmd). We will tune the hidden-layer architecture, the learning rate, and the L2 penalty using scikit-learn.
+Let's see how to use cross-validation to select the best hyperparameters for a simple neural network. No knowledge of neural networks is needed here: treat the network as a flexible nonlinear regression model whose fitting procedure comes with several tuning constants — the **hidden-layer architecture** (which controls how rich the fitted function class is), the **learning rate** (a step-size constant of the estimation algorithm), and the **L2 penalty** (the weight on a penalty proportional to the squared magnitude of the coefficients). We study these objects properly in the [chapter on feed-forward neural networks](feed_forward_nns.qmd); in this example the network simply provides a realistic tuning problem with several hyperparameters, all tuned using scikit-learn.
 
 To keep the example honest, we put standardization and model fitting into a single `Pipeline`. This ensures that scaling is learned separately inside each training fold rather than on the full dataset. @fig-nn-cv-tuning summarizes the search: each point is one configuration in the grid, plotted against the learning rate in the left panel and against the architecture in the right panel, with the red star marking the configuration attaining the lowest cross-validated MSE.
 
@@ -541,11 +535,11 @@ print(results_df.nsmallest(5, 'mean_cv_mse')[['hidden_layers', 'learning_rate', 
 ## Key Insights from the Example
 
 1. **Systematic Search**: We test multiple combinations of hyperparameters systematically rather than guessing
-2. **Robust Evaluation**: Each configuration is evaluated using 5-fold cross-validation, giving us both mean performance and uncertainty estimates
+2. **Robust Evaluation**: Each configuration is evaluated using 5-fold cross-validation, giving us its mean validation performance together with the fold-to-fold dispersion of the scores
 3. **Leakage Prevention**: The `Pipeline` ensures that standardization is re-estimated inside each fold
 4. **Fair Comparison**: All models are evaluated on the same data splits, ensuring fair comparison
 
-The reported mean CV MSE ranks the candidate configurations, while the standard deviation of the $K$ fold scores — the `std_cv_mse` column above — tells us how stable that ranking is across validation splits. A configuration with a slightly lower mean but a much larger fold-to-fold standard deviation is not clearly better unless the improvement is large relative to that variability. In the plots, vertical separation across learning rates or architectures indicates which hyperparameters matter most for this synthetic example; clusters of nearly equal points should be read as practically tied rather than as precise rankings.
+The reported mean CV MSE ranks the candidate configurations, while the standard deviation of the $K$ fold scores — the `std_cv_mse` column above — describes how much the score fluctuates from fold to fold. This dispersion is a useful descriptive stability check, but it is *not* a standard error for the cross-validated risk: the fold scores are correlated because their training sets overlap, so no simple rescaling of their standard deviation delivers a valid uncertainty estimate [@BatesHastieTibshirani2024]. Informally, a configuration with a slightly lower mean but a much larger fold-to-fold dispersion should not be declared the winner outright; a formal comparison would require an inferential procedure beyond the scope of this chapter. In the plots, vertical separation across learning rates or architectures indicates which hyperparameters matter most for this synthetic example; clusters of nearly equal points should be read as practically tied rather than as precise rankings.
 :::
 
 The grid search above uses a single level of cross-validation: `cross_val_score` plays the role of the **inner tuning loop**, comparing configurations and selecting the best. By itself this gives an honest comparison *across* configurations, but the cross-validated score of the *selected* configuration is still optimistically biased, for exactly the reason formalized in Exercise 2.2 below: taking the best of many noisy validation scores favors lucky draws. **Nested cross-validation** removes this contamination by wrapping the tuning procedure in a second loop. An **outer CV loop** is used to estimate generalization performance, while an **inner CV loop** — run separately within each outer training fold — selects the hyperparameters; because tuning happens only inside the outer training folds, the outer test folds never enter the selection step, so the performance estimate is not contaminated by tuning.
