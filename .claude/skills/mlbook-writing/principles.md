@@ -70,6 +70,18 @@ Throughout, "the reader's information set at position $p$" means: the `CLAUDE.md
 
 ---
 
+## Q — Questions, hints, and solutions
+
+**B-Q1 — The stated conditions determine the intended answer.** Every reflection question and exercise part must specify enough of the data-generating process, conditioning information, comparison object, and maintained assumptions for the intended answer to be defensible. Do not let the solution quietly add a condition absent from the prompt. For example, skewness alone does not determine a PIT shape unless location and dispersion behavior are also fixed.
+
+**B-Q2 — Prompt, hint, and answer form one coupled unit.** Read each question forward into its hint and suggested answer or solution, then backward from the answer to the prompt. The answer must address exactly what was asked, the hint must use the same assumptions and notation, and neither may contradict the preceding chapter text. When one element changes, inspect and update the entire unit, including part numbering and exam-level annotations.
+
+**B-Q3 — Comparison questions separate target, criterion, optimizer, and attained value.** State which object a loss or score evaluates, which feature determines its optimizer, and which other features still affect the attained expected loss. Tail sensitivity is not the same as targeting a tail event; under MSE the conditional mean determines the optimal point forecast, but conditional variance still affects the minimum expected MSE.
+
+**B-Q4 — One subpart contains one coherent task cluster.** A calculation followed by its immediate interpretation may stay together. Split a subpart that also asks for a numerical specialization, a new economic explanation, and an application to another section, especially when the combined work exceeds the `CLAUDE.md` target of 5–10 minutes per subpart.
+
+---
+
 ## C — Citations
 
 **B-C1 — Cite at the claim site.** Every result imported from the literature carries its citation where the claim is made, not only in a "further reading" list at the chapter end.

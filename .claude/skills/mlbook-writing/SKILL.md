@@ -1,6 +1,6 @@
 ---
 name: mlbook-writing
-description: Draft or revise prose for the "Machine Learning for Econometricians" Quarto textbook (Book_ML_Econometrics). Trigger when writing or reworking chapter text — overviews, roadmaps, definitions, transitions, callouts, figure discussions — or when the user types /mlbook-writing. Skip for whole-chapter audits (use mlbook-student-lens), for research-paper prose (econometrics-writing / finance-writing), and for code-only or build-only changes.
+description: Draft or revise prose for the "Machine Learning for Econometricians" Quarto textbook (Book_ML_Econometrics). Trigger when writing or reworking chapter text — overviews, roadmaps, definitions, transitions, callouts, figure discussions, reflection questions, exercise prompts, hints, or solutions — or when the user types /mlbook-writing. Skip for whole-chapter audits (use mlbook-student-lens), for research-paper prose (econometrics-writing / finance-writing), and for code-only or build-only changes.
 ---
 
 # ML-Book Writing
@@ -40,6 +40,7 @@ Surgical edits, not rewriting. Preserve the author's voice — the target regist
 3. Output a per-edit list: verbatim before / verbatim after / rule / severity. No silent rewrites.
 4. Then one clean revised block with the edits applied.
 5. Judgement calls go in as `[taste]` — let the author decide.
+6. For a student-facing question, apply [B-Q1..B-Q4] and treat the prompt, hint, suggested answer or solution, part numbering, exam-level annotation, and relevant preceding prose as one coupled unit.
 
 ## Draft mode
 
@@ -49,6 +50,16 @@ Prose the author could commit after light editing.
 2. Build the ledger first; expand every abbreviation at first use; gloss any coined label that first appears in an Overview or Roadmap.
 3. Self-check against `principles.md` before delivering — in particular: any term used before defined? any acronym expanded twice? any sentence- or bullet-initial bare pronoun? any forecast object without explicit origin-and-target timing? any imported result without a citation at the claim site?
 4. Deliver the prose, then a short rule-trace note.
+
+## Question and exercise edits
+
+When drafting or revising a reflection question, exercise part, hint, or solution:
+
+1. Verify that the prompt itself states every condition needed for the intended answer; do not rely on the answer key to repair an underdetermined question [B-Q1].
+2. Read the full prompt–hint–answer unit in both directions and update every coupled element affected by the edit [B-Q2].
+3. In comparison questions, distinguish the target, evaluation criterion, optimizer, and attained value; in particular, distinguish tail sensitivity from targeted evaluation and an optimal point forecast from irreducible forecast uncertainty [B-Q3].
+4. Keep each numbered part to one coherent 5–10 minute task cluster and split overloaded parts while preserving matching solution headings [B-Q4].
+5. If changes are applied to a `.qmd`, run `git diff --check`, render the affected chapter, and inspect the generated HTML for prompt text, numbering, and answer headings.
 
 ## Output format
 
@@ -85,4 +96,4 @@ Rules invoked: <[B-S1]: 3, [B-A1]: 2, ...>
 - **The regression watchlist.** These are the documented failure modes that crept in relative to the previous year's script (hosted at onnokleen.com/ml/): acronyms used before definition (LogS, CRPS, KL in a roadmap); chapter-internal jargon in roadmaps ("honest workflow", "invalidates the estimate"); dangling "It" after figures; duplicate acronym expansions; examples relying on later chapters (learning rate in the CV chapter, three chapters before neural nets); timing-ambiguous forecast notation ($u_t = F_t(y_{t+1})$); literature results imported without a citation at the claim site. Check every edit against this list.
 - **Author's own work.** When a chapter touches density-forecast evaluation, scoring rules, volatility, GARCH-MIDAS, or high-frequency data, check `references-local.bib` and onnokleen.com for the author's own relevant papers (e.g. `Kleen2024` on scaling and measurement-error sensitivity of scoring rules) — an uncited own result the chapter uses is an `essential` citation gap.
 - **Bibliography policy.** New entries go in `references-local.bib` (the repo must be self-contained), style `apalike`, cite as `@AuthorYear`.
-- **Exercises.** Exercise design and difficulty are fully specified in `CLAUDE.md`; this skill only polishes exercise *prose* (sequencing, notation, antecedents) and defers everything else.
+- **Exercises.** Exercise design and difficulty are specified in `CLAUDE.md`; this skill refines the prose interface and enforces [B-Q1..B-Q4] across prompts, hints, solutions, numbering, and annotations. It still defers substantive redesign of learning objectives or difficulty unless the user requests it.

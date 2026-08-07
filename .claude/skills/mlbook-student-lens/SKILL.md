@@ -1,6 +1,6 @@
 ---
 name: mlbook-student-lens
-description: Audit a chapter of the "Machine Learning for Econometricians" textbook as a naive-but-attentive MSc student who knows only the earlier chapters. Trigger when the user asks whether a chapter reads well, asks for a pedagogy/consistency check, wants regressions found relative to the previous year's script, or types /mlbook-student-lens. Produces a structured punch list (term leakage, notation timing, antecedents, citations, register, structure conformance) with verbatim quotes and stable IDs. Skip for line-level rewriting (use mlbook-writing) and for checking mathematical correctness of derivations (use econometrics-methods).
+description: Audit a chapter of the "Machine Learning for Econometricians" textbook as a naive-but-attentive MSc student who knows only the earlier chapters. Trigger when the user asks whether a chapter reads well, asks whether its questions and exercises are understandable, requests a pedagogy/consistency check, wants regressions found relative to the previous year's script, or types /mlbook-student-lens. Produces a structured punch list (term leakage, notation timing, question-answer alignment, antecedents, citations, register, structure conformance) with verbatim quotes and stable IDs. Skip for line-level rewriting (use mlbook-writing) and for checking mathematical correctness of derivations (use econometrics-methods).
 ---
 
 # ML-Book Student Lens
@@ -37,7 +37,7 @@ If the user gives no scope, ask which chapters; a full-book pass is expensive an
 
 **Step 3 — Linear read with a ledger.** Read the chapter top to bottom *once, in order*, maintaining a running ledger of defined terms, expanded abbreviations, coined labels, and symbols with their meanings and timing conventions. Every time the text uses something not yet in the ledger (and not in the information set), that is a finding. Every time the text re-defines something already in the ledger, that is a finding. This single pass catches the largest defect class (term leakage) and cannot be replaced by grepping.
 
-**Step 4 — Run the dimension checks** from `checklist.md`: sequencing/self-containedness, terminology hygiene, antecedents, notation & timing, precision, citations, register, structure conformance (against `CLAUDE.md`), and exercises (against the `CLAUDE.md` exercise self-check). Use the mechanical greps to backstop the linear read, not to replace it.
+**Step 4 — Run the dimension checks** from `checklist.md`: sequencing/self-containedness, terminology hygiene, antecedents, notation & timing, precision, citations, register, structure conformance (against `CLAUDE.md`), and exercises (against the `CLAUDE.md` exercise self-check). For every reflection question and exercise part, perform the question–answer round trip: verify that the stated conditions determine the intended answer and that the prompt, hint, solution, numbering, and preceding chapter text agree. Use the mechanical greps to backstop the linear read, not to replace it.
 
 **Step 5 — Verify each finding before reporting.** For a "used before defined" claim, confirm the term really is absent from the information set (search earlier chapters if in doubt — a term defined in Chapter 1 is fair game in Chapter 3, though it may still need re-expansion per [B-T1]). For a citation-gap claim, confirm the reference is not present elsewhere in the chapter. Drop anything that does not survive.
 
@@ -68,6 +68,7 @@ Information set: prerequisites + chapters <1..N-1> (<names>)
 - Citations: ...
 - Register: ...
 - Structure (CLAUDE.md): ...
+- Questions / answer keys: ...
 - Exercises (CLAUDE.md self-check): ...
 
 ## Findings (<k>)
@@ -102,5 +103,6 @@ For multi-chapter or full-book passes, emit one report per chapter plus a final 
 ## Calibration notes
 
 - The known regression pattern: LLM-assisted revisions see the whole book at once and silently assume the reader does too. Term leakage, jargon-laden roadmaps, dangling pronouns after inserted figures, duplicate expansions, and timing-ambiguous notation are the documented classes — weight them highest.
+- Question prompts are coupled artifacts, not isolated sentences. A polished solution does not rescue a prompt that omits the assumption needed to reach it, asks about a different target, or overloads one numbered part. Apply [B-Q1..B-Q4] to reflection callouts as well as formal exercises.
 - The author's own papers are part of citation coverage: chapters touching density-forecast evaluation, scoring rules, volatility, GARCH-MIDAS, or high-frequency data must cite the relevant Kleen papers (e.g. @Kleen2024 for measurement-error sensitivity of scoring rules). Check `references-local.bib` and onnokleen.com.
 - This lens judges *pedagogy and consistency*, not mathematical truth. If a derivation looks wrong, flag it as `[ad-hoc]` with a pointer to `econometrics-methods`, and do not attempt the verification here.

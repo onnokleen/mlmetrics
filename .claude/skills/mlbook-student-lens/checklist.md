@@ -103,6 +103,21 @@ Run the `CLAUDE.md` "Final exercise self-check" per exercise: 5–10 minutes per
 
 Two sub-rules are the most-missed — check them by name: (i) **hint selectivity**: count hints against sub-parts; one hint per part across the board is mechanical, and any hint that restates the question or hands over the asked-for operation gets cut; (ii) **conditions in exercise claims**: a stated result carries the assumptions it needs (a strict inequality needs a nondegeneracy condition even when the solution quietly adds it). Report failures as findings tagged `[ad-hoc]` with a pointer to the specific CLAUDE.md requirement. Do not redesign exercises inside the lens.
 
+### Question–answer round trip — [B-Q1..B-Q4]
+
+Inventory every student-facing question, including reflection callouts, exercise parts, hints, suggested answers, and solutions. For each prompt, read forward through its answer and then backward from the answer to the prompt:
+
+- **Determinate answer [B-Q1]:** Does the prompt state the conditions needed for the intended answer, or does the answer add a moment condition, timing convention, null hypothesis, or comparison benchmark that the student was never given?
+- **Coupled artifacts [B-Q2]:** Does the hint use the prompt's notation and assumptions? Does the answer address every requested task and no different one? Does either conflict with the preceding chapter text?
+- **Comparison precision [B-Q3]:** Does the question distinguish the target from sensitivity to realizations, and the optimizer from the attained criterion value or irreducible uncertainty? Treat false dichotomies such as "only the mean matters" as findings.
+- **Subpart load [B-Q4]:** Can a prepared student complete the task cluster in 5–10 minutes? Split calculations, numerical specializations, economic explanations, and cross-section applications when they do not form one immediate chain.
+
+Backstop the inventory mechanically, but inspect the surrounding callout rather than treating each grep hit independently:
+
+```bash
+grep -n 'Question for Reflection\|Suggested Answer\|^## Exercise\|^## Hint\|^## Solution\|?' chapter.qmd
+```
+
 ---
 
 ## Cross-chapter checks (multi-chapter passes only)
