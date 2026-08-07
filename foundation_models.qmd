@@ -50,15 +50,15 @@ Dividing by $T$ gives the average negative log-likelihood per token,
 $$
 \bar{\ell}(w_{1:T}; \theta) := -\frac{1}{T}\sum_{t=1}^T \log p_\theta(w_t \mid w_{1:t-1}).
 $$ {#eq-fm-avgnll}
-Suppose the test sequence $W_{1:T}$ is drawn from a true joint distribution $p^\star$ that is *stationary and ergodic* on the vocabulary $\mathcal{V}$. Then, as $T \to \infty$, a standard ergodic-theorem argument [@CoverThomas2006, Ch. 4] gives
+Suppose the test sequence $W_{1:T}$ is drawn from a true joint distribution $p^\star$ that is *stationary and ergodic* on the vocabulary $\mathcal{V}$. Then, as $T \to \infty$, a generalized Shannon–McMillan–Breiman argument [@Barron1985; @AlgoetCover1988] gives
 $$
 \bar{\ell}(W_{1:T}; \theta) \;\xrightarrow{\text{a.s.}}\; H(p^\star, p_\theta),
 $$
-where the limit is the (stationary) cross-entropy rate
+where the limit is the **cross-entropy rate**
 $$
-H(p^\star, p_\theta) \;=\; -\,\mathbb{E}_{p^\star}\!\left[\log p_\theta(W_t \mid W_{1:t-1})\right].
+H(p^\star, p_\theta) \;=\; \lim_{T\to\infty}\; -\frac{1}{T}\sum_{t=1}^{T} \mathbb{E}_{p^\star}\!\left[\log p_\theta(W_t \mid W_{1:t-1})\right].
 $$ {#eq-fm-crossent}
-Under stationarity, the right-hand side of @eq-fm-crossent does not depend on $t$. This is exactly the cross-entropy object studied in [Information Theory](information_theory.qmd). **Perplexity** is defined as
+Two regularity points deserve care here. First, the convergence result needs conditions on the *model* as well as on the data: the cited theorems cover the case where $p_\theta(\cdot \mid \cdot)$ is (eventually) a time-invariant function of a fixed number of lagged tokens — a Markov structure that a transformer with a finite context window satisfies at positions beyond the window length. Second, the per-position expectation $-\mathbb{E}_{p^\star}[\log p_\theta(W_t \mid W_{1:t-1})]$ need not be free of $t$ even when $p^\star$ is stationary, because the conditioning history grows with $t$; it stabilizes once the model's effective conditioning window is full, which is why the rate in @eq-fm-crossent is defined as a limit of averages rather than as a single per-position expectation. With these caveats, the limit is exactly the cross-entropy object studied in [Information Theory](information_theory.qmd). **Perplexity** is defined as
 $$
 \text{PPL}(w_{1:T}; \theta) \;=\; \exp\!\bigl(\bar{\ell}(w_{1:T}; \theta)\bigr).
 $$ {#eq-fm-ppl}
@@ -403,7 +403,7 @@ A second subtlety concerns the retrieval function itself. Suppose $D_t$ is chose
 
 ```{python}
 #| label: fig-fm-timeline
-#| fig-cap: "Real-time timeline at forecast origin $t$. The shaded region to the right of $t$ is the forbidden future: no object produced or revised there may enter $D_t$. Document $d_1$ is admissible. Document $d_2$ is a revision of $d_1$ published after $t$ and is not admissible, even though it concerns an event that occurred before $t$. Document $d_3$ is a curated summary published after $t$ and is not admissible. Document $d_4$ is a news summary published before $t$ but cites material produced after $t$; it is admissible as a physical object but contaminates any retriever that weights by similarity to post-$t$ content."
+#| fig-cap: "Real-time timeline at forecast origin $t$. The shaded region to the right of $t$ is the forbidden future: no object produced or revised there may enter $D_t$. Document $d_1$ is admissible. Document $d_2$ is a revision of $d_1$ published after $t$ and is not admissible, even though it concerns an event that occurred before $t$. Document $d_3$ is a curated summary published after $t$ and is not admissible. Document $d_4$ is a news summary published before $t$ and is admissible as a document; it illustrates the separate caveat that a retriever whose parameters were trained on post-$t$ corpora may select or weight $d_4$ using information unavailable at $t$, so admissibility of the documents does not by itself make the retrieval step real-time valid."
 #| echo: true
 
 import numpy as np
@@ -648,7 +648,9 @@ Compute $-\log(0.0001) \approx 9.21$ and compare to the average of the other sev
 :::{.callout-tip collapse="true"}
 ## Solution
 
-**Part 1.** The log-probabilities are
+**Part 1: Log-probability sum and average NLL**
+
+The log-probabilities are
 $$
 \log(0.40), \log(0.25), \log(0.50), \log(0.20), \log(0.15), \log(0.50), \log(0.30), \log(0.0001),
 $$
@@ -656,23 +658,25 @@ which numerically are approximately
 $$
 -0.9163, -1.3863, -0.6931, -1.6094, -1.8971, -0.6931, -1.2040, -9.2103.
 $$
-The sum is $\log p_\theta(w_{1:8}) \approx -17.6096$, and
+The sum is $\log p_\theta(w_{1:8}) \approx -17.6098$, and
 $$
-\bar{\ell}(w_{1:8}; \theta) = -\frac{-17.6096}{8} \approx 2.2012.
+\bar{\ell}(w_{1:8}; \theta) = -\frac{-17.6098}{8} \approx 2.2012.
 $$
 
-**Part 2.** Perplexity is
+**Part 2: Perplexity**
+
+Perplexity is
 $$
-\text{PPL} = \exp(2.2012) \approx 9.038.
+\text{PPL} = \exp(2.2012) \approx 9.036.
 $$
 Direct verification: $\text{PPL} = (0.40 \cdot 0.25 \cdot 0.50 \cdot 0.20 \cdot 0.15 \cdot 0.50 \cdot 0.30 \cdot 0.0001)^{-1/8}$, which evaluates to the same value.
 
-**Part 3.** The last token contributes $-\log(0.0001) \approx 9.2103$ to the sum, i.e., $9.2103 / 8 \approx 1.151$ to $\bar{\ell}$. If instead the last-token probability had been $10^{-2}$, the contribution would have been $\log(100)/8 \approx 0.576$. The difference in $\bar{\ell}$ is about $0.576$, translating into a change in $\text{PPL}$ from about $9.04$ to about $\exp(2.2012 - 0.576) \approx 5.08$.
+**Part 3: Contribution of the rare token**
+
+The last token contributes $-\log(0.0001) \approx 9.2103$ to the sum, i.e., $9.2103 / 8 \approx 1.151$ to $\bar{\ell}$. If instead the last-token probability had been $10^{-2}$, the contribution would have been $\log(100)/8 \approx 0.576$. The difference in $\bar{\ell}$ is about $0.576$, translating into a change in $\text{PPL}$ from about $9.04$ to about $\exp(2.2012 - 0.576) \approx 5.08$.
 
 The diagnostic point is that a single rare token shifts perplexity by nearly a factor of two. Perplexity is a geometric mean of reciprocal probabilities, so it is dominated by the smallest assigned probabilities. On crisis-period text, the vocabulary includes tokens that occur rarely or not at all in training; these will typically receive small probabilities under the trained model. Perplexity computed on such text is a valid summary of predictive loss only if the assumption of comparable training and test token distributions holds. Under regime change, cross-entropy $H(p^\star, p_\theta)$ is computed against a different $p^\star$ than during training, and the resulting perplexity is not on the same scale as in-distribution perplexity. It is therefore not directly comparable across regimes and should be supplemented with token-level diagnostics (e.g., the fraction of mass placed on tokens with probability below some threshold).
 :::
-
----
 
 :::{.callout-note}
 ## Exercise 16.2: Measurement error in a text-derived signal
@@ -717,7 +721,9 @@ Predictive content is about the joint distribution of $(y_{t+1}, z_t)$: it is en
 :::{.callout-tip collapse="true"}
 ## Solution
 
-**Part 1.** Compute the covariance:
+**Part 1: Attenuation under classical measurement error**
+
+Compute the covariance:
 $$
 \mathrm{Cov}(y_{t+1}, z_t) = \mathrm{Cov}(\alpha + \gamma s_t + \varepsilon_{t+1},\, s_t + u_t) = \gamma\, \mathrm{Var}(s_t) = \gamma \sigma_s^2,
 $$
@@ -731,7 +737,9 @@ $$
 $$
 with reliability ratio $\lambda \in (0, 1]$.
 
-**Part 2.** Now
+**Part 2: Non-classical measurement error**
+
+Now
 $$
 \mathrm{Cov}(y_{t+1}, z_t) = \gamma\, \mathrm{Cov}(s_t, s_t + u_t) = \gamma(\sigma_s^2 + \rho \sigma_s \sigma_u),
 $$
@@ -759,14 +767,14 @@ The denominator is positive because it is the product of two variances. For $\ga
 
 Interpretation: positive $\rho$ is not a statement about confidence or smaller absolute error. It means the error is directionally related to the latent stance: high-$s_t$ documents tend to have positive $u_t$, so the measured signal exaggerates the stance for high-stance documents, while low-$s_t$ documents tend to have negative $u_t$. The net effect on attenuation depends on which grows faster — the covariance of $y_{t+1}$ with $z_t$ (the numerator, proportional to $\sigma_s^2 + \rho\sigma_s\sigma_u$) or the variance of $z_t$ (the denominator, proportional to $\sigma_s^2 + 2\rho\sigma_s\sigma_u + \sigma_u^2$): when $\sigma_s > \sigma_u$, the denominator grows faster and the slope is more attenuated than under classical measurement error; when $\sigma_u > \sigma_s$, the numerator grows faster and the slope is less attenuated.
 
-**Part 3.** The two researchers are pursuing different objectives. The first is making a *forecasting* statement: $z_t$ carries information about $y_{t+1}$, in the sense that $\mathbb{E}[y_{t+1} \mid z_t] \neq \mathbb{E}[y_{t+1}]$. A consistent non-zero $\hat\delta$ in Part 1 is evidence for this, because $\hat\delta$ converges to $\gamma \lambda$, which is nonzero whenever $\gamma \neq 0$ and $\lambda > 0$. The attenuation does not undermine this conclusion; it only says $\hat\delta \neq \gamma$.
+**Part 3: Estimation versus forecasting objectives**
+
+The two researchers are pursuing different objectives. The first is making a *forecasting* statement: $z_t$ carries information about $y_{t+1}$, in the sense that $\mathbb{E}[y_{t+1} \mid z_t] \neq \mathbb{E}[y_{t+1}]$. A consistent non-zero $\hat\delta$ in Part 1 is evidence for this, because $\hat\delta$ converges to $\gamma \lambda$, which is nonzero whenever $\gamma \neq 0$ and $\lambda > 0$. The attenuation does not undermine this conclusion; it only says $\hat\delta \neq \gamma$.
 
 The second is making an *inference* statement about the latent concept: the coefficient of $y_{t+1}$ on $s_t$ is $\gamma$, and $\hat\delta$ does not estimate it consistently. This is correct. Without a reliability correction (or an instrument for $s_t$, or a validation subsample where $s_t$ is observed), $\hat\delta$ cannot be translated into an estimate of $\gamma$. The second researcher is right to resist the causal-style interpretation.
 
 The data therefore support the forecasting statement but not the inference statement. This is a general feature of foundation-model-derived signals in empirical work: they are usable as predictors, and usable as evidence of predictive content, but are not in themselves estimates of structural coefficients on the latent economic concept.
 :::
-
----
 
 :::{.callout-note}
 ## Exercise 16.3: Real-time information sets and the retriever
@@ -799,20 +807,24 @@ Think of the retriever as a function whose behavior depends on its parameters $\
 :::{.callout-tip collapse="true"}
 ## Solution
 
-**Part 1.**
+**Part 1: Measurability of each document**
 
 - $d_1$: published 2019-10-24, before $t = $ 2019-12-31. **Admissible** in its 2019-10-24 form.
 - $d_2$: revision re-published 2020-01-15, after $t$. **Not admissible** in its revised form, even though it concerns an event that occurred before $t$. If the original (pre-revision) transcript was published before $t$, that original is admissible; the revision is not.
 - $d_3$: published 2020-02-03, after $t$. **Not admissible.** It also contains information about market reactions that occurred after $t$, which is a second, independent violation.
 - $d_4$: published 2019-11-30, before $t$. The physical working paper is **admissible**. The fact that it cites $d_1$ is fine; citations to earlier documents do not violate the admissibility condition.
 
-**Part 2.** The retriever as specified is **not admissible**. The admissibility condition is: for each forecast origin $t$, the retriever's parameters $\psi_t$ must be $\mathcal{I}_t$-measurable, i.e., they must have been estimable from information available on or before $t$.
+**Part 2: Admissibility of the retriever**
+
+The retriever as specified is **not admissible**. The admissibility condition is: for each forecast origin $t$, the retriever's parameters $\psi_t$ must be $\mathcal{I}_t$-measurable, i.e., they must have been estimable from information available on or before $t$.
 
 The violations: (i) $E_\psi$ was trained on a web corpus crawled through 2021-06, which post-dates 2019-12-31. The similarity metric used for selection at $t$ therefore depends on future corpora. (ii) The query string "ECB policy stance" is itself admissible if written before $t$, but the way it is mapped to a vector depends on $\psi$ and inherits the same violation. (iii) The similarity metric itself (cosine similarity in the $E_\psi$ embedding space) depends on $\psi$.
 
 To restore admissibility: replace $E_\psi$ with a retriever $E_{\psi_t}$ trained on a corpus restricted to pre-$t$ text, or use a retriever whose parameters are themselves $\mathcal{I}_t$-measurable (e.g., TF-IDF computed on the pre-$t$ archive).
 
-**Part 3.** The foundation model $p_\theta$ is **not admissible** for the 2019-Q4 forecast origin because its training cutoff is 2021-09. Any knowledge about events between $t$ and 2021-09 that is encoded in $\theta$ contaminates $p_\theta$.
+**Part 3: Admissibility of the model and a valid protocol**
+
+The foundation model $p_\theta$ is **not admissible** for the 2019-Q4 forecast origin because its training cutoff is 2021-09. Any knowledge about events between $t$ and 2021-09 that is encoded in $\theta$ contaminates $p_\theta$.
 
 A valid protocol:
 
@@ -837,8 +849,6 @@ A valid protocol:
 
 If the evaluation window extends back further than the earliest foundation model with a defensible cutoff, the honest conclusion is that a pseudo-out-of-sample evaluation on this window cannot be conducted with current models, and the researcher should either restrict the window or state the limitation explicitly. It is not admissible to use a model whose training cutoff post-dates the forecast origin and hope that the contamination is small.
 :::
-
----
 
 :::{.callout-note}
 ## Exercise 16.4: Persona mismatch and conditional bias in synthetic agents
@@ -910,7 +920,9 @@ Solve this equation for $b_B$ as a function of $b_A$.
 :::{.callout-tip collapse="true"}
 ## Solution
 
-**Part 1.** The total bias is
+**Part 1: Two-group bias decomposition**
+
+The total bias is
 $$
 \begin{aligned}
 B
@@ -933,7 +945,9 @@ B
 $$
 The first term is the persona-mismatch bias: it is zero when $h=p$. The second term is the conditional bias averaged over the real persona distribution.
 
-**Part 2.** If $H=F_A$, then $h=p$ and the first term in Part 1 vanishes. The remaining bias is
+**Part 2: Reweighting removes the persona-mismatch term**
+
+If $H=F_A$, then $h=p$ and the first term in Part 1 vanishes. The remaining bias is
 $$
 p b_A+(1-p)b_B.
 $$
@@ -947,7 +961,9 @@ b_B=-\frac{p}{1-p}b_A.
 $$
 Thus aggregate correctness does not imply $b_A=b_B=0$. It only restricts the conditional-bias vector to a one-dimensional line. For any nonzero $b_A$, choosing $b_B=-p b_A/(1-p)$ produces a correct aggregate mean with two incorrect group-specific means.
 
-**Part 3.** The real population mean is
+**Part 3: Numerical evaluation**
+
+The real population mean is
 $$
 \mathbb{E}_F[R]=0.7\cdot 3+0.3\cdot 6=3.9.
 $$
@@ -966,7 +982,9 @@ p b_A+(1-p)b_B=0.7(1)+0.3(-1)=0.4.
 $$
 The two components sum to $0.3+0.4=0.7$, which equals the total bias.
 
-**Part 4.** The real aggregate mean remains
+**Part 4: Aggregate matching with offsetting conditional biases**
+
+The real aggregate mean remains
 $$
 \mathbb{E}_F[R]=0.7\cdot 3+0.3\cdot 6=3.9.
 $$

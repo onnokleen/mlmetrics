@@ -130,9 +130,9 @@ The gradient flow in LSTMs differs from vanilla RNNs in three ways:
 
 1. **Additive Highway**: The cell state update has an explicit additive path ($C_t = f_t \odot C_{t-1} + i_t \odot \tilde{C}_t$) that bypasses the tanh nonlinearity. In a vanilla RNN, all information is compressed through a single tanh ($h_t = \tanh(W_h h_{t-1} + W_x x_t + b)$), so gradients must pass through the activation's derivative at every step. The LSTM's cell state can carry a gradient signal backward with no activation derivative in the path when $f_t \approx 1$.
 
-2. **Controlled Forgetting**: The forget gate $f_t \in [0,1]$ (due to sigmoid activation) controls how much of the previous cell state to retain. When $f_t \approx 1$, gradients flow almost unimpeded.
+2. **Controlled Forgetting**: The forget gate $f_t \in (0,1)$ controls how much of the previous cell state to retain. The interval is open because the sigmoid approaches its bounds without attaining them, so $f_t = 1$ is unreachable and the cell-state path always decays to some degree. What changes relative to the vanilla RNN is that the network controls the rate: when $f_t$ is close to 1, the per-step attenuation is slight.
 
-3. **Weight-Independent Gradients**: The gradient magnitude depends only on forget gate values, not on weight matrices and their norms.
+3. **Gate-Controlled Rather Than Norm-Controlled**: Along the cell-state path with the gates held fixed, the attenuation factor is a product of forget-gate values rather than a product of recurrent weight matrices, so it does not depend on $\|W_h\|$. This is a statement about that one path: the forget gates are themselves outputs of $\sigma(W_f\cdot[h_{t-1},x_t]+b_f)$ and therefore do depend on the weights, and the full parameter gradient additionally flows through the gate-producing networks. See the *Scope of the result* note below.
 
 **Comparison of Gradient Expressions**
 
@@ -162,7 +162,7 @@ $$
 \frac{\partial C_T}{\partial C_t} = \prod_{k=t+1}^T f_k \approx 1^{T-t} = 1
 $$
 
-This means gradients can flow backward through many time steps without significant attenuation, enabling the learning of long-term dependencies.
+This means gradients can flow backward through many time steps without significant attenuation, enabling the learning of long-term dependencies. The decay is never switched off entirely — $f_k < 1$ strictly, so the product still shrinks geometrically — but the network chooses the rate. That is the substantive contrast with the vanilla RNN, where the decay rate is fixed by $W_h$, which simultaneously has to serve every other function of the recursion.
 
 Unlike vanilla RNNs, where gradient flow is shaped by repeated multiplication with the recurrent weight matrix, LSTMs *learn* when to let gradients flow through the forget gates. This learned control is the mechanism by which an LSTM can represent long-run dependence at all.
 
