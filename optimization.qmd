@@ -16,8 +16,8 @@ This chapter explains how these optimization methods work at a general level. Th
 ## Roadmap
 
 1. We begin with the basic intuition behind **gradient descent**.
-2. We then compare **batch**, **stochastic**, and **mini-batch** updates, since this distinction is central in machine learning practice.
-3. Next, we discuss the main weaknesses of vanilla gradient descent and motivate more advanced optimizers.
+2. We then compare **batch**, **stochastic**, and **mini-batch** updates — gradients computed from the full sample, a single observation, or a small random subset — since this distinction is central in machine learning practice.
+3. Next, we discuss the main weaknesses of plain gradient descent and motivate more advanced optimizers.
 4. We then study **Momentum**, **AdaGrad**, **RMSprop**, and **Adam**.
 5. Finally, we compare their behavior visually and summarize practical lessons for modern machine-learning estimation.
 
@@ -49,6 +49,8 @@ The notation below is used throughout the chapter:
 - $L(\boldsymbol{\theta}) = \frac{1}{N}\sum_{i=1}^N \ell_i(\boldsymbol{\theta})$: average training loss
 - $x_i$: predictors, $y_i$: observed value, $\hat{y}_i$: predicted/fitted value depending on $\boldsymbol{\theta}$
 - $\mathcal{D} = \{(x_i,y_i): i = 1, \dots, N\}$: the complete training dataset
+
+Two remarks connect this notation to the previous chapters. First, relative to [the cross-validation chapter](cross_validation.qmd), which wrote the per-observation loss as $L(y,\hat y)$ and sample averages as $\hat{R}$, we now write $\ell_i(\boldsymbol{\theta})$ for the per-observation loss viewed as a function of the parameters and $L(\boldsymbol{\theta})$ for its average — the same objects in parameter-dependent form. Second, $L(\boldsymbol{\theta})$ is the *empirical* training loss: optimization in this chapter minimizes it, while the generalization risk $R$ of that chapter is what validation ultimately judges — and the gap between the two is exactly the overfitting problem that motivated cross-validation.
 
 :::{.callout-note}
 ## Notation Convention
@@ -122,7 +124,7 @@ If you take
 
 :::{.callout-note title="Question for Reflection"}
 
-If observations are ordered over time or clustered by firm, what econometric concern is raised by randomly sampled mini-batches, and what kind of batch construction would better preserve the dependence structure?
+Suppose observations are ordered over time or clustered by firm. Does random mini-batch sampling bias the gradient? What does the dependence change about the batch gradient — and in which situations does the *construction* of batches (time blocks, firm clusters) genuinely matter?
 :::
 
 :::{.callout-tip collapse="true" title="Suggested Answer"}
@@ -214,7 +216,7 @@ The small constant $\varepsilon > 0$ is a smoothing term that prevents division 
 
 **RMSprop (Root Mean Square Propagation)**
 
-RMSprop — proposed by Geoffrey Hinton in unpublished lecture notes (Tieleman and Hinton, 2012) and never formally published — modifies AdaGrad to resolve its main issue of a learning rate that aggressively and monotonically decreases. Instead of accumulating all past squared gradients, RMSprop uses an exponentially decaying average, preventing the denominator from growing endlessly. Define $g_t$ as above and $g_t^2$ as the elementwise product of $g_t$ times $g_t$; that is, $g_t^2 = g_t \odot g_t$.
+RMSprop — which circulated through Hinton's lecture notes [@hinton2012rmsprop] and was never formally published — modifies AdaGrad to resolve its main issue of a learning rate that aggressively and monotonically decreases. Instead of accumulating all past squared gradients, RMSprop uses an exponentially decaying average, preventing the denominator from growing endlessly. Define $g_t$ as above and $g_t^2$ as the elementwise product of $g_t$ times $g_t$; that is, $g_t^2 = g_t \odot g_t$.
 
 The update rules are (with $v_0 = 0$):
 
@@ -247,7 +249,7 @@ The correction restores unbiasedness under stationarity; during actual training,
 4. **Parameter update**:
    $$ \boldsymbol{\theta}^{(t)} = \boldsymbol{\theta}^{(t-1)} - \eta \frac{\hat{\boldsymbol m}_t}{\sqrt{\hat{\boldsymbol v}_t} + \varepsilon}. $$
 
-Adam is generally a good default choice for most deep learning problems due to its robustness and adaptive nature. A modern variant is **AdamW** [@LoshchilovHutter2019AdamW], which decouples **weight decay** — an $L_2$-type shrinkage of the parameters applied directly in the update step, introduced properly in [the next chapter](feed_forward_nns.qmd) — from the adaptive gradient update; this makes the regularization effect easier to tune than in vanilla Adam with an ordinary $L_2$ penalty.
+Adam is a common default starting point: it usually reduces training loss quickly across a wide range of problems without per-problem tuning. Whether it delivers the best final training loss or out-of-sample performance is problem-dependent, so optimizer choice and tuning remain part of the validation exercise. A modern variant is **AdamW** [@LoshchilovHutter2019AdamW], which decouples **weight decay** — an $L_2$-type shrinkage of the parameters applied directly in the update step, introduced properly in [the next chapter](feed_forward_nns.qmd) — from the adaptive gradient update; this makes the regularization effect easier to tune than in vanilla Adam with an ordinary $L_2$ penalty.
 
 ## Optimizer Comparison
 
@@ -262,6 +264,8 @@ The column **Optimizer state** reports the number of running state tensors the o
 | **AdaGrad** | 1 (squared-gradient sum) | $\eta$, $\varepsilon$ | Adapts per-parameter rates | Learning rate decays to zero |
 | **RMSprop** | 1 (moving average of squared gradients) | $\eta$, $\gamma$, $\varepsilon$ | Fixes AdaGrad's decay problem | No momentum component |
 | **Adam** | 2 (first and second moments) | $\eta$, $\beta_1$, $\beta_2$, $\varepsilon$ | Combines momentum + adaptation | Can converge to suboptimal points |
+
+The advantage and limitation entries describe typical behavior at reasonable tunings; none is unconditional. Actual performance depends on the objective's geometry, the noise induced by mini-batching, and the learning-rate choice — the conditions the convergence callout above spells out — and settling at a suboptimal stationary point is a risk every method on this list shares on non-convex objectives.
 
 ## Visualizing Optimizers
 
@@ -818,11 +822,11 @@ $$
    \qquad
    \theta_2^{(t+1)}=(1-\eta b)\theta_2^{(t)}.
    $$
-2. Show that convergence to $(0,0)$ requires
+2. Show that the iterates converge to $(0,0)$ for every initial value $\boldsymbol{\theta}^{(0)}$ if and only if
    $$
    0<\eta<\frac{2}{a}.
    $$
-3. Explain why, when $a\gg b$, a single global learning rate creates a tension between fast progress in the $\theta_2$ direction and stability in the $\theta_1$ direction. Relate this to the motivation for adaptive or preconditioned optimization methods.
+3. Explain why, when $a\gg b$, a single global learning rate creates a tension between fast progress in the $\theta_2$ direction and stability in the $\theta_1$ direction. Relate this to the motivation for adaptive optimization methods that rescale the update differently across coordinates.
 
 *Exam level. The exercise formalizes why optimization becomes difficult in ill-conditioned problems and why a single learning rate can be inadequate.*
 :::
@@ -863,7 +867,7 @@ $$
 
 **Part 2: Deriving the Convergence Restriction**
 
-The iterates converge to zero if and only if both scalar recursions contract:
+The iterates converge to zero from every initial value if and only if both scalar recursions contract:
 $$
 |1-\eta a|<1
 \qquad\text{and}\qquad
@@ -892,7 +896,7 @@ $$
 $$
 which stays close to 1, so convergence along $\theta_2$ is very slow.
 
-Thus a single global learning rate cannot be simultaneously well-tuned for both directions: a larger $\eta$ would help progress in the flat direction but would destabilize the steep direction. This is one of the main motivations for adaptive or preconditioned methods, which scale updates differently across coordinates.
+Thus a single global learning rate cannot be simultaneously well-tuned for both directions: a larger $\eta$ would help progress in the flat direction but would destabilize the steep direction. This is one of the main motivations for adaptive methods, which scale updates differently across coordinates — a rescaling that numerical optimization calls *preconditioning*.
 :::
 
 :::{.callout-note}
@@ -929,9 +933,9 @@ $$
 4. Suppose instead the data are a time series and the scalar gradients $z_t$ are covariance stationary with autocovariances $\gamma_\ell=\operatorname{Cov}(z_t,z_{t-\ell})$. An engineer proposes *contiguous time blocks* $\{t_0+1,\dots,t_0+b\}$ as batches, for the econometric reasons discussed in this chapter's reflection question. Show that the variance of the block gradient average is
    $$
    \operatorname{Var}\left(\frac{1}{b}\sum_{s=t_0+1}^{t_0+b} z_s\right)
-   =\frac{1}{b}\left[\gamma_0+2\sum_{\ell=1}^{b-1}\left(1-\frac{\ell}{b}\right)\gamma_\ell\right],
+   =\frac{1}{b}\left[\gamma_0+2\sum_{\ell=1}^{b-1}\left(1-\frac{\ell}{b}\right)\gamma_\ell\right].
    $$
-   and explain why, under positive autocorrelation, block batches deliver noisier gradient estimates than random batches of the same size — yet may still be the right choice.
+5. Assume now that $N$ is large relative to $b$ and that $\gamma_1,\dots,\gamma_{b-1}$ are all positive. Compare the block variance from Part 4 with the random-batch variance from Part 2, and explain why block batches then deliver noisier gradient estimates — yet may still be the right choice.
 
 *Exam level. The exercise formalizes why mini-batch updates are noisy but still useful approximations to the full gradient, and what serial dependence does to that noise.*
 :::
@@ -944,14 +948,6 @@ Write the mini-batch estimator as an average of terms multiplied by inclusion in
 :::{.callout-warning collapse="true"}
 ## Hint for Part 2
 Use the standard variance formula for sampling without replacement, or derive it from inclusion probabilities.
-:::
-
-:::{.callout-warning collapse="true"}
-## Hint for Part 3
-Inspect the factor
-$$
-\frac{N-b}{b(N-1)}.
-$$
 :::
 
 :::{.callout-warning collapse="true"}
@@ -1056,7 +1052,10 @@ $$
 =\frac{1}{b^2}\left[b\gamma_0+2\sum_{\ell=1}^{b-1}(b-\ell)\gamma_\ell\right]
 =\frac{1}{b}\left[\gamma_0+2\sum_{\ell=1}^{b-1}\left(1-\frac{\ell}{b}\right)\gamma_\ell\right].
 $$
-For large $N$ the random-batch variance from Part 2 is approximately $\gamma_0/b$, whereas the block variance carries the additional term $\frac{2}{b}\sum_{\ell}(1-\ell/b)\gamma_\ell$, which is positive under positive autocorrelation: neighboring observations duplicate information, so a contiguous block contains fewer effective observations than a random batch of the same size. The block scheme can still be the right choice — when the model carries sequential state or preprocessing must respect real-time information sets, the extra gradient noise is the price of econometric validity, a tradeoff invisible if one counts only estimator variance.
+
+**Part 5: Noisier but Sometimes Right**
+
+For $N$ large relative to $b$, the random-batch variance from Part 2 is approximately $S_N^2/b \approx \gamma_0/b$: the finite-population factor $(N-b)/(N-1)$ tends to one, and over a long stationary stretch the cross-sectional dispersion $S_N^2$ approaches $\gamma_0$. The block variance carries the additional term $\frac{2}{b}\sum_{\ell}(1-\ell/b)\gamma_\ell$, which is positive under the assumed positive autocovariances: neighboring observations duplicate information, so a contiguous block contains fewer effective observations than a random batch of the same size. The block scheme can still be the right choice — when the model carries sequential state or preprocessing must respect real-time information sets, the extra gradient noise is the price of econometric validity, a tradeoff invisible if one counts only estimator variance.
 :::
 
 :::{.callout-note}
@@ -1073,7 +1072,7 @@ u_t=\delta u_{t-1}+(1-\delta)a\theta^{(t)},
 \qquad
 \theta^{(t+1)}=\theta^{(t)}-\eta u_t,
 $$
-where $\eta>0$ is the learning rate and $\delta\in[0,1)$ is the momentum parameter.
+where $\eta>0$ is the learning rate and $\delta\in[0,1)$ is the momentum parameter. (Note the indexing: here the gradient $a\theta^{(t)}$ is evaluated at the current iterate and produces $\theta^{(t+1)}$ — one index shift relative to the main text's convention, which is harmless for the dynamics.)
 
 1. Eliminate $u_t$ and show that $\theta^{(t)}$ satisfies the second-order recursion
    $$
@@ -1102,11 +1101,6 @@ $$
 :::{.callout-warning collapse="true"}
 ## Hint for Part 2
 When $\delta=0$ the lagged term vanishes. For the general case, identify $c$ and $d$ in the given stability criterion by matching the recursion to the form $x_{t+1}=cx_t+dx_{t-1}$. Then evaluate $p(1)$, $p(-1)$, and $|d|$ separately.
-:::
-
-:::{.callout-warning collapse="true"}
-## Hint for Part 3
-Compare the bound at $\delta=0$ and $\delta>0$. For oscillation, consider when the discriminant of the characteristic polynomial is negative, so the roots are complex.
 :::
 
 :::{.callout-tip collapse="true"}

@@ -24,7 +24,7 @@ Throughout, "the reader's information set at position $p$" means: the `CLAUDE.md
 
 **B-T1 — Every chapter is self-contained: expand every abbreviation at chapter-first use.** "ordinary least squares (OLS)", "the logarithmic score (LogS)", "the continuous ranked probability score (CRPS)", "the Kullback–Leibler (KL) divergence". No whitelist: this applies to prerequisite-level abbreviations (OLS, MLE, MSE, CDF) exactly as to ML-specific ones, and it applies even when an earlier chapter already expanded the term — chapters are read weeks apart and must stand alone.
 
-**B-T2 — Expand exactly once per chapter.** After the chapter-first expansion, use the short form. A second parenthetical expansion — "the Mean Absolute Error (MAE)" reappearing mid-chapter — signals lost bookkeeping and makes the student wonder whether a new object was introduced. Self-containedness is *per chapter*: the count restarts at each chapter, never within one.
+**B-T2 — Expand exactly once per chapter.** After the chapter-first expansion, use the short form. A second parenthetical expansion — "the Mean Absolute Error (MAE)" reappearing mid-chapter — signals lost bookkeeping and makes the student wonder whether a new object was introduced. Self-containedness is *per chapter*: the count restarts at each chapter, never within one. One exemption: **section headings** may carry the parenthetical ("## The Logarithmic Score (LogS)") without counting toward the limit — headings are navigational anchors read from the table of contents.
 
 **B-T3 — One primary term per object.** Pick one name at the definition site, list synonyms there once ("**distribution forecast** (also called a density forecast or predictive distribution)"), then use only the primary term. Do not drift between synonyms across sections.
 
@@ -88,7 +88,7 @@ Throughout, "the reader's information set at position $p$" means: the `CLAUDE.md
 
 **B-C2 — Coverage check for summarized literature.** Comparison tables and property lists compress literature results; each non-obvious row or claim needs a source. Specifically check the author's own papers when the chapter touches their fields (density-forecast evaluation, scoring rules, volatility, GARCH-MIDAS, high-frequency data): a table row on measurement-error sensitivity of scoring rules is @Kleen2024 and must cite it. Check `references-local.bib`, `../Literature/`, and onnokleen.com.
 
-**B-C3 — Bibliography mechanics.** New entries go in `references-local.bib` (repo must be self-contained; never `library.bib`), keys in `AuthorYear` form, style `apalike`.
+**B-C3 — Bibliography mechanics.** New entries go in `references-local.bib` (repo must be self-contained; never `library.bib`), keys in `AuthorYear` form, style `apalike`. Prefer archival sources — journal articles, books, handbook chapters, established working-paper series. Lecture notes or slides enter the bibliography only in a form the author supplies or approves (e.g. `hinton2012rmsprop` for RMSprop, citing Hinton's own slides with a URL — not a secondhand course attribution); do not invent such entries on your own, and never use a bare "(Author, year)" parenthetical that mimics a citation without a bib entry behind it.
 
 ---
 

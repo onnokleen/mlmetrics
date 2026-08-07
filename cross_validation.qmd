@@ -7,16 +7,16 @@ number-offset: [1, 0]
 
 ## Overview
 
-When building a machine learning model, we face several decisions that affect performance: which algorithm to use, and what values to choose for the tuning constants that govern a model's flexibility — for instance, the degree of a polynomial regression or the weight on a penalty term added to the loss. Here it is worth fixing terminology: ordinary **parameters** (such as regression coefficients $\beta$) are estimated by minimizing in-sample loss, whereas **hyperparameters** (such as the polynomial degree $d$ of this chapter's running example, the weight on a penalty term, or the number of folds $K$ in the validation schemes defined below) are set before or around fitting and are chosen by out-of-sample criteria. The shared challenge is that we cannot evaluate these choices on the same data used for fitting — doing so produces optimistic estimates that do not generalize to new observations.
+When building a machine learning model, we face several decisions that affect performance: which algorithm to use, and what values to choose for the tuning constants that govern a model's flexibility — for instance, the degree of a polynomial regression or the weight on a penalty term added to the loss. Here it is worth fixing terminology: ordinary **parameters** (such as regression coefficients $\beta$) are estimated by minimizing in-sample loss, whereas **hyperparameters** (such as the polynomial degree $d$ of this chapter's running example, the weight on a penalty term, or the number of knots in a spline) are set before or around fitting and are chosen by out-of-sample criteria. (The number of folds $K$ introduced below is *not* a hyperparameter in this sense: it parameterizes the validation design that produces the selection criterion, rather than being chosen by it.) The shared challenge is that we cannot evaluate these choices on the same data used for fitting — doing so produces optimistic estimates that do not generalize to new observations.
 
-This chapter introduces **cross-validation** as the principled answer to that challenge. Cross-validation simulates the experience of predicting on unseen data by systematically holding out portions of the training set. The idea dates to @Stone1974 and @Geisser1975, who proposed leave-one-out and predictive-sample-reuse procedures for model assessment well before "machine learning" was a separate field. For econometricians, the issues are familiar: overfitting, specification search, and the bias introduced by repeated use of the same data arise in classical model selection just as in machine learning. The econometric analogue of the problem is pretest and specification-search bias; the machine-learning community's answer to it is **nested validation** — carrying out model selection on one layer of held-out data while keeping a separate outer layer untouched for the final performance assessment [@VarmaSimon2006; @CawleyTalbot2010] — an idea we develop at the end of this chapter.
+This chapter introduces **cross-validation** as the principled answer to that challenge. Cross-validation simulates the experience of predicting on unseen data by systematically holding out portions of the training set. The idea dates to @Stone1974 and @Geisser1975, who proposed leave-one-out and predictive-sample-reuse procedures for model assessment well before "machine learning" was a separate field. For econometricians, the issues are familiar: overfitting, specification search, and the bias introduced by repeated use of the same data arise in classical model selection just as in machine learning. The econometric analogue of the problem is pretest and specification-search bias; the machine-learning community's answer to it is **nested cross-validation** — carrying out model selection on one layer of held-out data while keeping a separate outer layer untouched for the final performance assessment [@VarmaSimon2006; @CawleyTalbot2010] — an idea we develop at the end of this chapter.
 
 ## Roadmap
 
 1. We illustrate **overfitting** with a polynomial regression example to motivate why the training mean squared error (MSE) is not a reliable guide to predictive performance.
 2. We introduce the **honest workflow** — separating training, validation, and test sets — and explain when each set should be touched.
 3. We define **K-fold cross-validation**, discuss common choices of $K$, and explain why letting information from held-out observations slip into the training step makes the estimated predictive performance look better than it is.
-4. We extend to **time-series cross-validation** — designs in which the training sample either grows over time or moves forward at a fixed length — and explain why standard K-fold is inappropriate for dependent data.
+4. We extend to **time-series cross-validation** — designs in which the training sample either grows over time or moves forward at a fixed length — and explain why standard K-fold is often invalid for dependent data, and when it can survive.
 5. We close with a **practical example** of hyperparameter tuning, in which cross-validation selects among candidate model configurations, and explain why an honest performance estimate for the selected configuration requires a second, outer layer of validation around the selection step (**nested cross-validation**).
 
 ## A Simple Illustration of Overfitting
@@ -227,7 +227,7 @@ The following figure illustrates the K-Fold process for $K=5$ in two equivalent 
 
 ```{python}
 #| label: fig-kfold-cv
-#| fig-cap: "Illustration of 5-Fold Cross-Validation. The top panel shows shuffled fold assignment, while the bottom panel shows the same logic as a contiguous partition into five exhaustive and non-overlapping folds."
+#| fig-cap: "Illustration of 5-fold cross-validation over 100 observations. Each row is one CV iteration and each horizontal position one observation; red segments mark that iteration's validation fold and blue segments its training folds. Top panel: observations are shuffled before fold assignment. Bottom panel: the same logic as a contiguous partition into five exhaustive and non-overlapping folds."
 #| echo: true
 import numpy as np
 import matplotlib.pyplot as plt
@@ -325,7 +325,7 @@ This method uses a fixed-size training set that "slides" through time.
 2.  The next block of data is the validation set.
 3.  In the next iteration, both the training and validation windows slide forward by a specified step.
 
-The sliding window is preferred when the data-generating process (DGP) exhibits slow non-stationarity or structural change, so that older observations are less informative about the current conditional distribution.
+The sliding window is preferred when the data-generating process (DGP) exhibits slow non-stationarity or structural change, so that older observations are less informative about the current conditional distribution — provided the relevance gain outweighs the loss of estimation precision, since a shorter window always raises parameter-estimation variance.
 
 In the econometric forecast-evaluation literature, these are **pseudo-out-of-sample (pseudo-OOS)** schemes: an expanding training window uses **recursive estimation**, whereas a fixed-length sliding window uses **rolling estimation** [@West1996; @ClarkMcCracken2013]. In both schemes the forecast origin advances through time and the model is re-estimated using only the observations that the chosen window makes available at that origin.
 
@@ -617,7 +617,7 @@ Nested cross-validation therefore estimates the expected out-of-sample performan
 For deep neural networks with many hyperparameters, consider:
 
 - **Random Search**: Sample hyperparameters randomly instead of exhaustive grid search
-- **Bayesian Optimization**: Use libraries like `optuna` or `hyperopt` for more efficient search
+- **Bayesian Optimization**: A sequential search that uses the configurations already evaluated to decide which configuration to try next — more efficient per evaluation when each model fit is expensive; implemented in libraries such as `optuna` and `hyperopt`
 - **Early Stopping**: Monitor validation performance during training to avoid overfitting
 - **Nested Cross-Validation**: Use an outer loop for final performance assessment when the hyperparameter search itself is extensive, as described just above
 
@@ -975,7 +975,7 @@ y_{t+1}=\beta z_t+u_{t+1},
 \qquad
 z_t=\rho z_{t-1}+\xi_t,
 $$
-where $|\rho|<1$, $\mathbb{E}[u_{t+1}]=\mathbb{E}[\xi_t]=0$, $\operatorname{Var}(u_{t+1})=\sigma_u^2$, $\operatorname{Var}(\xi_t)=\sigma_\xi^2$, $\{\xi_t\}$ is an i.i.d. innovation sequence (so that $\xi_t$ is independent of $z_{t-1},z_{t-2},\dots$), and $u_{t+1}$ is independent of $\xi_t$ and of the past.
+where $|\rho|<1$, $\beta\neq 0$, $\mathbb{E}[u_{t+1}]=\mathbb{E}[\xi_t]=0$, $\operatorname{Var}(u_{t+1})=\sigma_u^2$, $\operatorname{Var}(\xi_t)=\sigma_\xi^2>0$, $\{\xi_t\}$ is an i.i.d. innovation sequence (so that $\xi_t$ is independent of $z_{t-1},z_{t-2},\dots$), and $u_{t+1}$ is independent of $\xi_t$ and of the past.
 
 Assume the predictor $z_t$ is published with a one-period delay, so at forecast origin $t$ we observe $z_{t-1}$ but not $z_t$. Let $\mathcal{F}_t=\sigma(z_{t-1},z_{t-2},\dots)$.
 
@@ -1088,7 +1088,7 @@ $$
 =
 \operatorname{MSPE}_{\text{rt}}
 $$
-whenever $\beta\neq 0$ and $\sigma_\xi^2>0$.
+which holds by the maintained assumptions $\beta\neq 0$ and $\sigma_\xi^2>0$.
 
 So a random cross-validation design that effectively lets the model exploit $z_t$ when predicting $y_{t+1}$ is evaluating an infeasible forecasting problem. It will produce an overly optimistic estimate of achievable real-time performance. The relevant validation design is the one that reproduces the actual forecast-origin information set, not the one with the lower but infeasible error.
 :::
