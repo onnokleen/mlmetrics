@@ -199,7 +199,8 @@ Core: `numpy`, `matplotlib`, `scipy`, `sklearn`. Additional as needed: `pandas`,
 ## Build and deploy
 
 - **Render**: `quarto render` (output to `docs/`)
-- **Deploy**: manual SFTP upload
+- **Deploy**: GitHub Pages, serving the `docs/` folder from `main` at `onnokleen/mlmetrics`. There is no build workflow — publishing means committing the rendered `docs/`. The custom domain `mlmetrics.org` comes from `docs/CNAME`, which Quarto copies from the root `CNAME` via `resources:`. No `.nojekyll` is needed, as no output path starts with `_`.
+- **Incremental vs clean renders**: a clean rebuild (`rm -rf docs && quarto render`) costs render time, since several chapters re-execute, but it does *not* bloat the repo. Figure PNGs regenerate byte-identically, so a full rebuild of all 19 chapters touches only the HTML files plus `search.json` and `sitemap.xml` (measured 2026-07-28: 63 PNGs in `docs/`, 0 changed by the rebuild itself). Do a clean rebuild whenever a stale `search.json` would otherwise keep indexing removed pages, as after changing the `_quarto.yml` render list.
 - **Bibliography**: `references-local.bib`, style: `apalike`, rendered as hover citations/footnotes
 
 ---
@@ -212,3 +213,4 @@ Core: `numpy`, `matplotlib`, `scipy`, `sklearn`. Additional as needed: `pandas`,
 - Don't modify `styles.css` or the Quarto theme
 - Don't write exercises that require running code to answer
 - Don't use image classification examples (MNIST, CIFAR, cats vs dogs, etc.)
+- Don't use `@sec-` cross-references across files. This is a Quarto **website** project, not a book, so Quarto resolves crossrefs only within a single document; a cross-chapter `@sec-foo` renders as the literal text `?@sec-foo` and only warns at build time. Use markdown links instead: `[text](chapter.qmd)` or `[text](chapter.qmd#sec-anchor)`. Same-file `@sec-`, `@fig-`, and `@eq-` references work normally. After rendering, `grep -o '?@sec-[a-z0-9-]*' docs/*.html` should return nothing.

@@ -12,8 +12,8 @@ Information theory provides the language for quantifying **uncertainty**, **surp
 This chapter introduces four core objects:
 
 - **Entropy** for measuring uncertainty in a distribution
-- **Cross-entropy** for measuring expected log-loss under a candidate model
-- **Kullback-Leibler (KL) Divergence** for comparing a model distribution to a reference distribution
+- **Cross-entropy** for measuring expected negative log-likelihood under a candidate model
+- **Kullback-Leibler (KL) divergence** for comparing a model distribution to a reference distribution
 - **Mutual information** for measuring dependence, including nonlinear dependence
 
 :::{.callout-important}
@@ -23,7 +23,7 @@ These concepts underlie:
 
 - likelihood-based estimation and maximum likelihood
 - probabilistic forecasting and forecast evaluation
-- regularization and representation learning
+- penalized estimation and model selection, recurring themes from [the next chapter](cross_validation.qmd) onwards
 - understanding dependence beyond correlation
 
 These ideas are not purely abstract. They also appear in applied finance; for an example using entropy-based concepts in financial research, see @Chabi-YoColacito2019.
@@ -39,7 +39,7 @@ The chapter is organized around one main econometric question: how should we qua
 
 1. We start with **entropy**, which measures the uncertainty in a single distribution in a more general way than variance.
 2. We then move to **cross-entropy**, which has a direct interpretation as expected negative log-likelihood.
-3. This leads naturally to **KL Divergence**, the key notion of discrepancy between two distributions.
+3. This leads naturally to **KL divergence**, the key notion of discrepancy between two distributions.
 4. We use this to connect information theory to **maximum likelihood estimation**.
 5. Finally, we study **joint entropy, conditional entropy, and mutual information** to measure dependence between variables.
 
@@ -74,20 +74,20 @@ No, the ratio of variances would **not** be a good general measure for comparing
 - $p$: Uniform distribution on $[-\sqrt{3}, \sqrt{3}]$ (variance = 1)
 - $q$: Normal distribution $N(0,1)$ (variance = 1)
 
-The variance ratio is 1, suggesting they're "the same," but they have completely different "probability structures"!
+The variance ratio is 1, suggesting the two are equivalent, yet their shapes differ completely.
 :::
 
 Note that unlike a metric, we don't require symmetry or the triangle inequality.
 
 ## Entropy (Discrete Case)
 
-The idea is to quantify the **uncertainty** or **information content** of a random variable $X$. As a first intuition, think of entropy $\mathbb{H}$ as a **generalized variance** that takes into account the entire shape of the distribution of $X$, including the tails. The analogy has one limit worth flagging immediately: variance depends on the values $X$ takes, whereas discrete entropy depends only on the probabilities. Relabeling the outcomes $\{1,2,3\}$ as $\{1,100,10000\}$ leaves the entropy unchanged while changing the variance enormously.
+The idea is to quantify the **uncertainty** or **information content** of a random variable $X$. As a first intuition, think of entropy $\mathbb{H}$ as a **variance-like summary of uncertainty** that takes into account the entire shape of the distribution of $X$, including the tails. The analogy has one limit worth flagging immediately: variance depends on the values $X$ takes, whereas discrete entropy depends only on the probabilities. Relabeling the outcomes $\{1,2,3\}$ as $\{1,100,10000\}$ leaves the entropy unchanged while changing the variance enormously.
 
 Let $X$ be discrete with probability mass function $p(x)$, and let $\mathcal{X}$ denote the set of values $X$ can take. Its support is $\{x \in \mathcal{X} : p(x)>0\}$, which may be a strict subset of $\mathcal{X}$.
 
 A useful building block is the **self-information** (or **surprisal**) of an outcome $x$:
 $$I(x) := -\log p(x).$$
-Rare outcomes (small $p(x)$) carry large $I(x)$, matching the "surprise" language of the Overview. Entropy is then the expected surprisal,
+Rare outcomes (small $p(x)$) carry large $I(x)$, matching the "surprise" language of the Overview. (Do not confuse the self-information $I(x)$ — a function of one outcome — with the mutual information $\mathbb{I}(X;Y)$ between two random variables, introduced at the end of this chapter.) Entropy is then the expected surprisal,
 $$\mathbb{H}(X) = \mathbb{E}_p[I(X)],$$
 which, written out, gives:
 
@@ -107,7 +107,11 @@ Let's start with the binary case, where $X$ can take two values (0 and 1) with p
 
 For a Bernoulli random variable $X$ with $\mathbb{P}(X=1)=\theta$, the entropy is:
 $$\mathbb{H}(\theta) = -\theta \log\theta - (1-\theta)\log(1-\theta)$$
+
+Writing the entropy as a function of the parameter, $\mathbb{H}(\theta)$, is a convenient shorthand for $\mathbb{H}(X)$ with $X \sim \text{Bernoulli}(\theta)$; we use it only in this binary example.
 :::
+
+The following figure plots this entropy over the whole range of $\theta$.
 
 ```{python}
 #| label: fig-bernoulli-entropy
@@ -175,7 +179,7 @@ Entropy therefore captures more than variance alone.
 
 Differential entropy has two limitations, both specific to the continuous case:
 
-- **Not invariant under one-to-one transformations**: for differentiable, strictly monotone $g$, the change of variables $Y = g(X)$ gives $h(Y) = h(X) + \mathbb{E}[\log |g'(X)|]$
+- **Not invariant under one-to-one transformations**: for continuously differentiable, strictly monotone $g$ with $g'(x) \neq 0$ for all $x$, the change of variables $Y = g(X)$ gives $h(Y) = h(X) + \mathbb{E}[\log |g'(X)|]$
 - **Can be negative**: unlike discrete entropy, $h(X) < 0$ is possible
 
 Discrete entropy escapes both. It is nonnegative and invariant under any one-to-one relabeling of $\mathcal{X}$, though it does depend on how finely outcomes are distinguished: merging two outcomes into one can only lower $\mathbb{H}(X)$, and splitting an outcome can only raise it. Differential entropy instead depends on the measurement scale. If $X$ is measured in thousands of dollars and $Y = 1000X$ in dollars, the rule above gives $h(Y) = h(X) + \log 1000$, so the differential entropy of the very same variable jumps by about $6.9$ purely from the change of units. This scale dependence is also why the sign of $h(X)$ says nothing about the variable itself: a change of units alone can push it below zero.
@@ -214,7 +218,7 @@ Suppose two density forecasts for inflation have the same mean and variance, but
 
 Simple comparisons of forecast means and variances would miss the difference by construction. Entropy may change because it depends on the full shape of each density, not only on the first two moments.
 
-Cross-entropy and KL divergence would also notice the difference once a reference distribution or realized outcomes are used. They evaluate the log density assigned across the support, so tail probabilities matter directly. If the true inflation distribution puts substantial probability in the tails, a forecast with too little tail mass receives poor log scores and a larger KL divergence from the truth. If the true distribution is thin-tailed, a tail-heavy forecast may waste probability mass in regions that are rarely realized.
+Cross-entropy would also notice the difference once a reference distribution or realized outcomes are used: it evaluates the log density assigned across the support, so tail probabilities matter directly. If the true inflation distribution puts substantial probability in the tails, a forecast with too little tail mass has a high expected negative log-likelihood — and the divergence measure introduced in the next section registers the same gap. If the true distribution is thin-tailed, a tail-heavy forecast wastes probability mass in regions that are rarely realized.
 :::
 
 ## Relative Entropy (KL Divergence)
@@ -229,7 +233,7 @@ $$D_{\text{KL}}(p\parallel q) := \sum_{x \in \mathcal{X}} p(x)\log\frac{p(x)}{q(
 **Continuous case**:
 $$D_{\text{KL}}(p\parallel q) := \int_{\mathcal{X}} p(x)\log\frac{p(x)}{q(x)}\,dx$$
 
-Also called **Kullback-Leibler (KL) divergence**. Note: it's not a metric since it's asymmetric and violates the triangle inequality. As with cross-entropy, the divergence is finite only if $q(x)=0$ implies $p(x)=0$ (i.e. $p$ is absolutely continuous w.r.t. $q$); otherwise $D_{\text{KL}}(p\parallel q)=+\infty$.
+The two names of the section title — relative entropy and KL divergence — are used interchangeably. Note: the KL divergence is not a metric, since it is asymmetric and violates the triangle inequality. As with cross-entropy, the divergence is finite only if $q(x)=0$ implies $p(x)=0$ (i.e. $p$ is absolutely continuous w.r.t. $q$); otherwise $D_{\text{KL}}(p\parallel q)=+\infty$.
 
 **Relationship to Entropy and Cross-Entropy**
 
@@ -298,34 +302,13 @@ plt.tight_layout()
 plt.show()
 ```
 
-:::{.callout-note}
-## How to Interpret This Figure
+@fig-kl-gaussian-visual fixes the reference distribution at $p = \mathcal{N}(0,1)$ and traces $D_{\text{KL}}(p \parallel q)$ as the comparison distribution $q$ moves away from it, one parameter at a time. In the left panel only the mean moves: the divergence grows quadratically in $\mu_1$ — the exact rate follows from the Gaussian formula above — and attains its minimum of zero at $\mu_1 = \mu_0$, where the two distributions coincide. In the right panel only the variance moves, and the curve is *not* symmetric around its zero minimum at $\sigma_1 = \sigma_0$: understating the variance is penalized more heavily than overstating it by the same amount, because a too-narrow comparison density misses tail mass of $p$, while a too-diffuse one merely spreads mass where $p$ has little probability. This within-panel asymmetry is a separate phenomenon from the asymmetry of $D_{\text{KL}}$ in its two arguments.
 
-**Setup**: In @fig-kl-gaussian-visual we fix the reference distribution at $p = \mathcal{N}(0,1)$ and measure how much a comparison distribution $q$ differs from it using $D_{\text{KL}}(p \parallel q)$.
-
-**Left panel: changing the mean**
-
-- It shows what happens when we vary $\mu_1$ while keeping both variances equal to one.
-- KL divergence grows **quadratically** as the means move apart.
-- The minimum is attained at $\mu_1 = \mu_0 = 0$, where the two distributions coincide.
-
-**Right panel: changing the variance**
-
-- It shows what happens when we vary $\sigma_1$ while keeping both means equal to zero.
-- The curve is **not symmetric** around the reference variance: understating the variance is penalized more heavily than overstating it by the same amount. This is a separate phenomenon from the asymmetry of $D_{\text{KL}}$ in its two arguments.
-- When $\sigma_1 < \sigma_0$, the comparison density is too narrow and misses tail mass of $p$.
-- When $\sigma_1 > \sigma_0$, the comparison density is too diffuse and places mass where $p$ has little probability.
-- The minimum is attained at $\sigma_1 = \sigma_0 = 1$.
-
-**Takeaway**:
-
-- KL divergence increases as the model distribution moves away from the reference distribution.
-- Only $D_{\text{KL}}(p \parallel q)$ is plotted here. The reverse direction would change the right panel, since the two directions penalize different kinds of misspecification; in the left panel, where the variances are equal, the two directions coincide.
-:::
+Keep in mind that only the direction $D_{\text{KL}}(p \parallel q)$ is plotted. The reverse direction would change the right panel, since the two directions penalize different kinds of misspecification; in the left panel, where the variances are equal, the two directions coincide.
 
 ## MLE as KL-Divergence Minimization {#sec-mle-kl-divergence}
 
-Maximum likelihood estimation (MLE) seeks to **find parameters $\theta$ that make observed data most probable**. For an i.i.d. sample, maximizing the likelihood is exactly the same as minimizing the sample average negative log-likelihood, or sample cross-entropy. At the population level, suppose the true data-generating distribution $p_0$ and the model density $p_\theta$ share support, so that $p_\theta(x) > 0$ whenever $p_0(x) > 0$. Shared support rules out the case where the divergence is forced to $+\infty$ by a support violation, but the integral can still diverge — for instance, $D_{\text{KL}}(\text{Cauchy} \parallel \text{Gaussian}) = +\infty$ despite common support — so we assume in addition that $\mathbb{E}_{p_0}\left|\log\big(p_0(X)/p_\theta(X)\big)\right| < \infty$. Under these conditions the target parameter minimizes
+Maximum likelihood estimation (MLE) seeks to **find parameters $\theta$ that make observed data most probable**. For an independent and identically distributed (i.i.d.) sample, maximizing the likelihood is exactly the same as minimizing the sample average negative log-likelihood, or sample cross-entropy. At the population level, suppose the true data-generating distribution $p_0$ and the model density $p_\theta$ share support, so that $p_\theta(x) > 0$ whenever $p_0(x) > 0$. Shared support rules out the case where the divergence is forced to $+\infty$ by a support violation, but the integral can still diverge — for instance, $D_{\text{KL}}(\text{Cauchy} \parallel \text{Gaussian}) = +\infty$ despite common support — so we assume in addition that $\mathbb{E}_{p_0}\left|\log\big(p_0(X)/p_\theta(X)\big)\right| < \infty$. Under these conditions the target parameter minimizes
 $$
 D_{\text{KL}}(p_0 \parallel p_\theta)
 =
@@ -347,12 +330,12 @@ $$
 \log p_\theta(x_1,\dots,x_T)
 = \log p_\theta(x_1) + \sum_{t=2}^{T}\log p_\theta(x_t \mid \mathcal{F}_{t-1}),
 $$
-where $\mathcal{F}_{t-1}$ denotes the information available at the end of period $t-1$. The sample average negative log-likelihood is therefore an average of *conditional* log-scores, not of marginal ones, and the population object it targets is the expected conditional KL divergence
+where $\mathcal{F}_{t-1}$ denotes the information available at the end of period $t-1$. The sample average negative log-likelihood is therefore an average of *conditional* log-likelihood contributions, not of marginal ones, and the population object it targets is the expected conditional KL divergence
 $$
 \bar{D}(\theta)
 = \mathbb{E}\Big[D_{\text{KL}}\big(p_0(\cdot \mid \mathcal{F}_{t-1}) \,\big\|\, p_\theta(\cdot \mid \mathcal{F}_{t-1})\big)\Big],
 $$
-with the outer expectation taken over the distribution of the conditioning information. This is the precise sense in which a GARCH quasi-likelihood "fits the conditional variance": it minimizes an average divergence between one-step-ahead conditional distributions. One feature carries over unchanged — $\bar{D}(\theta) \geq 0$, with equality only if the model's conditional law matches the true one — and one does not: the law of large numbers that turns the sample average into $\bar{D}(\theta)$ now requires stationarity and ergodicity rather than independence.
+with the outer expectation taken over the distribution of the conditioning information. This is the precise sense in which a generalized autoregressive conditional heteroskedasticity (GARCH) quasi-likelihood "fits the conditional variance": it minimizes an average divergence between one-step-ahead conditional distributions. One feature carries over unchanged — $\bar{D}(\theta) \geq 0$, with equality only if the model's conditional law matches the true one — and one does not: the law of large numbers that turns the sample average into $\bar{D}(\theta)$ now requires stationarity and ergodicity rather than independence.
 
 :::{.callout-important}
 ## Econometric interpretation
@@ -464,13 +447,15 @@ The area metaphor is reliable for two variables and only for two. With three or 
 
 $$\mathbb{I}(X;Y) := \sum_{x,y} p(x,y) \log\frac{p(x,y)}{p(x)p(y)} = \mathbb{H}(X) + \mathbb{H}(Y) - \mathbb{H}(X,Y)$$
 
+For continuous variables the sum becomes an integral against the joint density, $\mathbb{I}(X;Y)=\int p(x,y)\log\frac{p(x,y)}{p(x)\,p(y)}\,dx\,dy$, with differential entropies replacing discrete ones in the decomposition; the properties below hold in both cases. Either way, mutual information is the KL divergence between the joint distribution and the product of its marginals — the independence benchmark — a representation proved in Exercise 1.6.
+
 :::{.callout-note}
 ## Key Properties of Mutual Information
 
 - $\mathbb{I}(X;Y) = 0$ if and only if $X$ and $Y$ are independent
 - **Uncertainty-reduction form**: $\mathbb{I}(X;Y) = \mathbb{H}(Y) - \mathbb{H}(Y|X)$, the average reduction in uncertainty about $Y$ from learning $X$. Combined with "conditioning reduces entropy" above, this gives $\mathbb{I}(X;Y) \geq 0$ directly
 - Alternative form: $\mathbb{I}(X;Y) = \mathbb{E}_{X,Y}[\log p(Y|X) - \log p(Y)]$
-- Useful for feature selection, representation learning, and dependence measurement
+- Useful for screening candidate predictors and for measuring dependence in applied work
 :::
 
 ```{python}
@@ -540,8 +525,8 @@ Two cautions about reading the numbers. First, they are *estimates*, not populat
 ## Key Takeaways
 1. **Entropy** quantifies uncertainty in a distribution, while differential entropy must be interpreted carefully because it is not invariant to reparameterization.
 2. **Cross-entropy** measures expected log-loss when outcomes are generated by one distribution but evaluated under another.
-3. **KL Divergence** provides a principled, nonnegative way to compare distributions on the support of the reference distribution.
-4. **MLE** can be understood as KL Divergence minimization between the empirical distribution and a parametric model.
+3. **KL divergence** provides a principled, nonnegative way to compare distributions on the support of the reference distribution.
+4. **MLE** can be understood as KL-divergence minimization between the empirical distribution and a parametric model.
 5. **Mutual information** captures dependence beyond linear correlation and is therefore useful when relationships may be nonlinear.
 :::
 
@@ -549,7 +534,7 @@ Two cautions about reading the numbers. First, they are *estimates*, not populat
 ## Common Pitfalls
 - Comparing distributions only through their means or variances when tail behavior or shape matters.
 - Treating differential entropy as an absolute measure that is directly comparable across arbitrary transformations.
-- Forgetting that KL Divergence is asymmetric: $D_{\text{KL}}(p\parallel q)$ and $D_{\text{KL}}(q\parallel p)$ answer different approximation questions.
+- Forgetting that KL divergence is asymmetric: $D_{\text{KL}}(p\parallel q)$ and $D_{\text{KL}}(q\parallel p)$ answer different approximation questions.
 - Reading $D_{\text{KL}}(p\parallel q)=0$ as "$p$ and $q$ agree everywhere" without noting that the argument pins them down only where $p(x)>0$.
 :::
 
@@ -574,11 +559,6 @@ $$
 :::{.callout-warning collapse="true"}
 ## Hint for Part 1
 Substitute the Gaussian log-density into the definition of differential entropy and use $\int p(x)\,dx=1$ and $\int x^2 p(x)\,dx=\sigma^2$.
-:::
-
-:::{.callout-warning collapse="true"}
-## Hint for Part 2
-Entropy is increasing in $\sigma^2$ for a Gaussian distribution.
 :::
 
 :::{.callout-tip collapse="true"}
@@ -620,9 +600,9 @@ Let $p$ be any continuous density on $\mathbb{R}$ with mean $\mu$ and variance $
 
 1. Starting from
    $$
-   D_{\mathrm{KL}}(p \Vert q) = \int p(x)\log\frac{p(x)}{q(x)}\,dx \ge 0,
+   D_{\mathrm{KL}}(p \Vert q) = \int p(x)\log\frac{p(x)}{q(x)}\,dx \ge 0
    $$
-   show that
+   — non-negativity is stated in the Properties of KL Divergence callout and proved in Exercise 1.3 — show that
    $$
    h(p) \le -\int p(x)\log q(x)\,dx.
    $$
@@ -643,11 +623,6 @@ Expand the KL divergence into an entropy term and a cross-entropy term.
 :::{.callout-warning collapse="true"}
 ## Hint for Part 2
 Insert the Gaussian log-density for $q$ and use the fact that $p$ and $q$ have the same mean and variance.
-:::
-
-:::{.callout-warning collapse="true"}
-## Hint for Part 3
-Ask what it means for a predictive density to be as diffuse as possible subject to a fixed variance.
 :::
 
 :::{.callout-tip collapse="true"}
@@ -730,11 +705,6 @@ Use **Jensen's inequality**, which states that for a convex function $f$, $\math
 Equality in Jensen's inequality requires the argument of the convex function to be almost surely constant.
 :::
 
-:::{.callout-warning collapse="true"}
-## Hint for Part 3
-Relate KL divergence to the expected log-score gap between a model and the true distribution.
-:::
-
 :::{.callout-tip collapse="true"}
 ## Solution
 **Part 1: Jensen's Inequality**
@@ -761,14 +731,14 @@ The derivation in Part 1 used two inequalities, and $D_{\text{KL}}(p \parallel q
 
 **Part 3: Why This Matters for Model Comparison**
 
-This matters because KL divergence measures the expected log-score gap between the true distribution and an approximating model. Non-negativity says that, on average, no misspecified model can outperform the truth under log score. That is why KL divergence is a natural measure of model misspecification in likelihood-based econometrics and density forecasting.
+This matters because KL divergence measures the expected shortfall in log-likelihood from using an approximating model instead of the true distribution. Non-negativity says that, on average, no misspecified model can outperform the truth in expected log-likelihood. That is why KL divergence is a natural measure of model misspecification in likelihood-based econometrics and density forecasting.
 :::
 
 :::{.callout-note}
 ## Exercise 1.4: Invariance of KL Divergence
 Show that the Kullback-Leibler (KL) divergence is invariant to a change of variables (reparameterization). 
 
-Prove this property. Specifically, let $X$ be a continuous random variable with two possible probability densities, $p_X(x)$ and $q_X(x)$. Let $y = g(x)$ be a continuously differentiable, strictly monotone transformation, with $Y = g(X)$ having densities $p_Y(y)$ and $q_Y(y)$. Show that the KL divergence is unchanged:
+Prove this property. Specifically, let $X$ be a continuous random variable with two possible probability densities, $p_X(x)$ and $q_X(x)$. Let $y = g(x)$ be a continuously differentiable, strictly monotone transformation with $g'(x) \neq 0$ for all $x$, and let $Y = g(X)$ have densities $p_Y(y)$ and $q_Y(y)$. Show that the KL divergence is unchanged:
 $$
 D_{\text{KL}}(p_X \parallel q_X) = D_{\text{KL}}(p_Y \parallel q_Y)
 $$
@@ -868,11 +838,6 @@ Because the variances are equal, the normalization constants cancel in the log r
 :::
 
 :::{.callout-warning collapse="true"}
-## Hint for Part 2
-Use the formula from Part 1 for each competing model and compare the resulting squared distances from $\mu_0$.
-:::
-
-:::{.callout-warning collapse="true"}
 ## Hint for Part 3
 What remains of the KL formula once the predictive variance is fixed across all competing models?
 :::
@@ -883,7 +848,7 @@ What remains of the KL formula once the predictive variance is fixed across all 
 
 The KL divergence is
 $$
-D_{\mathrm{KL}}(P\Vert Q) = \int_{-\infty}^{\infty} p(x) \log\frac{p(x)}{q(x)} \,dx
+D_{\mathrm{KL}}(p\Vert q) = \int_{-\infty}^{\infty} p(x) \log\frac{p(x)}{q(x)} \,dx
 $$
 with
 $$
@@ -896,22 +861,22 @@ $$
 \log\frac{p(x)}{q(x)}
 = -\frac{(x-\mu_0)^2}{2\sigma^2} + \frac{(x-\mu_1)^2}{2\sigma^2}.
 $$
-Taking expectation under $X \sim P$ gives
+Taking expectation under $X \sim p$ gives
 $$
-D_{\mathrm{KL}}(P\Vert Q)
-= \frac{1}{2\sigma^2}\mathbb{E}_P\left[(X-\mu_1)^2-(X-\mu_0)^2\right].
+D_{\mathrm{KL}}(p\Vert q)
+= \frac{1}{2\sigma^2}\mathbb{E}_p\left[(X-\mu_1)^2-(X-\mu_0)^2\right].
 $$
 Now
 $$
-\mathbb{E}_P[(X-\mu_0)^2]=\sigma^2
+\mathbb{E}_p[(X-\mu_0)^2]=\sigma^2
 $$
 and
 $$
-\mathbb{E}_P[(X-\mu_1)^2]=\sigma^2+(\mu_0-\mu_1)^2.
+\mathbb{E}_p[(X-\mu_1)^2]=\sigma^2+(\mu_0-\mu_1)^2.
 $$
 Therefore
 $$
-D_{\mathrm{KL}}(P\Vert Q)
+D_{\mathrm{KL}}(p\Vert q)
 =\frac{1}{2\sigma^2}\left[\sigma^2+(\mu_0-\mu_1)^2-\sigma^2\right]
 =\frac{(\mu_0-\mu_1)^2}{2\sigma^2}.
 $$
@@ -926,13 +891,13 @@ kills the last two terms, since $\sigma_0^2/\sigma_1^2-1=0$ and $\log 1 = 0$, le
 
 From Part 1,
 $$
-D_{\mathrm{KL}}(P\Vert Q_A)=\frac{(\mu_0-\mu_A)^2}{2\sigma^2},
+D_{\mathrm{KL}}(p\Vert q_A)=\frac{(\mu_0-\mu_A)^2}{2\sigma^2},
 \qquad
-D_{\mathrm{KL}}(P\Vert Q_B)=\frac{(\mu_0-\mu_B)^2}{2\sigma^2}.
+D_{\mathrm{KL}}(p\Vert q_B)=\frac{(\mu_0-\mu_B)^2}{2\sigma^2}.
 $$
 Because the common factor $1/(2\sigma^2)$ is positive,
 $$
-D_{\mathrm{KL}}(P\Vert Q_A)<D_{\mathrm{KL}}(P\Vert Q_B)
+D_{\mathrm{KL}}(p\Vert q_A)<D_{\mathrm{KL}}(p\Vert q_B)
 \quad\Longleftrightarrow\quad
 (\mu_0-\mu_A)^2<(\mu_0-\mu_B)^2.
 $$
@@ -969,19 +934,9 @@ Let $X$ and $Y$ be discrete random variables with joint distribution $p(x,y)$.
 *Exam level. The exercise connects entropy additivity to the interpretation of mutual information as a general dependence measure.*
 :::
 
-::: {.callout-warning collapse="true"}
-## Hint for Part 1
-Start with the definition of joint entropy and use the fact that for independent variables, $p(x,y) = p(x)p(y)$.
-:::
-
 :::{.callout-warning collapse="true"}
 ## Hint for Part 2
 Write the KL divergence between the joint distribution and the product of the marginals, then expand the logarithm.
-:::
-
-:::{.callout-warning collapse="true"}
-## Hint for Part 3
-Think of settings where the dependence is nonlinear, so correlation can be zero even though one variable still helps predict the other.
 :::
 
 ::: {.callout-tip collapse="true"}

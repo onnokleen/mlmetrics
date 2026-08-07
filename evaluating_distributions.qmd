@@ -7,7 +7,7 @@ number-offset: [2, 0]
 
 ## Overview
 
-In many economic and financial applications, predicting a single value (a "point forecast") is not enough. We often need to understand the full range of possible outcomes and their likelihoods. This requires us to move from point forecasts to **distribution forecasts**.
+In many economic and financial applications, predicting a single value (a "point forecast") is not enough. We often need to understand the full range of possible outcomes and their likelihoods. This requires us to move from point forecasts to **distribution forecasts** — also called **density forecasts** when the outcome is continuous and the forecast is given by a density.
 
 For econometricians, this matters whenever decisions depend on tail risk, uncertainty, or the full conditional distribution rather than only the conditional mean. Examples include inflation fan charts, recession-risk assessment, and risk-management quantities such as Value-at-Risk (the loss threshold exceeded only with a given small probability).
 
@@ -19,7 +19,8 @@ This chapter explains how to evaluate such forecasts in a way that rewards hones
 2. We then introduce **proper scoring rules**, the basic tools for evaluating predictive distributions.
 3. We study the two most important univariate scoring rules in practice: the **logarithmic score (LogS)** and the **continuous ranked probability score (CRPS)**.
 4. We then turn to **calibration diagnostics** using the Probability Integral Transform (PIT).
-5. Finally, we connect these ideas back to **information theory**, especially cross-entropy and the Kullback–Leibler (KL) divergence.
+5. We then connect these ideas back to **information theory**, especially cross-entropy and the Kullback–Leibler (KL) divergence.
+6. Finally, an **empirical application** puts the toolkit to work on U.S. gross domestic product (GDP) growth: an autoregressive benchmark and two flexible machine-learning density forecasters are compared with scoring rules and calibration diagnostics on real data.
 
 ## Distribution Forecasts vs. Point Forecasts
 
@@ -47,7 +48,7 @@ The figure below illustrates the conceptual difference.
 
 ```{python}
 #| label: fig-point-vs-dist-forecast
-#| fig-cap: "Comparison of a point forecast and a distribution forecast."
+#| fig-cap: "Comparison of a point forecast and a distribution forecast for the same outcome. Left panel: the realized value (green vertical line) and a point forecast (red vertical line). Right panel: the same realized value against a full forecast density (blue curve with shading); the forecast now assigns probability to every possible outcome rather than naming a single one."
 #| echo: true
 import numpy as np
 import matplotlib.pyplot as plt
@@ -158,7 +159,7 @@ The LogS depends on the **height of the density** at the realized outcome $y$. A
 
 ```{python}
 #| label: fig-log-score-viz
-#| fig-cap: "Visual interpretation of the LogS. A higher density at the realized outcome y results in a better score."
+#| fig-cap: "Visual interpretation of the LogS. Two Gaussian forecast densities — blue centered near the realized outcome, red centered away from it — are evaluated at the same realization (green vertical line). Dashed stems mark each density's height at the realization, with the resulting f(y) and LogS values annotated: a higher density at the realized outcome gives a lower (better) score."
 #| echo: true
 
 import numpy as np
@@ -232,7 +233,7 @@ The CRPS measures the squared difference between the forecast CDF, $F(z)$, and t
 
 ```{python}
 #| label: fig-crps-viz
-#| fig-cap: "Visual comparison of CRPS for a good (left) and a bad (right) forecast. The larger shaded area for the bad forecast corresponds to a higher (worse) CRPS score."
+#| fig-cap: "Visual interpretation of the CRPS. Each panel shows a forecast CDF (left panel: blue, concentrated near the outcome; right panel: red, concentrated away from it) against the step-function CDF of the realized outcome (green), with the region between the two curves shaded orange. The CRPS integrates the squared vertical gap between the curves, so the larger shaded region in the right panel corresponds to a higher (worse) score."
 #| echo: true
 
 import numpy as np
@@ -280,7 +281,7 @@ plt.show()
 
 -   The CRPS generalizes the MAE to probabilistic forecasts. If the forecast is a single point, the CRPS reduces to the MAE. Even though it may not be intuitive at first sight given the square inside the integral, one can rewrite the CRPS as [@GneitingRaftery2007],
 $$ \text{CRPS}(F,y) = \mathbb{E} |X-y| - \frac{1}{2} \mathbb{E} |X-X'|, \quad X,X'\stackrel{iid}{\sim}F, $$
-provided $F$ has a finite first moment (otherwise both expectations on the right are infinite).
+where $X$ and $X'$ are independent and identically distributed (i.i.d.) draws from the forecast distribution $F$, provided $F$ has a finite first moment (otherwise both expectations on the right are infinite).
 -   It considers both the location and the spread of the forecast distribution.
 -   It can be computed even if you only have samples from the forecast distribution, without needing an explicit density function.
 
@@ -338,7 +339,7 @@ Both are strictly proper scoring rules, each relative to a specific class of for
 | Aspect               | Logarithmic Score (LogS)                               | Continuous Ranked Probability Score (CRPS)          |
 |----------------------|--------------------------------------------------------|-----------------------------------------------------|
 | **Input Required**   | Forecast PDF, $f(y)$                                   | Forecast CDF, $F(y)$ (or samples)                   |
-| **Sensitivity**      | sensitive to tail performance; one bad miss can dominate the average score. | Less sensitive to outliers; focuses on the central tendency and overall shape. |
+| **Sensitivity**      | Local: evaluates the density only at the realization, so one outcome in a low-density region can dominate the average score. | Aggregates CDF errors across all thresholds, so a single low-density realization rarely dominates. |
 | **Numerical Stability**| Can be unstable if $f(y)$ is close to zero.          | Generally very stable.                              |
 | **Measurement Error Sensitivity** | High                                               | Low                                                 |
 
@@ -347,8 +348,9 @@ The measurement-error row summarizes @Kleen2024: in many forecasting application
 :::{.callout-important}
 ## Practical Rule of Thumb
 
-- Use **LogS** when tail behavior is central and a full predictive density is available.
-- Use **CRPS** when you want a more robust summary of overall distribution quality or when forecasts are naturally available through CDFs or simulation draws.
+- Use **LogS** when strong penalties for assigning low density to realized outcomes are desired — its local nature makes it react sharply to tail surprises — and a full predictive density is available.
+- Use **CRPS** when a summary less dominated by single extreme realizations is desired, or when forecasts are naturally available through CDFs or simulation draws.
+- For a specific quantile or tail region, targeted alternatives such as the quantile scores listed in the callout below are the more direct tool.
 
 In macroeconomic and financial forecasting, it is often informative to report both.
 :::
@@ -363,9 +365,16 @@ If a central bank mostly cares about the probability of very high inflation, wou
 Not necessarily. LogS evaluates the density assigned to the realized outcome and can strongly penalize a model that assigns too little probability to rare high-inflation realizations. CRPS integrates CDF errors over the full support and is often less dominated by one extreme realization. Within the two scores introduced in this chapter, LogS is therefore more aligned with tail-sensitive evaluation, while CRPS is more useful as a robust summary of overall distributional accuracy.
 :::
 
+:::{.callout-note title="Beyond LogS and CRPS"}
+
+- Energy Score for multivariate distributions [introduced as a proper scoring rule by @GneitingRaftery2007, building on the energy-statistics machinery of @Szekely2003EnergyTR]
+- Diebold-Mariano tests for comparing forecast performance [@DieboldMariano1995] and the conditional predictive-ability extension of @GiacominiWhite2006, which accommodates time-varying or estimated forecasting models and is the standard reference in real-time forecast evaluation; Exercise 3.4 below develops the serial-correlation issue these tests must address
+- Quantile scores for specific percentiles of interest [@GneitingRaftery2007]
+:::
+
 ## Assessing Calibration with the Probability Integral Transform {#sec-eval-dist-pit}
 
-Beyond comparing models with scoring rules, we often want to diagnose *how* a model's predictive distributions are failing. A powerful tool for this is the **Probability Integral Transform (PIT)**.
+Beyond comparing models with scoring rules, we often want to diagnose *how* a model's predictive distributions are failing. A powerful tool for this is the **PIT**.
 
 The PIT is based on a fundamental statistical result: if a continuous random variable $Y$ is drawn from a distribution with CDF $F$, then the transformed random variable $U = F(Y)$ follows a Uniform distribution on the interval [0, 1].
 
@@ -380,7 +389,7 @@ We can visually check this by plotting a histogram of the PIT values. The shape 
 
 ```{python}
 #| label: fig-pit-histograms
-#| fig-cap: "PIT histograms for calibrated, underdispersed, overdispersed, and skew-miscalibrated forecasts."
+#| fig-cap: "PIT histograms for four simulated forecast–outcome configurations ($n=5{,}000$ draws each): a correctly specified Gaussian forecast (top left), a forecast that is too narrow (top right), a forecast that is too wide (bottom left), and a symmetric Gaussian forecast facing right-skewed outcomes (bottom right). The dashed red line marks the uniform density that a calibrated forecast reproduces."
 #| echo: true
 
 import numpy as np
@@ -405,10 +414,10 @@ pit_overdispersed = norm.cdf(y_true_norm, loc=0, scale=2.0)
 # 4. Skewness Mismatch: True data is skewed, forecast is symmetric Normal
 skew_param = 5
 y_true_skewed = skewnorm.rvs(a=skew_param, loc=0, scale=1, size=n_samples)
-# Forecast with a Normal distribution matched to the true mean and std
-mu_forecast = np.mean(y_true_skewed)
-sigma_forecast = np.std(y_true_skewed)
-pit_skew_mismatch = norm.cdf(y_true_skewed, loc=mu_forecast, scale=sigma_forecast)
+# Forecast: Normal distribution matched to the *population* mean and variance
+# of the skew-normal DGP (not estimated from the evaluated outcomes)
+mu_forecast, var_forecast = skewnorm.stats(a=skew_param, loc=0, scale=1, moments='mv')
+pit_skew_mismatch = norm.cdf(y_true_skewed, loc=mu_forecast, scale=np.sqrt(var_forecast))
 
 
 # --- Plotting ---
@@ -480,30 +489,30 @@ This identity decomposes the expected log score into two pieces:
 :::{.callout-important}
 ## Implication
 
-Minimizing the average LogS is equivalent to minimizing the KL divergence between the model's predictive distribution $q$ and the true data-generating distribution $p$. This equivalence is the theoretical foundation for using the LogS in model selection and evaluation.
+Minimizing the *expected* LogS is equivalent to minimizing the KL divergence between the model's predictive distribution $q$ and the true data-generating distribution $p$. A sample average of LogS values estimates this expectation, so the equivalence extends to empirical model comparison in large samples under the usual integrability and law-of-large-numbers conditions. This equivalence is the theoretical foundation for using the LogS in model selection and evaluation.
 :::
 
 :::{.callout-note}
 ## Advanced: CRPS and Generalized Entropy
 
-CRPS also admits an interpretation in terms of a generalized entropy. For a forecast CDF $G$ and true CDF $F$, the CRPS is
-$$\text{CRPS}(G,y)=\int_{-\infty}^{\infty}\big(G(z)-\mathbf{1}\{z \geq y\}\big)^2\,dz.$$
+CRPS also admits an interpretation in terms of a generalized entropy. Write $F$ for a forecast CDF, matching the convention of the CRPS definition above, and let the outcome have true CDF $F_0$. The CRPS is
+$$\text{CRPS}(F,y)=\int_{-\infty}^{\infty}\big(F(z)-\mathbf{1}\{z \geq y\}\big)^2\,dz.$$
 
-Taking expectation under $Y \sim F$,
+Taking expectation under $Y \sim F_0$,
 $$
 \begin{aligned}
-\mathbb{E}_{Y\sim F}[\text{CRPS}(G,Y)]
-&= \int \mathbb{E}\big[(G(z)-\mathbf{1}\{z \geq Y\})^2\big]\,dz \\
-&= \int (G(z)-F(z))^2\,dz
-   + \underbrace{\int F(z)(1-F(z))\,dz}_{h_{\text{CRPS}}(F)}.
+\mathbb{E}_{Y\sim F_0}[\text{CRPS}(F,Y)]
+&= \int \mathbb{E}\big[(F(z)-\mathbf{1}\{z \geq Y\})^2\big]\,dz \\
+&= \int (F(z)-F_0(z))^2\,dz
+   + \underbrace{\int F_0(z)(1-F_0(z))\,dz}_{h_{\text{CRPS}}(F_0)}.
 \end{aligned}
 $$
-where we used $\mathbb E[\mathbf{1}\{z \geq Y\}]=F(z)$ and $\operatorname{Var}(\mathbf{1}\{z \geq Y\})=F(z)(1-F(z))$.
+where we used $\mathbb E[\mathbf{1}\{z \geq Y\}]=F_0(z)$ and $\operatorname{Var}(\mathbf{1}\{z \geq Y\})=F_0(z)(1-F_0(z))$.
 
-- The term $h_{\text{CRPS}}(F)=\int F(z)(1-F(z))\,dz$ is the generalized "CRPS entropy" of $F$.
+- The term $h_{\text{CRPS}}(F_0)=\int F_0(z)(1-F_0(z))\,dz$ is the generalized "CRPS entropy" of the outcome distribution $F_0$.
 - The excess risk
-$$D_{\text{CRPS}}(F,G)=\int_{-\infty}^{\infty} (F(z)-G(z))^2\,dz$$
-is the **Cramér distance** between $F$ and $G$. It is nonnegative and vanishes only when the two CDFs agree everywhere, which is what makes CRPS strictly proper (minimized at $G(x)=F(x)$ for all $x$). Note the naming: the Cramér distance integrates the squared CDF gap against Lebesgue measure, $dz$, as displayed above. The Cramér–von Mises criterion integrates the same squared gap against $dF(z)$ and is a different functional.
+$$D_{\text{CRPS}}(F_0,F)=\int_{-\infty}^{\infty} (F_0(z)-F(z))^2\,dz$$
+is the **Cramér distance** between $F_0$ and $F$. It is nonnegative and vanishes only when the two CDFs agree everywhere, which is what makes CRPS strictly proper (minimized at $F(x)=F_0(x)$ for all $x$; Exercise 3.2 fills in the almost-everywhere detail). Note the naming: the Cramér distance integrates the squared CDF gap against Lebesgue measure, $dz$, as displayed above. The Cramér–von Mises criterion integrates the same squared gap against $dF_0(z)$ and is a different functional.
 
 Equivalent representation:
 $$h_{\text{CRPS}}(F)=\tfrac{1}{2}\,\mathbb{E}|X-X'|,\quad X,X'\stackrel{iid}{\sim}F,$$
@@ -512,18 +521,9 @@ $$\text{CRPS}(F,y)=\mathbb{E}|X-y|-\tfrac{1}{2}\mathbb{E}|X-X'| \quad X,X'\stack
 The last expression can be used to define a multivariate CRPS analogue called "Energy Score".
 :::
 
-## Beyond LogS and CRPS
-
-:::{.callout-note}
-
-- Energy Score for multivariate distributions [introduced as a proper scoring rule by @GneitingRaftery2007, building on the energy-statistics machinery of @Szekely2003EnergyTR]
-- Diebold-Mariano tests for comparing forecast performance [@DieboldMariano1995] and the conditional predictive-ability extension of @GiacominiWhite2006, which accommodates time-varying or estimated forecasting models and is the standard reference in real-time forecast evaluation
-- Quantile scores for specific percentiles of interest [@GneitingRaftery2007]
-:::
-
 ## Empirical Application: GDP Growth Density Forecasts {#sec-eval-dist-empirical}
 
-The tools introduced in this chapter — LogS, CRPS, and PIT histograms — are most informative when applied to competing density forecasts on the same data. We use the FRED-QD macroeconomic panel documented in the [datasets appendix](datasets.qmd); the same panel returns in the tree-based chapters later in the book. The target is annualized one-step-ahead real GDP growth, and the predictors are five lagged macro and financial variables: lagged GDP growth, inflation, term spread, log VIX, and the unemployment rate.[^eval-dist-vintage]
+The tools introduced in this chapter — LogS, CRPS, and PIT histograms — are most informative when applied to competing density forecasts on the same data. We use the FRED-QD (Federal Reserve Economic Data, Quarterly Database) macroeconomic panel documented in the [datasets appendix](datasets.qmd); the same panel returns in the tree-based chapters later in the book. The target is annualized one-step-ahead real GDP growth, and the predictors are five lagged macro and financial variables: lagged GDP growth, inflation, term spread, log VIX, and the unemployment rate.[^eval-dist-vintage]
 
 [^eval-dist-vintage]: This is a pedagogical final-vintage FRED-QD example. A full real-time evaluation would need to account for data revisions and publication lags.
 
@@ -532,7 +532,7 @@ Readers who have not yet worked through the [random forests chapter](random_fore
 - A **mean forest** predicts the conditional mean of the target variable given the predictors.
 - A **variance forest** predicts the conditional variance of the target variable given the predictors.
 
-We compare three density forecasts, all Gaussian. The **AR(1) baseline** sets the point forecast to a least-squares AR(1) in lagged GDP growth and the variance to the expanding in-sample residual variance — a quantity that stays roughly constant once enough data are available. The **heteroskedastic random forest (in-sample)** uses two forests: a mean forest that predicts the conditional mean from all five predictors, and a variance forest that regresses the squared *in-sample* residuals of the first forest on the same predictors. This two-model construction is analogous to specifying a mean equation and a variance equation separately as, for example, done in GARCH models. The **heteroskedastic random forest (OOB)** uses the same architecture but feeds the variance forest squared *out-of-bag* residuals from the mean forest instead.[^hrf-note] We deliberately include both heteroskedastic variants because the two differ only in one design choice — how the residuals fed to the variance forest are produced — and that single choice will turn out to determine whether the model beats or loses to the AR(1) baseline.
+We compare three density forecasts, all Gaussian. The **first-order autoregressive (AR(1)) baseline** sets the point forecast to a least-squares AR(1) in lagged GDP growth and the variance to the expanding in-sample residual variance — a quantity that stays roughly constant once enough data are available. The **heteroskedastic random forest (in-sample)** — we abbreviate random forest as RF below — uses two forests: a mean forest that predicts the conditional mean from all five predictors, and a variance forest that regresses the squared *in-sample* residuals of the first forest on the same predictors. This two-model construction is analogous to specifying a mean equation and a variance equation separately as, for example, done in generalized autoregressive conditional heteroskedasticity (GARCH) models. The **heteroskedastic random forest (OOB)** uses the same architecture but feeds the variance forest squared *out-of-bag* (OOB) residuals from the mean forest instead.[^hrf-note] We deliberately include both heteroskedastic variants because the two differ only in one design choice — how the residuals fed to the variance forest are produced — and that single choice will turn out to determine whether the model beats or loses to the AR(1) baseline.
 
 [^hrf-note]: All forests are re-estimated at each forecast origin using only data available at that point, so there is no look-ahead. The in-sample variant trains the variance forest on $\hat\varepsilon_t^2 = (y_t - \hat\mu_t)^2$, where $\hat\mu_t$ comes from the mean forest fit on the same training window. Because random forests fit the training data closely, these in-sample residuals understate the true conditional variance and the variance forest predicts overconfident scales. The OOB variant replaces $\hat\mu_t$ with the out-of-bag prediction from the mean forest — for each training observation, the average prediction across only those trees that did not see it during bootstrap. OOB residuals are not affected by same-sample overfitting and therefore give the variance forest a more realistic conditional-scale target than in-sample residuals (in dependent macro data they are not honest real-time forecast errors, but they are still substantially less overfit). The `np.clip(..., 1e-6, None)` guard keeps the predicted variance strictly positive, which prevents `LogS` from blowing up at near-zero leaf averages.
 
@@ -540,7 +540,7 @@ All three models are evaluated on the last 25% of the sample, a test window we w
 
 ```{python}
 #| label: fig-eval-dist-scores
-#| fig-cap: "Per-quarter LogS (top) and CRPS (bottom) for the AR(1) baseline, the in-sample heteroskedastic random forest, and the OOB heteroskedastic random forest, evaluated on the last 25% of the FRED-QD sample. The gray shading marks the COVID-19 contraction quarter (2020Q2). LogS spikes dramatically in that quarter for all three models while CRPS shows a much more moderate deterioration, illustrating the difference in tail sensitivity between the two scoring rules. The in-sample RF spike in LogS is by far the largest, because its variance forest had been predicting a small conditional variance just before the contraction. The OOB variant — same architecture but trained on out-of-bag residuals — keeps a realistic predictive variance and tracks the AR(1) closely, with a smaller LogS spike than the in-sample variant."
+#| fig-cap: "Per-quarter LogS (top panel) and CRPS (bottom panel), both lower-is-better, for the AR(1) baseline (orange), the in-sample heteroskedastic random forest (red), and the OOB heteroskedastic random forest (blue), evaluated on the last 25% of the FRED-QD sample. The gray shading marks the COVID-19 contraction quarter (2020Q2)."
 #| echo: true
 
 import numpy as np
@@ -652,9 +652,11 @@ plt.show()
 
 The top panel of @fig-eval-dist-scores shows LogS over time. All three models register a sharp spike in 2020Q2, the quarter in which GDP fell by roughly 30 percent annualized. Because LogS evaluates the density at the realized outcome, a single quarter that falls far into the left tail — where any Gaussian forecast assigns near-zero probability — can inflate the average LogS dramatically. The spike is by far the largest for the in-sample RF: its variance forest had been predicting a small conditional variance going into 2020, so the resulting density at $-32.8\%$ is essentially zero. The OOB RF's variance forecast is on a more realistic scale, so its 2020Q2 spike is smaller; the AR(1) sits in between. The bottom panel plots CRPS over the same period. All three models deteriorate in 2020Q2, but more moderately than under LogS: CRPS integrates the CDF discrepancy over all values rather than evaluating density at one point, so it is less sensitive to a single catastrophic miss.
 
+@fig-eval-dist-summary condenses the evaluation: average scores in the first panel and PIT histograms for each model in the rest. Two reading aids matter with only $n=63$ test quarters. First, we use eight bins, so that roughly eight observations per bin are expected under uniformity; finer bins would mostly display noise. Second, the shaded band around the uniform density marks pointwise ±2-standard-error variation of the bin heights under correct calibration, so only bars escaping the band deserve attention. We inspect only the marginal shape of the PITs here; testing for leftover serial dependence in the PIT sequence — the second half of the diagnosis in @sec-eval-dist-pit — requires additional tools, and Exercise 3.4 develops the closely related serial-correlation problem for average-score comparisons.
+
 ```{python}
 #| label: fig-eval-dist-summary
-#| fig-cap: "Average LogS and CRPS for the three models (top-left), and PIT histograms for each model over the full test period (remaining panels). A well-calibrated model produces a flat PIT histogram close to the uniform density shown by the dashed red line. The AR(1) PIT is mildly hump-shaped — its constant in-sample residual variance is on average a bit too wide for the calmer post-2009 period. The in-sample RF PIT is sharply U-shaped, with very large mass at both edges: its variance forest predicts a much smaller conditional scale most of the time, so realizations land in the tails of the predictive density far more often than uniformity would imply. The OOB RF PIT is the flattest of the three, indicating the best calibration."
+#| fig-cap: "Average LogS (solid bars) and CRPS (hatched bars) by model in the top-left panel, lower is better, and PIT histograms for each model over the $n=63$ test quarters in the remaining panels, using 8 bins. The dashed red line marks the uniform density; the shaded band is a pointwise ±2-standard-error region around it under correct calibration, based on the binomial variation of the bin counts. LogS and CRPS are on different scales, so bar heights in the top-left panel are comparable across models within a score, not between the two scores."
 #| echo: true
 
 fig, axes = plt.subplots(2, 2, figsize=(11, 8))
@@ -678,8 +680,10 @@ ax_bar.set_title("Average Scores")
 ax_bar.legend(frameon=False)
 ax_bar.grid(True, axis="y", alpha=0.3)
 
-# PIT histograms
-bins = np.linspace(0, 1, 16)
+# PIT histograms: 8 bins for n = 63, with a pointwise 2-SE band under uniformity
+n_bins = 8
+bins = np.linspace(0, 1, n_bins + 1)
+se_unif = np.sqrt((1 - 1 / n_bins) / (len(pit_ar) / n_bins))
 for ax, pit_vals, title, color in zip(
     [ax_ar, ax_rf, ax_oob],
     [pit_ar, pit_rf, pit_oob],
@@ -687,6 +691,7 @@ for ax, pit_vals, title, color in zip(
     ["C1", "C3", "C0"],
 ):
     ax.hist(pit_vals, bins=bins, density=True, color=color, edgecolor="white", alpha=0.8)
+    ax.axhspan(1 - 2 * se_unif, 1 + 2 * se_unif, color="red", alpha=0.08, label="±2 SE band")
     ax.axhline(1.0, color="red", linestyle="--", linewidth=1, label="Uniform")
     ax.set_xlabel("PIT value")
     ax.set_ylabel("Density")
@@ -699,16 +704,16 @@ plt.tight_layout()
 plt.show()
 ```
 
-The top-left panel of @fig-eval-dist-summary reports average scores. The ranking is striking. The **in-sample heteroskedastic RF loses badly** to the AR(1) baseline on both LogS and CRPS — the gap is especially large for LogS, where the small predicted variance produces near-zero density at the COVID realization. The **OOB heteroskedastic RF wins** on both LogS and CRPS over the same test window. The two RFs differ only in whether the variance forest is trained on in-sample or out-of-bag residuals, yet that single design choice flips the ranking against the baseline.
+The top-left panel of @fig-eval-dist-summary reports average scores. The ranking is striking. The **in-sample heteroskedastic RF loses badly** to the AR(1) baseline on both LogS and CRPS — the gap is especially large for LogS, where the small predicted variance produces near-zero density at the COVID realization. The **OOB heteroskedastic RF wins** on both LogS and CRPS over this test window — in the sample-average sense; the caveats below apply before any stronger claim. The two RFs differ only in whether the variance forest is trained on in-sample or out-of-bag residuals, yet that single design choice flips the ranking against the baseline.
 
-Two caveats apply before reading too much into the ranking. First, these are raw average scores over a short test window of 63 quarters, and we report no formal test on the score differences; a rigorous comparison would apply a Diebold–Mariano-type test with a HAC variance estimator to the loss-differential series [@DieboldMariano1995; @GiacominiWhite2006], exactly because score differentials are serially correlated in dependent data. Second, the average-LogS gap is driven to a large extent by a single observation — the COVID collapse of 2020Q2, where the in-sample random forest's tiny predicted variance produces an enormous log-score penalty. Averages of unbounded scores over short windows can hinge on one such realization, which is a caution worth keeping in mind whenever LogS rankings are reported without inference.
+Two caveats apply before reading too much into the ranking. First, these are raw average scores over a short test window of 63 quarters, and we report no formal test on the score differences; a rigorous comparison would apply a Diebold–Mariano-type test with a heteroskedasticity-and-autocorrelation-consistent (HAC) variance estimator to the loss-differential series [@DieboldMariano1995; @GiacominiWhite2006], exactly because score differentials are serially correlated in dependent data. Second, the average-LogS gap is driven to a large extent by a single observation — the COVID collapse of 2020Q2, where the in-sample random forest's tiny predicted variance produces an enormous log-score penalty. Averages of unbounded scores over short windows can hinge on one such realization, which is a caution worth keeping in mind whenever LogS rankings are reported without inference.
 
-The PIT histograms in the remaining panels diagnose **why**. The AR(1) PIT is mildly hump-shaped: with its constant in-sample residual variance, it is, if anything, slightly *overdispersed* in the relatively calm post-2009 period. The in-sample RF PIT is sharply U-shaped, with very large mass near $0$ and $1$ — the classic signature of an underdispersed predictive distribution. This is the variance-forest construction biting back: training the variance equation on in-sample mean-forest residuals systematically underestimates the conditional variance, so the resulting Gaussian densities are too narrow and realizations land in the tails far more often than a calibrated forecast would imply. The OOB RF PIT is the flattest of the three, with no edge spikes and a mostly even spread across the unit interval. Replacing in-sample residuals with out-of-bag residuals removes the overfit and gives the variance forest a realistic target to learn.
+The PIT histograms in the remaining panels diagnose **why**. The AR(1) PIT is mildly hump-shaped: with its constant in-sample residual variance, it is, if anything, slightly *overdispersed* in the relatively calm post-2009 period. The in-sample RF PIT is sharply U-shaped, with very large mass near $0$ and $1$ — the classic signature of an underdispersed predictive distribution. This is the variance-forest construction biting back: training the variance equation on in-sample mean-forest residuals systematically underestimates the conditional variance, so the resulting Gaussian densities are too narrow and realizations land in the tails far more often than a calibrated forecast would imply. The OOB RF PIT is the flattest of the three, with no edge spikes and a mostly even spread across the unit interval. Replacing in-sample residuals with out-of-bag residuals removes the same-sample overfitting bias and gives the variance forest a realistic target to learn.
 
-This is the central pedagogical point of the application. A flexible ML model that adds a learned variance equation does not automatically beat a simple AR(1) — *if* you train the variance equation on residuals that the mean equation has already overfit, you will lose to a model with no variance equation at all. The PIT histogram diagnoses this failure mode directly. But once that single design issue is fixed, the same architecture that lost on both scores now wins on both. The lesson is not that ML is too dangerous to use for density forecasting; it is that the diagnostics in this chapter — proper scoring rules together with calibration plots — are precisely what lets you tell a working ML pipeline apart from one that is broken in a way you would otherwise miss.
+This is the central pedagogical point of the application. A flexible machine-learning (ML) model that adds a learned variance equation does not automatically beat a simple AR(1) — *if* you train the variance equation on residuals that the mean equation has already overfit, you will lose to a model with no variance equation at all. The PIT histogram diagnoses this failure mode directly. But once that single design issue is fixed, the same architecture that lost on both scores now wins on both in this sample. The lesson is not that ML is too dangerous to use for density forecasting; it is that the diagnostics in this chapter — proper scoring rules together with calibration plots — are precisely what lets you tell a working ML pipeline apart from one that is broken in a way you would otherwise miss.
 
 :::{.callout-note title="Question for Reflection"}
-Both models use a Gaussian predictive distribution. How would you expect the PIT histogram to change if GDP growth were right-skewed in the test period? Which panel in @fig-pit-histograms corresponds to that pattern, and what model modification would address it?
+All three models use a Gaussian predictive distribution. How would you expect the PIT histogram to change if GDP growth were right-skewed in the test period? Which panel in @fig-pit-histograms corresponds to that pattern, and what model modification would address it?
 :::
 
 :::{.callout-tip collapse="true" title="Suggested Answer"}
@@ -723,7 +728,7 @@ Right-skewed realized outcomes relative to a symmetric Gaussian forecast would p
 2. **Proper scoring rules** are needed because they reward honest reporting of predictive uncertainty rather than only point accuracy.
 3. **LogS** is especially useful when tail behavior matters and a full density is available, while **CRPS** is often more robust and easier to use with CDFs or simulated forecasts.
 4. **PIT histograms** complement scoring rules by diagnosing whether forecast distributions are too narrow, too wide, or misspecified in skewness.
-5. **Information theory** provides the conceptual foundation: minimizing average LogS is equivalent to minimizing cross-entropy, hence KL divergence up to the irreducible entropy term.
+5. **Information theory** provides the conceptual foundation: minimizing expected LogS is equivalent to minimizing cross-entropy, hence KL divergence up to the irreducible entropy term.
 :::
 
 :::{.callout-warning}
@@ -733,7 +738,7 @@ Right-skewed realized outcomes relative to a symmetric Gaussian forecast would p
 - Using LogS without recognizing how strongly it punishes tail misspecification and near-zero assigned density.
 - Interpreting CRPS as “just another loss function” rather than a proper scoring rule for full predictive distributions.
 - Forgetting that calibration diagnostics must be applied out of sample, not on the estimation sample.
-- Building a two-stage density forecast by training a variance model on squared *in-sample* residuals from a flexible mean model. Overfitting in the mean model deflates the residuals, so the variance model learns an overconfident scale and the resulting Gaussian density becomes sharply underdispersed. Out-of-bag or held-out residuals avoid this leak.
+- Building a two-stage density forecast by training a variance model on squared *in-sample* residuals from a flexible mean model. Overfitting in the mean model deflates the residuals, so the variance model learns an overconfident scale and the resulting Gaussian density becomes sharply underdispersed. Out-of-bag or held-out residuals mitigate this same-sample residual shrinkage — an overfitting bias, not leakage in the forecast-origin sense of [the cross-validation chapter](cross_validation.qmd#sec-cv-leakage).
 :::
 
 ## Exercises
@@ -744,6 +749,7 @@ Right-skewed realized outcomes relative to a symmetric Gaussian forecast would p
 Suppose the true predictive distribution is
 $$
 p(y)=\mathcal{N}(\mu_0,\sigma_0^2),
+\qquad \sigma_0^2>0,
 $$
 while a forecaster reports the Gaussian predictive density
 $$
@@ -774,11 +780,6 @@ $$
 :::
 
 :::{.callout-warning collapse="true"}
-## Hint for Part 1
-Start from the Gaussian density formula and take minus the logarithm.
-:::
-
-:::{.callout-warning collapse="true"}
 ## Hint for Part 2
 Use
 $$
@@ -791,11 +792,6 @@ $$
 :::{.callout-warning collapse="true"}
 ## Hint for Part 3
 Differentiate the expression from Part 2 first with respect to $\mu$, then with respect to $\sigma^2$.
-:::
-
-:::{.callout-warning collapse="true"}
-## Hint for Part 4
-Under squared-error loss, the optimal point forecast is the conditional mean. Under LogS, both location and uncertainty enter the criterion.
 :::
 
 :::{.callout-tip collapse="true"}
@@ -870,7 +866,7 @@ Setting this equal to zero yields
 $$
 \sigma^2=\sigma_0^2.
 $$
-Hence the expected log score is minimized at the true mean and the true variance.
+Hence the expected log score is minimized at the true mean and the true variance. (The stationary point is the global minimum: for any fixed $\mu$ the criterion diverges to $+\infty$ both as $\sigma^2\to 0$ — the second term blows up, since $\sigma_0^2>0$ — and as $\sigma^2\to\infty$, and for fixed $\sigma^2$ it increases without bound in $(\mu-\mu_0)^2$, so the unique stationary point is where the minimum is attained.)
 
 **Part 4: Why LogS Goes Beyond Point Forecasts**
 
@@ -882,22 +878,23 @@ By contrast, LogS evaluates the full predictive density. A forecaster can get th
 :::{.callout-note}
 ## Exercise 3.2: Why CRPS Is Proper
 
-Let $F$ denote the true predictive CDF, let $G$ denote a forecast CDF, and let $Y\sim F$. Recall the CRPS:
+Let $F_0$ denote the true CDF of the outcome, let $F$ denote a forecast CDF — the convention of this chapter — and let $Y\sim F_0$; assume both distributions have finite first moments. Recall the CRPS:
 $$
-\mathrm{CRPS}(G,y)=\int_{-\infty}^{\infty}\big(G(z)-\mathbf{1}\{z\ge y\}\big)^2\,dz.
+\mathrm{CRPS}(F,y)=\int_{-\infty}^{\infty}\big(F(z)-\mathbf{1}\{z\ge y\}\big)^2\,dz.
 $$
 
 1. Show that
    $$
-   \mathbb{E}_{Y\sim F}[\mathrm{CRPS}(G,Y)]
+   \mathbb{E}_{Y\sim F_0}[\mathrm{CRPS}(F,Y)]
    =
-   \int_{-\infty}^{\infty}\left[\big(G(z)-F(z)\big)^2+F(z)\big(1-F(z)\big)\right]\,dz.
+   \int_{-\infty}^{\infty}\left[\big(F(z)-F_0(z)\big)^2+F_0(z)\big(1-F_0(z)\big)\right]\,dz.
    $$
-2. Show that the expected CRPS is minimized at $G=F$.
-3. Prove that for a point forecast represented by the degenerate CDF $G(z)=\mathbf{1}\{z\ge \hat y\}$,
+2. Show that the expected CRPS is minimized at $F=F_0$.
+3. Prove that for a point forecast represented by the degenerate CDF $F(z)=\mathbf{1}\{z\ge \hat y\}$,
    $$
-   \mathrm{CRPS}(G,y)=|\hat y-y|.
+   \mathrm{CRPS}(F,y)=|\hat y-y|.
    $$
+   Work directly from the integral definition; the chapter's collapsible box obtained the same result from the kernel representation, so this part establishes it by the complementary route.
 
 *Exam level. The exercise proves propriety and then shows why CRPS reduces to MAE for a degenerate point forecast.*
 :::
@@ -906,15 +903,15 @@ $$
 ## Hint for Part 1
 Take expectation inside the integral, expand the square, and use
 $$
-\mathbb{E}[\mathbf{1}\{z\ge Y\}] = F(z),
+\mathbb{E}[\mathbf{1}\{z\ge Y\}] = F_0(z),
 \qquad
-\mathbb{E}[\mathbf{1}\{z\ge Y\}^2] = F(z).
+\mathbb{E}[\mathbf{1}\{z\ge Y\}^2] = F_0(z).
 $$
 :::
 
 :::{.callout-warning collapse="true"}
 ## Hint for Part 2
-In the expression from Part 1, only one integral depends on $G$.
+In the expression from Part 1, only one integral depends on the forecast $F$.
 :::
 
 :::{.callout-warning collapse="true"}
@@ -929,76 +926,76 @@ For the degenerate forecast, the integrand is zero on one side of the interval b
 
 By definition,
 $$
-\mathrm{CRPS}(G,Y)=\int_{-\infty}^{\infty}\big(G(z)-\mathbf{1}\{z\ge Y\}\big)^2\,dz.
+\mathrm{CRPS}(F,Y)=\int_{-\infty}^{\infty}\big(F(z)-\mathbf{1}\{z\ge Y\}\big)^2\,dz.
 $$
-Taking expectation under $Y\sim F$ gives
+Taking expectation under $Y\sim F_0$ and interchanging expectation and integral — justified by Tonelli's theorem, since the integrand is nonnegative — gives
 $$
-\mathbb{E}_{Y\sim F}[\mathrm{CRPS}(G,Y)]
+\mathbb{E}_{Y\sim F_0}[\mathrm{CRPS}(F,Y)]
 =
-\int_{-\infty}^{\infty}\mathbb{E}\Big[\big(G(z)-\mathbf{1}\{z\ge Y\}\big)^2\Big]\,dz.
+\int_{-\infty}^{\infty}\mathbb{E}\Big[\big(F(z)-\mathbf{1}\{z\ge Y\}\big)^2\Big]\,dz.
 $$
 Expand the square:
 $$
-\big(G(z)-\mathbf{1}\{z\ge Y\}\big)^2
+\big(F(z)-\mathbf{1}\{z\ge Y\}\big)^2
 =
-G(z)^2-2G(z)\mathbf{1}\{z\ge Y\}+\mathbf{1}\{z\ge Y\}.
+F(z)^2-2F(z)\mathbf{1}\{z\ge Y\}+\mathbf{1}\{z\ge Y\}.
 $$
 Taking expectations yields
 $$
-\mathbb{E}\Big[\big(G(z)-\mathbf{1}\{z\ge Y\}\big)^2\Big]
+\mathbb{E}\Big[\big(F(z)-\mathbf{1}\{z\ge Y\}\big)^2\Big]
 =
-G(z)^2-2G(z)F(z)+F(z).
+F(z)^2-2F(z)F_0(z)+F_0(z).
 $$
-Now add and subtract $F(z)^2$:
+Now add and subtract $F_0(z)^2$:
 $$
-G(z)^2-2G(z)F(z)+F(z)^2+F(z)-F(z)^2.
+F(z)^2-2F(z)F_0(z)+F_0(z)^2+F_0(z)-F_0(z)^2.
 $$
 Therefore
 $$
-\mathbb{E}\Big[\big(G(z)-\mathbf{1}\{z\ge Y\}\big)^2\Big]
+\mathbb{E}\Big[\big(F(z)-\mathbf{1}\{z\ge Y\}\big)^2\Big]
 =
-\big(G(z)-F(z)\big)^2+F(z)\big(1-F(z)\big).
+\big(F(z)-F_0(z)\big)^2+F_0(z)\big(1-F_0(z)\big).
 $$
 Substituting this into the integral gives
 $$
-\mathbb{E}_{Y\sim F}[\mathrm{CRPS}(G,Y)]
+\mathbb{E}_{Y\sim F_0}[\mathrm{CRPS}(F,Y)]
 =
-\int_{-\infty}^{\infty}\big(G(z)-F(z)\big)^2\,dz
+\int_{-\infty}^{\infty}\big(F(z)-F_0(z)\big)^2\,dz
 +
-\int_{-\infty}^{\infty}F(z)\big(1-F(z)\big)\,dz.
+\int_{-\infty}^{\infty}F_0(z)\big(1-F_0(z)\big)\,dz.
 $$
 
 **Part 2: Propriety of CRPS**
 
-The second integral depends only on the true distribution $F$. So the only term depending on the forecast $G$ is
+The second integral depends only on the true distribution $F_0$. So the only term depending on the forecast $F$ is
 $$
-\int_{-\infty}^{\infty}\big(G(z)-F(z)\big)^2\,dz,
+\int_{-\infty}^{\infty}\big(F(z)-F_0(z)\big)^2\,dz,
 $$
-which is nonnegative and equals zero if and only if $G(z)=F(z)$ for all $z$. Hence the expected CRPS is minimized at the true forecast distribution $G=F$.
+which is nonnegative and equals zero if and only if $F=F_0$ Lebesgue-almost everywhere; because CDFs are right-continuous, almost-everywhere equality forces $F(z)=F_0(z)$ for every $z$. Hence the expected CRPS is minimized at the true outcome distribution $F=F_0$.
 
 **Part 3: Degenerate Forecasts and Absolute Error**
 
 Now let
 $$
-G(z)=\mathbf{1}\{z\ge \hat y\}.
+F(z)=\mathbf{1}\{z\ge \hat y\}.
 $$
 Then
 $$
-\mathrm{CRPS}(G,y)
+\mathrm{CRPS}(F,y)
 =
 \int_{-\infty}^{\infty}\big(\mathbf{1}\{z\ge \hat y\}-\mathbf{1}\{z\ge y\}\big)^2\,dz.
 $$
 If $\hat y<y$, the integrand equals 1 exactly on the interval $[\hat y,y)$ and 0 elsewhere, so
 $$
-\mathrm{CRPS}(G,y)=y-\hat y.
+\mathrm{CRPS}(F,y)=y-\hat y.
 $$
 If $\hat y>y$, the integrand equals 1 exactly on $[y,\hat y)$, so
 $$
-\mathrm{CRPS}(G,y)=\hat y-y.
+\mathrm{CRPS}(F,y)=\hat y-y.
 $$
 Therefore in all cases,
 $$
-\mathrm{CRPS}(G,y)=|\hat y-y|.
+\mathrm{CRPS}(F,y)=|\hat y-y|.
 $$
 So CRPS reduces to the absolute error for a degenerate point forecast.
 :::
@@ -1056,11 +1053,6 @@ Differentiate $\Phi(\sigma \Phi^{-1}(u))$ using the chain rule and
 $$
 \frac{d}{du}\Phi^{-1}(u)=\frac{1}{\phi(\Phi^{-1}(u))}.
 $$
-:::
-
-:::{.callout-warning collapse="true"}
-## Hint for Part 2
-Substitute $\sigma=1$ into the CDF or density from Part 1.
 :::
 
 :::{.callout-warning collapse="true"}
@@ -1145,6 +1137,88 @@ If $\sigma<1$, then $1-\sigma^2>0$, so the exponent is positive and grows with $
 
 If $\sigma>1$, then $1-\sigma^2<0$, so the density is damped in the tails and relatively larger near the center. This gives a hump-shaped PIT histogram, corresponding to an overdispersed forecast.
 :::
+
+:::{.callout-note}
+## Exercise 3.4: Comparing Average Scores Under Serial Correlation
+
+Two density forecasters, $A$ and $B$, issue one-step-ahead predictive distributions for the same target series, and both are evaluated with the same proper scoring rule. Let $d_t$ denote the score differential in period $t$ — the score of forecaster $A$ minus the score of forecaster $B$, each evaluated at the realized outcome — and assume $\{d_t\}$ is covariance stationary with mean $\delta=\mathbb{E}[d_t]$ and autocovariances $\gamma_\ell=\operatorname{Cov}(d_t,d_{t-\ell})$ satisfying $\sum_{\ell=0}^{\infty}|\gamma_\ell|<\infty$. Equal predictive ability is judged by comparing $\bar d=\frac{1}{T}\sum_{t=1}^{T}d_t$ with its standard error.
+
+1. Show that
+   $$
+   \operatorname{Var}(\bar d)
+   =\frac{1}{T}\left[\gamma_0+2\sum_{\ell=1}^{T-1}\left(1-\frac{\ell}{T}\right)\gamma_\ell\right].
+   $$
+2. Suppose the differential has the moving-average structure
+   $$
+   d_t=\delta+\varepsilon_t+\theta\varepsilon_{t-1},
+   \qquad \varepsilon_t\ \text{i.i.d.},\quad \mathbb{E}[\varepsilon_t]=0,\quad \operatorname{Var}(\varepsilon_t)=\sigma_\varepsilon^2>0.
+   $$
+   Derive $\gamma_0$, $\gamma_1$, and $\gamma_\ell$ for $\ell\ge 2$, and show that
+   $$
+   T\operatorname{Var}(\bar d)\ \longrightarrow\ \sigma_\varepsilon^2(1+\theta)^2
+   \qquad\text{as } T\to\infty.
+   $$
+3. An analyst ignores the dependence and uses the i.i.d.-based variance $\gamma_0/T$. Show that the ratio of the correct asymptotic variance to this naive variance is $(1+\theta)^2/(1+\theta^2)$, and evaluate it at $\theta=1$. Explain in two or three sentences why serially correlated score differentials arise naturally in forecast evaluation — for example with multi-step or overlapping forecast targets — and what your ratio implies for average-score comparisons, such as those in @sec-eval-dist-empirical, that are reported without a HAC-type standard error [@DieboldMariano1995; @GiacominiWhite2006].
+
+*Exam level. The exercise transfers the HAC logic familiar from regression inference to proper-score comparisons: with positively autocorrelated loss differentials — the typical case for overlapping forecasts, as at $\theta=1$ — i.i.d. standard errors understate the uncertainty and overstate significance. Dependence can move the variance in either direction.*
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint for Part 1
+Write
+$$
+\operatorname{Var}(\bar d)=\frac{1}{T^2}\sum_{t=1}^{T}\sum_{s=1}^{T}\operatorname{Cov}(d_t,d_s)
+$$
+and count the number of pairs $(t,s)$ with $|t-s|=\ell$.
+:::
+
+:::{.callout-tip collapse="true"}
+## Solution
+
+**Part 1: Variance of the Average Differential**
+
+By stationarity, $\operatorname{Cov}(d_t,d_s)=\gamma_{|t-s|}$, so
+$$
+\operatorname{Var}(\bar d)
+=\frac{1}{T^2}\sum_{t=1}^{T}\sum_{s=1}^{T}\gamma_{|t-s|}.
+$$
+The double sum contains $T$ pairs with $t=s$, each contributing $\gamma_0$, and for each lag $\ell=1,\dots,T-1$ exactly $2(T-\ell)$ pairs with $|t-s|=\ell$, each contributing $\gamma_\ell$. Therefore
+$$
+\operatorname{Var}(\bar d)
+=\frac{1}{T^2}\left[T\gamma_0+2\sum_{\ell=1}^{T-1}(T-\ell)\gamma_\ell\right]
+=\frac{1}{T}\left[\gamma_0+2\sum_{\ell=1}^{T-1}\left(1-\frac{\ell}{T}\right)\gamma_\ell\right].
+$$
+
+**Part 2: The Moving-Average Case**
+
+From $d_t-\delta=\varepsilon_t+\theta\varepsilon_{t-1}$,
+$$
+\gamma_0=\operatorname{Var}(\varepsilon_t+\theta\varepsilon_{t-1})=\sigma_\varepsilon^2(1+\theta^2),
+\qquad
+\gamma_1=\operatorname{Cov}(\varepsilon_t+\theta\varepsilon_{t-1},\,\varepsilon_{t-1}+\theta\varepsilon_{t-2})=\theta\sigma_\varepsilon^2,
+$$
+and $\gamma_\ell=0$ for $\ell\ge 2$, because the two moving averages then share no $\varepsilon$ term. Substituting into Part 1,
+$$
+T\operatorname{Var}(\bar d)
+=\gamma_0+2\left(1-\frac{1}{T}\right)\gamma_1
+\ \longrightarrow\
+\gamma_0+2\gamma_1
+=\sigma_\varepsilon^2\big(1+\theta^2+2\theta\big)
+=\sigma_\varepsilon^2(1+\theta)^2 .
+$$
+
+**Part 3: The Cost of Ignoring Dependence**
+
+The ratio of the correct asymptotic variance to the naive i.i.d. variance is
+$$
+\frac{\sigma_\varepsilon^2(1+\theta)^2}{\sigma_\varepsilon^2(1+\theta^2)}
+=\frac{(1+\theta)^2}{1+\theta^2},
+$$
+which equals $4/2=2$ at $\theta=1$: the true variance of $\bar d$ is twice the naive one, so the naive standard error is too small by a factor $\sqrt{2}$ and the associated $t$-statistic is inflated by the same factor. (The direction is governed by the sign of the autocorrelation: at $\theta=-1/2$ the ratio is $0.25/1.25=0.2$, so the naive standard error would instead be too *large*. Positive autocorrelation is the empirically typical case for score differentials.)
+
+Serially correlated differentials are the rule rather than the exception in forecast evaluation. An $h$-step-ahead forecast target overlaps its neighbors in $h-1$ innovations, so even a correctly specified model produces loss differentials with a moving-average structure of order $h-1$; estimated parameters and persistent volatility add further dependence. Average-score gaps like those in @sec-eval-dist-empirical therefore require a long-run (HAC-type) variance estimate before differences can be judged statistically significant — which is precisely the construction of the Diebold–Mariano test and its conditional extension by Giacomini and White.
+:::
+
 ## References
 
 ::: {#refs}
