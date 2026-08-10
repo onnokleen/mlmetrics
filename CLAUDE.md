@@ -126,6 +126,8 @@ Each pedagogical chapter follows this skeleton:
 
 **Reference appendix exception.** `datasets.qmd` is a reference appendix, not a teaching chapter. It documents the file-backed datasets shipped with the repo so other chapters can link to it instead of re-describing each source. It is exempt from the Overview/Roadmap/Summary/Exercises skeleton, the visual-pedagogy rule, and the self-reflection prompts. Keep it short and factual: source and citation, file path, unit of observation, frequency, any file-layout quirks, a table of the variables actually used, and one canonical loading snippet. Any future reference-style appendix should follow the same pattern.
 
+**Empirical-illustration exception.** `nn_example.qmd` is a worked empirical illustration rather than a methods chapter. Such chapters keep the Overview/Roadmap/Summary skeleton but may omit `## Exercises` when their pen-and-paper content is already covered by exercises in the methodological chapters they draw on. Declare the exemption in the YAML front matter (`chapter-type: empirical-illustration`, `exercises-required: false`, plus a one-line `exercise-note`) so the omission is deliberate and machine-checkable.
+
 Additional section-depth rule:
 
 - Chapters should have only one numbered section depth below the chapter title. In practice this means: after `# Chapter Title`, use `##` headings for numbered sections and avoid `###` / `####`.
