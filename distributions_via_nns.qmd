@@ -88,7 +88,7 @@ In overparameterized models, jointly training the mean and variance heads by max
 
 The **Hemisphere Neural Network (HNN)** architecture, proposed by @GouletCoulombeFrenetteKlieber2026, is designed to stabilize this process.
 
-**HNN architecture.** The architecture splits the network after a shared *common core* into two specialized *hemispheres*. The core is a set of shared layers that learn a common representation of the inputs; because latent drivers can influence both moments through this shared representation, the design builds in an implicit link between mean and variance, similar to autoregressive conditional heteroskedasticity (ARCH) or volatility-in-mean effects. The mean hemisphere is a dedicated stack of layers ending in a linear output head that predicts $\mu_t$. The variance hemisphere mirrors it with a `softplus` output head — the softplus transform $\zeta(z)=\log(1+e^{z})>0$ (introduced in the [Feed-Forward Neural Networks chapter](feed_forward_nns.qmd#sec-def-multilayer-nn)) maps any real pre-activation to a positive value — so that the predicted variance $\sigma_t^2$ is always positive.
+**HNN architecture.** The architecture splits the network after a shared *common core* into two specialized *hemispheres*. The core is a set of shared layers that learn a common representation of the inputs; because latent drivers can influence both moments through this shared representation, the two heads draw on common predictors — a *representation-level* link between mean and variance. Genuine autoregressive conditional heteroskedasticity (ARCH)-type dynamics, in which the variance is driven by past innovations, or volatility-in-mean effects, in which the conditional variance enters the mean equation, do not follow from shared layers alone: they arise only if the corresponding variables — lagged residuals, lagged variance, or an explicit cross-head connection — enter the model, as in the Temporal Dynamics extension below. The mean hemisphere is a dedicated stack of layers ending in a linear output head that predicts $\mu_t$. The variance hemisphere mirrors it with a `softplus` output head — the softplus transform $\zeta(z)=\log(1+e^{z})>0$ (introduced in the [Feed-Forward Neural Networks chapter](feed_forward_nns.qmd#sec-def-multilayer-nn)) maps any real pre-activation to a positive value — so that the predicted variance $\sigma_t^2$ is always positive.
 
 The resulting architecture is illustrated in @fig-hnn.
 
@@ -145,7 +145,7 @@ The HNN framework introduces three key ingredients to discipline the unstable ML
 **Practical Design Choices and Extensions**
 
 -   **Hyperparameters**: A typical HNN might use 2 hidden layers for the core and 2 for each hemisphere, with rectified linear unit (ReLU) activations, Adam optimization, and dropout.
--   **Beyond Gaussian**: The hemisphere approach can be extended to other distributions (e.g., Student-t) by adding a third hemisphere for the degrees of freedom parameter, $\nu$. Since $\nu>0$ is required, this head needs its own positivity transform on its output (e.g., a softplus head), just like the scale parameter.
+-   **Beyond Gaussian**: The hemisphere approach can be extended to other distributions (e.g., Student-t) by adding a third hemisphere for the degrees of freedom parameter, $\nu$. A Student-$t$ density is well defined for $\nu > 0$, but its mean is finite only for $\nu > 1$ and its variance only for $\nu > 2$ — so a degrees-of-freedom head that should preserve the mean and variance hemispheres' interpretation must enforce $\nu > 2$, for instance via $\nu = 2 + \zeta(z)$ with the softplus $\zeta$, rather than mere positivity.
 -   **Temporal Dynamics**: To capture GARCH-like effects more directly, lagged outcomes or squared residuals can be included as features in $\mathbf{x}_t$. For more complex sequences, the common core could be a long short-term memory (LSTM) network.
 
 ## Handling Complex Distributions: Mixture Density Networks (MDNs) {#sec-mdn}
@@ -181,7 +181,7 @@ The realized-volatility illustration of the [previous chapter](nn_example.qmd) �
 
 [^distnn-data]: The data file `data/taq_spy/SPY_daily_measures.csv` is documented in [the dataset appendix](datasets.qmd#sec-spy-taq-realized). The pipeline below uses 22 trading days as the maximum lag through the monthly HAR average and forecasts $\log RV_{t+1}$.
 
-The **HAR-OLS Gaussian baseline** — the HAR components fit by ordinary least squares (OLS) — sets the conditional mean to the linear HAR-OLS fit in log space — that is, a regression of $\log RV_{t+1}$ on $\log RV_t$, $\log\big(\tfrac{1}{5}\sum_{j=0}^{4} RV_{t-j}\big)$, and $\log\big(\tfrac{1}{21}\sum_{j=0}^{20} RV_{t-j}\big)$. The conditional variance is the in-sample residual variance from the same fit and stays constant over the test block. This baseline is homoskedastic in log-RV space.
+The **HAR-OLS Gaussian baseline** — the HAR components fit by ordinary least squares (OLS) — sets the conditional mean to the linear HAR-OLS fit in log space — that is, a regression of $\log RV_{t+1}$ on $\log RV_t$, $\log\big(\tfrac{1}{5}\sum_{j=0}^{4} RV_{t-j}\big)$, and $\log\big(\tfrac{1}{21}\sum_{j=0}^{20} RV_{t-j}\big)$. The conditional variance is the in-sample residual variance from the same fit — computed with the maximum-likelihood convention, dividing the sum of squared residuals by the number of observations — and stays constant over the test block. This baseline is homoskedastic in log-RV space.
 
 The **Gaussian distributional HAR-FNN** — a feed-forward neural network (FNN) on the HAR inputs — uses the same three log-HAR inputs but routes them through a single hidden layer with 32 softplus units, followed by two output heads: a linear mean head $\mu_\phi(\mathbf{x}_t)$ and a linear log-variance head $v_\phi(\mathbf{x}_t)$, with predictive variance $\sigma_\phi^2(\mathbf{x}_t)=\max\{\exp(v_\phi(\mathbf{x}_t)),c\}$ for a small floor $c$. We write $v_\phi$ for this scalar head to keep it distinct from the full parameter vector $\boldsymbol{\eta}_\phi$ of @sec-point-to-distnn — here $\boldsymbol{\eta}_\phi(\mathbf{x}_t) = (\mu_\phi(\mathbf{x}_t), v_\phi(\mathbf{x}_t))$. Positivity is parameterized through the log-variance, $\sigma^2(\mathbf{x})=\exp(v_\phi(\mathbf{x}))$ (an alternative to the softplus head above); both guarantee $\sigma^2>0$. The two heads share the hidden representation, in the spirit of the HNN common core in @sec-hnn but without the volatility-emphasis constraint or blocked subsampling. The model is trained by minimizing the Gaussian negative log likelihood, which by the discussion in @sec-distnn-training-scores is the neural-network analogue of minimizing the average log score on the training block. Both forecasts are then evaluated on the held-out test block using LogS, CRPS, and PIT, exactly as in the [empirical application of the predictive-distribution chapter](evaluating_distributions.qmd#sec-eval-dist-empirical).
 
@@ -264,7 +264,7 @@ The Gaussian baseline is just OLS plus an in-sample residual variance.
 ols = LinearRegression().fit(X_trva, y_trva)
 mu_ols_te = ols.predict(X_te)
 resid_trva = y_trva - ols.predict(X_trva)
-sigma_ols = float(np.std(resid_trva, ddof=1))
+sigma_ols = float(np.std(resid_trva))  # ML convention: divide the SSE by n
 sigma_ols_te = np.full_like(mu_ols_te, sigma_ols)
 ```
 
@@ -365,24 +365,23 @@ The two predictive bands give the first part of the story directly. The HAR-OLS 
 
 ```{python}
 #| label: fig-distnn-empirical-summary
-#| fig-cap: "Average LogS and CRPS on the test block (left panel; solid bars are LogS, hatched bars CRPS), and PIT histograms for the two forecasts (middle and right panels). LogS and CRPS are measured in different units, so bar heights are comparable only within a score, across the two models — not between the two scores. A well-calibrated forecast yields a flat PIT histogram close to the uniform density (red dashed line)."
+#| fig-cap: "Average LogS (first panel) and average CRPS (second panel) on the test block — each score in its own panel, because the two are measured in different units and are comparable only across models within a panel — and PIT histograms for the two forecasts (third and fourth panels). A well-calibrated forecast yields a flat PIT histogram close to the uniform density (red dashed line)."
 #| echo: true
 
-fig, (ax_bar, ax_pit_ols, ax_pit_dist) = plt.subplots(1, 3, figsize=(13, 4))
+fig, (ax_logs, ax_crps, ax_pit_ols, ax_pit_dist) = plt.subplots(1, 4, figsize=(15, 4))
 
 labels = ["HAR-OLS\nGaussian", "Distributional\nHAR-FNN"]
 xpos = np.arange(len(labels))
-width = 0.35
-ax_bar.bar(xpos - width / 2, [logs_ols.mean(), logs_dist.mean()],
-           width, label="LogS", color=["C1", "C0"], alpha=0.85)
-ax_bar.bar(xpos + width / 2, [crps_ols.mean(), crps_dist.mean()],
-           width, label="CRPS", color=["C1", "C0"], alpha=0.45, hatch="//")
-ax_bar.set_xticks(xpos)
-ax_bar.set_xticklabels(labels)
-ax_bar.set_ylabel("Average score (lower = better)")
-ax_bar.set_title("Average Scores")
-ax_bar.legend(frameon=False)
-ax_bar.grid(True, axis="y", alpha=0.3)
+for ax, vals, title in [
+    (ax_logs, [logs_ols.mean(), logs_dist.mean()], "Average LogS"),
+    (ax_crps, [crps_ols.mean(), crps_dist.mean()], "Average CRPS"),
+]:
+    ax.bar(xpos, vals, 0.55, color=["C1", "C0"], alpha=0.85)
+    ax.set_xticks(xpos)
+    ax.set_xticklabels(labels)
+    ax.set_ylabel("Average score (lower = better)")
+    ax.set_title(title)
+    ax.grid(True, axis="y", alpha=0.3)
 
 bins = np.linspace(0, 1, 16)
 for ax, pit_vals, title, color in zip(

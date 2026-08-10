@@ -28,7 +28,7 @@ For optional visual intuition, [this blog post](https://colah.github.io/posts/20
 
 LSTM networks, introduced by @HochreiterSchmidhuber1997, extend plain RNNs by adding a gating mechanism that controls long-term information flow; the forget gate, central to the modern form of the cell, was added later by @GersSchmidhuberCummins2000. The notation below lists the several quantities the LSTM tracks at each time step.
 
-At each time step $t$, an LSTM cell maintains the following quantities, where $H$ is the number of hidden units and $D$ the input dimension. To keep the gate equations light, we drop the boldface that the previous chapter used for vectors: $x_t$, $h_t$, $C_t$, and the gates below are all vectors of the stated dimensions.
+At each time step $t$, an LSTM cell maintains the following quantities, where $H$ is the number of hidden units and $D$ the input dimension. To keep the gate equations light, we drop the boldface that the previous chapter used for vectors: $x_t$, $h_t$, $C_t$, and the gates below are all vectors of the stated dimensions, and the weight matrices $W_f, W_i, W_c, W_o$ are likewise set without boldface.
 
 - **Input**: $x_t \in \mathbb{R}^D$, the current input vector
 - **Hidden state**: $h_t \in \mathbb{R}^H$, the output of the LSTM cell, similar to RNN hidden states
@@ -118,7 +118,7 @@ $$
 C_t = f_t \odot C_{t-1} + i_t \odot \tilde{C}_t
 $$
 
-The cell-state update $C_t = f_t \odot C_{t-1} + i_t \odot \tilde C_t$ has an **additive** structure: when the forget gate $f_t$ is close to 1, the coordinatewise derivative $\partial C_{t,j}/\partial C_{t-1,j} = f_{t,j}$ is also close to 1, so gradient signal propagates with little attenuation. This is the structural contrast with a plain RNN, where the corresponding partial derivative is the *product* of a weight-matrix factor and an activation derivative.
+The cell-state update $C_t = f_t \odot C_{t-1} + i_t \odot \tilde C_t$ has an **additive** structure: when the forget gate $f_t$ is close to 1, the coordinatewise derivative $\partial C_{t,j}/\partial C_{t-1,j} = f_{t,j}$ — computed holding the gates and candidate fixed, as formalized just below — is also close to 1, so gradient signal propagates with little attenuation. This is the structural contrast with a plain RNN, where the corresponding partial derivative is the *product* of a weight-matrix factor and an activation derivative.
 
 To isolate the cell-state gradient path, fix the gate variables $f_t,i_t,o_t$ and the candidate $\tilde C_t$ as constants. Because the update acts elementwise, the Jacobian of $C_t$ with respect to $C_{t-1}$ is the diagonal matrix
 $$
@@ -186,7 +186,7 @@ Unlike plain RNNs, where gradient flow is shaped by repeated multiplication with
 | **Memory Capability** | Can represent long-run dependence, but hard to train for it               | Learns long-run dependence far more reliably                            |
 | **Gradient Flow**     | Multiplicative (via weight matrices)                                      | Additive state path; forget-gate products in the derivative             |
 | **Vanishing Gradients** | Highly susceptible                                                        | Largely mitigated by the "gradient highway"                             |
-| **Parameters**        | $H(H+D) + H$                                                              | $4H(H+D) + 4H$ (four weight blocks, $\approx 4\times$ the RNN cell)     |
+| **Parameters (recurrent cell)** | $H(H+D) + H$                                                    | $4H(H+D) + 4H$ (four weight blocks, $\approx 4\times$ the RNN cell)     |
 | **Computational Cost**  | Low                                                                       | ~4x higher per cell                                                     |
 
 **When to use LSTM:**
@@ -235,6 +235,7 @@ Both papers ask whether neural networks can improve on linear specifications of 
 -   **Target ($y_{i,t+1}$):** The realized excess return of stock $i$ in the next month.
 -   **Objective:** Train a neural network $f_\theta$ to minimize the mean squared error (MSE) between predicted and realized returns over a large dataset of all US stocks from 1957 to 2016.
     $$ \min_\theta \frac{1}{N \cdot T} \sum_{i,t} (r_{i,t+1} - f_\theta(\mathbf{x}_{i,t}))^2 $$
+    The display is schematic: the U.S. stock panel is unbalanced, so the actual average runs over the observed stock-month pairs rather than all $N \cdot T$ combinations.
 
 The trained network is a **return forecaster**: economics enters primarily through the target, predictors, and portfolio evaluation, rather than through a no-arbitrage estimating equation. A natural architecture is a plain feed-forward network for the cross-sectional relationship; @fig-gkx-architecture sketches its shape.
 
@@ -324,7 +325,7 @@ The LSTM cell state $C_t$ is a fixed-dimensional vector that summarizes the rele
 
 This design is efficient, but it has a structural cost. If the predictively relevant past at step $t$ requires distinguishing fine information from many earlier positions, an $H$-dimensional vector has to compress all of it into the same width. For moderately long sequences or for tasks where position-specific information matters --- a monetary-policy statement whose meaning depends on whether a given clause appears in paragraph two or paragraph eight, for instance --- the bottleneck can become binding: it binds when the predictively relevant past does not admit an adequate $H$-dimensional summary.
 
-One of the later chapters, [Foundation Models for Economic Text and Expectations](foundation_models.qmd#sec-foundation-models), introduces a different construction. The transition from recurrent states to attention is the single structural change that distinguishes the RNN/LSTM chapters from the foundation-model chapter. We return to it formally in [From Words to Representations](foundation_models.qmd#sec-fm-representations).
+One of the later chapters, [Foundation Models for Economic Text and Expectations](foundation_models.qmd#sec-foundation-models), introduces a different construction. The transition from recurrent states to attention is the key structural change we emphasize in moving from the RNN/LSTM chapters to the foundation-model chapter — which also changes positional representation, parallel computation, and training design. We return to it formally in [From Words to Representations](foundation_models.qmd#sec-fm-representations).
 
 **Where the implementation lives.** As in the previous chapter, we have not fit an LSTM in code here. The [empirical chapter on networks for time series](nn_example.qmd) trains an LSTM on realized-volatility data with the complete Python pipeline — sequence construction, chronological splits, training-only scaling, tuning, and evaluation against a heterogeneous autoregressive (HAR) benchmark.
 
@@ -513,8 +514,8 @@ under the gates-fixed approximation, starting from the one-step derivative $\par
 :::
 
 :::{.callout-warning collapse="true"}
-## Hint for Part 1
-Differentiate $C_k = f_k C_{k-1} + i_k \tilde{C}_k$ with respect to $C_{k-1}$; under the gates-fixed approximation, $f_k$, $i_k$, and $\tilde{C}_k$ are constants in that differentiation. Then chain the one-step derivatives.
+## Hint for Part 3
+Ask which quantities at step $k+1$ are computed from $h_k$, and what $h_k$ itself is computed from.
 :::
 
 :::{.callout-tip collapse="true"}

@@ -95,7 +95,7 @@ Moreover, we define the following quantity; the pre-activation value in layer $l
 
 ```{mermaid}
 %%| label: fig-ffn-architecture
-%%| fig-cap: "Example of a Feed-forward Neural Network Architecture With Two Hidden Layers"
+%%| fig-cap: "Example of a feed-forward network with two hidden layers. Nodes are units: the left column holds the input coordinates, the middle columns the hidden-layer activations $a_i^{(l)}$, and the right node the output. Each arrow is a weighted connection; every unit applies its activation function to the weighted sum of its incoming values plus a bias."
 flowchart LR
       %% Input layer
     X1["x₁"] --> H11["a₁⁽¹⁾"]
@@ -356,7 +356,7 @@ This representation is useful because it allows machine learning models, which o
 
 :::{.callout-important title="Connection to Information Theory"}
 
-The cross-entropy loss is not just a convenient formula — it has a direct information-theoretic foundation. Recall from the [Information Theory chapter](information_theory.qmd#sec-mle-kl-divergence) that minimizing cross-entropy between the empirical data distribution and the model is equivalent to maximum likelihood estimation, which in turn minimizes the KL divergence between the two distributions. When we train a neural network with cross-entropy loss, we are implicitly finding the parameters $\boldsymbol{\theta}$ whose predicted class probabilities are closest (in KL divergence) to the true conditional class distribution.
+The cross-entropy loss is not just a convenient formula — it has a direct information-theoretic foundation. Recall from the [Information Theory chapter](information_theory.qmd#sec-mle-kl-divergence) that minimizing cross-entropy between the empirical data distribution and the model is equivalent to maximum likelihood estimation, which in turn minimizes the Kullback–Leibler (KL) divergence between the two distributions. When we train a neural network with cross-entropy loss, we are implicitly finding the parameters $\boldsymbol{\theta}$ whose predicted class probabilities are closest (in KL divergence) to the true conditional class distribution.
 :::
 
 :::{.callout-note title="Question for Reflection"}
@@ -478,7 +478,7 @@ fig2.tight_layout()
 
 **Key Insights of @fig-gd-convex-vs-nonconvex:**
 
-- **Convex function (left):** Any initialization converges to the unique global minimum; step sizes naturally shrink as the gradient norm decreases.
+- **Convex function (left):** For the plotted quadratic and the step size used in the figure, every initialization converges to the unique global minimum, with step sizes naturally shrinking as the gradient norm decreases. (Convexity alone does not guarantee this for an arbitrary learning rate — gradient descent can diverge even on a quadratic if the step size is too large, as discussed in the [optimization chapter](optimization.qmd).)
 - **Non-convex function (right):** Different initializations can fall into different local minima; one of these can be worse than the global minimum.
 - **Neural networks:** Their highly non-convex loss landscapes make optimization sensitive to initialization and learning rate choices.
 
@@ -511,7 +511,7 @@ The gradient descent procedure for a neural network can be visualized as follows
 
 ```{mermaid}
 %%| label: fig-gd-process
-%%| fig-cap: "Flowchart of the gradient descent algorithm. Rectangular nodes represent computation steps (forward pass, loss evaluation, gradient computation, parameter update) and the diamond node is the convergence check. The loop continues until the gradient norm falls below a threshold $\\varepsilon$, at which point the current parameters are returned as the solution."
+%%| fig-cap: "Flowchart of the gradient descent algorithm. Rectangular nodes represent computation steps (forward pass, loss evaluation, gradient computation, parameter update) and the diamond node is the convergence check. The loop continues until the gradient norm falls below a threshold $\\varepsilon$, at which point the current parameters are returned. In a non-convex problem, a small gradient certifies only an approximate stationary point, not a global minimum."
 flowchart TD
     %% Starting point
     START["θ⁽⁰⁾ (Initial Parameters)"] --> FORWARD["Forward Pass: Compute f(x; θ⁽ᵗ⁾)"]
@@ -528,7 +528,7 @@ flowchart TD
     %% Convergence check
     UPDATE --> CHECK{"Converged?<br/>|∇ℒ(θ⁽ᵗ⁺¹⁾)| < ε"}
     CHECK -->|No| FORWARD
-    CHECK -->|Yes| OPTIMAL["θ* (Optimal Parameters)"]
+    CHECK -->|Yes| OPTIMAL["θ̂ (Returned Parameters)"]
     
     %% Styling
     classDef startend fill:#e8f5e8,stroke:#333,stroke-width:2px
@@ -549,32 +549,34 @@ flowchart TD
 We now examine how the chain rule can be used to compute the gradient w.r.t. **all parameters** in an efficient way even if we look at a wide multi-layer network with entities defined as in @sec-def-multilayer-nn. The algorithm, popularized by @RumelhartHintonWilliams1986, computes the gradients of the loss with respect to every weight and bias in a single backward sweep that reuses intermediate quantities from the forward pass. For gradient descent updates, we are interested in deriving $$\frac{\partial \mathcal{L}}{\partial W_{ij}^{(l)}} \text{ and } \frac{\partial \mathcal{L}}{\partial b_i^{(l)}}$$
 for all neurons $i$ in all layers $l$ and all neurons $j$ in layer $l-1$.
 
+Since $\mathcal{L}$ is the sample average of the per-observation losses, it suffices to differentiate one observation's loss and average at the end. Throughout this section we therefore work with a single observation, write $\ell$ for its loss contribution, and suppress the observation index; all forward-pass quantities ($z_i^{(l)}$, $a_j^{(l-1)}$) belong to that observation, and the letter $i$ is free to serve as a neuron index. The sample gradient is recovered as $\frac{\partial \mathcal{L}}{\partial W_{ij}^{(l)}} = \frac{1}{n}\sum_{r=1}^{n} \frac{\partial \ell_r}{\partial W_{ij}^{(l)}}$, where $\ell_r$ denotes observation $r$'s loss.
+
 **Error Signal Definition**
 We define the following key quantity for each neuron $i$ in layer $l$:
-$$\delta_i^{(l)} = \frac{\partial \mathcal{L}}{\partial z_i^{(l)}}$$
+$$\delta_i^{(l)} = \frac{\partial \ell}{\partial z_i^{(l)}}$$
 
 This represents how much the loss would change if we perturb the pre-activation value of neuron $i$ in layer $l$. If we know this quantity at all nodes in our network, then we can easily compute all gradients because for each **weight** $W_{ij}^{(l)}$ (connecting neuron $j$ in layer $l-1$ to neuron $i$ in layer $l$):
-$$\frac{\partial \mathcal{L}}{\partial W_{ij}^{(l)}} = \delta_i^{(l)} \cdot a_j^{(l-1)}$$
+$$\frac{\partial \ell}{\partial W_{ij}^{(l)}} = \delta_i^{(l)} \cdot a_j^{(l-1)}$$
 
 and for each **bias** $b_i^{(l)}$:
-$$\frac{\partial \mathcal{L}}{\partial b_i^{(l)}} = \delta_i^{(l)}$$
+$$\frac{\partial \ell}{\partial b_i^{(l)}} = \delta_i^{(l)}$$
 
 **Backward Pass**
 
 For the **output layer** $L$, $\delta_i^{(L)}$ can be easily calculated as the first term is the derivative of a loss function like the MSE and the derivatives of the common activation functions (i.e., $g'$) are typically simple to compute:
-$$\delta_i^{(L)} =  \frac{\partial \mathcal{L}}{\partial a_i^{(L)}} \frac{\partial a_i^{(L)}}{\partial z_i^{(L)}} = \frac{\partial \mathcal{L}}{\partial a_i^{(L)}} \cdot g'^{(L)}(z_i^{(L)})$$
+$$\delta_i^{(L)} =  \frac{\partial \ell}{\partial a_i^{(L)}} \frac{\partial a_i^{(L)}}{\partial z_i^{(L)}} = \frac{\partial \ell}{\partial a_i^{(L)}} \cdot g'^{(L)}(z_i^{(L)})$$
 
-One scope condition deserves emphasis: this formula assumes the output activation $g^{(L)}$ acts element-wise, so that $a_i^{(L)}$ depends only on its own pre-activation $z_i^{(L)}$. The softmax is the notable exception: Every output coordinate depends on every pre-activation, so the single derivative factor must be replaced by a sum over the full Jacobian, $\delta_i^{(L)} = \sum_k \frac{\partial \mathcal{L}}{\partial a_k^{(L)}} \frac{\partial a_k^{(L)}}{\partial z_i^{(L)}}$. For softmax combined with the cross-entropy loss, this sum collapses to the remarkably simple $\delta_i^{(L)} = \hat{p}_i - y_i$ (up to the $1/n$ from the loss average) — fitted class probability minus one-hot indicator, the same residual form that Exercise 5.3 derives for the sigmoid-plus-Bernoulli case.
+One scope condition deserves emphasis: this formula assumes the output activation $g^{(L)}$ acts element-wise, so that $a_i^{(L)}$ depends only on its own pre-activation $z_i^{(L)}$. The softmax is the notable exception: Every output coordinate depends on every pre-activation, so the single derivative factor must be replaced by a sum over the full Jacobian, $\delta_i^{(L)} = \sum_k \frac{\partial \ell}{\partial a_k^{(L)}} \frac{\partial a_k^{(L)}}{\partial z_i^{(L)}}$. For softmax combined with the cross-entropy loss, this sum collapses to the remarkably simple $\delta_i^{(L)} = \hat{p}_i - y_i$ — fitted class probability minus one-hot indicator, the same residual form that Exercise 5.3 derives for the sigmoid-plus-Bernoulli case.
 
 How can we now reuse this information to calculate $\delta_i^{(l)}$ for **hidden layers** $l = L-1, L-2, \ldots, 1$?
 
 
 **Step 1**: Apply chain rule through the activation function:
-$$\delta_i^{(l)} = \frac{\partial \mathcal{L}}{\partial z_i^{(l)}} = \frac{\partial \mathcal{L}}{\partial a_i^{(l)}} \frac{\partial a_i^{(l)}}{\partial z_i^{(l)}} = \frac{\partial \mathcal{L}}{\partial a_i^{(l)}} \cdot g'^{(l)}(z_i^{(l)})$$
+$$\delta_i^{(l)} = \frac{\partial \ell}{\partial z_i^{(l)}} = \frac{\partial \ell}{\partial a_i^{(l)}} \frac{\partial a_i^{(l)}}{\partial z_i^{(l)}} = \frac{\partial \ell}{\partial a_i^{(l)}} \cdot g'^{(l)}(z_i^{(l)})$$
 
 
 **Step 2**: Now, activation $a_i^{(l)}$ affects all pre-activations in layer $l+1$ so the multivariate chain rule gives us
-$$\frac{\partial \mathcal{L}}{\partial a_i^{(l)}} = \sum_{j=1}^{H^{(l+1)}} \frac{\partial \mathcal{L}}{\partial z_j^{(l+1)}} \frac{\partial z_j^{(l+1)}}{\partial a_i^{(l)}} = \sum_{j=1}^{H^{(l+1)}} \delta_j^{(l+1)} W_{ji}^{(l+1)} = \sum_{j=1}^{H^{(l+1)}} W_{ji}^{(l+1)} \delta_j^{(l+1)} $$
+$$\frac{\partial \ell}{\partial a_i^{(l)}} = \sum_{j=1}^{H^{(l+1)}} \frac{\partial \ell}{\partial z_j^{(l+1)}} \frac{\partial z_j^{(l+1)}}{\partial a_i^{(l)}} = \sum_{j=1}^{H^{(l+1)}} \delta_j^{(l+1)} W_{ji}^{(l+1)} = \sum_{j=1}^{H^{(l+1)}} W_{ji}^{(l+1)} \delta_j^{(l+1)} $$
 
 Notice that we end up with $W_{ji}^{(l+1)}$ (not $W_{ij}^{(l+1)}$), which connects neuron $i$ (from layer $l$) to neuron $j$ (in layer $l+1$).
 <!-- 
@@ -612,7 +614,7 @@ and $\mathbf{a}^{(L)}$ (i.e., the final output value).
    $$\delta_i^{(l)} = \underbrace{\left(\sum_{j=1}^{H_{l+1}} W_{ji}^{(l+1)} \delta_j^{(l+1)}\right)}_{\text{reused from step } l+1} \times \underbrace{g'^{(l)}(z_i^{(l)})}_{\text{computed fresh at layer } l}$$
    
    2.2 Use $\delta_i^{(l)}$ to compute the gradients w.r.t. the weights and bias in layer $l$:
-   $$ \frac{\partial \mathcal{L}}{\partial W_{ij}^{(l)}} = \delta_i^{(l)} \cdot a_j^{(l-1)} \text{ and } \frac{\partial \mathcal{L}}{\partial b_i^{(l)}} = \delta_i^{(l)} $$
+   $$ \frac{\partial \ell}{\partial W_{ij}^{(l)}} = \delta_i^{(l)} \cdot a_j^{(l-1)} \text{ and } \frac{\partial \ell}{\partial b_i^{(l)}} = \delta_i^{(l)} $$
 
    2.3 Go back to 2.1 until $l = 1$ 
 
@@ -627,7 +629,7 @@ $$\mathcal{H}_{jk} = \frac{\partial^2 \mathcal{L}}{\partial \theta_j \partial \t
 
 (We write $\mathcal{H}$ for the Hessian to avoid a clash with the layer width $H$.)
 
-A twice-differentiable function is **convex** if and only if its Hessian is positive semidefinite (PSD) at every point in its domain. Neural-network loss functions are nonlinear in the parameters (because of the activation function $g$), and the loss is in general not a convex function of $\boldsymbol \theta$. A clean way to see this is a symmetry argument. For the sigmoid, $g(-z) = 1 - g(z)$, so the parameter vectors $(w_1, b_1, w_2, b_2)$ and $(-w_1, -b_1, -w_2, b_2 + w_2)$ implement *exactly the same function* $f(x) = w_2\, g(w_1 x + b_1) + b_2$ and attain exactly the same loss. If the loss were convex, its set of minimizers would be convex, so the midpoint of a minimizer and its mirror image — which has $w_1 = b_1 = w_2 = 0$ and therefore represents a *constant* function — would also be a minimizer. Unless the best attainable fit is a constant, that is false, so the loss cannot be convex. The same symmetry shows that minimizers of neural-network losses are never unique.
+A twice-differentiable function on an open convex domain is **convex** if and only if its Hessian is positive semidefinite (PSD) at every point of that domain. Neural-network loss functions are nonlinear in the parameters (because of the activation function $g$), and the loss is in general not a convex function of $\boldsymbol \theta$. A clean way to see this is a symmetry argument. For the sigmoid, $g(-z) = 1 - g(z)$, so the parameter vectors $(w_1, b_1, w_2, b_2)$ and $(-w_1, -b_1, -w_2, b_2 + w_2)$ implement *exactly the same function* $f(x) = w_2\, g(w_1 x + b_1) + b_2$ and attain exactly the same loss. If the loss were convex, its set of minimizers would be convex, so the midpoint of a minimizer and its mirror image — which has $w_1 = b_1 = w_2 = 0$ and therefore represents a *constant* function — would also be a minimizer. Unless the best attainable fit is a constant, that is false, so the loss cannot be convex. The same symmetry shows that minimizers of neural-network losses are never unique.
 
 **Example: Non-convexity in Simple Networks**
 
@@ -659,25 +661,9 @@ This formulation directly parallels regularized regression in econometrics (Ridg
 
 ## Applications in Economics and Finance
 
-**1. Asset Pricing and Portfolio Management**
+**Asset pricing and portfolio management.** Predicting stock returns from a large set of firm characteristics and macroeconomic variables is the flagship application. The traditional route specifies linear factor models with pre-specified factors; feed-forward networks instead capture nonlinear interactions between characteristics and let the data suggest the functional form. @GuKellyXiu2020 show that flexible nonlinear specifications can outperform linear benchmarks for individual-stock return prediction.
 
-**Application**: Predicting stock returns using a large set of firm characteristics and macroeconomic variables.
-
-**Traditional Approach**: Fama-French factor models with pre-specified factors.
-
-**Neural Network Approach**: Feed-forward networks that can capture nonlinear interactions between characteristics and discover new risk factors.
-
-**Example**: @GuKellyXiu2020 use neural networks to predict individual stock returns using a large set of firm characteristics and show that flexible nonlinear factor structures can outperform linear benchmarks.
-
-**2. Macroeconomic Forecasting**
-
-**Application**: Forecasting GDP growth, inflation, or unemployment using high-dimensional datasets.
-
-**Traditional Approach**: Vector Autoregressions (VARs), Dynamic Factor Models.
-
-**Neural Network Approach**: Feed-forward networks can handle many predictors and nonlinear interactions, especially when the forecasting problem is cast as a one-step-ahead prediction with a large information set.
-
-**Example**: @RichardsonFlorensteinMulderVehbi2021 use neural networks for macroeconomic forecasting in New Zealand, incorporating textual data from news articles.
+**Macroeconomic forecasting.** For forecasting gross domestic product (GDP) growth, inflation, or unemployment from high-dimensional datasets, the traditional tools are vector autoregressions (VARs) and dynamic factor models. Feed-forward networks handle many predictors and nonlinear interactions naturally, especially when the problem is cast as one-step-ahead prediction with a large information set; @RichardsonFlorensteinMulderVehbi2021 apply them to macroeconomic forecasting in New Zealand, incorporating textual data from news articles.
 
 
 ## Practical Training Workflow
@@ -686,7 +672,7 @@ The complexity of the optimization problem, together with large modern datasets,
 
 **Stochastic Variants:**
 
-- **Batch GD**: Use entire dataset (slow for large data)
+- **Batch gradient descent (GD)**: uses the entire dataset per update (slow for large data)
 - **Mini-batch GD**: Use subset of data (most common)
 - **Stochastic gradient descent (SGD)**: Randomly sample one data point (noisy but fast)
 
@@ -753,7 +739,7 @@ Monitor validation loss and stop when it starts increasing
 - Forgetting that architecture choice itself can materially affect predictive results, especially in empirical finance applications such as @ChristensenSiggardVeliyev2023.
 - Ignoring scale normalization, which can make optimization unnecessarily unstable.
 - Evaluating performance only on the training sample instead of using a validation strategy that respects the econometric data structure.
-- Forgetting that for time-series forecasting, random shuffling can leak future information into the training process.
+- For time-series forecasting: shuffling the raw series before constructing lagged inputs, or randomizing the chronological train-validation-test split, leaks future information. (Shuffling already-built training examples within the training block is leakage-neutral — it only changes batch composition; see the [empirical chapter](nn_example.qmd).)
 :::
 
 ## Exercises
@@ -877,8 +863,11 @@ $$f(x; \boldsymbol{\theta}) = w_2 g(w_1 x + b_1) + b_2$$
 
 where $g(z) = \frac{1}{1 + e^{-z}}$ is the sigmoid function and $\boldsymbol{\theta} = (w_1, w_2, b_1, b_2)$.
 
+@fig-ex52-network sketches the network.
+
 ```{mermaid}
-%%| fig-cap: "Exercise 2: Single Hidden Layer Network for Log Income-Consumption Relationship"
+%%| label: fig-ex52-network
+%%| fig-cap: "The single-hidden-layer network of Exercise 5.2. Log income $x$ enters one sigmoid hidden unit $a = g(w_1 x + b_1)$, whose output feeds the linear output $\\hat{y} = w_2 a + b_2$; the dashed arrows indicate which parameters act on each connection."
 flowchart LR
     %% Network nodes
     X["x (log income)"] --> H["a = g(w₁x + b₁)"]
@@ -902,7 +891,7 @@ flowchart LR
    $$
    \mathcal{L}(\boldsymbol{\theta}) = \frac{1}{2n} \sum_{i=1}^n (y_i - f(x_i; \boldsymbol{\theta}))^2.
    $$
-   Write the corresponding gradient descent update equations with learning rate $\eta>0$.
+   Then state the gradient descent update for the full parameter vector $\boldsymbol{\theta}$ in one line, with learning rate $\eta>0$.
 2. Using $g'(z)=g(z)(1-g(z))$, show that
    $$
    0<g'(z)\le \frac{1}{4}
