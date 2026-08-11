@@ -126,7 +126,7 @@ One bookkeeping convention hides behind this display. When trees are grown on bo
 
 The weight $w_i(x)$ is large when observation $i$ often lands in the same terminal leaf as the forecast point. This is the forest analogue of a kernel estimator: the forest defines the neighborhood through its tree partitions rather than through a fixed distance metric.
 
-This weighting view is also the bridge to more advanced forests. Quantile and distributional forests keep more than the leaf mean and use the same neighborhood weights to estimate a conditional distribution. Local-linear forests go in a different direction: they retain the forest neighborhood but fit a local linear model rather than a constant inside the neighborhood. The [distributional and quantile random-forest section](adv_tree_based_methods.qmd#sec-adv-qrf) develops the distributional version.
+This weighting view is also the bridge to more advanced forests. *Quantile regression forests* keep more than the leaf mean and use the same neighborhood weights to estimate a conditional distribution [@Meinshausen2006QRF]. Local-linear forests go in a different direction: they retain the forest neighborhood but fit a local linear model rather than a constant inside the neighborhood. The [quantile regression forest section](adv_tree_based_methods.qmd#sec-adv-qrf) develops the distributional version.
 
 @fig-tree-vs-forest makes the variance-stabilization effect of averaging visible in a one-predictor example.
 
@@ -520,26 +520,19 @@ $$
    $$
 3. Let $\sigma^2 = 9$, $\rho = 0.2$, and $B=100$. Compute the variance of a single tree and the variance of the forest. By what percentage is variance reduced?
 4. What is the limit of $\mathbb{V}[\bar T_B]$ as $B \to \infty$? Explain why this makes `max_features` important in practice.
+5. **How many trees are enough?** Using Parts 2 and 4, show that
+   $$
+   \frac{\mathbb{V}[\bar T_B]}{\mathbb{V}[\bar T_\infty]} = 1 + \frac{1-\rho}{\rho B},
+   $$
+   so that the excess variance from using finitely many trees depends on $\rho$ and $B$ but not on $\sigma^2$. Find the smallest $B$ for which this excess is at most 5% when $\rho = 0.2$, and repeat for $\rho = 0.05$. Explain the direction of the comparison: does a forest whose trees are *less* correlated need more or fewer trees, and why is that the opposite of what the variance floor in Part 4 might suggest?
 
-*Exam level: suitable as-is. The exercise combines a nontrivial variance derivation with interpretation of the random-feature mechanism.*
+*Exam level. Parts 1-2 are the variance derivation, Part 3 applies it numerically, Part 4 draws the asymptotic implication for `max_features`, and Part 5 converts the same formula into the practical question of how many trees to grow.*
 :::
 
 ::: {.callout-warning collapse="true"}
 ## Hint for Part 2
 
-Start from
-
-$$
-\mathbb{V}\left[\frac{1}{B}\sum_{b=1}^B T_b\right]
-=
-\frac{1}{B^2}\left(
-\sum_{b=1}^B \mathbb{V}[T_b]
-+
-\sum_{b \neq b'} \text{Cov}(T_b,T_{b'})
-\right).
-$$
-
-Then use $\text{Cov}(T_b,T_{b'}) = \rho \sigma^2$.
+Expand the variance of the average into own-variance and covariance terms, and count how many of each there are. Use $\text{Cov}(T_b,T_{b'}) = \rho\sigma^2$ for $b \neq b'$.
 :::
 
 ::: {.callout-warning collapse="true"}
@@ -647,6 +640,32 @@ $$
 $$
 
 So averaging can eliminate the idiosyncratic part of tree variance, but not the common correlated part. This is why `max_features` matters: by forcing different trees to consider different candidate predictors at each split, it lowers $\rho$ and therefore lowers the asymptotic variance floor of the forest.
+
+**Part 5: How many trees are enough**
+
+Dividing the Part 2 formula by the Part 4 limit $\sigma^2\rho$,
+
+$$
+\frac{\mathbb{V}[\bar T_B]}{\mathbb{V}[\bar T_\infty]}
+=
+\frac{\sigma^2\left[\rho + (1-\rho)/B\right]}{\sigma^2\rho}
+=
+1 + \frac{1-\rho}{\rho B},
+$$
+
+and $\sigma^2$ cancels: how close a finite forest sits to its own limit is a question about $\rho$ and $B$ alone, not about how noisy the individual trees are.
+
+Requiring the excess to be at most 5% gives
+
+$$
+\frac{1-\rho}{\rho B} \le 0.05
+\quad\Longleftrightarrow\quad
+B \ge \frac{20(1-\rho)}{\rho}.
+$$
+
+For $\rho = 0.2$ this is $B \ge 20(0.8)/0.2 = 80$ trees; for $\rho = 0.05$ it is $B \ge 20(0.95)/0.05 = 380$.
+
+The comparison runs in the direction that first looks wrong: the *less* correlated forest, which is the better forest, needs almost five times as many trees. There is no contradiction, because the two statements are about different quantities. Lowering $\rho$ lowers the variance floor $\sigma^2\rho$ — the forest one is converging to is better. But it simultaneously raises the ratio $(1-\rho)/\rho$ that governs how fast the average approaches that floor, because a larger share of each tree's variance is now idiosyncratic and must be averaged away. Decorrelating the trees improves the destination and slows the journey. In practice this is why aggressive `max_features` settings should be paired with more trees, and why a disappointing forest with few trees may be under-averaged rather than badly specified.
 :::
 
 ::: {.callout-note}
@@ -658,12 +677,12 @@ Suppose a random forest is trained on a sample of size $n$, and each tree uses a
    $$
    \left(1-\frac{1}{n}\right)^n,
    $$
-   and conclude that this converges to $e^{-1}$ as $n \to \infty$.
-2. A forest uses $B=500$ trees. Approximately how many trees are expected to leave observation $i$ out-of-bag?
+   and conclude that this converges to $e^{-1}$ as $n \to \infty$. For a forest with $B=500$ trees, approximately how many trees leave observation $i$ out-of-bag?
+2. The OOB prediction for observation $i$ averages only over the trees that left it out of bag, whereas the forest's own prediction averages over all $B$. Using the variance formula of Exercise 11.1 with common tree variance $\sigma^2$ and correlation $\rho$, write down the variance of each of the two averages, and show that the *Monte Carlo* component — the part that vanishes as the number of averaged trees grows — is larger by a factor of exactly $e$ for the OOB prediction. Evaluate both variances for $\sigma^2=9$, $\rho=0.2$, and $B=500$, and state what this implies about using OOB error to compare two forests that differ only slightly.
 3. Explain why OOB prediction can serve as an internal validation device under i.i.d. sampling.
 4. You are forecasting quarterly inflation with a long macroeconomic time series. Explain why standard OOB error is not a fully honest evaluation method in this setting, and suggest a more appropriate validation design.
 
-*Exam level: suitable as-is. Parts 1-2 are derivational, Part 3 clarifies the OOB logic, and Part 4 tests the key econometric caveat about dependent data.*
+*Exam level. Part 1 is the bootstrap-inclusion derivation, Part 2 connects it quantitatively to the variance decomposition of Exercise 11.1, Part 3 clarifies the OOB logic, and Part 4 tests the key econometric caveat about dependent data.*
 :::
 
 ::: {.callout-warning collapse="true"}
@@ -702,17 +721,33 @@ $$
 \qquad \text{as } n \to \infty.
 $$
 
-So roughly 36.8% of trees leave any given observation out.
-
-**Part 2: Expected number of OOB trees**
-
-If $B=500$, the expected number of trees for which observation $i$ is OOB is approximately
+So roughly 36.8% of trees leave any given observation out. With $B=500$ trees, the expected number for which observation $i$ is out-of-bag is
 
 $$
-500 \times e^{-1} \approx 500 \times 0.368 = 184.
+500 \times e^{-1} \approx 500 \times 0.368 \approx 184 .
 $$
 
-So observation $i$ receives about 184 OOB predictions on average.
+**Part 2: The OOB prediction averages fewer trees**
+
+Write $B_{\text{oob}} \approx B/e$ for the number of trees entering the OOB prediction. Applying the Exercise 11.1 formula to each average,
+
+$$
+\mathbb{V}\big[\text{forest}\big] = \sigma^2\left[\rho + \frac{1-\rho}{B}\right],
+\qquad
+\mathbb{V}\big[\text{OOB}\big] = \sigma^2\left[\rho + \frac{1-\rho}{B/e}\right].
+$$
+
+Both share the irreducible term $\sigma^2\rho$, which does not shrink with the number of trees. The Monte Carlo components are $\sigma^2(1-\rho)/B$ and $\sigma^2(1-\rho)e/B$, so their ratio is
+
+$$
+\frac{\sigma^2(1-\rho)e/B}{\sigma^2(1-\rho)/B} = e \approx 2.72,
+$$
+
+independently of $\sigma^2$, $\rho$, and $B$ — the factor is exactly the reciprocal of the inclusion probability derived in Part 1.
+
+Numerically, with $\sigma^2=9$, $\rho=0.2$, and $B=500$: the Monte Carlo component is $9(0.8)/500 = 0.0144$ for the forest and $9(0.8)/184 = 0.0391$ for the OOB prediction, giving total variances of $1.814$ and $1.839$ respectively.
+
+The implication is a caution about resolution rather than about bias. OOB error is a noisier statistic than the forest's own predictions, because each OOB prediction is an average over roughly a third as many trees. When comparing two forests whose true performance differs only slightly — say two values of `max_features` — part of any observed OOB gap is this extra Monte Carlo noise, and the remedy is to grow more trees rather than to trust the ranking.
 
 **Part 3: Why OOB works under i.i.d. sampling**
 
