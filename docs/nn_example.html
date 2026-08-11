@@ -368,14 +368,14 @@ window.Quarto = {
  <span class="menu-text">16. Foundation Models for Economic Text</span></a>
   </div>
 </li>
-          <li class="sidebar-item">
-  <div class="sidebar-item-container"> 
-  <a href="./datasets.html" class="sidebar-item-text sidebar-link">
- <span class="menu-text">17. Data Sets Used in This Book</span></a>
-  </div>
-</li>
       </ul>
   </li>
+        <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./datasets.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Data Appendix</span></a>
+  </div>
+</li>
     </ul>
     </div>
 </nav>
@@ -454,7 +454,7 @@ f_\theta(z_t,z_{t-1},\ldots,z_{t-21}),
 <p>The full-history models all use this same forecast-origin history. The full FNN receives the 22 lags as a flattened feature vector. The Simple RNN and LSTM receive the same values as an ordered sequence. The HAR specifications are different by design: they receive a traditional volatility summary consisting of yesterday’s realized variance <span class="math inline">\(RV_t\)</span>, the trailing 5-day average, and the trailing 21-day average. This three-component (daily, weekly, monthly) decomposition is the HAR model of <span class="citation" data-cites="CorsiHAR2009">Corsi (<a href="#ref-CorsiHAR2009" role="doc-biblioref">2009</a>)</span>, designed to capture the long-memory structure of realized volatility with a parsimonious linear specification. All three components are known at the forecast origin <span class="math inline">\(t\)</span>.</p>
 <p>The local replication code expects the daily SPY realized-measures file documented in <a href="./datasets.html#sec-spy-taq-realized">the dataset appendix</a>.</p>
 <p><a href="#fig-nn-forecast-window" class="quarto-xref">Figure&nbsp;8.1</a> shows the forecast-origin convention. The training, validation, and test blocks are chronological. Scaling constants and hyperparameters are learned before the test block is touched.</p>
-<div id="cell-fig-nn-forecast-window" class="cell" data-execution_count="1">
+<div id="cell-fig-nn-forecast-window" class="cell" data-execution_count="2">
 <div class="cell-output cell-output-display">
 <div id="fig-nn-forecast-window" class="quarto-float quarto-figure quarto-figure-center anchored">
 <figure class="quarto-float quarto-float-fig figure">
@@ -470,7 +470,7 @@ Figure&nbsp;8.1: Forecast-origin convention for the volatility experiment. Each 
 </div>
 <p>The workflow below makes the econometric design explicit: it constructs forecast origins before splitting the sample, estimates scaling constants only on the training block, and keeps the test block untouched until the final comparison. Concretely, the 22-lag inputs and the target are transformed with the training-block mean and standard deviation of the target series — every lag coordinate is the same variable, so a single center and scale serves all of them — while the three HAR components are standardized column by column with their own training-block moments (cf.&nbsp;<a href="./cross_validation.html#sec-cv-leakage">the Cross-Validation chapter on fitting preprocessing on training data only</a>); forecasts are mapped back to the original scale. Replication uses the local SPY realized-variance file documented in <a href="./datasets.html#sec-spy-taq-realized">the dataset appendix</a>.</p>
 <p>The first chunk loads the realized-variance series and constructs <span class="math inline">\(z_t=\log(RV_t)\)</span>. Rows with missing or nonpositive realized variance are excluded before forming forecast origins.</p>
-<div id="setup-load" class="cell" data-execution_count="2">
+<div id="setup-load" class="cell" data-execution_count="3">
 <details class="code-fold">
 <summary>Show the code</summary>
 <div class="sourceCode cell-code" id="cb1"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> os</span>
@@ -518,7 +518,7 @@ RV_t,\quad
 </div>
 <p> For the log-target models these three components enter in logs — the same regressors as HAR-OLS, matching the scale of the target — while the level-target models use them in levels.</p>
 <p>The training block is the first 64% of valid forecast origins, the validation block is the next 16%, and the test block is the final 20%. The 64/16/20 allocation is a design choice, not an optimum: it reserves a contiguous validation block for tuning while keeping a sizable test block, and we do not investigate sensitivity to this split here. Optuna is a hyperparameter-search library: a <em>trial</em> is one sampled hyperparameter configuration, evaluated on the validation objective, and its default sampler is the tree-structured Parzen estimator (TPE), a Bayesian search strategy. See the <a href="./hpo.html">chapter on hyperparameter optimization</a> for the underlying selection-bias and search-strategy issues.</p>
-<div id="setup-windows" class="cell" data-execution_count="3">
+<div id="setup-windows" class="cell" data-execution_count="4">
 <details class="code-fold">
 <summary>Show the code</summary>
 <div class="sourceCode cell-code" id="cb3"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a>window <span class="op">=</span> <span class="dv">22</span></span>
@@ -680,7 +680,7 @@ train: 1554, validation: 389, test: 486</code></pre>
 </ul>
 <p><a href="#fig-nn-architectures" class="quarto-xref">Figure&nbsp;8.2</a> summarizes the neural specifications. All models share the forecast origin, the one-step horizon, and roughly one month of history, but they do not receive identical information: the HAR specifications see three summaries of the past 21 days, while the full-history models see all 22 individual lags — and summarization discards information. Each model’s width is tuned separately, so parameter counts differ as well. The one clean controlled comparison is HAR-OLS versus HAR-FNN, which share their regressors exactly; the other contrasts mix information design with architecture. HAR-OLS is included because the nonlinear HAR-FNN is informative mainly as a comparison against a linear model fit on identical regressors: with the inputs shared, the HAR-FNN-versus-HAR-OLS comparison isolates functional form.</p>
 <p>All four neural networks are deliberately shallow. The HAR-FNN and full FNN have one hidden dense layer with a tuned width and a linear output layer. The Simple RNN and LSTM have one recurrent layer with a tuned number of units and a linear output layer. A deeper pyramidal FNN, for example 22 inputs to 64 hidden units to 32 hidden units to one output, would be a reasonable robustness check. It is not the baseline here because it would add another capacity choice while the chapter’s main comparison is about target transformation and information representation.</p>
-<div id="cell-fig-nn-architectures" class="cell" data-execution_count="4">
+<div id="cell-fig-nn-architectures" class="cell" data-execution_count="5">
 <div class="cell-output cell-output-display">
 <div id="fig-nn-architectures" class="quarto-float quarto-figure quarto-figure-center anchored">
 <figure class="quarto-float quarto-float-fig figure">
@@ -695,7 +695,7 @@ Figure&nbsp;8.2: Four volatility-forecasting specifications. The HAR-FNN uses th
 </div>
 </div>
 <p>Each architecture below uses the same skeleton — one hidden layer of tuned width followed by a linear output. The input shapes enforce the intended information sets: three HAR features for the HAR-FNN, 22 flattened lags for the full FNN, and a 22-step sequence for the recurrent models. The dense models use softplus hidden activations, as in <a href="./feed_forward_nns.html">the feed-forward chapter</a>; the recurrent models use the <span class="math inline">\(\tanh\)</span> cells whose gradient behavior <a href="./recurrent_neural_networks.html">Chapters 6</a> and <a href="./lstm_neural_networks.html">7</a> analyze.</p>
-<div id="36ebaa35" class="cell" data-execution_count="5">
+<div id="36ebaa35" class="cell" data-execution_count="6">
 <details class="code-fold">
 <summary>Show the code</summary>
 <div class="sourceCode cell-code" id="cb5"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> make_fnn(n_neurons, learning_rate):</span>
@@ -764,7 +764,7 @@ Figure&nbsp;8.2: Four volatility-forecasting specifications. The HAR-FNN uses th
 <h2 data-number="8.5" class="anchored" data-anchor-id="validation-and-tuning"><span class="header-section-number">8.5</span> Validation and Tuning</h2>
 <p>Hyperparameters are selected using the validation block, not the test block. This is not a nested evaluation design; it is a compact empirical illustration with a single holdout test period. The validation block is used for model selection, and the final test block is used once after the selected hyperparameters have been fixed.</p>
 <p>The load-bearing time-series restrictions are the chronological train-validation-test split and the lookahead-free window construction — not the <code>shuffle</code> flag. Once the overlapping windows are formed, each is a self-contained input-target pair, so shuffling <em>pre-built training windows</em> between epochs (the Keras default for stateless models) neither leaks future information nor breaks the forecast-origin discipline. We set <code>shuffle=False</code> as a deliberate batch-composition choice — training batches are then contiguous, chronologically ordered blocks, whose gradient-variance implications under serial correlation are exactly those analyzed in Exercise 4.2 of the <a href="./optimization.html">optimization chapter</a> — not as a leakage protection. What must never be randomized is the split itself: this chapter does not use random <span class="math inline">\(K\)</span>-fold cross-validation, because random folds would mix volatility regimes across training and validation sets and would no longer mimic the one-step-ahead forecasting problem.</p>
-<div id="84ac4e98" class="cell" data-execution_count="6">
+<div id="84ac4e98" class="cell" data-execution_count="7">
 <details class="code-fold">
 <summary>Show the code</summary>
 <div class="sourceCode cell-code" id="cb6"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> as_sequence(X):</span>
@@ -907,7 +907,7 @@ Figure&nbsp;8.2: Four volatility-forecasting specifications. The HAR-FNN uses th
 </table>
 <p>The log-target full-history models have similar validation losses, so the final test comparison should not be read as a decisive ranking of recurrent memory versus a flattened lag vector. The level-target validation losses also cluster tightly. One entry deserves attention already here: the level-target Simple RNN’s validation-selected epoch count is just 4 — an unusually short training run whose consequences surface in the results below. This is a useful warning: validation loss alone does not settle the target-transformation question because each panel is fit and scaled on a different target.</p>
 <p>After tuning, each selected model is refit on the combined train-validation block and evaluated once on the test block. This gives the final table a simple interpretation: each row is the out-of-sample performance of one target choice and one architecture under the same chronological split.</p>
-<div id="a32dc5a9" class="cell" data-execution_count="7">
+<div id="a32dc5a9" class="cell" data-execution_count="8">
 <details class="code-fold">
 <summary>Show the code</summary>
 <div class="sourceCode cell-code" id="cb7"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> qlike(rv_true, rv_pred):</span>
@@ -987,7 +987,7 @@ Figure&nbsp;8.2: Four volatility-forecasting specifications. The HAR-FNN uses th
 </details>
 </div>
 <p>The level-target rows of the results below use the analogous pipeline on the <code>rv</code>-scale arrays constructed earlier — the only changes are the target arrays, the <code>rv</code>-scale standardizers, and the back-transformation from standardized levels rather than logs:</p>
-<div id="96ce8463" class="cell" data-execution_count="8">
+<div id="96ce8463" class="cell" data-execution_count="9">
 <details class="code-fold">
 <summary>Show the code</summary>
 <div class="sourceCode cell-code" id="cb8"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> fit_and_score_level(name, model_factory, params, X_trva, y_trva, X_te):</span>
@@ -1023,7 +1023,7 @@ Figure&nbsp;8.2: Four volatility-forecasting specifications. The HAR-FNN uses th
 </details>
 </div>
 <p>The final table and figure are assembled directly from the two result lists:</p>
-<div id="2251e515" class="cell" data-execution_count="9">
+<div id="2251e515" class="cell" data-execution_count="10">
 <details class="code-fold">
 <summary>Show the code</summary>
 <div class="sourceCode cell-code" id="cb9"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> matplotlib.pyplot <span class="im">as</span> plt</span>
