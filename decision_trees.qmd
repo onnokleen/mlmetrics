@@ -58,6 +58,8 @@ Once the partition is chosen, the fitted value in each leaf is the sample mean o
 ## Econometric Interpretation
 
 A regression tree is a data-driven threshold model. Each split creates a regime such as `output_gap <= 0.5` or `credit_spread > 1.8`, and the fitted value in that regime is a local average. In that sense, trees behave like automatically selected interacted dummy regressions with unknown thresholds.
+
+There is a closer classical relative. A *regressogram* — the oldest nonparametric regression estimator — partitions the predictor space into fixed bins chosen in advance and reports the sample mean of $y$ within each bin. Equation (10.1) is exactly that estimator: a weighted sum of bin indicators with the leaf means as coefficients. The single difference, and the entire contribution of the tree algorithm, is that the bins are not fixed in advance but *chosen adaptively from the data*, with both the splitting variable and the threshold selected to reduce within-bin heterogeneity. That difference is what buys the tree its ability to find thresholds the researcher did not specify, and it is also the source of every statistical complication in this chapter: because the partition is estimated, leaf means are not simple averages over pre-specified cells, and standard errors computed as if the bins were fixed would be wrong.
 :::
 
 **Recursive Binary Splitting**
@@ -148,7 +150,7 @@ plt.tight_layout()
 plt.show()
 ```
 
-The figure shows the defining feature of a regression tree: the fitted function is piecewise constant. This can be useful when the underlying relationship contains genuine threshold effects, but it also means that a tree cannot represent a smooth marginal effect anywhere in the input space. A tree can approximate a smooth relationship by adding more splits, but the fitted function itself is never smooth.
+@fig-regression-tree-step shows the defining feature of a regression tree: the fitted function is piecewise constant. This can be useful when the underlying relationship contains genuine threshold effects, but it also means that a tree cannot represent a smooth marginal effect anywhere in the input space. A tree can approximate a smooth relationship by adding more splits, but the fitted function itself is never smooth.
 
 **Axis-Aligned Partitions**
 
@@ -310,14 +312,23 @@ A fully grown tree can drive training error arbitrarily low by creating many tin
 :::{.callout-important}
 ## Bias-Variance View
 
-For a fixed forecast point $x_0$, the expected test error can be decomposed schematically as
+Fix a forecast point $x_0$ and suppose a new observation at that point is generated as
+$$
+Y_0 = f(x_0) + \varepsilon_0,
+\qquad
+\mathbb{E}[\varepsilon_0]=0,
+\qquad
+\operatorname{Var}(\varepsilon_0)=\sigma^2,
+$$
+where $f(x_0)=\mathbb{E}[Y_0 \mid X = x_0]$ is the true conditional mean and the new draw's noise $\varepsilon_0$ is independent of the training sample used to fit $\hat f$. The expectation below is taken over *both* sources of randomness — the new draw $Y_0$ and the training sample that makes $\hat f(x_0)$ random — and the bias is measured against the true conditional mean, $\operatorname{Bias}(\hat f(x_0)) = \mathbb{E}[\hat f(x_0)] - f(x_0)$. Under these conditions,
 $$
 \mathbb{E}\left[(Y_0-\hat f(x_0))^2\right]
 =
-\operatorname{Var}\left(\hat f(x_0)\right)
-+\operatorname{Bias}\left(\hat f(x_0)\right)^2
-+\operatorname{Var}(\varepsilon_0).
+\underbrace{\operatorname{Var}\left(\hat f(x_0)\right)}_{\text{estimation variance}}
++\underbrace{\operatorname{Bias}\left(\hat f(x_0)\right)^2}_{\text{approximation error}}
++\underbrace{\sigma^2}_{\text{irreducible}}.
 $$
+The independence assumption is what removes the cross-term between $\varepsilon_0$ and $\hat f(x_0)$; it holds because $Y_0$ is a genuinely new observation, which is precisely the assumption that in-sample evaluation violates.
 
 Deep trees can reduce approximation bias because they create many small regions, but they are highly sensitive to the training sample. In the terminology of the decomposition, unrestricted trees often have low bias but high variance.
 :::
@@ -503,12 +514,6 @@ Consider the following training sample with one predictor $x$ and response $y$:
 The stump has one leaf. The split tree has two leaves. Write the two penalized criteria explicitly and compare them.
 :::
 
-::: {.callout-warning collapse="true"}
-## Hint for Part 4
-
-A tree predicts a constant inside each leaf. Ask what happens once $x$ moves beyond the largest observed value in the training sample.
-:::
-
 ::: {.callout-tip collapse="true"}
 ## Solution
 
@@ -625,17 +630,18 @@ A bank uses a single predictor $x$ (the debt-to-equity ratio) to predict firm de
 | 5 | 3.0 | 1 |
 | 6 | 3.5 | 1 |
 
+Use natural logarithms throughout, with $\log 2 \approx 0.693$, $\log 3 \approx 1.099$, and $\log(4/3) \approx 0.288$.
+
 1. Compute the root-node entropy and root-node Gini impurity.
 2. For the candidate split at $x=2.15$, compute the weighted child entropy and weighted child Gini impurity.
-3. Repeat Part 2 for the candidate split at $x=1.5$. Which split is preferred under entropy? Which is preferred under Gini?
-4. For the preferred split, report the default probability in each leaf and the implied class prediction under a 0.5 threshold.
-5. Suppose the cost of a false negative is $C_{FN}$ and the cost of a false positive is $C_{FP}$. Show that predicting default is optimal when
+3. Repeat Part 2 for the candidate split at $x=1.5$. Which split is preferred under entropy, and which under Gini? For the preferred split, report the default probability in each leaf and the implied class prediction under a 0.5 threshold.
+4. Suppose the cost of a false negative is $C_{FN}$ and the cost of a false positive is $C_{FP}$. Show that predicting default minimizes expected cost when
    $$
    \hat p > \frac{C_{FP}}{C_{FP}+C_{FN}}.
    $$
-   What threshold results when $C_{FN}=4$ and $C_{FP}=1$?
+   Evaluate the threshold for $C_{FN}=4$ and $C_{FP}=1$. Then apply it to the leaves of *both* candidate splits from Parts 2 and 3, and report which leaves change their predicted class relative to the $0.5$ rule. Explain why a leaf changes in one split but not the other, and what this says about when the choice of threshold actually matters.
 
-*Exam level: suitable as-is if numerical logs are provided or students may leave entropy answers in exact logarithmic form.*
+*Exam level: the required logarithms are supplied, so all four parts are calculator-free. Parts 1-3 are the impurity mechanics, and Part 4 adds the cost-sensitive threshold derivation together with its effect on the fitted classifier.*
 :::
 
 ::: {.callout-warning collapse="true"}
@@ -748,21 +754,11 @@ $$
 \frac{2}{6}\cdot 0 + \frac{4}{6}\cdot 0.375 = 0.25.
 $$
 
-So the split at $x=1.5$ is preferred under both entropy and Gini because it produces the lower weighted child impurity.
+So the split at $x=1.5$ is preferred under both entropy and Gini because it produces the lower weighted child impurity. It is worth noting that the two criteria agree here; they need not in general, which is why the question asks for both.
 
-**Part 4: Leaf probabilities and class predictions**
+For that preferred split the leaf default probabilities are $\hat p_L = 0$ and $\hat p_R = 3/4$, so under a $0.5$ threshold the implied classifier predicts no default on the left leaf and default on the right leaf.
 
-For the preferred split at $x=1.5$:
-
-- Left leaf default probability: $\hat p_L = 0$
-- Right leaf default probability: $\hat p_R = 3/4$
-
-Under a 0.5 threshold, the implied classifier is:
-
-- predict no default on the left leaf
-- predict default on the right leaf
-
-**Part 5: Asymmetric decision threshold**
+**Part 4: Asymmetric decision threshold**
 
 If we predict default, the only mistake is a false positive, which occurs with probability $1-\hat p$. The expected loss is therefore
 
@@ -797,6 +793,19 @@ $$
 $$
 
 So with asymmetric losses, a bank should classify a firm as default whenever the estimated default probability exceeds $0.2$, not $0.5$.
+
+Applying the two thresholds to the leaves of both candidate splits:
+
+| Split | Leaf | $\hat p$ | $0.5$ rule | $0.2$ rule |
+|---|---|---:|---|---|
+| $x=1.5$ (preferred) | left | $0$ | no default | no default |
+| $x=1.5$ (preferred) | right | $3/4$ | default | default |
+| $x=2.15$ | left | $1/3$ | no default | **default** |
+| $x=2.15$ | right | $2/3$ | default | default |
+
+Only one leaf changes: the left leaf of the split at $x=2.15$, whose default probability $1/3$ lies between the two thresholds. That is the general principle — lowering the threshold from $0.5$ to $0.2$ reclassifies exactly those leaves with $\hat p \in (0.2, 0.5]$, and no others. The leaves of the preferred split have $\hat p = 0$ and $\hat p = 3/4$, both far outside that interval, so its classifier is unchanged.
+
+Two lessons follow. First, the direction of the change is what asymmetric costs demand: because a missed default costs four times a false alarm, the rule becomes more willing to declare default, and a leaf that was previously called safe on a one-in-three default rate is now flagged. Second, the threshold matters only when fitted probabilities fall in the affected interval; a tree whose leaves are close to pure is insensitive to the cost ratio, which is a reason to report the leaf probabilities themselves rather than only the classifications.
 :::
 
 ## References

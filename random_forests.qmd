@@ -36,7 +36,7 @@ Bagging stands for **bootstrap aggregating**:
 - repeat many times
 - average the resulting predictions in regression, or average probabilities / vote in classification
 
-A related variant, often called **subagging**, instead draws subsamples of size $L<n$, usually without replacement. Both approaches create many perturbed training sets; the random forest then applies equal weights $1/B$ to the resulting tree predictions.
+A related variant, often called **subagging** [@BuhlmannYu2002], instead draws subsamples of size $s<n$, usually without replacement (we write $s$ rather than $L$, which denotes a terminal leaf below). Both approaches create many perturbed training sets; the random forest then applies equal weights $1/B$ to the resulting tree predictions.
 
 The idea only works well when the base learner is unstable. Deep trees are exactly such learners: small changes in the sample can alter the early splits and therefore the whole fitted function. This high variance is a weakness for a single tree but an opportunity for averaging.
 
@@ -52,7 +52,7 @@ $$
 \quad \text{for } b \neq b',
 $$
 
-with $0 \le \rho(x) \le 1$. (Nonnegativity is the relevant case here — trees grown on resamples of the same data are positively correlated — and it is also what keeps the equicorrelated structure admissible for arbitrarily large $B$: a common correlation is compatible with a valid correlation matrix only if $\rho \ge -1/(B-1)$, so no fixed negative value survives the limit $B \to \infty$.)
+with $0 \le \rho(x) \le 1$. Both moments are taken over the randomness that distinguishes the trees — the bootstrap resample and the feature subsampling — with the training sample held fixed, so $\sigma^2(x)$ and $\rho(x)$ describe how much individual trees disagree at $x$ for the data actually observed. (Nonnegativity is the relevant case here — trees grown on resamples of the same data are positively correlated — and it is also what keeps the equicorrelated structure admissible for arbitrarily large $B$: a common correlation is compatible with a valid correlation matrix only if $\rho \ge -1/(B-1)$, so no fixed negative value survives the limit $B \to \infty$.)
 
 Then the variance of the forest average is
 
@@ -205,7 +205,7 @@ $$
 
 where $\mathcal{B}_i^{\text{OOB}} = \{\, b : i \notin \text{the bootstrap sample used to grow tree } b \,\}$ is the set of trees whose bootstrap sample excludes observation $i$, and $|\mathcal{B}_i^{\text{OOB}}|$ is its cardinality.
 
-The OOB construction produces an approximately honest prediction for observation $i$ because the trees contributing to that prediction were not trained on $i$. The **OOB error** is the average loss of these OOB predictions over all observations; for regression it is
+The OOB construction produces an approximately out-of-sample prediction for observation $i$, because the trees contributing to that prediction were not trained on $i$. (We avoid the word *honest* here: in the forest literature it has the specific technical meaning of separating the observations used to choose splits from those used to compute leaf values, a stronger condition that OOB averaging does not deliver.) The **OOB error** is the average loss of these OOB predictions over all observations; for regression it is
 $$
 \text{OOB error}
 =
@@ -234,7 +234,7 @@ Standard OOB error is closest to validating randomly held-out firm-time rows, so
 
 ```{python}
 #| label: fig-oob-convergence
-#| fig-cap: "Out-of-bag (OOB) MSE (blue) and independent-test MSE (orange) against the number of trees in a simulated regression forest."
+#| fig-cap: "Out-of-bag (OOB) mean squared error (blue) and independent-test mean squared error (orange) against the number of trees, for a forest fit to simulated data with independent observations. Both curves fall steeply over the first few dozen trees and then flatten. The close agreement between them depends on that independence: OOB tracks test error here precisely because a randomly chosen holdout carries no information about the retained observations, which is what fails for dependent time-series data (see the warning below)."
 #| echo: true
 #| warning: false
 
@@ -367,7 +367,11 @@ A variable that appears important for a forest is not necessarily a causal drive
 
 **Standard OOB Evaluation Can Fail for Dependent Data**
 
-In macroeconomic and financial forecasting, standard bootstrapping breaks temporal dependence and can leak future information into the effective training sample. In such settings, time-aware validation remains essential.
+In macroeconomic and financial forecasting, two distinct problems are easy to run together, and it is worth separating them.
+
+The first is on the *resampling* side. Drawing observations independently, as the bootstrap does, destroys the serial dependence in the data: each tree is grown on a scrambled sample whose temporal structure no longer resembles the process being modeled. The remedy is a dependence-aware resampling scheme — a block bootstrap or block subsampling, which draws contiguous stretches of time rather than individual dates and so preserves short-run dependence within each block.
+
+The second is on the *evaluation* side, and it is the more serious one for forecasting. An observation at date $t$ is out-of-bag for whichever trees did not draw it — but those trees were trained on observations from both before *and after* $t$. The OOB prediction for date $t$ therefore uses future information, which no real-time forecaster had. Block resampling does not fix this, because the problem is not how the training sample was drawn but that the evaluation ignores the arrow of time. Only a time-ordered scheme does: rolling or expanding validation windows that replicate the actual information set at each forecast origin.
 
 :::{.callout-warning}
 ## Econometric Warning

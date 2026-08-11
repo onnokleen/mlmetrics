@@ -9,7 +9,7 @@ number-offset: [14, 0]
 
 Earlier chapters studied predictive uncertainty by modeling a conditional distribution directly, for example through likelihood-based neural networks, quantile methods, or distributional forests. Conformal prediction takes a different route. It starts from any predictive model, uses nonconformity scores computed on held-out or out-of-fold data as the calibration object, and constructs prediction sets with a finite-sample marginal coverage guarantee under exchangeability [@VovkGammermanShafer2005; @LeiGsellRinaldoTibshiraniWasserman2018].
 
-For econometricians, this is useful because point forecasts alone are often not enough. A central bank may want an inflation fan chart, a risk manager may want a forecast interval for portfolio returns, and a macro forecaster may want uncertainty bands around GDP growth projections. In all of those settings, the question is not only "What is the predicted mean?" but also "How wide should a credible prediction band be?"
+For econometricians, this is useful because point forecasts alone are often not enough. A central bank may want an inflation fan chart, a risk manager may want a forecast interval for portfolio returns, and a macro forecaster may want uncertainty bands around gross domestic product (GDP) growth projections. In all of those settings, the question is not only "What is the predicted mean?" but also "How wide should a well-calibrated prediction band be?"
 
 Conformal prediction is attractive because it is:
 
@@ -164,9 +164,7 @@ k = \left\lceil (1-\alpha)(n_{\text{cal}}+1)\right\rceil,
 \hat q = R_{(k)}.
 $$
 
-By convention, when $\lceil (1-\alpha)(n_{\text{cal}}+1)\rceil > n_{\text{cal}}$, no finite order statistic exists, so we set $\hat q = +\infty$ and the prediction set becomes all of $\mathbb{R}$. This happens exactly when $n_{\text{cal}} < (1-\alpha)/\alpha$, so at $\alpha=0.1$ whenever $n_{\text{cal}} \le 8$. An infinite interval is uninformative but honest: with that few calibration points, no finite band can be guaranteed at the requested level.
-
-The helper function in the code below instead caps the index at $\min(k, n_{\text{cal}})$, which returns the largest calibration score rather than $+\infty$. That is a practical fallback, not the same rule: in the capped regime it reports a finite interval whose actual coverage guarantee is strictly below $1-\alpha$. The distinction does not bite in the application below, where $n_{\text{cal}}=48$ and $k=45$, so the cap never binds — but it would bite in a small-sample exercise, and a conformal implementation that silently caps rather than returning $+\infty$ is quietly discarding the guarantee it advertises.
+By convention, when $\lceil (1-\alpha)(n_{\text{cal}}+1)\rceil > n_{\text{cal}}$, no finite order statistic exists, so we set $\hat q = +\infty$ and the prediction set becomes all of $\mathbb{R}$. This happens exactly when $n_{\text{cal}} < (1-\alpha)/\alpha$, so at $\alpha=0.1$ whenever $n_{\text{cal}} \le 8$. An infinite interval is uninformative but honest: with that few calibration points, no finite band can be guaranteed at the requested level. The implementation below follows this convention rather than silently capping the index at the largest observed score.
 
 Then the conformal prediction set for a new predictor value $x$ is
 
@@ -255,7 +253,7 @@ C(x)
 [\hat \mu(x)-\hat q,\hat \mu(x)+\hat q].
 $$
 
-This derivation is trivial algebraically, but conceptually important: the prediction interval is not produced by a Gaussian approximation. It is the inversion of a calibrated residual test.
+This derivation is short algebraically, but conceptually important: the prediction interval is not produced by a Gaussian approximation. It is the inversion of a calibrated residual test.
 
 ## Exchangeability and the Coverage Guarantee
 
@@ -392,7 +390,7 @@ $$
 **Two procedures, two coverage statements.** It is worth separating the unmodified procedure from the randomized one, because they are not the same algorithm.
 
 1. *Unmodified split conformal* (the procedure used in practice): the prediction set uses the order-statistic threshold $R_{(k)}$ defined from the calibration scores as written. When ties among scores have positive probability, the resulting marginal coverage is at least $1-\alpha$ but may strictly exceed it; the exchangeability argument delivers the lower bound but not equality.
-2. *Randomized split conformal* (a theoretical device): break ties by adding i.i.d. perturbations $U_i \sim \mathrm{Uniform}(0,\delta)$ to each score, with $\delta>0$ small enough that the perturbation cannot reorder scores that were already distinct, so that the augmented scores are continuously distributed and the ranks are almost surely strict. For this modified procedure, the rank of $R_{n_{\text{cal}}+1}+U_{n_{\text{cal}}+1}$ is uniform on $\{1,\dots,n_{\text{cal}}+1\}$, and the coverage probability equals exactly $\lceil(1-\alpha)(n_{\text{cal}}+1)\rceil/(n_{\text{cal}}+1)$.
+2. *Randomized split conformal* (a theoretical device): attach independent $U_i\sim\mathrm{Uniform}(0,1)$ variables to the scores and order the pairs $(R_i,U_i)$ lexicographically. The auxiliary variable breaks only ties in $R_i$; it never reverses two unequal scores. For this modified randomized procedure, the future pair has a uniform strict rank on $\{1,\dots,n_{\text{cal}}+1\}$, and the coverage probability equals exactly $\lceil(1-\alpha)(n_{\text{cal}}+1)\rceil/(n_{\text{cal}}+1)$.
 
 The unmodified procedure in (1) inherits the coverage lower bound from (2) because the event $R_{n_{\text{cal}}+1}\le R_{(k)}$ contains the corresponding randomized-rank event. This is the core reason conformal prediction is finite-sample and distribution-free: the proof uses only exchangeability and ranks, not a parametric error law.
 
@@ -646,9 +644,9 @@ CQR is preferable when uncertainty is clearly heteroskedastic or asymmetric, so 
 
 ## Real Data Example: Quarterly GDP Growth with FRED-QD
 
-The chapter is easier to interpret once we see the methods on real macroeconomic data. We therefore use the quarterly U.S. macro panel in `data/fred_qd_current.csv`, the repository copy of the FRED-QD release used in these notes. The target is next-quarter annualized real GDP growth, constructed from `GDPC1`. The predictors are current-quarter macro and financial indicators: lagged GDP growth, lagged CPI inflation, the unemployment rate, the federal funds rate, the term spread, and a log volatility proxy based on `VIXCLSx`.
+The chapter is easier to interpret once we see the methods on real macroeconomic data. We therefore use the quarterly U.S. macro panel in `data/fred_qd_current.csv`, the repository copy of the Federal Reserve Economic Data Quarterly Database (FRED-QD) release used in these notes. The target is next-quarter annualized real GDP growth, constructed from `GDPC1`. The predictors are current-quarter macro and financial indicators: GDP growth, consumer price index (CPI) inflation, the unemployment rate, the federal funds rate, the term spread, and a log volatility proxy based on `VIXCLSx`.
 
-This is still an illustration rather than a literal application of the split-conformal theorem. Quarterly macro data are time ordered and are not exchangeable. So the point of the example is practical: it shows how to adapt the chapter's logic to a forecasting design that respects time order, and it shows again why overall coverage can differ from subgroup coverage.
+This is a chronological **pseudo-out-of-sample illustration**, not a literal application of the split-conformal theorem and not a genuine real-time forecast evaluation. Quarterly macro data are time ordered and are not exchangeable. Moreover, the repository file is a single current-vintage panel: the code respects observation dates but does not reconstruct the data releases and revisions that were actually available at each historical forecast origin. The point is practical: it shows how to adapt the chapter's logic to a time-ordered design, and it shows again why overall coverage can differ from subgroup coverage.
 
 To keep the empirical section transparent, we use only one method here: a split conformal interval around a random-forest point forecast. The sample is divided chronologically:
 
@@ -656,7 +654,7 @@ To keep the empirical section transparent, we use only one method here: a split 
 2. calibration sample from 2000Q1 through 2011Q4
 3. test sample from 2012Q1 onward
 
-One data-handling detail matters for the code below: FRED-QD dates each quarter by its final month, so 1999Q4 appears as `1999-12-01`. The cutoffs are therefore placed at quarter-end dates, which ensures every quarter lands in exactly one of the three subsamples.
+One data-handling detail matters for the code below: this FRED-QD file dates each quarter by the first day of its final month, so 1999Q4 appears as `1999-12-01`. The cutoffs are placed after those month-start dates, which ensures every quarter lands in exactly one of the three subsamples.
 
 ```{python}
 #| label: tbl-conformal-fredqd
@@ -708,16 +706,19 @@ test = macro[macro["date"] > pd.Timestamp("2011-12-31")].copy()
 
 features = [column for column in macro.columns if column not in ["date", "y_next"]]
 
-def conformal_index(alpha, n):
-    return min(int(np.ceil((1 - alpha) * (n + 1))), n)
+def conformal_quantile(scores, alpha):
+    scores = np.asarray(scores)
+    n = len(scores)
+    k = int(np.ceil((1 - alpha) * (n + 1)))
+    return np.inf if k > n else np.sort(scores)[k - 1]
 
 alpha = 0.10
 model = RandomForestRegressor(n_estimators=500, min_samples_leaf=5, random_state=42)
 model.fit(train[features], train["y_next"])
 
 cal_pred = model.predict(cal[features])
-k = conformal_index(alpha, len(cal))
-qhat = np.sort(np.abs(cal["y_next"].to_numpy() - cal_pred))[k - 1]
+cal_scores = np.abs(cal["y_next"].to_numpy() - cal_pred)
+qhat = conformal_quantile(cal_scores, alpha)
 
 test = test.copy()
 test["pred"] = model.predict(test[features])
@@ -761,9 +762,9 @@ summary = pd.DataFrame(
 display(summary.round(3))
 ```
 
-The results are collected in @tbl-conformal-fredqd. This split produces 150 training quarters, 48 calibration quarters, and 53 test quarters. Overall test coverage is about 94%, above the nominal 90% target. Finite-sample discreteness cannot explain the excess: with $n_{\text{cal}} = 48$ and $k = \lceil 0.9 \times 49 \rceil = 45$, discreteness caps *expected* coverage at $45/49 \approx 91.8\%$ under exchangeability. The gap to 94% instead reflects sampling variation in a short evaluation window. With only 53 test quarters, the binomial standard error of a coverage estimate near 0.9 is roughly 4 percentage points; moreover, the coverage rate conditional on a given calibration draw is itself random (under continuity it follows a Beta$(k,\, n_{\text{cal}}+1-k)$ distribution across calibration draws, here with a standard deviation of about 4 percentage points as well). And on top of both effects, quarterly macro data are not exchangeable to begin with, so the theorem's coverage statement holds only approximately here. The average interval width is about 13.5 annualized growth points, and the point-forecast MAE is about 3.16 points.
+The results are collected in @tbl-conformal-fredqd. This split produces 150 training quarters, 48 calibration quarters, and 53 test quarters. Overall test coverage is about 94%, above the nominal 90% target. Under IID sampling and distinct scores, finite-sample discreteness alone would imply expected coverage $45/49\approx91.8\%$, because $k=\lceil0.9\times49\rceil=45$. The gap to 94% can easily arise from a short evaluation window: as a rough IID benchmark, the binomial standard error of a coverage estimate near 0.9 with 53 observations is about 4 percentage points. Across IID continuous calibration samples, the conditional coverage associated with the $k$-th order statistic is Beta$(k,n_{\text{cal}}+1-k)$ distributed, here also with a standard deviation of about 4 percentage points. These calculations are benchmarks, not valid time-series standard errors. Quarterly macro data are dependent and nonexchangeable, so the split-conformal theorem does not apply to this exercise; the reported coverage is descriptive. The average interval width is about 13.5 annualized growth points, and the point-forecast MAE is about 3.16 points.
 
-The subgroup comparison is suggestive, but it must be read with more care than the overall figure. If we classify the top quintile of test quarters by lagged VIX as high-volatility quarters, coverage in that subgroup falls to about 82%. The direction is what the theory predicts, since a constant-width band should undercover where dispersion is largest. The evidence, however, is thin. That subgroup contains only 11 quarters and exactly two misses, so the binomial standard error attached to the 82% figure is roughly 12 percentage points, and the gap to the 90% target is well under one standard error.
+The subgroup comparison is suggestive, but it must be read with more care than the overall figure. If we classify the top quintile of test quarters by current-quarter VIX as high-volatility quarters, coverage in that subgroup falls to about 82%. The quintile cutoff is estimated from the full test sample, so this is an ex post diagnostic, not a grouping rule available to a real-time forecaster. The direction is what the theory predicts, since a constant-width band should undercover where dispersion is largest. The evidence, however, is thin. That subgroup contains only 11 quarters and exactly two misses, so the binomial standard error attached to the 82% figure is roughly 12 percentage points, and the gap to the 90% target is well under one standard error.
 
 The composition of those two misses matters even more than their count. Both are 2020Q1 and 2020Q2, the COVID collapse and rebound, with realized annualized growth of $-32.8$% and $+29.9$%. Excluding calendar 2020 entirely, the high-VIX subgroup covers seven quarters out of seven. No band calibrated on 2000-2011 residuals could have contained a $-33$% quarter, so what this subgroup mainly records is an unprecedented outlier rather than systematic conditional undercoverage.
 
@@ -773,7 +774,7 @@ The right conclusion is therefore methodological rather than empirical. The marg
 
 ```{python}
 #| label: fig-conformal-fredqd-example
-#| fig-cap: "Time-aware split conformal illustration using quarterly U.S. macro data from FRED-QD. The left panel shows the test-period one-quarter-ahead GDP-growth forecasts from the random-forest point predictor together with the split-conformal interval based on calibration residuals from 2000Q1-2011Q4. Black dots are realized next-quarter annualized GDP growth rates, and red markers indicate misses where the realization falls outside the conformal interval. The right panel compares empirical coverage over the full 2012 onward test sample with coverage in the highest-VIX quintile of test quarters. The dashed horizontal line marks the nominal 90% target."
+#| fig-cap: "Chronological current-vintage illustration using quarterly U.S. macro data from FRED-QD. The left panel shows the test-period one-quarter-ahead GDP-growth forecasts from the random-forest point predictor together with the split-conformal interval based on calibration residuals from 2000Q1-2011Q4. Black dots are realized next-quarter annualized GDP growth rates, and red markers indicate misses where the realization falls outside the conformal interval. The right panel compares empirical coverage over the full 2012 onward test sample with coverage in the highest-VIX quintile of test quarters. The dashed horizontal line marks the nominal 90% target; the exercise does not reconstruct real-time data vintages."
 #| echo: true
 
 plot_df = test.copy().reset_index(drop=True)
@@ -1571,7 +1572,9 @@ Y_t=\rho Y_{t-1}+\varepsilon_t,
 \qquad
 |\rho|<1,
 \qquad
-\varepsilon_t \overset{iid}{\sim} (0,\sigma_\varepsilon^2).
+\{\varepsilon_t\}\text{ is IID},\qquad
+\mathbb{E}[\varepsilon_t]=0,\qquad
+\operatorname{Var}(\varepsilon_t)=\sigma_\varepsilon^2.
 $$
 
 1. Show that the vector $(Y_1,Y_2,Y_3)$ is generally not exchangeable when $\rho \neq 0$ by comparing the covariance between the first and second entries of $(Y_1,Y_2,Y_3)$ with the covariance between the first and second entries of the permuted vector $(Y_1,Y_3,Y_2)$.
