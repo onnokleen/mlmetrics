@@ -1,0 +1,1029 @@
+---
+number-sections: true
+number-offset: [15, 0]
+---
+
+# Foundation Models for Economic Text and Expectations {#sec-foundation-models}
+
+:::{.callout-warning}
+## Experimental Chapter
+This chapter is under active development. Content, notation, and exercises may change substantially between revisions.
+:::
+
+## Overview
+
+A large and growing share of economic information arrives as text. Central-bank statements, monetary-policy minutes, press conferences, earnings disclosures, conference-call transcripts, analyst reports, and regulatory filings all carry signals about policy stance, risk, and expectations that are not fully captured by any scalar time series. Foundation models --- large language models (LLMs) such as the generative pre-trained transformer (GPT) and Llama families --- can process this material and return numerical objects: conditional token probabilities, contextual embeddings, classification scores, or generated responses. A growing econometric literature studies how these objects can be used in policy analysis, forecasting, and measurement while retaining discipline about the estimand, information set, and evaluation design [@HaghighiEtAl2025].
+
+This chapter introduces foundation models as econometric tools, not as chatbots. The chapter has three aims. First, we put language models on formal ground as probabilistic sequence models, so that notions such as cross-entropy and perplexity mean exactly what they do in [Information Theory](information_theory.qmd). Second, we recast outputs of a foundation model --- scores, labels, embeddings --- as **noisy measurements of latent economic concepts**, which connects immediately to classical errors-in-variables reasoning. Third, we insist that any use of text in forecasting respect a real-time information set: retrieval, labeling, and scoring must be $\mathcal{I}_t$-measurable, or the forecast evaluation is not credible.
+
+What this chapter does *not* do: it is not a software tutorial, not a prompt-engineering guide, and not a survey of transformer internals. Pre-training, fine-tuning, and the engineering details of attention architectures are discussed only to the extent necessary to read and evaluate empirical work that uses foundation models. Two terms recur throughout: *pre-training* is the one-time estimation of the parameters $\theta$ on a large generic text corpus, while *fine-tuning* is the further adjustment of $\theta$ (or of a small added task-specific head) on a smaller, task-specific labeled sample. The minimum technical lineage to keep in view is the transformer architecture [@VaswaniEtAl2017], Bidirectional Encoder Representations from Transformers (BERT) [@DevlinChangLeeToutanova2019], and scaling-era autoregressive language models such as GPT-3 [@BrownEtAl2020]. The broader framing of these systems as **foundation models** — large pre-trained models that are adapted to many downstream tasks — is laid out in @Bommasani2021.
+
+:::{.callout-note title="How to read this chapter"}
+Keep three objects separate throughout. A language model $p_\theta$ assigns probabilities to token sequences; a labeling or scoring rule $g$ turns a document into a text-derived signal $z_t$; and a forecasting model uses $z_t$ together with ordinary predictors to form $\hat y_{t+h\mid t}$. Good token prediction does not by itself imply good measurement, and good measurement does not by itself imply an admissible real-time forecast.
+:::
+
+## Roadmap
+
+1. We first formalize a language model as a distribution over token sequences and connect its log-likelihood to cross-entropy and perplexity.
+2. We then explain how tokens become representations, introduce self-attention as relevance-weighted averaging, and work through a small numerical example.
+3. Next, we recast prompt-based classification and scoring as **measurement** and analyze the consequences of the associated measurement error.
+4. After that, we define a real-time information set $\mathcal{I}_t$ and state the measurability condition that retrieval, labeling, and scoring must satisfy.
+5. We then embed text-derived signals into standard predictive regressions and discuss pseudo-out-of-sample evaluation.
+6. We treat synthetic agents --- model-generated survey responses --- as a disciplined tool for exploring expectations, with explicit limitations.
+7. We close with a summary, including common pitfalls, and four pen-and-paper exercises.
+
+## Language Models as Probabilistic Sequence Models {#sec-fm-sequence}
+
+A language model is a probability distribution over sequences of tokens drawn from a finite vocabulary $\mathcal{V}$. Tokens are the basic discrete units the model operates on. Depending on the tokenizer, a token can be a word, a subword, a punctuation mark, or a special marker. We will not discuss tokenization in detail. For the econometric analysis below, condition on a document length $T$ and represent the document as a sequence $w_{1:T}=(w_1,\ldots,w_T)$ with each $w_t\in\mathcal V$. Equivalently, one can include an end-of-sequence token and model termination explicitly. We will write realized (observed) tokens in lowercase, $w_t$, and the corresponding random variables in uppercase, $W_t$. Adopt the convention $w_{1:0}:=\varnothing$, so that conditioning on $w_{1:0}$ means conditioning on no prior tokens.
+
+By the chain rule,
+$$
+p(w_{1:T}) = \prod_{t=1}^T p(w_t \mid w_{1:t-1}),
+$$ {#eq-fm-chain}
+with $p(w_1 \mid w_{1:0}) := p(w_1)$. A language model is thus a family of conditional next-token distributions. Modern foundation models parameterize these conditionals as $p_\theta(w_t \mid w_{1:t-1})$ using a large neural network with parameters $\theta$.
+
+[**Derivation A: from log-likelihood to perplexity.**]{#sec-fm-derivA} Taking logs in @eq-fm-chain,
+$$
+\log p_\theta(w_{1:T}) = \sum_{t=1}^T \log p_\theta(w_t \mid w_{1:t-1}).
+$$
+Dividing by $T$ gives the average negative log-likelihood (NLL) per token,
+$$
+\bar{\ell}(w_{1:T}; \theta) := -\frac{1}{T}\sum_{t=1}^T \log p_\theta(w_t \mid w_{1:t-1}).
+$$ {#eq-fm-avgnll}
+Suppose the test sequence $W_{1:T}$ is drawn from a stationary and ergodic law $p^\star$ on the vocabulary $\mathcal{V}$. Under the additional conditions that the model's per-token log loss is an integrable stationary functional of the sequence—for example, when the scoring rule is time-invariant and uses a fixed number of lagged tokens—an ergodic argument [@Barron1985; @AlgoetCover1988] gives, as $T\to\infty$,
+$$
+\bar{\ell}(W_{1:T}; \theta) \;\xrightarrow{\text{a.s.}}\; H(p^\star, p_\theta),
+$$
+where the limit is the **cross-entropy rate**
+$$
+H(p^\star, p_\theta) \;=\; \lim_{T\to\infty}\; -\frac{1}{T}\sum_{t=1}^{T} \mathbb{E}_{p^\star}\!\left[\log p_\theta(W_t \mid W_{1:t-1})\right].
+$$ {#eq-fm-crossent}
+Two regularity points deserve care here. First, a finite context window alone is not enough to make a model time-invariant: absolute positional encodings or other position-specific operations may make the scoring rule depend on $t$. Second, the per-position expectation $-\mathbb{E}_{p^\star}[\log p_\theta(W_t\mid W_{1:t-1})]$ need not be constant even when $p^\star$ is stationary, because the conditioning history and possibly the model itself change with position. That is why @eq-fm-crossent defines a limit of averages and why existence of the limit is an assumption for the general case. For a finite test corpus, none of this asymptotic machinery is needed: @eq-fm-avgnll is simply its realized average log loss. **Perplexity** is defined as
+$$
+\text{PPL}(w_{1:T}; \theta) \;=\; \exp\!\bigl(\bar{\ell}(w_{1:T}; \theta)\bigr).
+$$ {#eq-fm-ppl}
+Perplexity has the interpretation of an *effective vocabulary size per token* in the following specific sense: if at every position $t$ the conditional distribution $p_\theta(\,\cdot\, \mid w_{1:t-1})$ is uniform on some subset of $K$ tokens, then $\bar{\ell} = \log K$ and $\text{PPL} = K$. In general $\text{PPL}$ is the geometric mean of the reciprocals of the conditional probabilities assigned to the observed tokens. A lower perplexity means the model assigns, on average, a higher probability to the tokens that occur, and is better in a predictive-distribution sense in the terminology of [Evaluating Predictive Distributions](evaluating_distributions.qmd). This comparison is directly meaningful only when models score the same corpus with the same tokenization: changing the tokenizer changes both $T$ and the units over which the average loss is computed. Cross-tokenizer comparisons require a common normalization, such as average negative log-likelihood per byte or character.
+
+Two remarks matter for econometric work. First, perplexity is computed on a *test sequence* and is therefore subject to the same pseudo-out-of-sample discipline as any predictive score: the test documents or exact sequences must not have been used to fit or select the model, which for modern foundation models is a nontrivial condition to verify. This does not mean that ordinary vocabulary tokens such as *the* must be new. Second, because $-\log p_\theta(w_t \mid w_{1:t-1}) \to \infty$ as $p_\theta(w_t \mid w_{1:t-1}) \to 0$, a single conditional probability below a threshold $\varepsilon$ contributes at least $-\log\varepsilon / T$ to $\bar{\ell}$, and hence multiplies $\text{PPL}$ by at least $\varepsilon^{-1/T}$. In consequence, a small number of low-probability tokens can inflate perplexity substantially; this is relevant when evaluating a language model on crisis-period text whose vocabulary or topic composition departs from the training corpus. The score remains well defined under such a shift, but it now measures performance for the shifted corpus rather than for the pre-break language distribution.
+
+:::{.callout-important title="Econometric Interpretation"}
+A low perplexity number answers a narrow question: did $p_\theta$ assign high probability to the tokens that appeared in this corpus? It does **not** answer whether a downstream score is an unbiased measure of hawkishness, recession concern, or sentiment, and it does **not** answer whether the score was available at the forecast origin. Those are separate measurement and information-set questions.
+:::
+
+```{python}
+#| label: fig-fm-nextoken
+#| fig-cap: "Next-token factorization schematic. A document is represented as a token sequence $w_{1:T}$. The model specifies a conditional distribution $p_\\theta(w_t \\mid w_{1:t-1})$ over the vocabulary at each position, shown as a bar at position $t$. The probability the model assigns to the observed token is the height of the dark bar. Sequence log-likelihood is the sum of the log-heights of the dark bars."
+#| echo: true
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+rng = np.random.default_rng(3)
+tokens = ["<s>", "the", "central", "bank", "raised", "rates"]
+T = len(tokens) - 1
+V = 6
+
+probs = np.zeros((T, V))
+observed_idx = np.array([1, 2, 3, 4, 5])
+for t in range(T):
+    logits = rng.normal(0.0, 1.0, size=V)
+    logits[observed_idx[t]] += 1.6
+    p = np.exp(logits - logits.max())
+    probs[t] = p / p.sum()
+
+fig, ax = plt.subplots(figsize=(8.0, 3.4))
+x = np.arange(1, T + 1)
+width = 0.12
+for j in range(V):
+    heights = probs[:, j]
+    colors = ["C3" if j == observed_idx[t] else "C0" for t in range(T)]
+    for t in range(T):
+        ax.bar(x[t] + (j - V/2) * width, heights[t], width=width,
+               color=colors[t], alpha=0.85 if colors[t] == "C3" else 0.35)
+
+ax.set_xticks(x)
+ax.set_xticklabels([f"t={t}\n{tokens[t]}" for t in range(1, T + 1)])
+ax.set_ylabel(r"$p_\theta(\,\cdot\,\mid w_{1:t-1})$")
+ax.set_title("Conditional next-token distributions along a sequence")
+ax.grid(True, alpha=0.2, axis="y")
+plt.tight_layout()
+plt.show()
+```
+
+A compact check of @eq-fm-avgnll and @eq-fm-ppl on this toy sequence:
+
+```{python}
+#| echo: true
+
+chosen = probs[np.arange(T), observed_idx]
+avg_nll = -np.log(chosen).mean()
+ppl = np.exp(avg_nll)
+print(f"Average NLL: {avg_nll:.4f}")
+print(f"Perplexity:  {ppl:.4f}")
+```
+
+:::{.callout-note title="Question for Reflection"}
+What changes in the interpretation of perplexity when the test corpus comes from a regime that was not represented in training, for example monetary-policy statements written after a structural break in inflation?
+:::
+
+:::{.callout-tip collapse="true" title="Suggested Answer"}
+Nothing breaks algebraically: perplexity is still the exponentiated average log loss on the post-break corpus. What changes is the estimand. The cross-entropy $H(p^\star,p_\theta)$ is now taken under a different post-break $p^\star$, so a rise in perplexity can reflect distribution shift, poor adaptation by the model, or both. It no longer estimates performance for the pre-break language distribution. Comparisons between models remain meaningful if they use the same post-break documents and the same tokenizer; comparisons between regimes answer a different question because the test distribution has changed.
+:::
+
+## From Words to Representations {#sec-fm-representations}
+
+Computing the conditionals $p_\theta(w_t \mid w_{1:t-1})$ requires turning the history $w_{1:t-1}$ into a numerical summary. Foundation models do this via **contextual embeddings**: each token position is associated with a vector in $\mathbb{R}^d$ that summarizes the relevant context. In a causal next-token model, the representation used to score $w_t$ must be measurable with respect to the preceding tokens $w_{1:t-1}$; many transformer expositions instead index the hidden state after reading $w_t$ and use it to predict $w_{t+1}$. We will keep the econometric conditioning notation $p_\theta(w_t \mid w_{1:t-1})$ and treat self-attention below as the representation-building mechanism, with causal masking imposed when the task is next-token prediction. Two points matter for the econometric reader.
+
+**Embeddings, fixed and contextual.** A *fixed* embedding is a map $\bar e: \mathcal{V} \to \mathbb{R}^d$ that assigns to each token $w \in \mathcal{V}$ a single vector $\bar e(w)$, independent of context. A *contextual* embedding is a sequence of vectors $\phi_1, \ldots, \phi_T \in \mathbb{R}^d$, where $\phi_t$ is produced by a function of the available sequence context (for causal models, only earlier and current positions; for non-causal models, potentially the full sequence $w_{1:T}$). Contextual embeddings are what let the word *bank* be represented by different vectors in "central bank" and "river bank".
+
+**Attention as a weighted average.** The dominant mechanism for producing contextual embeddings is **self-attention**. Consider a sequence of $T$ tokens with fixed embeddings stacked as rows of a matrix $E \in \mathbb{R}^{T \times d}$, so that row $t$ of $E$ is $\bar e(w_t)^\top$. Three linear maps $W_Q, W_K, W_V \in \mathbb{R}^{d \times d}$ produce queries, keys, and values,
+$$
+Q = E W_Q, \quad K = E W_K, \quad V = E W_V,
+$$
+with $Q, K, V \in \mathbb{R}^{T \times d}$. In general implementations, $W_Q, W_K$ may map to $\mathbb{R}^{d_k}$ and $W_V$ to $\mathbb{R}^{d_v}$ with $d_k, d_v \ne d$; we take $d_k = d_v = d$ here to keep notation light. Denote rows of $Q, K, V$ as $q_t, k_t, v_t \in \mathbb{R}^d$, so $q_t = W_Q^\top \bar e(w_t)$ and similarly for $k_t, v_t$.
+
+The attention output is defined row-by-row. For each query position $t \in \{1, \ldots, T\}$, the attention weights are
+$$
+\alpha_{t,s} \;=\; \frac{\exp\!\bigl(q_t^\top k_s / \sqrt{d}\bigr)}{\sum_{s'=1}^T \exp\!\bigl(q_t^\top k_{s'} / \sqrt{d}\bigr)}, \qquad s = 1, \ldots, T,
+$$ {#eq-fm-attn-weights}
+which are nonnegative and sum to one over $s$. The contextual embedding at position $t$ is
+$$
+\phi_t \;=\; \sum_{s=1}^T \alpha_{t,s}\, v_s \;\in\; \mathbb{R}^d.
+$$ {#eq-fm-attn-phi}
+Stacking these rows gives the compact matrix form
+$$
+\mathrm{Att}(E) \;=\; \mathrm{softmax}_{\text{row}}\!\left(\frac{QK^\top}{\sqrt{d}}\right) V,
+$$ {#eq-fm-attention}
+where $\mathrm{softmax}_{\text{row}}$ indicates that the softmax is applied independently to each row of its argument. The $\sqrt{d}$ scaling has a simple motivation: if entries of $q_t$ and $k_s$ are independent with zero mean and unit variance, then $\mathrm{Var}(q_t^\top k_s) = d$, and without the rescaling the pre-softmax scores $q_t^\top k_s$ (the *logits*) would grow with $d$, driving the softmax toward a one-hot vector and its gradient toward zero. Here *logit* is used in its machine-learning sense of a pre-softmax score, which is distinct from the econometric logit (log-odds) link the reader already knows. We do not discuss multi-head attention, positional encodings, feed-forward blocks, or layer normalization; these are necessary engineering components but they do not change the econometric content.
+
+For a causal language model, @eq-fm-attn-weights is replaced by its masked version: position $t$ can place positive weight only on positions $s \le t$. The hidden state at position $t-1$ is then admissible for predicting $w_t$, because it depends only on $w_{1:t-1}$. The unmasked formula above is useful for understanding attention as weighted averaging; the causal mask is what aligns the architecture with the conditional probability $p_\theta(w_t \mid w_{1:t-1})$.
+
+:::{.callout-note title="Question for Reflection"}
+Suppose an econometrician computes document embeddings using an unmasked model that lets each token representation depend on all tokens in the same document. Is this automatically a violation of the real-time information set $\mathcal{I}_t$ when the document itself was published before $t$?
+:::
+
+:::{.callout-tip collapse="true" title="Suggested Answer"}
+Not automatically. If the whole document was published before $t$, using all tokens inside that document is still $\mathcal{I}_t$-measurable for a document-level task such as classifying the document's stance. The problem arises when the task is next-token prediction, where $p_\theta(w_t \mid w_{1:t-1})$ must not use $w_t,\ldots,w_T$, or when the embedding model itself was trained or selected using post-$t$ information. Causal masking is a condition on the within-sequence prediction problem; real-time admissibility is a condition on what objects were available at the forecast origin.
+:::
+
+**From recurrent states to attention.** The previous chapter, [LSTM Networks](lstm_neural_networks.qmd#sec-lstm-networks), introduced a fixed-width hidden state $h_t$ that carries information across time steps. This forces all past relevant information to pass through a bottleneck whose size does not grow with the sequence length. Attention avoids the bottleneck: at position $t$, the contextual embedding $\phi_t$ is constructed as an explicit weighted average over representations of admissible positions -- all positions in the unmasked formula, and only positions $s \le t$ in a causal model. The similarity $q_t^\top k_s / \sqrt{d}$ acts as a learned relevance score: it measures how much position $s$ should contribute to the representation of position $t$. Nothing in @eq-fm-attention is recurrent.
+
+[**Derivation B: A Three-Token Self-Attention Example.**]{#sec-fm-derivB}
+
+Take a sequence of $T = 3$ tokens in $\mathbb{R}^2$ (so $d = 2$) with fixed embeddings
+$$
+\bar e(w_1) = \begin{pmatrix} 1 \\ 0 \end{pmatrix}, \quad
+\bar e(w_2) = \begin{pmatrix} 0 \\ 1 \end{pmatrix}, \quad
+\bar e(w_3) = \begin{pmatrix} 1 \\ 1 \end{pmatrix},
+$$
+stacked as rows into
+$$
+E = \begin{pmatrix} 1 & 0 \\ 0 & 1 \\ 1 & 1 \end{pmatrix} \in \mathbb{R}^{3 \times 2}.
+$$
+Set $W_Q = W_K = W_V = I_2$ so that $Q = K = V = E$ and the arithmetic is transparent. The similarity matrix before scaling is
+$$
+Q K^\top = \begin{pmatrix} 1 & 0 & 1 \\ 0 & 1 & 1 \\ 1 & 1 & 2 \end{pmatrix},
+$$
+and after scaling by $\sqrt{d} = \sqrt{2} \approx 1.414$,
+$$
+\tfrac{1}{\sqrt{2}} Q K^\top \approx \begin{pmatrix} 0.707 & 0 & 0.707 \\ 0 & 0.707 & 0.707 \\ 0.707 & 0.707 & 1.414 \end{pmatrix}.
+$$
+Applying the softmax row-wise gives the attention-weight matrix $A = [\alpha_{t,s}]$,
+$$
+A \approx \begin{pmatrix} 0.401 & 0.198 & 0.401 \\ 0.198 & 0.401 & 0.401 \\ 0.248 & 0.248 & 0.503 \end{pmatrix},
+$$
+which has nonnegative entries and rows summing to one. The contextual-embedding matrix is
+$$
+\mathrm{Att}(E) = A V \approx \begin{pmatrix} 0.802 & 0.599 \\ 0.599 & 0.802 \\ 0.752 & 0.752 \end{pmatrix}.
+$$
+Two observations. First, row three attends most strongly to position three: because $\|\bar e(w_3)\|^2 = 2 > \|\bar e(w_1)\|^2 = \|\bar e(w_2)\|^2 = 1$, the diagonal logit $\bar e(w_3)^\top \bar e(w_3) / \sqrt 2 \approx 1.414$ is larger than the off-diagonal logits $0.707$, so the softmax places the largest weight ($0.503$) on position three itself. Second, rows one and two are symmetric under the exchange of the first two coordinates, and each picks up a nontrivial contribution (about $40.1\%$) from token three. This is the mechanism by which a token with large norm — in practice, a token that scores highly under learned queries from other positions — propagates into the representations of neighboring positions.
+
+```{python}
+#| label: fig-fm-attention
+#| fig-cap: "Attention weights $A$ from Derivation B. Cell $(t, s)$ shows the fraction of position $t$'s output representation that is contributed by position $s$. Rows sum to one. The diagonal dominance of row three reflects the larger self-similarity of the third token."
+#| echo: true
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+E = np.array([[1.0, 0.0],
+              [0.0, 1.0],
+              [1.0, 1.0]])
+d = E.shape[1]
+scores = E @ E.T / np.sqrt(d)
+A = np.exp(scores - scores.max(axis=1, keepdims=True))
+A = A / A.sum(axis=1, keepdims=True)
+
+fig, ax = plt.subplots(figsize=(4.6, 3.8))
+im = ax.imshow(A, cmap="Blues", vmin=0.0, vmax=A.max())
+for i in range(3):
+    for j in range(3):
+        ax.text(j, i, f"{A[i, j]:.3f}", ha="center", va="center",
+                color="black" if A[i, j] < 0.35 else "white")
+ax.set_xticks([0, 1, 2])
+ax.set_yticks([0, 1, 2])
+ax.set_xticklabels([r"$\bar e(w_1)$", r"$\bar e(w_2)$", r"$\bar e(w_3)$"])
+ax.set_yticklabels([r"$\bar e(w_1)$", r"$\bar e(w_2)$", r"$\bar e(w_3)$"])
+ax.set_xlabel("Attended position $s$ (key)")
+ax.set_ylabel("Query position $t$")
+ax.set_title("Self-attention weights")
+fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+plt.tight_layout()
+plt.show()
+```
+
+Every foundation model we discuss below can be seen as iterating a version of this construction many times, with learned $W_Q, W_K, W_V$ and additional transformations, and ultimately producing, at each position $t$, a contextual embedding vector $\phi_t \in \mathbb{R}^d$. For the econometric analysis in the next sections, $\phi_t$ is the object that downstream labeling, scoring, and retrieval procedures will consume.
+
+## Foundation Models as Measurement Devices {#sec-fm-measurement}
+
+A common use of a foundation model in macro and finance is to turn a text into a scalar or low-dimensional score. Leading recent examples in the econometric literature are @BertschEtAl2025, who construct stance measures from Federal Reserve speeches to map central-bank mandates into policy-stance time series, and @Siano2025, who shows that extracting context-sensitive content from earnings-announcement disclosures using LLM methods outperforms the dictionary-based and bag-of-words measures that have dominated the earlier finance literature. Both apply, in full-length empirical detail, the measurement framing introduced below. Examples of typical latent targets include:
+
+- *hawkishness* of a central-bank statement,
+- *recession concern* in monetary-policy minutes,
+- *financial-stability emphasis* in a speech,
+- *tone* or *sentiment* of an earnings press release,
+- *disclosure novelty* of a conference-call transcript.
+
+In every case, the procedure maps a document $d_t$ to a number $z_t = g(d_t)$ using either a prompt ("classify this statement as hawkish, neutral, or dovish"), a probability extracted from the model's output distribution, or a fine-tuned classification head on top of a contextual embedding.
+
+**The measurement view.** It is rarely reasonable to treat $z_t$ as a direct observation of the underlying economic concept. A classical measurement-error model is
+$$
+z_t = s_t + u_t, \qquad \mathbb{E}[u_t \mid s_t] = 0,
+$$ {#eq-fm-meas}
+where $s_t$ is the latent concept of interest (the true hawkishness of the statement at time $t$) and $u_t$ is a mean-zero measurement error on the same scale as $s_t$. The conditional-mean condition $\mathbb{E}[u_t \mid s_t] = 0$ is a substantive classical-measurement-error assumption, not something that centering and scaling the model output can generally enforce. A validation sample of documents with defensible reference labels can help assess and calibrate the relationship between $z_t$ and $s_t$, but absent such information the latent scale and the error structure are not identified from $z_t$ alone. The attenuation calculation below needs the weaker moment restriction $\operatorname{Cov}(u_t,s_t)=0$ together with orthogonality to the outcome disturbance; it does not establish that the stronger conditional-mean assumption is empirically plausible. Three sources of error in $u_t$ deserve attention.
+
+**Prompt sensitivity.** Two prompts designed to elicit the same underlying concept can produce meaningfully different scores, because the conditional distribution the model samples from depends on the full prompt [@Sclar2024].
+
+**Model-version instability.** Foundation models are updated. A score constructed with one model version and re-computed with a later version need not agree. If the econometrician uses one version early in the sample and another later, the distribution of $u_t$ changes with $t$.
+
+**Threshold effects in classification.** Asking a model to return a discrete class and then encoding that class as a number (for example in $\{-1, 0, +1\}$) discards probability and calibration information. For any numeric encoding of an unordered discrete label, $\mathbb{E}[z_t \mid s_t]$ is determined by the class-assignment probabilities at each value of $s_t$; without a separate calibration argument, there is no reason for this conditional expectation to equal $s_t$ on the chosen scale.
+
+The implications are those familiar from classical errors-in-variables. Let
+$$
+y_{t+1} = \alpha + \gamma\, s_t + \varepsilon_{t+1},
+$$
+with $\mathbb{E}[\varepsilon_{t+1}] = 0$ and $\mathrm{Cov}(\varepsilon_{t+1}, s_t) = 0$, and suppose the econometrician estimates
+$$
+y_{t+1} = \alpha + \delta\, z_t + \eta_{t+1}
+$$
+by OLS with $z_t = s_t + u_t$, $\mathbb{E}[u_t] = 0$, $\mathrm{Cov}(u_t, s_t) = 0$, $\mathrm{Cov}(u_t, \varepsilon_{t+1}) = 0$, $\mathrm{Var}(s_t) = \sigma_s^2 > 0$, $\mathrm{Var}(u_t) = \sigma_u^2$. Assume in addition that the joint process $\{(s_t, u_t, \varepsilon_{t+1})\}$ is strictly stationary and ergodic with finite second moments, so that sample second moments converge to their population counterparts. Then
+$$
+\mathrm{plim}_{T \to \infty}\;\hat{\delta}_{\text{OLS}} \;=\; \frac{\mathrm{Cov}(y_{t+1}, z_t)}{\mathrm{Var}(z_t)} \;=\; \gamma \cdot \frac{\sigma_s^2}{\sigma_s^2 + \sigma_u^2} \;=\; \gamma \cdot \lambda,
+$$
+with reliability ratio $\lambda := \sigma_s^2 / (\sigma_s^2 + \sigma_u^2) \in (0, 1]$ [@Wooldridge2010, Sec. 4.4.2]. The stationarity assumption rules out the model-version instability described above; when the distribution of $u_t$ changes across $t$ (for example at a version-switch date), the probability limit is not well defined and should be replaced by a regime-specific analysis. The coefficient is attenuated toward zero, and $\lambda \downarrow 0$ as $\sigma_u^2 \uparrow \infty$, so a noisier language-model label produces a more attenuated slope. Exercise 16.2 asks you to derive this and extend it.
+
+This has a nontrivial consequence for econometric practice. For **parameter estimation**, $\hat\delta$ identifies $\gamma$ only up to the reliability ratio $\lambda$: the sign of $\gamma$ is identified whenever $\lambda>0$, but the magnitude is identified only if $\lambda$ itself is identified—for example from a validation sample on which $s_t$ is observed, or from repeated measurements under additional assumptions such as independent replicate errors. For **forecasting**, attenuation is less damaging: under the stated assumptions, $\hat\delta\to\gamma\lambda\ne0$ whenever $\gamma\ne0$ and $\lambda>0$, so $z_t$ continues to carry predictive content for $y_{t+1}$ in the sense that $\mathbb{E}[y_{t+1}\mid z_t]\ne\mathbb{E}[y_{t+1}]$, even though the OLS slope is not an estimate of $\gamma$. This distinction between prediction and inference is what makes foundation-model-derived signals potentially useful in forecasting while being suspect in causal exercises.
+
+```{python}
+#| label: fig-fm-attenuation
+#| fig-cap: "Attenuation in a predictive regression with a measured regressor. The left panel shows the latent concept $s_t$ against the outcome $y_{t+1}$. The right panels show the observed signal $z_t = s_t + u_t$ under increasing noise $\\sigma_u$. OLS slopes are reported inside each panel; the true slope $\\gamma = 1$ is attenuated by the reliability ratio $\\lambda = \\sigma_s^2 / (\\sigma_s^2 + \\sigma_u^2)$, which approaches zero as $\\sigma_u$ grows."
+#| echo: true
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+rng = np.random.default_rng(7)
+n = 250
+s = rng.normal(0.0, 1.0, size=n)
+eps = rng.normal(0.0, 0.6, size=n)
+y = 1.0 * s + eps
+
+sigmas_u = [0.0, 0.6, 1.4]
+fig, axes = plt.subplots(1, 3, figsize=(11.6, 3.8), sharey=True)
+for ax, sigma_u in zip(axes, sigmas_u):
+    u = rng.normal(0.0, sigma_u, size=n)
+    z = s + u
+    slope = np.cov(y, z, ddof=0)[0, 1] / np.var(z, ddof=0)
+    ax.scatter(z, y, s=11, alpha=0.45, color="C0")
+    xs = np.linspace(z.min(), z.max(), 50)
+    ax.plot(xs, slope * xs, color="C3", linewidth=2)
+    ax.set_title(fr"$\sigma_u = {sigma_u:.1f}$,  $\hat\delta \approx {slope:.2f}$")
+    ax.set_xlabel("Measured signal $z_t$")
+    ax.grid(True, alpha=0.2)
+axes[0].set_ylabel("Outcome $y_{t+1}$")
+fig.suptitle("Attenuation as measurement noise grows", y=1.03, fontsize=13)
+plt.tight_layout()
+plt.show()
+```
+
+:::{.callout-tip title="Example: Hawkish vs. dovish classification of central-bank text"}
+A common construction in monetary-policy applications passes each Federal Open Market Committee (FOMC) statement, or a broader collection of Federal Reserve speeches as in @BertschEtAl2025, through a foundation model with a prompt that asks for a label in $\{-1, 0, +1\}$ or for a continuous stance score aligned with specific mandate dimensions. The resulting series $z_t$ is then used as a predictor of future interest-rate changes or bond yields. Under the measurement view, $z_t$ is a noisy estimate of the committee's latent stance $s_t$. The reliability ratio $\lambda$ depends on the prompt, the model version, and the degree of ambiguity of each individual statement. Empirical work based on $z_t$ should therefore (i) report sensitivity across prompt variants, (ii) hold the model version fixed across the evaluation sample, and (iii) treat regression slopes as attenuated relative to coefficients on $s_t$.
+:::
+
+A schematic of the full measurement pipeline is shown in @fig-fm-pipeline.
+
+```{python}
+#| label: fig-fm-pipeline
+#| fig-cap: "From text to a scalar signal. A document $d_t$ is tokenized, embedded, and processed by a foundation model to produce contextual embeddings $\\phi_t$ or a conditional distribution $p_\\theta(\\cdot \\mid d_t)$. A labeling function $g$ then maps these to a scalar or low-dimensional score $z_t$. The econometric content of $z_t$ is its relationship to the latent concept $s_t$ and to the outcome $y_{t+1}$; the rest of the pipeline is instrumentation."
+#| echo: false
+
+import matplotlib.pyplot as plt
+from matplotlib.patches import FancyBboxPatch, FancyArrowPatch
+
+fig, ax = plt.subplots(figsize=(10.6, 2.4))
+ax.set_xlim(0, 12)
+ax.set_ylim(0, 3)
+ax.axis("off")
+
+boxes = [
+    (0.2,  "Document\n$d_t$"),
+    (2.6,  "Tokens\n$w_{1:T}$"),
+    (5.0,  "Foundation model\n$p_\\theta(\\cdot \\mid w_{1:t-1})$"),
+    (7.8,  "Contextual\nembeddings $\\phi_t$"),
+    (10.5, "Score\n$z_t = g(\\phi_t)$"),
+]
+for x, label in boxes:
+    box = FancyBboxPatch((x, 1.0), 2.0, 1.1,
+                         boxstyle="round,pad=0.05",
+                         linewidth=1.2, edgecolor="black", facecolor="#eaf2fb")
+    ax.add_patch(box)
+    ax.text(x + 1.0, 1.55, label, ha="center", va="center", fontsize=10)
+
+for i in range(len(boxes) - 1):
+    x0 = boxes[i][0] + 2.0
+    x1 = boxes[i + 1][0]
+    arr = FancyArrowPatch((x0, 1.55), (x1, 1.55),
+                          arrowstyle="->", mutation_scale=14, linewidth=1.1)
+    ax.add_patch(arr)
+
+plt.tight_layout()
+plt.show()
+```
+
+:::{.callout-note title="Question for Reflection"}
+Suppose two foundation-model versions disagree on 12 % of the hawkish/dovish labels over a 2015–2020 sample. You use version 1 through 2017 and version 2 from 2018 onward in a single predictive regression of bond yields on $z_t$. Describe what happens to the interpretation of $\hat\delta$ and what a minimal fix would look like.
+:::
+
+:::{.callout-tip collapse="true" title="Suggested Answer"}
+The measurement error $u_t$ has a discontinuous distribution at the version-switch date: its variance, and potentially its mean and its covariance with $s_t$, can differ across the two subsamples. If the break is ignored, the pooled slope combines regimes with different measurement mappings; it is not generally a simple reliability-ratio attenuation of one common structural coefficient. A minimal fix is to re-label the entire sample with one frozen model version and then repeat the exercise with the other version as a sensitivity check. If a version switch is unavoidable, include a regime indicator and an interaction between the regime and $z_t$, while recognizing that neither regime-specific reliability ratio is identified from the predictive regression alone.
+:::
+
+## Retrieval and Real-Time Information Sets {#sec-fm-retrieval}
+
+Applied use of foundation models in forecasting almost always involves **retrieval**: selecting a subset of documents on which to run the model, or from which to construct the prompt. This section argues that retrieval is the principal failure point in text-based forecasting, and that the corrective discipline can be stated cleanly.
+
+**Information sets.** Fix a forecast origin $t$. Let $\{\mathcal{I}_t\}_{t \ge 0}$ be a filtration on an underlying probability space, where $\mathcal{I}_t$ is the $\sigma$-algebra generated by all numerical releases, document versions, and metadata available by real-world time $t$. A particular version of a document is $\mathcal{I}_t$-measurable if that version had been released by $t$. A later revision does not make the earlier version inadmissible; it creates a different object that was not available at the earlier origin. This is the textual analogue of real-time vintage discipline for macroeconomic data.
+
+In practice the forecaster typically draws from several documents at each origin rather than a single one. At forecast origin $t$ the text-based procedure selects a document set $D_t$ and a labeling-and-aggregation map $G_t$ produces a text feature
+$$
+x_t^{\text{text}} \;=\; G_t(D_t) \;\in\; \mathbb{R}^{k_z},
+$$
+where $G_t$ includes the model, prompt, and aggregation rule used at origin $t$ and returns a vector of dimension $k_z \ge 1$. For example, it may average, weight, or concatenate per-document scores $g_t(d)$ across $d\in D_t$. When $D_t=\{d_t\}$ is a singleton, $G_t(\{d_t\})=g_t(d_t)$ reduces to the scalar $z_t$ of @sec-fm-measurement.
+
+**The admissibility condition.** For $x_t^{\text{text}}$ to be valid as a predictor in a pseudo-out-of-sample forecasting exercise, every selected document version must have been available at $t$, and the selection itself must use only time-$t$ information. Formally,
+$$
+D_t\text{ and }G_t\text{ are }\mathcal{I}_t\text{-measurable},
+\qquad
+d\in D_t \Longrightarrow d\text{ is an }\mathcal{I}_t\text{-measurable document version}.
+$$ {#eq-fm-Isetmeas}
+Writing $D_t\subseteq\mathcal{I}_t$ would be a type error: $D_t$ is a set of documents, whereas $\mathcal{I}_t$ is a collection of events. The condition is measurability, not set inclusion.
+
+[**Derivation C: Why Retrieval Must Be $\mathcal{I}_t$-Measurable.**]{#sec-fm-derivC}
+
+Suppose the forecaster estimates a model of the form $\mathbb{E}[Y_{t+h} \mid \mathcal{I}_t]$ using features $x_t \in \mathbb{R}^{k_x}$ that include a text block $x_t^{\text{text}} = G_t(D_t)$. The pseudo-out-of-sample forecast at origin $t$ is
+$$
+\hat{y}_{t+h \mid t} \;=\; \hat{m}\bigl(x_t;\, \hat\beta_t\bigr),
+$$
+where $\hat{m}$ is the fitted forecasting map and $\hat\beta_t$ are regression parameters estimated from data available at time $t$. (We reserve $\theta$ for foundation-model parameters throughout the chapter and write the regression coefficients as $\beta$.)
+
+For $\hat{y}_{t+h \mid t}$ to be a valid estimate of a real-time forecast, every object on the right-hand side must be $\mathcal{I}_t$-measurable. If $D_t$ is not measurable with respect to $\mathcal{I}_t$, then $x_t^{\text{text}}$ generally is not either, and the forecast uses information a real-time forecaster could not have used. A concrete consequence: with leakage, $\mathbb{E}\bigl[\,\ell(Y_{t+h}, \hat y_{t+h\mid t})\,\bigr]$ need not equal the real-time expected loss $\mathbb{E}\bigl[\,\ell(Y_{t+h}, \hat y^{\text{RT}}_{t+h\mid t})\,\bigr]$, where $\hat y^{\text{RT}}_{t+h\mid t}$ is built under genuine $\mathcal{I}_t$-measurability. Leakage often makes evaluation look too favorable, but its sign is not guaranteed; the decisive problem is that the contaminated exercise estimates the wrong forecast procedure.
+
+A second subtlety concerns the retrieval function itself. Suppose $D_t$ is chosen by taking the top-$k$ documents nearest to a query under a similarity metric based on an embedding model with parameters $\psi_t$, so that $D_t = \mathrm{Retrieve}(q_t; \psi_t, \mathcal{A}_t)$, where $q_t$ is the query at time $t$ and $\mathcal{A}_t$ is the document archive available at $t$. Even when every document in $\mathcal{A}_t$ was released by $t$, selection is contaminated if $\psi_t$ was estimated on a corpus containing post-$t$ documents. The admissibility condition therefore applies to the archive, query, retrieval rule, and retrieval parameters—not only to the selected outputs. Most off-the-shelf embedding models are trained once on a fixed corpus and can satisfy strict historical admissibility only if the model itself and its training information predate the earliest forecast origin.
+
+**Concrete sources of leakage.** @tbl-fm-leakage lists the recurring sources and the conditions they violate. The list is not exhaustive, but each item has appeared in published empirical work.
+
+| Source of leakage | Condition violated | Suggested remediation |
+|---|---|---|
+| Revised transcripts replace originals | Document identity in $D_t$ depends on post-$t$ revisions | Use original release; store timestamp of first publication |
+| Curated summaries written after the event | Selected document is not $\mathcal{I}_t$-measurable | Exclude summaries; use raw statements only |
+| Benchmark labels constructed from future outcomes | Labels are $\mathcal{I}_{t+h}$-, not $\mathcal{I}_t$-measurable | Re-label using only pre-$t$ information |
+| Retriever $\psi$ trained on full corpus | Retrieval function not $\mathcal{I}_t$-measurable | Use retriever trained on pre-sample text only |
+| Foundation model pre-trained on text including post-$t$ material | Strict historical replicability fails; parameters may encode post-$t$ information | Disclose training cutoff and release date; begin the real-time evaluation only after both |
+| Metadata (topic tags, emotion scores) generated post-hoc | Metadata is $\mathcal{I}_{t+\Delta}$-measurable | Regenerate metadata from $\mathcal{I}_t$ only |
+
+: Sources of leakage in text-based forecasting, the admissibility condition each violates, and a suggested remediation. {#tbl-fm-leakage}
+
+The required design depends on the claim. A **strict historical real-time evaluation** asks what a forecaster could actually have implemented at origin $t$; the exact model version, weights, tokenizer, and retrieval system must therefore have existed by $t$. A **retrospective fixed-model evaluation** freezes a later model and applies it only to document versions that were available at each historical origin. That second design can reveal whether a modern measurement device extracts predictive content from old text, but it is not evidence that the historical forecast was implementable in real time, and post-$t$ pre-training content can still contaminate the measurement. The two designs should never share the same label.
+
+```{python}
+#| label: fig-fm-timeline
+#| fig-cap: "Real-time timeline at forecast origin $t$. The shaded region to the right of $t$ is the forbidden future: no object produced or revised there may enter $D_t$. Document $d_1$ is admissible. Document $d_2$ is a revision of $d_1$ published after $t$ and is not admissible, even though it concerns an event that occurred before $t$. Document $d_3$ is a curated summary published after $t$ and is not admissible. Document $d_4$ is a news summary published before $t$ and is admissible as a document; it illustrates the separate caveat that a retriever whose parameters were trained on post-$t$ corpora may select or weight $d_4$ using information unavailable at $t$, so admissibility of the documents does not by itself make the retrieval step real-time valid."
+#| echo: true
+
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.patches import Rectangle
+
+fig, ax = plt.subplots(figsize=(9.6, 3.0))
+ax.set_xlim(0, 10)
+ax.set_ylim(0, 4)
+ax.axis("off")
+
+ax.add_patch(Rectangle((5, 0), 5, 4, facecolor="#f2d7d5", alpha=0.55, edgecolor="none"))
+ax.axvline(5, color="black", linewidth=1.0)
+ax.text(5.0, 3.7, "forecast origin $t$", ha="center", fontsize=10)
+ax.text(7.5, 3.7, "forbidden future", ha="center", fontsize=10, style="italic")
+
+ax.annotate("", xy=(9.8, 0.3), xytext=(0.2, 0.3),
+            arrowprops=dict(arrowstyle="->", linewidth=1.1))
+ax.text(0.2, 0.05, "time", fontsize=9)
+
+def mark(x, y, label, ok=True):
+    ax.scatter([x], [y], s=55, color=("C2" if ok else "C3"), zorder=3)
+    ax.text(x, y + 0.22, label, ha="center", fontsize=9)
+
+mark(2.2, 1.2, "$d_1$ (original)", ok=True)
+mark(6.2, 1.2, "$d_2$ (revision of $d_1$)", ok=False)
+mark(7.3, 2.1, "$d_3$ (curated summary)", ok=False)
+mark(4.1, 2.6, "$d_4$ (news summary)", ok=True)
+
+plt.tight_layout()
+plt.show()
+```
+
+Text-based forecasting is attractive because language is expressive, but every failure mode familiar from macro-forecast evaluation has a textual counterpart, and several new ones --- post-hoc retrieval, revised transcripts, pre-training contamination --- have no close macro analogue and therefore require explicit discipline. @AhrensEtAl2025 provide a useful operational example: they study high-frequency market responses to central-bank speeches, and the credibility of their identification hinges on precisely the timestamp discipline formalized above, because the window over which a response is measured must begin strictly after the speech is public and end before any other confounding information arrives.
+
+## Forecast Augmentation with Text-Derived Signals {#sec-fm-forecast}
+
+With measurement and admissibility in hand, we embed text-derived signals in a standard predictive regression,
+$$
+y_{t+h} = \alpha + \beta^\top x_t + \pi^\top z_t + \varepsilon_{t+h},
+$$ {#eq-fm-workhorse}
+where $y_{t+h}$ is the target (inflation $h$ quarters ahead, next-day return around an earnings announcement, etc.), $x_t \in \mathbb{R}^{k_x}$ is a vector of standard predictors (lags, factors, macro indicators), and $z_t = G_t(D_t) \in \mathbb{R}^{k_z}$ is a vector of text-derived scores constructed from $D_t$ subject to the admissibility condition. When $k_z=1$ and no additional $x_t$ are present, $\pi$ coincides with the slope $\delta$ of @sec-fm-measurement. With multiple noisy text scores and controls, however, measurement error need not attenuate every component toward zero: the probability limit depends on the full covariance matrices after partialling out $x_t$. The scalar reliability ratio is therefore intuition, not a component-by-component correction formula for this multivariate regression.
+
+**Design choices.** Three choices deserve explicit statements, because each can change whether any forecast gain is genuine.
+
+1. *Window.* Rolling versus expanding estimation windows have different biases under regime change. The choice should be made up front, not after inspecting out-of-sample performance.
+2. *Loss.* For point forecasts, use root mean squared error (RMSE) or mean absolute error (MAE); for predictive distributions, use the log score or continuous ranked probability score (CRPS) as in [Evaluating Predictive Distributions](evaluating_distributions.qmd). A gain in RMSE that becomes a loss in log score usually reflects miscalibration of uncertainty.
+3. *Baseline.* A no-text model answers whether text adds predictive value. Dictionary and static-embedding baselines answer the sharper attribution question: does the foundation model add value beyond simpler text representations? A strong evaluation reports both kinds of comparison when that attribution matters.
+
+**A minimal evaluation loop.** The following code illustrates the structure of a rolling pseudo-out-of-sample evaluation. No API calls are involved; $z_t$ is treated as given.
+
+```{python}
+#| echo: true
+
+import numpy as np
+
+def rolling_forecast(y, X, z, window, horizon=1):
+    n = len(y)
+    preds_base = np.full(n, np.nan)
+    preds_text = np.full(n, np.nan)
+    for t in range(window, n - horizon):
+        Xt = X[t - window:t]
+        yt = y[t - window + horizon:t + horizon]
+        Xt_full = np.column_stack([np.ones(window), Xt])
+        beta_base = np.linalg.lstsq(Xt_full, yt, rcond=None)[0]
+        preds_base[t + horizon] = np.r_[1.0, X[t]] @ beta_base
+
+        zt = z[t - window:t]
+        Xt_aug = np.column_stack([Xt_full, zt])
+        beta_aug = np.linalg.lstsq(Xt_aug, yt, rcond=None)[0]
+        preds_text[t + horizon] = np.r_[1.0, X[t], z[t]] @ beta_aug
+    return preds_base, preds_text
+
+rng = np.random.default_rng(11)
+n = 400
+s = np.zeros(n)
+state_shocks = rng.normal(size=n)
+for t in range(1, n):
+    s[t] = 0.8 * s[t - 1] + state_shocks[t]
+x = 0.4 * s + rng.normal(size=n)
+u = rng.normal(scale=0.7, size=n)
+z = s + u
+eps = rng.normal(scale=0.9, size=n)
+y = 0.3 * x + 0.6 * s + eps
+
+pb, pt = rolling_forecast(y, x, z, window=120, horizon=1)
+mask = ~np.isnan(pb) & ~np.isnan(pt)
+rmse_base = np.sqrt(np.mean((y[mask] - pb[mask]) ** 2))
+rmse_text = np.sqrt(np.mean((y[mask] - pt[mask]) ** 2))
+print(f"RMSE baseline:          {rmse_base:.3f}")
+print(f"RMSE baseline + text:   {rmse_text:.3f}")
+```
+
+The text-augmented model does better here by construction: the latent state follows an AR(1), so current $z_t$ is a noisy proxy for a state that predicts $y_{t+1}$. Had $s_t$ been IID, current $z_t$ would contain no information about next period's state and the claim would fail. In empirical work the gain will typically be smaller and noisier; what matters is that the loop is constructed so that only information from $\mathcal{I}_t$ enters any object on the right-hand side of @eq-fm-workhorse.
+
+**Conformal wrappers.** If we want prediction intervals rather than point forecasts, the conformal machinery of [Conformal Prediction](conformal_prediction.qmd) applies, but with a warning. The finite-sample marginal coverage guarantee of split conformal prediction requires exchangeability between the calibration and test nonconformity scores, which is not automatic when the text-derived regressor $z_t$ is produced by a foundation model whose behavior drifts with model-version updates, prompt revisions, or training-cutoff changes. In time-series settings, the rolling and adaptive schemes discussed in [Conformal Prediction](conformal_prediction.qmd) are more appropriate; the plain split-conformal exchangeability argument is fragile here.
+
+:::{.callout-tip title="Example: Earnings-announcement returns with text"}
+Short-window equity returns around earnings announcements are a canonical testbed; @Siano2025 is a recent finance application of this design. Construct $z_t$ as a tone score for the earnings press release and conference-call transcript, passed through a foundation model with a fixed prompt and a fixed model version. Augment a baseline regression on prior earnings surprises, market factors, and industry dummies with $z_t$. A genuine gain from the foundation model (over a dictionary baseline, over a static-embedding baseline) is evidence that contextual representations capture content the simpler baselines miss; @Siano2025 finds exactly this pattern. A failure to beat the dictionary baseline is also informative: it tells you that, for this sample and target, the additional modeling capacity of the foundation model does not produce additional forecast value. A closely parallel macro exercise is @AhrensEtAl2025, who augment forecasts of short-window market reactions with text-derived features of central-bank speeches; the same design choices (window, loss, baselines) apply.
+:::
+
+:::{.callout-note title="Question for Reflection"}
+You find that adding $z_t$ improves in-sample $R^2$ by 0.08 but does not improve rolling pseudo-out-of-sample RMSE. Give two distinct explanations, one statistical and one data-pipeline, and describe how you would distinguish them.
+:::
+
+:::{.callout-tip collapse="true" title="Suggested Answer"}
+Statistical explanation: the extra text variables let the model fit sample-specific noise or an unstable relationship, so the in-sample gain does not survive new forecast origins. Diagnose this with the same rolling evaluation used for the final comparison, with any regularization or variable selection performed inside each training window, and inspect whether the estimated text contribution is stable across origins. Data-pipeline explanation: the in-sample $z_t$ used revised transcripts or a retriever trained on the full corpus. Reconstruct $z_t$ from timestamped document vintages and admissible model components, then repeat both the in-sample and rolling exercises. If the gain disappears only after rebuilding the data, leakage was responsible; if the admissible in-sample gain remains but the rolling gain does not, ordinary overfitting or instability is the more plausible explanation.
+:::
+
+## Synthetic Agents and Expectation Formation {#sec-fm-synthetic}
+
+Foundation models can be prompted to produce **synthetic survey responses**: the econometrician describes a persona --- a household with given demographics, a firm with given sector and size, a forecaster with given information set --- and asks the model to answer a survey question as that persona. The set of resulting answers $\{\tilde r_i\}_{i=1}^N$ is sometimes called a set of *synthetic agents*. Their use in economics is still experimental, and the econometric question is when, if ever, moments of $\{\tilde r_i\}$ are informative about moments of a real survey $\{r_i\}$. The closest work to the treatment below is @Zarifhonarvar2026, who generates household inflation expectations with large language models and compares the induced moments with those of the Michigan Survey; the patterns he documents (approximate mean agreement under careful prompting, systematic under-dispersion, underrepresentation of tail respondents) are a natural empirical counterpart to the bias decomposition given below. The broader question of when LLM-generated responses can stand in for human survey samples is studied by @Argyle2023, who introduce the concept of *silicon sampling* and test how well prompted LLMs reproduce subgroup opinion distributions from the American National Election Studies; systematic failures in dispersion and tail representation motivate the formal bias decomposition below. @Santurkar2023 provide complementary evidence that LLM opinion distributions are skewed toward particular demographic groups even under demographically neutral prompting.
+
+**A minimal formal setup.** Index real survey respondents by $i$, and write a generic respondent as the pair $(A_i, R_i)$, where $A_i \in \mathcal{A}$ is a vector of observable persona attributes (demographics, sector, etc.) and $R_i \in \mathcal{R} \subseteq \mathbb{R}$ is the survey answer. Let $F$ denote the true joint distribution of $(A_i, R_i)$ on $\mathcal{A} \times \mathcal{R}$, with persona marginal $F_A$ and conditional answer distribution $F(r \mid a)$. The econometrician chooses a *synthetic persona distribution* $H$ on $\mathcal{A}$, draws personas $\tilde A_i \overset{\text{iid}}{\sim} H$, and for each $\tilde A_i$ queries the foundation model to obtain a synthetic answer $\tilde R_i \sim q_\theta(\cdot \mid \tilde A_i)$, where $q_\theta$ is the conditional answer distribution induced by the foundation model (parameters $\theta$) together with the prompt. Here, as elsewhere in the chapter, $\theta$ denotes the foundation-model parameters; the persona attributes use a distinct symbol $a$.
+
+**A bias decomposition.** Assume $R_i$ and $\tilde R_i$ are integrable. Define
+$$
+\mu_q(a) := \mathbb{E}_{q_\theta}[\tilde R \mid \tilde A = a], \qquad
+\mu_F(a) := \mathbb{E}_F[R \mid A = a].
+$$
+The synthetic-sample and real-sample population means are
+$$
+\mathbb{E}_{H, q_\theta}[\tilde R] \;=\; \int_{\mathcal{A}} \mu_q(a)\, dH(a),
+\qquad
+\mathbb{E}_F[R] \;=\; \int_{\mathcal{A}} \mu_F(a)\, dF_A(a).
+$$
+Adding and subtracting $\int \mu_q(a)\, dF_A(a)$, the gap decomposes as
+$$
+\begin{aligned}
+\mathbb{E}_{H, q_\theta}[\tilde R] - \mathbb{E}_F[R]
+&= \underbrace{\int_{\mathcal{A}} \mu_q(a)\,
+   \bigl(dH(a) - dF_A(a)\bigr)}_{\text{persona-mismatch bias}} \\
+&\quad + \underbrace{\int_{\mathcal{A}} \bigl(\mu_q(a) - \mu_F(a)\bigr)\, dF_A(a)}_{\text{conditional bias}}.
+\end{aligned}
+$$ {#eq-fm-biasdecomp}
+The first term is a representativeness problem: if the distribution of personas used to prompt the model does not match the persona marginal in the real survey population, the synthetic mean is biased even when the model answers each persona correctly (i.e., even when $\mu_q \equiv \mu_F$). The second term is the more fundamental problem: conditional on a persona $a$, the model's answer distribution $q_\theta(\cdot \mid a)$ need not equal the real conditional $F(\cdot \mid a)$, and $\mu_q \ne \mu_F$ in general. Both terms can be nonzero even for a capable model and a carefully designed prompt.
+
+@fig-fm-synthetic-bias shows the same decomposition for a two-persona population. The purpose of the figure is not the numerical values; it is to separate the two ways the synthetic mean can be wrong. The left panel changes the persona weights while holding conditional means fixed. The right panel holds the persona weights fixed while changing the model-implied conditional means.
+
+```{python}
+#| label: fig-fm-synthetic-bias
+#| fig-cap: "Two components of synthetic-agent mean bias in a two-persona example. The left panel shows persona mismatch: the synthetic persona distribution $H$ overweights group B relative to the real survey distribution $F_A$. The right panel shows conditional bias: even when $H = F_A$, the model-implied conditional means $\\mu_q(a)$ differ from the real conditional means $\\mu_F(a)$."
+#| echo: true
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+groups = ["A", "B"]
+real_weights = np.array([0.70, 0.30])
+synthetic_weights = np.array([0.35, 0.65])
+mu_F = np.array([2.2, 4.4])
+mu_q = np.array([2.8, 3.5])
+
+fig, axes = plt.subplots(1, 2, figsize=(9.4, 3.6))
+x = np.arange(len(groups))
+width = 0.34
+
+axes[0].bar(x - width / 2, real_weights, width, label=r"$F_A$", color="C0", alpha=0.75)
+axes[0].bar(x + width / 2, synthetic_weights, width, label=r"$H$", color="C3", alpha=0.75)
+axes[0].set_xticks(x)
+axes[0].set_xticklabels(groups)
+axes[0].set_ylabel("Persona weight")
+axes[0].set_title("Persona-mismatch channel")
+axes[0].legend(frameon=False)
+axes[0].grid(True, axis="y", alpha=0.2)
+
+axes[1].bar(x - width / 2, mu_F, width, label=r"$\mu_F(a)$", color="C0", alpha=0.75)
+axes[1].bar(x + width / 2, mu_q, width, label=r"$\mu_q(a)$", color="C3", alpha=0.75)
+axes[1].set_xticks(x)
+axes[1].set_xticklabels(groups)
+axes[1].set_ylabel("Conditional mean response")
+axes[1].set_title("Conditional-bias channel")
+axes[1].legend(frameon=False)
+axes[1].grid(True, axis="y", alpha=0.2)
+
+plt.tight_layout()
+plt.show()
+```
+
+**Consequences for empirical practice.** Three implications follow.
+
+1. Synthetic agents should be used primarily for *exploring heterogeneity* within a population whose marginal distribution is known, not for replacing a real survey sample.
+2. Even within a known population, validating means is not enough. Variances, quantiles, and conditional patterns should be compared to real survey moments where possible; persistent underestimation of variance is a typical failure mode.
+3. Generated answers can be contaminated by training-data artifacts: the model may echo public-opinion distributions that prevailed during training rather than anything about the prompted persona. This is a form of training-cutoff leakage closely related to the discussion of retrieval in @sec-fm-retrieval.
+
+:::{.callout-tip title="Example: Synthetic inflation-expectations respondents"}
+The Michigan Survey of Consumer Expectations reports cross-sectional distributions of household inflation expectations. Prompting a foundation model with personas drawn from the Michigan demographic marginals (so $H = F_A$) produces a set of synthetic one-year-ahead inflation expectations. When $H = F_A$ the persona-mismatch term in @eq-fm-biasdecomp vanishes by construction, and any gap between the synthetic and Michigan means is attributable to the conditional-bias term. Comparing conditional means $\mu_q(a)$ and $\mu_F(a)$ by age, income, or education bracket localizes the conditional bias across sub-populations. @Zarifhonarvar2026 reports exactly these comparisons: means can be approximately matched with careful prompting, variances are systematically understated, and tail respondents (very high or very low expectations) are under-represented. This is useful information about the model's calibration, not a statement that synthetic respondents can substitute for the actual survey.
+:::
+
+## Summary
+
+:::{.callout-important}
+## Key Takeaways
+1. A language model is a probability distribution over token sequences. Its log-likelihood is a sum of conditional token log-probabilities, its average negative log-likelihood is cross-entropy, and perplexity is the exponential of that average. Perplexity inherits all the interpretational caveats of any predictive score: it requires a well-defined test set and is sensitive to regime change.
+2. Self-attention constructs contextual embeddings as relevance-weighted averages of value vectors. The three-token example in Derivation B shows the mechanism explicitly; everything that follows in a foundation model is a more elaborate version of that construction.
+3. Foundation-model outputs used as regressors are best modeled as noisy measurements of a latent economic concept: $z_t = s_t + u_t$. The OLS slope in a forecasting regression on $z_t$ is attenuated toward zero by the reliability ratio $\lambda = \sigma_s^2 / (\sigma_s^2 + \sigma_u^2)$.
+4. Attenuation matters for parameter estimation but not for the qualitative question of whether $z_t$ has predictive content. A consistent non-zero slope on $z_t$ is evidence of predictive content for $y_{t+h}$, even though the slope is not an estimate of the coefficient on the latent concept.
+5. Retrieval and labeling must be $\mathcal{I}_t$-measurable --- not only the retrieved document set $D_t$, but also the rule $G_t$, retriever parameters $\psi_t$, and model version that produce the text signal. A retrospective fixed-model study is a different estimand from a strict historical real-time evaluation and must be labeled accordingly.
+6. Synthetic survey responses suffer from both a persona-mismatch bias and a conditional bias; their best use is for within-population heterogeneity exploration, not for replacing a real survey sample.
+:::
+
+:::{.callout-warning}
+## Common Pitfalls
+- Treating a classification label as a direct observation of the underlying economic concept. The measurement-error view is almost always more accurate and changes how the resulting regressions should be read.
+- Using a retriever or embedding model trained on a corpus that overlaps with the evaluation window. Even if retrieved documents themselves predate the forecast origin, the retriever that selects them must also be $\mathcal{I}_t$-measurable.
+- Silently switching foundation-model versions in the middle of a forecast sample. The measurement error $u_t$ then has a time-varying distribution, and regression coefficients mix regimes.
+- Evaluating a text-augmented forecast against an AR($p$) baseline only when the goal is to attribute the gain specifically to the foundation model. Dictionary and static-embedding baselines separate the value of contextual modeling from the value of text in general.
+- Treating perplexity as a universal quality metric. A shifted corpus changes the target distribution, rare low-probability tokens have unbounded influence on log loss, and token-level perplexities from different tokenizers are not directly commensurable.
+- Reading coefficients on $z_t$ as causal or structural. Foundation models are noisy measurement devices, not identification strategies.
+- Validating synthetic agents only by matching an aggregate mean. A correct mean can hide offsetting conditional biases across persona groups and says little about dispersion or tail behavior.
+:::
+
+## Exercises
+
+:::{.callout-note}
+## Exercise 16.1: Sequence probabilities, cross-entropy, and perplexity
+
+Consider a vocabulary $\mathcal{V} = \{a, b, c, d, e\}$ of size $K = 5$. A language model $p_\theta$ processes the sequence $w_{1:8} = (a, b, a, c, d, a, b, e)$ and returns the following one-step-ahead conditional probabilities assigned to the observed token at each position:
+
+| $t$ | Observed $w_t$ | $p_\theta(w_t \mid w_{1:t-1})$ |
+|---|---|---|
+| 1 | $a$ | 0.40 |
+| 2 | $b$ | 0.25 |
+| 3 | $a$ | 0.50 |
+| 4 | $c$ | 0.20 |
+| 5 | $d$ | 0.15 |
+| 6 | $a$ | 0.50 |
+| 7 | $b$ | 0.30 |
+| 8 | $e$ | 0.0001 |
+
+**Part 1.** Compute $\log p_\theta(w_{1:8})$ and the average negative log-likelihood $\bar{\ell}(w_{1:8}; \theta)$. Use natural logarithms.
+
+**Part 2.** Compute the perplexity $\text{PPL}(w_{1:8}; \theta)$ and verify numerically that $\text{PPL} = \exp(\bar{\ell})$.
+
+**Part 3.** The token at position 8 is assigned probability $10^{-4}$. Quantify its contribution to $\bar{\ell}$ and to $\text{PPL}$. Discuss whether perplexity is a robust evaluation criterion on text that contains rare events, for example monetary-policy statements issued during a crisis whose vocabulary departs sharply from the training corpus. Your answer should connect to the definition of cross-entropy and to the limit argument that motivates perplexity as an effective vocabulary size.
+
+*Exam-level. The numerical computation in Parts 1 and 2 is standard; Part 3 should be the diagnostic.*
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint for Part 3
+Compute $-\log(0.0001) \approx 9.21$ and compare to the average of the other seven terms. Then ask what happens to $\text{PPL}$ if you replace the last token's probability with $10^{-2}$ instead; the change in $\text{PPL}$ is the diagnostic quantity.
+:::
+
+:::{.callout-tip collapse="true"}
+## Solution
+
+**Part 1: Log-probability sum and average NLL**
+
+The log-probabilities are
+$$
+\log(0.40), \log(0.25), \log(0.50), \log(0.20), \log(0.15), \log(0.50), \log(0.30), \log(0.0001),
+$$
+which numerically are approximately
+$$
+-0.9163, -1.3863, -0.6931, -1.6094, -1.8971, -0.6931, -1.2040, -9.2103.
+$$
+The sum is $\log p_\theta(w_{1:8}) \approx -17.6098$, and
+$$
+\bar{\ell}(w_{1:8}; \theta) = -\frac{-17.6098}{8} \approx 2.2012.
+$$
+
+**Part 2: Perplexity**
+
+Perplexity is
+$$
+\text{PPL} = \exp(2.2012) \approx 9.036.
+$$
+Direct verification: $\text{PPL} = (0.40 \cdot 0.25 \cdot 0.50 \cdot 0.20 \cdot 0.15 \cdot 0.50 \cdot 0.30 \cdot 0.0001)^{-1/8}$, which evaluates to the same value.
+
+**Part 3: Contribution of the rare token**
+
+The last token contributes $-\log(0.0001) \approx 9.2103$ to the sum, i.e., $9.2103 / 8 \approx 1.151$ to $\bar{\ell}$. If instead the last-token probability had been $10^{-2}$, the contribution would have been $\log(100)/8 \approx 0.576$. The difference in $\bar{\ell}$ is about $0.576$, translating into a change in $\text{PPL}$ from about $9.04$ to about $\exp(2.2012 - 0.576) \approx 5.08$.
+
+The diagnostic point is that a single rare token shifts perplexity by nearly a factor of two. Perplexity is a geometric mean of reciprocal probabilities, so very small assigned probabilities can have large influence. On crisis-period text, tokens or conditional patterns that were rare in training may receive especially small probabilities. Perplexity remains a valid average log-loss summary for that crisis corpus, but it estimates performance under the crisis-language distribution, not under the pre-crisis distribution. A comparison across regimes therefore measures both model performance and a change in the test distribution. Report the regimes separately and supplement the average with token-level loss diagnostics, such as upper quantiles of $-\log p_\theta(w_t\mid w_{1:t-1})$.
+:::
+
+:::{.callout-note}
+## Exercise 16.2: Measurement error in a text-derived signal
+
+Consider an econometric model with latent regressor
+$$
+y_{t+1} = \alpha + \gamma\, s_t + \varepsilon_{t+1},
+$$
+and a foundation-model-derived measurement
+$$
+z_t = s_t + u_t.
+$$
+Assume $s_t, u_t, \varepsilon_{t+1}$ are mean-zero and mutually uncorrelated, with $\mathrm{Var}(s_t) = \sigma_s^2$, $\mathrm{Var}(u_t) = \sigma_u^2$, and $\mathrm{Var}(\varepsilon_{t+1}) = \sigma_\varepsilon^2$. Assume also that sample second moments converge to their population counterparts. The econometrician estimates
+$$
+y_{t+1} = \alpha + \delta\, z_t + \eta_{t+1}
+$$
+by ordinary least squares.
+
+**Part 1.** Derive
+$$
+\mathrm{plim}\,\hat{\delta}_{\text{OLS}} = \gamma \cdot \frac{\sigma_s^2}{\sigma_s^2 + \sigma_u^2}.
+$$
+Show all steps starting from the OLS normal equations.
+
+**Part 2.** Now replace only the assumption $\mathrm{Cov}(s_t, u_t) = 0$ by $\mathrm{Cov}(s_t, u_t) = \rho \sigma_s \sigma_u$ with $\rho \in (-1, 1)$; retain $\mathrm{Cov}(\varepsilon_{t+1},s_t)=\mathrm{Cov}(\varepsilon_{t+1},u_t)=0$. Re-derive $\mathrm{plim}\,\hat\delta$ and determine, given $\gamma > 0$, the sign of the difference relative to Part 1 as a function of $\rho$. Interpret $\rho>0$ as positive linear association between the latent stance and its measurement error.
+
+**Part 3.** Using standard errors valid for the dependence in the sample, a researcher reports a highly significant positive $\hat\delta$ in Part 1's setting and concludes that "the measured hawkishness score predicts higher future bond yields." Another researcher argues that because $\hat\delta$ is attenuated, the conclusion is unwarranted. Evaluate the two positions. Distinguish (i) estimating $\gamma$, (ii) testing whether $z_t$ has population predictive content for $y_{t+1}$, and (iii) demonstrating useful out-of-sample forecast gains. State which claims the regression can and cannot support.
+
+*Exam-level. Part 1 is a standard derivation; Part 2 requires care with covariance; Part 3 is the econometric-diagnostic part.*
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint for Part 1
+Under mutual uncorrelatedness, $\mathrm{plim}\,\hat\delta_{\text{OLS}} = \mathrm{Cov}(y_{t+1}, z_t) / \mathrm{Var}(z_t)$. Compute each object by substituting the model equations and using the zero-covariance assumptions.
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint for Part 3
+Predictive association concerns the joint distribution of $(y_{t+1},z_t)$; $\gamma$ concerns the latent regressor $s_t$; forecast usefulness concerns loss on future origins. A valid nonzero estimate of $\delta$ informs the first, the measurement-error model is needed to connect it to the second, and a pseudo-out-of-sample comparison is needed for the third.
+:::
+
+:::{.callout-tip collapse="true"}
+## Solution
+
+**Part 1: Attenuation under classical measurement error**
+
+With an intercept, the slope normal equation can be written in demeaned form as
+$$
+0=\frac{1}{T}\sum_{t=1}^T (z_t-\bar z)
+\{(y_{t+1}-\bar y)-\hat\delta(z_t-\bar z)\},
+$$
+so
+$$
+\hat\delta=
+\frac{T^{-1}\sum_t(z_t-\bar z)(y_{t+1}-\bar y)}
+{T^{-1}\sum_t(z_t-\bar z)^2}
+\xrightarrow{p}
+\frac{\mathrm{Cov}(y_{t+1},z_t)}{\mathrm{Var}(z_t)}.
+$$
+Compute the population covariance:
+$$
+\mathrm{Cov}(y_{t+1}, z_t) = \mathrm{Cov}(\alpha + \gamma s_t + \varepsilon_{t+1},\, s_t + u_t) = \gamma\, \mathrm{Var}(s_t) = \gamma \sigma_s^2,
+$$
+using $\mathrm{Cov}(s_t, u_t) = 0$ and $\mathrm{Cov}(\varepsilon_{t+1}, z_t) = 0$. The variance is
+$$
+\mathrm{Var}(z_t) = \mathrm{Var}(s_t) + \mathrm{Var}(u_t) = \sigma_s^2 + \sigma_u^2.
+$$
+Hence
+$$
+\mathrm{plim}\,\hat{\delta}_{\text{OLS}} = \frac{\gamma \sigma_s^2}{\sigma_s^2 + \sigma_u^2} = \gamma \lambda,
+$$
+with reliability ratio $\lambda \in (0, 1]$.
+
+**Part 2: Non-classical measurement error**
+
+Now
+$$
+\mathrm{Cov}(y_{t+1}, z_t) = \gamma\, \mathrm{Cov}(s_t, s_t + u_t) = \gamma(\sigma_s^2 + \rho \sigma_s \sigma_u),
+$$
+and
+$$
+\mathrm{Var}(z_t) = \sigma_s^2 + 2\rho \sigma_s \sigma_u + \sigma_u^2.
+$$
+Therefore
+$$
+\mathrm{plim}\,\hat\delta = \gamma \cdot \frac{\sigma_s^2 + \rho \sigma_s \sigma_u}{\sigma_s^2 + 2\rho \sigma_s \sigma_u + \sigma_u^2}.
+$$
+Comparing to Part 1's $\gamma \lambda$, the difference is
+$$
+\frac{\sigma_s^2 + \rho \sigma_s \sigma_u}{\sigma_s^2 + 2\rho \sigma_s \sigma_u + \sigma_u^2} - \frac{\sigma_s^2}{\sigma_s^2 + \sigma_u^2}.
+$$
+Putting the two fractions over a common denominator gives
+$$
+\mathrm{plim}\,\hat\delta - \gamma\lambda
+=
+\gamma\,
+\frac{\rho \sigma_s \sigma_u(\sigma_u^2-\sigma_s^2)}
+{(\sigma_s^2 + 2\rho \sigma_s \sigma_u + \sigma_u^2)(\sigma_s^2+\sigma_u^2)}.
+$$
+The denominator is positive because it is the product of two variances. For $\gamma > 0$, the sign of the difference relative to Part 1 is therefore the sign of $\rho(\sigma_u^2-\sigma_s^2)$. If $\rho > 0$, the slope is smaller than the classical-measurement-error slope when $\sigma_s^2 > \sigma_u^2$, larger when $\sigma_u^2 > \sigma_s^2$, and unchanged when the two variances are equal. If $\rho < 0$, the signs reverse.
+
+Interpretation: positive $\rho$ is not a statement about confidence or smaller absolute error. It records positive linear association between the latent stance and the error; covariance alone does not imply a monotone conditional-mean relationship. The net effect on attenuation depends on which grows faster — the covariance of $y_{t+1}$ with $z_t$ (the numerator, proportional to $\sigma_s^2 + \rho\sigma_s\sigma_u$) or the variance of $z_t$ (the denominator, proportional to $\sigma_s^2 + 2\rho\sigma_s\sigma_u + \sigma_u^2$): when $\sigma_s > \sigma_u$, the denominator grows faster and the slope is more attenuated than under classical measurement error; when $\sigma_u > \sigma_s$, the numerator grows faster and the slope is less attenuated.
+
+**Part 3: Estimation versus forecasting objectives**
+
+The two researchers are pursuing different objectives. The first is making a population *predictive-association* statement: $z_t$ carries information about $y_{t+1}$. Under Part 1's assumptions, a nonzero population slope implies that $\mathbb{E}[y_{t+1}\mid z_t]$ is not constant, and valid rejection of $\delta=0$ is evidence for that statement. Attenuation does not undermine the sign or the existence of this linear predictive association; it says that $\delta\neq\gamma$ in magnitude.
+
+The second is making an *inference* statement about the latent concept: the coefficient of $y_{t+1}$ on $s_t$ is $\gamma$, and $\hat\delta$ does not estimate it consistently. This is correct. Without a reliability correction, an instrument, or a validation sample in which $s_t$ is observed, $\hat\delta$ cannot be translated into an estimate of $\gamma$. The second researcher is right to reject a structural or causal interpretation, but attenuation alone does not erase predictive association in the observed score.
+
+The regression can therefore support a population association between $z_t$ and $y_{t+1}$ under its maintained assumptions, but not the magnitude of $\gamma$ and not a causal effect of hawkishness. Nor does an in-sample significance result by itself establish useful forecast gains: that third claim requires a pseudo-out-of-sample comparison under a predeclared loss. Foundation-model-derived signals can be predictors without being identification strategies.
+:::
+
+:::{.callout-note}
+## Exercise 16.3: Real-time information sets and the retriever
+
+Fix the forecast origin $t = $ end of 2019-Q4 (i.e., 2019-12-31). Treat the following timestamps and training cutoffs as given for this hypothetical archive:
+
+- $d_1$: European Central Bank (ECB) monetary-policy statement, first published 2019-10-24.
+- $d_2$: officially revised transcript of the question-and-answer session following $d_1$, re-published 2020-01-15.
+- $d_3$: news summary of $d_1$, published 2020-02-03, discussing the ensuing market reaction.
+- $d_4$: academic working paper released 2019-11-30 that cites $d_1$.
+- $E_\psi$: a sentence-embedding model trained on a general web corpus crawled through 2021-06.
+- $p_\theta$: a foundation model whose training cutoff is 2021-09.
+
+The forecaster constructs $z_t = g(D_t)$ by (i) retrieving from a document archive the top-$k$ documents most similar to a query "ECB policy stance" under $E_\psi$, (ii) prompting $p_\theta$ with those documents to produce a hawkish/dovish score.
+
+**Part 1.** Determine, for each of $d_1, d_2, d_3, d_4$, whether the physical document is $\mathcal{I}_t$-measurable. State the timestamp that justifies each decision.
+
+**Part 2.** Under strict historical real-time admissibility, the archive, query, similarity rule, and retriever parameters must all be $\mathcal{I}_t$-measurable. Is the retrieval step admissible as specified? Assess the training corpus, query, and similarity rule separately; not every component must fail merely because the overall retriever fails.
+
+**Part 3.** Is the foundation model $p_\theta$ admissible for a strict historical real-time evaluation? Construct a pseudo-out-of-sample protocol that restores validity. Be explicit about (i) which objects must be re-estimated or updated at each forecast origin, (ii) which objects may be frozen across origins, and (iii) how you would document the resulting protocol so that another researcher could verify admissibility. Then state how the interpretation would change if the same post-2021 model were deliberately used in a retrospective fixed-model evaluation.
+
+*Exam-level. Parts 1 and 2 are mostly mechanical once the admissibility condition is taken seriously; Part 3 requires a structured answer.*
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint for Part 2
+Think of the retriever as a function whose behavior depends on its parameters $\psi$. The admissibility condition must apply to the function, not only to its outputs. If $\psi$ depends on post-$t$ information, two different forecast origins using the same $\psi$ are both running a retriever that was not available in real time.
+:::
+
+:::{.callout-tip collapse="true"}
+## Solution
+
+**Part 1: Measurability of each document**
+
+- $d_1$: published 2019-10-24, before $t = $ 2019-12-31. **Admissible** in its 2019-10-24 form.
+- $d_2$: revision re-published 2020-01-15, after $t$. **Not admissible** in its revised form, even though it concerns an event that occurred before $t$. If the original (pre-revision) transcript was published before $t$, that original is admissible; the revision is not.
+- $d_3$: published 2020-02-03, after $t$. **Not admissible.** It also contains information about market reactions that occurred after $t$, which is a second, independent violation.
+- $d_4$: published 2019-11-30, before $t$. The physical working paper is **admissible**. The fact that it cites $d_1$ is fine; citations to earlier documents do not violate the admissibility condition.
+
+**Part 2: Admissibility of the retriever**
+
+The retriever as specified is **not admissible**. For each forecast origin $t$, the archive $\mathcal A_t$, query $q_t$, retriever parameters $\psi_t$, and deterministic selection rule must together define an $\mathcal I_t$-measurable output $D_t$.
+
+The components differ. (i) $E_\psi$ was trained on a web corpus crawled through 2021-06, so its parameters depend on post-$t$ text and fail strict admissibility. (ii) The literal query string "ECB policy stance" is admissible if fixed by $t$, but its vector representation inherits the inadmissibility of $\psi$. (iii) Cosine similarity as a mathematical rule is harmless; cosine similarity computed in the post-$t$ embedding space is not. Thus the failure lies in the learned representation, not in the words of the query or the cosine formula by themselves.
+
+To restore admissibility: replace $E_\psi$ with a retriever $E_{\psi_t}$ trained on a corpus restricted to pre-$t$ text, or use a retriever whose parameters are themselves $\mathcal{I}_t$-measurable, such as term frequency--inverse document frequency (TF-IDF) computed on the pre-$t$ archive.
+
+**Part 3: Admissibility of the model and a valid protocol**
+
+The foundation model $p_\theta$ is **not admissible** for a strict 2019-Q4 historical evaluation because its training cutoff is 2021-09; in addition, a genuine implementability claim would require the model version to have been released by the forecast origin. Information about events after $t$ may be encoded in $\theta$.
+
+A valid protocol:
+
+*(i)* Objects updated or re-estimated at each forecast origin $t$:
+
+- the eligible archive $\mathcal A_t$ and its search index, so that only document versions released by $t$ can be selected;
+- the predictive-regression parameters $\hat\beta_t$ in @eq-fm-workhorse;
+- any labeling thresholds that the stated procedure re-estimates from data available by $t$.
+
+*(ii)* Objects held fixed across origins (once chosen):
+
+- the retriever parameters $\psi$, prompt template, foundation-model version, and model parameters, provided all were fixed and available before the earliest origin in the strict historical evaluation; alternatively, a retriever may be re-estimated at each origin using only $\mathcal I_t$;
+- the preprocessing pipeline (tokenizer, normalization), provided it is part of that admissible frozen version.
+
+*(iii)* Documentation requirements:
+
+- publication timestamps for every document in the archive, together with revision flags;
+- the training cutoff and public release date of the exact model version, both before the earliest forecast origin;
+- the retriever version and training-corpus cutoff, plus the eligible archive and index construction used at each origin;
+- the exact prompt template.
+
+If the evaluation window extends back further than the earliest defensible model release, a strict historical evaluation with that model is impossible; restrict the window or change the claim. The later model may still be frozen and applied to historically available documents in a retrospective measurement exercise, but the result then asks whether today's fixed tool extracts signal from old text—not what a forecaster could have produced at the time. That distinction and the possible pre-training contamination must be stated explicitly.
+:::
+
+:::{.callout-note}
+## Exercise 16.4: Persona mismatch and conditional bias in synthetic agents
+
+There are two persona groups, $A$ and $B$. Let
+$$
+F_A(A)=p, \qquad F_A(B)=1-p,
+$$
+with $p \in (0,1)$, denote the real survey population. Let
+$$
+H(A)=h, \qquad H(B)=1-h,
+$$
+with $h \in (0,1)$, denote the synthetic persona distribution. The real conditional means of a one-year-ahead inflation-expectations answer are
+$$
+\mu_F(A)=m_A, \qquad \mu_F(B)=m_B,
+$$
+while the model-implied conditional means are
+$$
+\mu_q(A)=m_A+b_A, \qquad \mu_q(B)=m_B+b_B,
+$$
+where $b_A$ and $b_B$ are group-specific conditional biases.
+
+**Part 1.** Starting from $\mathbb{E}_{H,q_\theta}[\tilde R]-\mathbb{E}_F[R]$, derive a two-group version of @eq-fm-biasdecomp. Your final expression should separate the bias due to $h \ne p$ from the bias due to $(b_A,b_B) \ne (0,0)$.
+
+**Part 2.** Show that reweighting the synthetic personas so that $H=F_A$ eliminates the persona-mismatch term but leaves the conditional-bias term
+$$
+p b_A + (1-p)b_B.
+$$
+Then characterize all pairs $(b_A,b_B)$ for which the aggregate synthetic mean is exactly correct even though at least one group-specific conditional mean is wrong.
+
+**Part 3.** Now set
+$$
+p=0.7,\quad h=0.4,\quad m_A=3,\quad m_B=6,\quad b_A=1,\quad b_B=-1.
+$$
+Compute the real population mean, the synthetic population mean, the total bias, and the two terms in the decomposition from Part 1. Verify that the decomposition adds up exactly.
+
+**Part 4.** Suppose the econometrician has access only to the aggregate real survey mean and tunes the prompt until, with $H=F_A$, the model-implied conditional means become
+$$
+\mu_q(A)=3.3, \qquad \mu_q(B)=5.3.
+$$
+Using $p=0.7$, $m_A=3$, and $m_B=6$, show that the aggregate synthetic mean exactly matches the real aggregate mean even though both group-specific conditional means are wrong. Explain the identification problem: what can and cannot be learned about $(b_A,b_B)$ from a single aggregate moment?
+
+*Exam-level. Parts 1 and 2 require a formal decomposition and characterization; Parts 3 and 4 apply the result to diagnose what aggregate validation of synthetic agents can and cannot establish.*
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint for Part 1
+Write
+$$
+\mathbb{E}_{H,q_\theta}[\tilde R]
+=h(m_A+b_A)+(1-h)(m_B+b_B)
+$$
+and
+$$
+\mathbb{E}_F[R]=p m_A+(1-p)m_B.
+$$
+Add and subtract $p(m_A+b_A)+(1-p)(m_B+b_B)$.
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint for Part 2
+With $H=F_A$, aggregate matching requires
+$$
+p b_A + (1-p)b_B=0.
+$$
+Solve this equation for $b_B$ as a function of $b_A$.
+:::
+
+:::{.callout-tip collapse="true"}
+## Solution
+
+**Part 1: Two-group bias decomposition**
+
+The total bias is
+$$
+\begin{aligned}
+B
+&:= \mathbb{E}_{H,q_\theta}[\tilde R]-\mathbb{E}_F[R] \\
+&= h(m_A+b_A)+(1-h)(m_B+b_B)-\{p m_A+(1-p)m_B\}.
+\end{aligned}
+$$
+Add and subtract $p(m_A+b_A)+(1-p)(m_B+b_B)$:
+$$
+\begin{aligned}
+B
+&= \{h(m_A+b_A)+(1-h)(m_B+b_B) \\
+&\quad - p(m_A+b_A)-(1-p)(m_B+b_B)\} \\
+&\quad + \{p(m_A+b_A)+(1-p)(m_B+b_B)-p m_A-(1-p)m_B\} \\
+&= (h-p)(m_A+b_A)+\{(1-h)-(1-p)\}(m_B+b_B) \\
+&\quad + p b_A+(1-p)b_B \\
+&= (h-p)\{(m_A+b_A)-(m_B+b_B)\}
+   + p b_A+(1-p)b_B.
+\end{aligned}
+$$
+The first term is the persona-mismatch bias: it is zero when $h=p$. The second term is the conditional bias averaged over the real persona distribution.
+
+**Part 2: Reweighting removes the persona-mismatch term**
+
+If $H=F_A$, then $h=p$ and the first term in Part 1 vanishes. The remaining bias is
+$$
+p b_A+(1-p)b_B.
+$$
+The aggregate mean is exactly correct if and only if
+$$
+p b_A+(1-p)b_B=0.
+$$
+Solving for $b_B$ gives
+$$
+b_B=-\frac{p}{1-p}b_A.
+$$
+Thus aggregate correctness does not imply $b_A=b_B=0$. It only restricts the conditional-bias vector to a one-dimensional line. For any nonzero $b_A$, choosing $b_B=-p b_A/(1-p)$ produces a correct aggregate mean with two incorrect group-specific means.
+
+**Part 3: Numerical evaluation**
+
+The real population mean is
+$$
+\mathbb{E}_F[R]=0.7\cdot 3+0.3\cdot 6=3.9.
+$$
+The model-implied conditional means are $\mu_q(A)=4$ and $\mu_q(B)=5$. The synthetic population mean is
+$$
+\mathbb{E}_{H,q_\theta}[\tilde R]=0.4\cdot 4+0.6\cdot 5=4.6.
+$$
+The total bias is $4.6-3.9=0.7$. The persona-mismatch component is
+$$
+(h-p)\{(m_A+b_A)-(m_B+b_B)\}
+=(0.4-0.7)(4-5)=0.3.
+$$
+The conditional-bias component is
+$$
+p b_A+(1-p)b_B=0.7(1)+0.3(-1)=0.4.
+$$
+The two components sum to $0.3+0.4=0.7$, which equals the total bias.
+
+**Part 4: Aggregate matching with offsetting conditional biases**
+
+The real aggregate mean remains
+$$
+\mathbb{E}_F[R]=0.7\cdot 3+0.3\cdot 6=3.9.
+$$
+With $H=F_A$ and the tuned prompt,
+$$
+\mathbb{E}_{F_A,q_\theta}[\tilde R]
+=0.7\cdot 3.3+0.3\cdot 5.3
+=2.31+1.59
+=3.9.
+$$
+The aggregate mean matches exactly. But the conditional biases are
+$$
+b_A=3.3-3=0.3, \qquad b_B=5.3-6=-0.7,
+$$
+which are both nonzero and satisfy $0.7(0.3)+0.3(-0.7)=0$.
+
+The identification problem is that one aggregate moment provides only one equation in the two unknown conditional biases $(b_A,b_B)$. It can establish the weighted restriction $p b_A+(1-p)b_B=0$, but it cannot establish $b_A=0$ and $b_B=0$ separately. Therefore, validating synthetic agents by matching a single aggregate survey mean is insufficient: the procedure may still misrepresent subgroup means, heterogeneity, variances, and tail probabilities.
+:::
+
+## References
+
+::: {#refs}
+:::

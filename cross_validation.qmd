@@ -1,0 +1,1099 @@
+---
+number-sections: true
+number-offset: [1, 0]
+---
+
+# Cross Validation
+
+## Overview
+
+When building a machine learning model, we face several decisions that affect performance: which algorithm to use, and what values to choose for the tuning constants that govern a model's flexibility — for instance, the degree of a polynomial regression or the weight on a penalty term added to the loss. Here it is worth fixing terminology: ordinary **parameters** (such as regression coefficients $\beta$) are estimated by minimizing in-sample loss, whereas **hyperparameters** (such as the polynomial degree $d$ of this chapter's running example, the weight on a penalty term, or the number of knots in a spline) are set before or around fitting and are chosen by out-of-sample criteria. (The number of folds $K$ introduced below is *not* a hyperparameter in this sense: it parameterizes the validation design that produces the selection criterion, rather than being chosen by it.) The shared challenge is that we cannot evaluate these choices on the same data used for fitting — doing so produces optimistic estimates that do not generalize to new observations.
+
+This chapter introduces **cross-validation** as the principled answer to that challenge. Cross-validation simulates the experience of predicting on unseen data by systematically holding out portions of the training set. The idea dates to @Stone1974 and @Geisser1975, who proposed leave-one-out and predictive-sample-reuse procedures for model assessment well before "machine learning" was a separate field. For econometricians, the issues are familiar: overfitting, specification search, and the bias introduced by repeated use of the same data arise in classical model selection just as in machine learning. The econometric analogue of the problem is pretest and specification-search bias; the machine-learning community's answer to it is **nested cross-validation** — carrying out model selection on one layer of held-out data while keeping a separate outer layer untouched for the final performance assessment [@VarmaSimon2006; @CawleyTalbot2010] — an idea we develop at the end of this chapter.
+
+## Roadmap
+
+1. We illustrate **overfitting** with a polynomial regression example to motivate why the training mean squared error (MSE) is not a reliable guide to predictive performance.
+2. We introduce the **honest workflow** — separating training, validation, and test sets — and explain when each set should be touched.
+3. We define **K-fold cross-validation**, discuss common choices of $K$, and explain why letting information from held-out observations slip into the training step makes the estimated predictive performance look better than it is.
+4. We extend to **time-series cross-validation** — designs in which the training sample either grows over time or moves forward at a fixed length — and explain why standard K-fold is often invalid for dependent data, and when it can survive.
+5. We close with a **practical example** of hyperparameter tuning, in which cross-validation selects among candidate model configurations, and explain why an honest performance estimate for the selected configuration requires a second, outer layer of validation around the selection step (**nested cross-validation**).
+
+## A Simple Illustration of Overfitting
+
+Our running example throughout this chapter is polynomial regression, and the choice is deliberate. Fitting a polynomial of degree $d$ in a single predictor is just ordinary least squares (OLS) on the regressors $x, x^2, \dots, x^d$ — no new estimation machinery is involved, and everything you know about least squares carries over unchanged. Yet the degree $d$ is a genuine hyperparameter: a single dial that moves the model from rigid to extremely flexible. Every issue this chapter treats — overfitting, honest data splits, cross-validated model selection — already arises in full force in this familiar setting; the richer model classes of later chapters, such as [neural networks](feed_forward_nns.qmd) and [tree-based methods](decision_trees.qmd), add more dials but no new logic.
+
+Consider a regression model whose errors are independent and identically distributed (i.i.d.) Gaussian given the regressors:
+
+$$
+y_i = f(x_i) + \varepsilon_i, \qquad \varepsilon_i \mid x_i \stackrel{\text{iid}}{\sim} \mathcal{N}(0,\sigma^2),
+$$
+
+so that $f(x) = \mathbb{E}[Y \mid X = x]$ is the conditional mean function. Suppose we approximate $f$ by a polynomial of degree $d$,
+
+$$
+\mu_d(x) = \beta_0 + \beta_1 x + \cdots + \beta_d x^d,
+$$
+
+and write $\hat{\mu}_d$ for the fit obtained by least squares on the training sample. This is the fitted model denoted generically by $\hat{f}$ below.
+
+In the illustration below we simulate $n = 25$ training observations and, separately, $200$ test observations drawn independently from the same process. The test sample is therefore not a split of the training data; it plays the role of the "fresh draw" in the definition of generalization risk given next. Think of $x$ as a single standardized predictor and $y$ as an economic outcome whose conditional mean varies smoothly but nonlinearly in $x$ — the kind of shape that arises, for example, in Engel curves or in the response of output growth to financial conditions.
+
+Recall from the [previous chapter](information_theory.qmd) that maximizing the likelihood is the same as minimizing the sample average negative log-likelihood. Under Gaussian errors with fixed variance, the negative log-likelihood is, up to an additive constant, proportional to the sum of squared errors, so maximum likelihood amounts to minimizing the training sum of squared errors — equivalently the training mean squared error, which differs only by the factor $1/n$. This makes the overfitting problem transparent: if the degree $d$ is too large, the model can improve **in-sample fit** by chasing noise in the training data.
+
+**Loss, empirical risk, and generalization risk.** To make the two error curves in @fig-overfitting-example precise, fix a **loss function** $L(y,\hat{y})$ that measures the cost of predicting $\hat{y}$ when the outcome is $y$; our running example is **squared loss** $L(y,\hat{y})=(y-\hat{y})^2$. For a fitted model $\hat{f}$ and a sample $(x_i,y_i)_{i=1}^n$, the **empirical risk** is the average loss on that sample,
+$$
+\frac{1}{n}\sum_{i=1}^{n}L\big(y_i,\hat{f}(x_i)\big),
+$$
+which under squared loss is the **MSE** on that sample. Evaluating this average on the training data gives the **training MSE**; evaluating the same fitted model on the held-out sample gives the **test MSE**. These are the two quantities plotted against polynomial degree in the right panel below.
+
+The **generalization (prediction) risk** is the expected loss on a fresh draw $(X,Y)$ from the same distribution, independent of the data used to fit $\hat{f}$,
+$$
+R(\hat{f})=\mathbb{E}_{(X,Y)}\big[L\big(Y,\hat{f}(X)\big)\,\big|\,\hat{f}\big].
+$$
+The conditioning bar is not decoration: $\hat{f}$ is held fixed and the expectation runs only over the new observation $(X,Y)$. The training MSE is optimistic for $R(\hat{f})$ because $\hat{f}$ was chosen to make it small; the test MSE, computed on data not used for fitting, is an honest estimate of $R(\hat{f})$. Cross-validation is designed to estimate this kind of out-of-sample risk without sacrificing a one-time held-out evaluation sample. However, as we describe below, its estimand is not exactly $R(\hat{f})$ for the final fitted model.
+
+```{python}
+#| label: fig-overfitting-example
+#| fig-cap: "Overfitting in polynomial regression. Left panel: the $n=25$ training observations (black dots), the true conditional mean (dashed gray), and two least-squares fits — degree 1 (blue) and degree 12 (red). Right panel: training MSE (blue) and test MSE (red) as functions of the polynomial degree, with the dashed vertical line marking degree 12."
+#| echo: true
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+# Set random seed for reproducibility
+np.random.seed(42)
+
+# Generate data from a nonlinear signal plus Gaussian noise
+n_train = 25
+n_test = 200
+x_train = np.sort(np.random.uniform(-1, 1, n_train))
+x_test = np.sort(np.random.uniform(-1, 1, n_test))
+
+def f(x):
+    return np.sin(np.pi * x)
+
+y_train = f(x_train) + np.random.normal(0, 0.25, n_train)
+y_test = f(x_test) + np.random.normal(0, 0.25, n_test)
+x_grid = np.linspace(-1, 1, 400)
+y_true = f(x_grid)
+
+degrees = range(1, 16)
+train_mse = []
+test_mse = []
+
+for d in degrees:
+    coefs = np.polyfit(x_train, y_train, d)
+    yhat_train = np.polyval(coefs, x_train)
+    yhat_test = np.polyval(coefs, x_test)
+    train_mse.append(np.mean((y_train - yhat_train) ** 2))
+    test_mse.append(np.mean((y_test - yhat_test) ** 2))
+
+# Two representative fits
+coefs_low = np.polyfit(x_train, y_train, 1)
+coefs_high = np.polyfit(x_train, y_train, 12)
+yhat_low = np.polyval(coefs_low, x_grid)
+yhat_high = np.polyval(coefs_high, x_grid)
+
+fig, axes = plt.subplots(1, 2, figsize=(12, 4.8))
+
+# Left panel: fitted curves
+axes[0].scatter(x_train, y_train, color='black', s=35, alpha=0.8, label='Training data')
+axes[0].plot(x_grid, y_true, color='gray', linestyle='--', linewidth=2, label='True mean')
+axes[0].plot(x_grid, yhat_low, color='C0', linewidth=2, label='Degree 1 fit')
+axes[0].plot(x_grid, yhat_high, color='C3', linewidth=2, label='Degree 12 fit')
+axes[0].set_title('Fits on the Training Sample')
+axes[0].set_xlabel('x')
+axes[0].set_ylabel('y')
+axes[0].legend(frameon=False)
+axes[0].grid(True, alpha=0.3)
+
+# Right panel: training vs test MSE
+axes[1].plot(list(degrees), train_mse, 'o-', color='C0', label='Training MSE')
+axes[1].plot(list(degrees), test_mse, 'o-', color='C3', label='Test MSE')
+axes[1].axvline(12, color='gray', linestyle='--', alpha=0.7)
+axes[1].set_title('Error vs Model Complexity')
+axes[1].set_xlabel('Polynomial degree')
+axes[1].set_ylabel('Mean squared error')
+axes[1].legend(frameon=False)
+axes[1].grid(True, alpha=0.3)
+
+plt.tight_layout()
+plt.show()
+```
+
+The left panel shows the fitted mean functions. The high-degree polynomial is flexible enough to follow noise in the training sample, while the linear model is too rigid. The right panel shows the classic overfitting pattern: as model complexity rises, the training MSE falls monotonically, but the test MSE eventually rises again. Cross-validation is designed to detect exactly this problem before we commit to a model.
+
+## The Problem with Simple Train-Test Splits
+
+A simple approach is to split our data into a **training set** and a **test set**:
+
+- Train different models/configurations on the training set
+- Evaluate their performance on the test set
+- Choose the best-performing option
+
+If this test set is used exactly once at the very end, it is a legitimate final evaluation device. The problem starts when we also use it to choose the model.
+
+Specifically, relying on a single split has three major drawbacks:
+
+1. **High variance**: the estimated performance varies with the random assignment of observations to the two sets, so a single split gives a noisy ranking
+2. **Test set contamination**: If we use the test set to make multiple decisions (choose hyperparameters, select the model specification), we're effectively "training" on the test set, leading to overly optimistic performance estimates
+3. **Limited data usage**: We're not using all available data for training
+
+Cross-validation provides a more robust method for both performance estimation and model selection: by averaging over several different splits it reduces the dependence of the estimate on any one arbitrary split, and it lets every observation serve in validation exactly once.
+
+:::{.callout-important}
+## Honest Workflow: Validation vs Test Set {#sec-cv-honest-workflow}
+
+The clean workflow is:
+
+1. Use the **training data** to fit candidate models.
+2. Compare those candidates and tune hyperparameters on a **validation set**: data held out from fitting, used only to choose among models, and re-usable across many such comparisons.
+3. Keep the **test set** untouched until the very end for one final evaluation.
+
+Cross-validation is primarily a replacement for a single validation split, not for the final test set.
+:::
+
+## Cross-Validation for Model Selection
+
+Cross-validation serves two main purposes:
+
+:::{.callout-important}
+**Two Uses of Cross-Validation**
+
+1. **Performance Estimation**: Estimate how well a model will perform on unseen data.
+2. **Model Selection**: Choose between different hyperparameters, model specifications, or algorithms based on their cross-validated performance.
+:::
+
+Typical choices made this way include the polynomial degree of this chapter's running example, the weight on a regularization penalty, and — once we reach richer model classes — the many structural and estimation settings of [neural networks](feed_forward_nns.qmd) and [tree-based methods](decision_trees.qmd) in later chapters.
+
+## K-Fold Cross-Validation {#sec-cv-kfold}
+
+The most common type of cross-validation is **K-fold cross-validation**. In the form given here it is designed for settings in which the observations can be treated as exchangeable — in particular for independently sampled cross-sectional data without cluster or spatial dependence; @sec-cv-time-series develops the variants appropriate for time series. The procedure is as follows:
+
+1.  **Shuffle** the dataset randomly.
+2.  **Split** the dataset into $K$ equal-sized groups (or "folds").
+3.  For each fold:
+    a.  Use the fold as a **validation set**.
+    b.  Use the remaining $K-1$ folds as a **training set**.
+    c.  Train the model on the training set and evaluate it on the validation set.
+4.  **Average** the performance scores from the $K$ folds to obtain a single performance estimate.
+
+Formally, let $D_k$ be the index set of the observations in fold $k$, let $|D_k|$ be its size, and let $\hat{f}^{-k}$ denote the model **refit from scratch on all data except fold $k$** — that is, trained only on the $K-1$ remaining folds, including any data-dependent preprocessing re-estimated on those folds alone. The K-fold cross-validation (CV) estimate of the risk is
+$$
+\widehat{\mathrm{CV}}_K
+=\frac{1}{K}\sum_{k=1}^{K}\frac{1}{|D_k|}\sum_{i\in D_k}L\big(y_i,\hat{f}^{-k}(x_i)\big).
+$$
+When $K$ does not divide $n$, the folds differ in size; averaging the per-fold mean losses (rather than pooling all losses) is what the inner factor $1/|D_k|$ accounts for, and it is equivalent to averaging the per-observation losses fold by fold.
+
+**What does $\widehat{\mathrm{CV}}_K$ estimate?** Each fold model $\hat{f}^{-k}$ is trained on approximately $n(K-1)/K$ observations — exactly that many when $K$ divides $n$ — and the $K$ fold models all differ from the model $\hat{f}$ refit on the full sample. The average above therefore estimates the **expected risk of the fitting procedure at training-set size $n(K-1)/K$**. 
+This estimand is an expectation over the draw of the training data rather than the risk $R(\hat{f})$ of the one model we actually deploy. Because the fold models are trained on fewer observations, $\widehat{\mathrm{CV}}_K$ is typically mildly pessimistic for the full-sample model; this training-size effect is exactly the bias referred to in the callout below. @BatesHastieTibshirani2024 make the distinction precise and show that cross-validation is better viewed as estimating the expected risk of the procedure than the risk of the fitted model in hand.
+
+:::{.callout-note}
+## Common Choices for K
+A common choice for $K$ is 5 or 10; the extreme case $K=n$, in which each validation fold contains a single observation, is called **leave-one-out cross-validation**. A higher $K$ means each fold model is trained on close to the full sample, so the training-size bias described above is smaller at a higher computational cost. How the *variance* of $\widehat{\mathrm{CV}}_K$ moves with $K$ has no universal answer: it depends on the stability of the fitting algorithm and on the correlation between fold estimates, and either direction can occur [@ArlotCelisse2010].
+:::
+
+:::{.callout-note}
+## Leakage Inside Cross-Validation {#sec-cv-leakage}
+
+Cross-validation only works if each fold is treated like genuinely unseen data. The general principle is:
+
+> Inside each fold, every preprocessing or transformation rule used to build features or targets must be a function of the *training portion of that fold only*. Any rule whose computed value depends on the validation-fold observations contaminates the validation distribution.
+
+Concretely, the following steps must be re-estimated inside each training fold rather than once on the full sample:
+
+- scaling and standardization
+- imputation of missing values
+- feature selection or dimensionality reduction
+- target transformations chosen from the data
+
+If these steps are computed on the full dataset before cross-validation, the validation folds share information with the training step and the reported performance is optimistically biased. Exercise 2.1 below proves a special case of this principle for full-sample standardization: the validation observation enters its own scaling rule, which shrinks its standardized magnitude relative to honest leave-one-out scaling.
+:::
+
+:::{.callout-note title="Question for Reflection"}
+
+Suppose excess returns are winsorized before K-fold cross-validation. Analyst A clips returns at thresholds fixed *ex ante* at $-5\%$ and $+5\%$. Analyst B clips returns at the sample's 1st and 99th percentiles, computed once from the full dataset. Which procedure leaks validation information, and how should the data-dependent procedure be implemented instead?
+:::
+
+:::{.callout-tip collapse="true" title="Suggested Answer"}
+
+Analyst A does not create leakage, provided the $\pm5\%$ thresholds were genuinely fixed before looking at the sample. Analyst B does create leakage because every validation fold helps determine the full-sample percentiles. To make the second procedure honest, estimate the 1st and 99th percentiles using only the training portion of each fold, then apply those fitted thresholds unchanged to that fold's validation observations. The relevant distinction is not winsorization itself, but whether its thresholds were learned from held-out data.
+:::
+
+**Visualizing K-Fold Cross-Validation**
+
+The following figure illustrates the K-Fold process for $K=5$ in two equivalent ways. The top panel shows the common implementation in which observations are first shuffled and then assigned to folds. The bottom panel shows the classical schematic in which the sample is partitioned into $K$ contiguous, non-overlapping blocks. In each iteration, one fold is used for validation while the remaining $K-1$ folds are used for training.
+
+```{python}
+#| label: fig-kfold-cv
+#| fig-cap: "Illustration of 5-fold cross-validation over 100 observations. Each row is one CV iteration and each horizontal position one observation; red segments mark that iteration's validation fold and blue segments its training folds. Top panel: observations are shuffled before fold assignment. Bottom panel: the same logic as a contiguous partition into five exhaustive and non-overlapping folds."
+#| echo: true
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.patches import Rectangle
+
+def plot_cv_indices(splits, n_samples, ax, k, title, lw=10):
+    for i, (train, test) in enumerate(splits):
+        indices = np.zeros(n_samples)
+        indices[test] = 1
+        ax.scatter(
+            range(n_samples),
+            [i + 0.5] * n_samples,
+            c=indices,
+            marker="_",
+            lw=lw,
+            cmap=plt.cm.coolwarm,
+            vmin=-0.2,
+            vmax=1.2,
+        )
+
+    ax.set_yticks(np.arange(k) + 0.5)
+    ax.set_yticklabels([f"Split {i+1}" for i in range(k)])
+    ax.set_ylim(k, -0.2)
+    ax.set_xlim(0, n_samples)
+    ax.set_xlabel("Data Index")
+    ax.set_ylabel("CV Iteration")
+    ax.legend([Rectangle((0, 0), 1, 1, color=plt.cm.coolwarm(0.9)), Rectangle((0, 0), 1, 1, color=plt.cm.coolwarm(0.1))], ['Validation Set', 'Training Set'], loc=(1.02, 0.8))
+    ax.set_title(title)
+    return ax
+
+from sklearn.model_selection import KFold
+n_samples = 100
+k = 5
+kf = KFold(n_splits=k, shuffle=True, random_state=42)
+splits_random = list(kf.split(np.arange(n_samples)))
+splits_contiguous = list(KFold(n_splits=k, shuffle=False).split(np.arange(n_samples)))
+
+fig, axes = plt.subplots(2, 1, figsize=(8, 6), sharex=True)
+plot_cv_indices(splits_random, n_samples, axes[0], k, "Randomly Assigned Folds")
+plot_cv_indices(splits_contiguous, n_samples, axes[1], k, "Contiguous Fold Partition")
+fig.tight_layout(rect=[0, 0, 0.85, 1])
+plt.show()
+```
+
+Reading @fig-kfold-cv row by row makes the reuse logic concrete: every observation sits in exactly one validation fold and serves as training data in the remaining $K-1$ splits, so the whole sample contributes to both tasks while no observation is ever validated on by a model that saw it during training. The two panels differ only in how observations are assigned to folds; the training–validation pattern within each split is identical.
+
+:::{.callout-tip}
+## Additional Information: Stratified K-Fold for Classification
+When dealing with classification problems, especially with imbalanced classes, it's typically important to use **Stratified K-Fold**. This variant keeps the class proportions in each fold as close to those of the full dataset as the integer fold sizes allow.
+:::
+
+## Time Series Cross-Validation {#sec-cv-time-series}
+
+Before discussing time-series validation designs, we need one concept that recurs throughout the book.
+
+:::{.callout-note title="Definition: Forecast-Origin Information Set"}
+
+For a forecast made at time $t$, the **forecast-origin information set** $\mathcal{F}_t$ is the $\sigma$-algebra generated by all variables — outcomes, predictors, metadata — in the form in which they were actually available at real-world time $t$. For data subject to revision this means the vintage published by time $t$: a provisional release available at $t$ belongs to $\mathcal{F}_t$, while its later revised value does not. A validation design is **time-aware** if, at each forecast origin $t$, every predictor entering the forecast and every observation used for estimation is measurable with respect to $\mathcal{F}_t$. The validation *outcome* is the subsequently realized target. It is of course not $\mathcal{F}_t$-measurable, since it is precisely what the forecast is evaluated against. Leakage is the violation of this measurability condition: an object on the right-hand side of the forecasting regression depends on information that was not available at $t$. The same concept reappears in the chapters on [predictive-distribution evaluation](evaluating_distributions.qmd), [recurrent networks](recurrent_neural_networks.qmd), [hyperparameter optimization](hpo.qmd), [conformal prediction](conformal_prediction.qmd), and [foundation models](foundation_models.qmd).
+:::
+
+Standard K-fold cross-validation is generally not suitable for time series data: the argument that each held-out fold mimics genuinely unseen data relies on the observations being exchangeable — as they are under i.i.d. sampling — and temporal dependence breaks exchangeability. Randomly shuffling and splitting time-series data violates $\mathcal{F}_t$-measurability — the resulting training sample contains observations from after the forecast origin — and typically produces an overly optimistic performance estimate. (For purely autoregressive models with correctly specified dynamics, cross-validation on time series can remain asymptotically valid [@BergmeirHyndmanKoo2018], but the leakage mechanisms discussed below make time-aware designs the safe default.)
+
+Specialized cross-validation techniques are needed for time series data. More generally, the validation split should mirror the dependence structure of the prediction target; @RobertsEtAl2017CV give a useful taxonomy for temporal, spatial, hierarchical, and related dependence settings.
+
+:::{.callout-warning}
+## Econometric Warning
+
+In forecasting applications, leakage can arise even without explicit shuffling. Examples include:
+
+- predictors that are revised ex post
+- features published with delay
+- overlapping forecast targets
+- preprocessing performed using information from the full sample
+
+So “time-aware” cross-validation must reflect the actual information set available at the forecast origin.
+
+Serial dependence near fold boundaries is a related but distinct problem. Autocorrelation by itself is not leakage in the sense defined above — it puts no unavailable information into the forecast, and a validation block that lies strictly after the training window remains genuinely unseen even when it is dependent on the training history. What dependence changes is what the validation score measures: observations just after the training window are partly predictable from recently shared shocks, so a design that always validates immediately next to the training data estimates short-horizon performance, and the fold scores are correlated draws rather than independent ones — the validation design must match the intended deployment horizon. The estimate becomes genuinely *optimistic* in two situations: when training observations lie after the validation block, as under random or blocked K-fold on a time series, so that the model has effectively seen the validation period's future; and when *labels overlap* the boundary — if an outcome is constructed from a window of future periods, training observations whose label windows reach into the validation block use information from it. In financial applications one common response is **purged cross-validation** [@LopezDePrado2018], which removes training observations whose labels overlap with the validation period, sometimes combined with an **embargo** period that drops a short buffer after the validation block before training resumes. The exact buffer length is an econometric design choice: it should reflect the forecast horizon, label construction, and persistence in the data.
+:::
+
+**Expanding Window (Recursive Estimation)**
+
+In this approach, the training set grows with each split, and the validation set is always a block of data that comes after the training data.
+
+1.  Start with a small training set.
+2.  The next block of data is the validation set.
+3.  In the next iteration, the previous validation set is added to the training set, and the subsequent block becomes the new validation set.
+
+This retraining scheme mimics a real-world forecasting workflow in which the model is periodically re-estimated as new data become available.
+
+**Sliding Window (Rolling Estimation)**
+
+This method uses a fixed-size training set that "slides" through time.
+
+1.  Select a block of data for training.
+2.  The next block of data is the validation set.
+3.  In the next iteration, both the training and validation windows slide forward by a specified step.
+
+The sliding window is preferred when the data-generating process (DGP) exhibits slow non-stationarity or structural change, so that older observations are less informative about the current conditional distribution — provided the relevance gain outweighs the loss of estimation precision, since a shorter window always raises parameter-estimation variance.
+
+In the econometric forecast-evaluation literature, these are **pseudo-out-of-sample (pseudo-OOS)** schemes: an expanding training window uses **recursive estimation**, whereas a fixed-length sliding window uses **rolling estimation** [@West1996; @ClarkMcCracken2013]. In both schemes the forecast origin advances through time and the model is re-estimated using only the observations that the chosen window makes available at that origin.
+
+**Visualizing Time Series Cross-Validation**
+
+The figure below illustrates the expanding and sliding window approaches and then shows how purge and embargo buffers modify a forward split when labels overlap.
+
+```{python}
+#| label: fig-timeseries-cv
+#| fig-cap: "Time-series cross-validation designs. Each row is one split over 100 time-ordered observations. Red marks training data, orange the validation block, and blue observations unused in that split. Top: recursive pseudo-out-of-sample evaluation with an expanding training window. Middle: rolling pseudo-out-of-sample evaluation with a fixed-length training window of 30 observations. Bottom: a forward split with an illustrative five-observation purge (purple) before validation and five-observation embargo (gray) after validation; these buffers are unavailable for training in that split."
+#| echo: true
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.patches import Rectangle
+from sklearn.model_selection import TimeSeriesSplit
+
+def plot_cv_indices(splits, n_samples, ax, k, show_legend=True):
+    """Visualizes cross-validation splits with three colors."""
+    colors = ['red', 'orange', 'blue']  # training, validation, unused
+    
+    for i, (train, test) in enumerate(splits):
+        color_indices = np.full(n_samples, 2)  # Default to unused (blue)
+        color_indices[train] = 0  # Training = red
+        color_indices[test] = 1   # Validation = orange
+        
+        ax.scatter(range(n_samples), [i + 0.5] * n_samples,
+                   c=[colors[j] for j in color_indices], marker='_', lw=10)
+
+    ax.set_yticks(np.arange(k) + 0.5)
+    ax.set_yticklabels([f"Split {i+1}" for i in range(k)])
+    ax.set_ylim(k, -0.2)
+    ax.set_xlim(0, n_samples)
+    ax.set_xlabel("Data Index")
+    ax.set_ylabel("CV Iteration")
+    
+    if show_legend:
+        legend_elements = [
+            Rectangle((0, 0), 1, 1, color='red', label='Training Set'),
+            Rectangle((0, 0), 1, 1, color='orange', label='Validation Set'),
+            Rectangle((0, 0), 1, 1, color='blue', label='Unused')
+        ]
+        ax.legend(handles=legend_elements, loc=(1.02, 0.5), title="Data Role")
+    return ax
+
+n_samples = 100
+n_splits = 5
+
+fig, axs = plt.subplots(3, 1, figsize=(8, 8.5), sharex=True)
+
+# Expanding Window
+tscv_expand = TimeSeriesSplit(n_splits=n_splits, test_size=10)
+splits_expand = list(tscv_expand.split(np.arange(n_samples)))
+plot_cv_indices(splits_expand, n_samples, axs[0], n_splits, show_legend=False)
+axs[0].set_title("Recursive CV: Expanding Window")
+
+# Sliding Window
+def sliding_window_split(n_samples, n_splits=5, train_size=30, test_size=10, step=15):
+    splits = []
+    for i in range(n_splits):
+        train_start = i * step
+        train_end = train_start + train_size
+        test_end = train_end + test_size
+        if test_end > n_samples: break
+        splits.append((np.arange(train_start, train_end), np.arange(train_end, test_end)))
+    return splits
+
+splits_slide = sliding_window_split(n_samples, n_splits=n_splits)
+plot_cv_indices(splits_slide, n_samples, axs[1], len(splits_slide), show_legend=False)
+axs[1].set_title("Rolling CV: Sliding Window")
+
+# Forward splits with purge and embargo buffers
+def purged_embargoed_split(n_samples, n_splits=5, initial_train_size=20,
+                           test_size=10, purge_size=5, embargo_size=5,
+                           step=15):
+    splits = []
+    for i in range(n_splits):
+        train_end = initial_train_size + i * step
+        purge = np.arange(train_end, train_end + purge_size)
+        test_start = train_end + purge_size
+        test = np.arange(test_start, test_start + test_size)
+        embargo = np.arange(test[-1] + 1, test[-1] + 1 + embargo_size)
+        if embargo[-1] >= n_samples:
+            break
+        train = np.arange(0, train_end)
+        splits.append((train, test, purge, embargo))
+    return splits
+
+def plot_purged_embargoed_indices(splits, n_samples, ax):
+    colors = {
+        'training': 'red',
+        'validation': 'orange',
+        'unused': 'blue',
+        'purged': 'purple',
+        'embargoed': 'gray'
+    }
+    for i, (train, test, purge, embargo) in enumerate(splits):
+        roles = np.full(n_samples, 'unused', dtype=object)
+        roles[train] = 'training'
+        roles[test] = 'validation'
+        roles[purge] = 'purged'
+        roles[embargo] = 'embargoed'
+        ax.scatter(range(n_samples), [i + 0.5] * n_samples,
+                   c=[colors[role] for role in roles], marker='_', lw=10)
+
+    ax.set_yticks(np.arange(len(splits)) + 0.5)
+    ax.set_yticklabels([f"Split {i+1}" for i in range(len(splits))])
+    ax.set_ylim(len(splits), -0.2)
+    ax.set_xlim(0, n_samples)
+    ax.set_xlabel("Data Index")
+    ax.set_ylabel("CV Iteration")
+    legend_elements = [
+        Rectangle((0, 0), 1, 1, color=colors['training'], label='Training Set'),
+        Rectangle((0, 0), 1, 1, color=colors['validation'], label='Validation Set'),
+        Rectangle((0, 0), 1, 1, color=colors['purged'], label='Purged'),
+        Rectangle((0, 0), 1, 1, color=colors['embargoed'], label='Embargoed'),
+        Rectangle((0, 0), 1, 1, color=colors['unused'], label='Unused')
+    ]
+    ax.legend(handles=legend_elements, loc=(1.02, 0.28), title="Data Role")
+    return ax
+
+splits_purged = purged_embargoed_split(n_samples, n_splits=n_splits)
+plot_purged_embargoed_indices(splits_purged, n_samples, axs[2])
+axs[2].set_title("Forward CV with Purge and Embargo Buffers")
+
+fig.tight_layout(rect=[0, 0, 0.85, 1]) # Adjust layout to make space for legend
+plt.show()
+```
+
+The contrast between the first two panels of @fig-timeseries-cv is the window-length choice: the expanding window never discards early observations, while the sliding window drops old observations as it moves — the better choice when older data are less informative about current conditions. In both designs the validation block lies strictly after the training data, so no split trains on the future. The third panel addresses a different issue. When labels span multiple periods, the purple observations would otherwise be training cases whose label windows reach into validation, so they are purged; the gray embargo keeps the immediately following observations unavailable until a later training window. Purging and embargoing therefore modify a base validation design rather than replace the choice between recursive and rolling estimation.
+
+Scikit-learn's `TimeSeriesSplit` implements the expanding window by default; setting its `max_train_size` argument caps the training window and turns it into a sliding-window design. Only nonstandard stepping patterns — such as the overlapping windows drawn above — require a manual implementation.
+
+## Practical Example: Tuning a Neural Network with Cross-Validation
+
+Let's see how to use cross-validation to select the best hyperparameters for a simple neural network. No knowledge of neural networks is needed here: treat the network as a flexible nonlinear regression model whose fitting procedure comes with several tuning constants — the **hidden-layer architecture** (which controls how rich the fitted function class is), the **learning rate** (a step-size constant of the estimation algorithm), and the **L2 penalty** (the weight on a penalty proportional to the squared magnitude of the coefficients). We study these objects properly in the [chapter on feed-forward neural networks](feed_forward_nns.qmd); in this example the network simply provides a realistic tuning problem with several hyperparameters, all tuned using scikit-learn. As data we simulate a cross-section of $1{,}000$ firm-year observations: annual excess returns, in percent, generated from ten standardized firm characteristics with an interaction and a quadratic term that a purely linear model would miss. Because the observations are simulated as an independent cross-section — no cluster, spatial, or time-series dependence — the plain K-fold design of @sec-cv-kfold is appropriate here.
+
+To keep the example honest, we put standardization and model fitting into a single `Pipeline`. This ensures that scaling is learned separately inside each training fold rather than on the full dataset. @fig-nn-cv-tuning summarizes the search: each point is one configuration in the grid, plotted against the learning rate in the left panel and against the architecture in the right panel, with the red star marking the configuration attaining the lowest cross-validated MSE. Scikit-learn follows a higher-is-better scoring convention, so `neg_mean_squared_error` returns the negative of each fold's MSE; the minus sign in the code converts the average back to ordinary MSE before comparison and plotting.
+
+```{python}
+#| label: fig-nn-cv-tuning
+#| fig-cap: "Cross-validated MSE for every hyperparameter configuration in the grid search. Left panel: mean CV MSE against the learning rate (log scale), with marker color indicating the L2 penalty. Right panel: the same configurations against the hidden-layer architecture, with color indicating the learning rate and horizontal jitter added for visibility. In both panels the red star marks the configuration with the lowest mean CV MSE."
+#| echo: true
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.neural_network import MLPRegressor
+from sklearn.model_selection import cross_val_score, ParameterGrid
+from sklearn.preprocessing import StandardScaler
+from sklearn.pipeline import Pipeline
+import pandas as pd
+import warnings
+
+# Set random seeds for reproducibility
+np.random.seed(42)
+
+# Suppress convergence warnings
+warnings.filterwarnings("ignore", category=UserWarning, module="sklearn")
+warnings.filterwarnings("ignore", message="lbfgs failed to converge*")
+
+# Simulated cross-section: annual excess returns (%) on 10 standardized firm characteristics
+rng = np.random.default_rng(42)
+n_obs, n_char = 1000, 10
+X = rng.standard_normal((n_obs, n_char))
+beta = np.array([1.5, -1.0, 0.8, 0.5, -0.5, 0.3, 0.0, 0.0, 0.0, 0.0])
+y = X @ beta + 0.7 * X[:, 0] * X[:, 1] + 0.5 * X[:, 2] ** 2 + rng.standard_normal(n_obs) * 2.0
+
+# Define hyperparameter grid
+param_grid = {
+    'hidden_layer_sizes': [(50,), (100,), (50, 50), (100, 50)],
+    'learning_rate_init': [0.001, 0.01, 0.1],
+    'alpha': [0.0001, 0.001, 0.01]  # L2 regularization
+}
+
+# Create pipeline with scaling
+pipeline = Pipeline([
+    ('scaler', StandardScaler()),
+    ('mlp', MLPRegressor(max_iter=1000, random_state=42))
+])
+
+# Perform grid search with cross-validation
+results = []
+for params in ParameterGrid(param_grid):
+    # Update pipeline parameters
+    pipeline_params = {f'mlp__{key}': value for key, value in params.items()}
+    pipeline.set_params(**pipeline_params)
+    
+    # Perform 5-fold cross-validation
+    cv_scores = cross_val_score(pipeline, X, y, cv=5, scoring='neg_mean_squared_error')
+    
+    results.append({
+        'hidden_layers': str(params['hidden_layer_sizes']),
+        'learning_rate': params['learning_rate_init'],
+        'alpha': params['alpha'],
+        'mean_cv_mse': -cv_scores.mean(),
+        'std_cv_mse': cv_scores.std()
+    })
+
+# Convert to DataFrame for easier analysis
+results_df = pd.DataFrame(results)
+
+# Find best configuration
+best_idx = results_df['mean_cv_mse'].idxmin()
+best_config = results_df.iloc[best_idx]
+
+print("Best Configuration:")
+print(f"Hidden Layers: {best_config['hidden_layers']}")
+print(f"Learning Rate: {best_config['learning_rate']}")
+print(f"Alpha (L2 reg): {best_config['alpha']}")
+print(f"CV MSE: {best_config['mean_cv_mse']:.4f} ± {best_config['std_cv_mse']:.4f}")
+
+# Visualize results
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+
+# Plot 1: Learning rate vs performance (all configurations)
+for alpha_val in results_df['alpha'].unique():
+    subset = results_df[results_df['alpha'] == alpha_val]
+    ax1.scatter(subset['learning_rate'], subset['mean_cv_mse'], 
+               label=f'α={alpha_val}', alpha=0.7, s=50)
+
+ax1.set_xlabel('Learning Rate')
+ax1.set_ylabel('CV MSE')
+ax1.set_title('Performance vs Learning Rate')
+ax1.set_xscale('log')
+ax1.grid(True, alpha=0.3)
+ax1.legend(title='L2 Regularization')
+
+# Plot 2: Architecture vs performance (all configurations)
+# Create a mapping for architectures to x-positions
+arch_names = results_df['hidden_layers'].unique()
+arch_mapping = {arch: i for i, arch in enumerate(arch_names)}
+results_df['arch_pos'] = results_df['hidden_layers'].map(arch_mapping)
+
+# Add small random jitter to x-position for better visibility
+np.random.seed(42)
+jitter = np.random.normal(0, 0.05, len(results_df))
+
+for lr_val in results_df['learning_rate'].unique():
+    subset = results_df[results_df['learning_rate'] == lr_val]
+    ax2.scatter(subset['arch_pos'] + jitter[subset.index], subset['mean_cv_mse'], 
+               label=f'LR={lr_val}', alpha=0.7, s=50)
+
+ax2.set_xlabel('Architecture')
+ax2.set_ylabel('CV MSE')
+ax2.set_title('Performance vs Architecture')
+ax2.set_xticks(range(len(arch_names)))
+ax2.set_xticklabels(arch_names, rotation=45)
+ax2.grid(True, alpha=0.3)
+ax2.legend(title='Learning Rate')
+
+# Highlight best configuration
+best_lr = best_config['learning_rate']
+best_arch_pos = arch_mapping[best_config['hidden_layers']]
+best_score = best_config['mean_cv_mse']
+
+ax1.scatter([best_lr], [best_score], color='red', s=100, marker='*', 
+           edgecolors='black', linewidth=1, label='Best Config', zorder=5)
+ax2.scatter([best_arch_pos], [best_score], color='red', s=100, marker='*', 
+           edgecolors='black', linewidth=1, label='Best Config', zorder=5)
+
+# Update legends to include best config
+ax1.legend(title='L2 Regularization')
+ax2.legend(title='Learning Rate')
+
+plt.tight_layout()
+plt.show()
+
+# Show top 5 configurations
+print("\nTop 5 Configurations:")
+print(results_df.nsmallest(5, 'mean_cv_mse')[['hidden_layers', 'learning_rate', 'alpha', 'mean_cv_mse', 'std_cv_mse']])
+```
+
+:::{.callout-note}
+## Key Insights from the Example
+
+1. **Systematic Search**: We test multiple combinations of hyperparameters systematically rather than guessing
+2. **Robust Evaluation**: Each configuration is evaluated using 5-fold cross-validation, giving us its mean validation performance together with the fold-to-fold dispersion of the scores
+3. **Leakage Prevention**: The `Pipeline` ensures that standardization is re-estimated inside each fold
+4. **Fair Comparison**: All models are evaluated on the same data splits, ensuring fair comparison
+
+The reported mean CV MSE ranks the candidate configurations, while the standard deviation of the $K$ fold scores — the `std_cv_mse` column above — describes how much the score fluctuates from fold to fold. This dispersion is a useful descriptive stability check, but it is *not* a standard error for the cross-validated risk: the fold scores are correlated because their training sets overlap, so no simple rescaling of their standard deviation delivers a valid uncertainty estimate [@BatesHastieTibshirani2024]. Informally, a configuration with a slightly lower mean but a much larger fold-to-fold dispersion should not be declared the winner outright; a formal comparison would require an inferential procedure beyond the scope of this chapter. In the plots, vertical separation across learning rates or architectures indicates which hyperparameters matter most for this synthetic example; clusters of nearly equal points should be read as practically tied rather than as precise rankings.
+:::
+
+The grid search above uses a single level of cross-validation: `cross_val_score` plays the role of the **inner tuning loop**, comparing configurations and selecting the best. By itself this gives an honest comparison *across* configurations, but the cross-validated score of the *selected* configuration is still optimistically biased, for exactly the reason formalized in Exercise 2.2 below: taking the best of many noisy validation scores favors lucky draws. **Nested cross-validation** removes this contamination by wrapping the tuning procedure in a second loop. An **outer CV loop** is used to estimate generalization performance, while an **inner CV loop** — run separately within each outer training fold — selects the hyperparameters; because tuning happens only inside the outer training folds, the outer evaluation folds never enter the selection step, so the performance estimate is not contaminated by tuning.
+
+Nested cross-validation therefore estimates the expected out-of-sample performance of the complete learning procedure — inner-loop tuning followed by refitting on the outer training sample — not the risk of one fixed hyperparameter configuration. The selected configuration may differ across outer folds because each inner loop receives a different outer training sample.
+
+:::{.callout-tip}
+## For Larger Networks
+
+For deep neural networks with many hyperparameters, consider:
+
+- **Random Search**: Sample hyperparameters randomly instead of exhaustive grid search
+- **Bayesian Optimization**: A sequential search that uses the configurations already evaluated to decide which configuration to try next — more efficient per evaluation when each model fit is expensive; implemented in libraries such as `optuna` and `hyperopt`
+- **Early Stopping**: Monitor validation performance during training to avoid overfitting
+- **Nested Cross-Validation**: Use an outer loop for final performance assessment when the hyperparameter search itself is extensive, as described just above
+
+We treat these search strategies systematically in the [chapter on advanced hyperparameter optimization](hpo.qmd).
+:::
+
+## Summary
+
+:::{.callout-important}
+## Key Takeaways
+1. Cross-validation is a validation device for model selection and tuning; it is not a substitute for a final untouched test set.
+2. K-fold cross-validation estimates the expected risk of a fitting procedure trained on roughly $n(K-1)/K$ observations; it does not estimate exactly the risk $R(\hat{f})$ of the one model refit on the full sample.
+3. A validation strategy is honest only if every data-dependent preprocessing step is recomputed inside each training fold.
+4. Repeatedly choosing the best specification from noisy validation scores creates selection-induced optimism, even when each candidate score is unbiased on its own.
+5. In time-series settings, cross-validation must respect the forecast-origin information set and the publication timing of predictors.
+6. Random K-fold is often inappropriate for dependent data because it can leak future information into the training sample.
+:::
+
+:::{.callout-warning}
+## Common Pitfalls
+- Using the test set repeatedly while tuning hyperparameters or architectures.
+- Standardizing, imputing, or selecting predictors on the full sample before cross-validation.
+- Treating random K-fold as automatically valid for time-series forecasting problems.
+- Forgetting that revised or delayed-release predictors may not belong to the real-time information set.
+:::
+
+## Exercises
+
+:::{.callout-note}
+## Exercise 2.1: Leakage from Full-Sample Standardization
+
+Consider leave-one-out cross-validation for a scalar predictor $x_1,\dots,x_n$. Let observation $j$ be the validation observation. Define
+$$
+\bar{x}=\frac{1}{n}\sum_{i=1}^{n}x_i
+\qquad\text{and}\qquad
+\bar{x}_{-j}=\frac{1}{n-1}\sum_{i\neq j}x_i,
+$$
+where $\bar{x}$ is the full-sample mean and $\bar{x}_{-j}$ is the mean computed only on the training fold.
+
+Define the corresponding second moments
+$$
+s^2=\frac{1}{n}\sum_{i=1}^{n}(x_i-\bar{x})^2,
+\qquad
+s_{-j}^2=\frac{1}{n-1}\sum_{i\neq j}(x_i-\bar{x}_{-j})^2.
+$$
+
+Assume $n\ge 3$ and that the training-fold observations $\{x_i\}_{i\neq j}$ are not all equal, so that $s_{-j}^2>0$.
+
+1. Show that
+   $$
+   \bar{x}=\bar{x}_{-j}+\frac{x_j-\bar{x}_{-j}}{n}.
+   $$
+2. Show that
+   $$
+   s^2=\frac{n-1}{n}s_{-j}^2+\frac{n-1}{n^2}(x_j-\bar{x}_{-j})^2.
+   $$
+3. Let
+   $$
+   z_j^{\text{full}}=\frac{x_j-\bar{x}}{s},
+   \qquad
+   z_j^{\text{honest}}=\frac{x_j-\bar{x}_{-j}}{s_{-j}}.
+   $$
+   Show that
+   $$
+   z_j^{\text{full}}
+   =
+   \frac{\sqrt{n-1}\,z_j^{\text{honest}}}
+   {\sqrt{n+(z_j^{\text{honest}})^2}}.
+   $$
+4. Deduce that
+   $$
+   |z_j^{\text{full}}|<|z_j^{\text{honest}}|
+   \qquad\text{for every }z_j^{\text{honest}}\neq 0.
+   $$
+   Explain why this shows that full-sample standardization mechanically uses the validation observation to shrink its own standardized magnitude.
+
+*Exam level. The point is to show mathematically that preprocessing on the full sample contaminates the validation fold and changes the object being evaluated.*
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint for Part 1
+Write
+$$
+\sum_{i=1}^{n}x_i = \sum_{i\neq j}x_i + x_j
+$$
+and replace the sums by $(n-1)\bar{x}_{-j}$ and $n\bar{x}$.
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint for Part 2
+Use the identity
+$$
+\sum_{i=1}^{n}(x_i-\bar{x})^2
+=
+\sum_{i\neq j}(x_i-\bar{x})^2+(x_j-\bar{x})^2
+$$
+and rewrite $x_i-\bar{x}$ as $(x_i-\bar{x}_{-j})-(\bar{x}-\bar{x}_{-j})$.
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint for Part 3
+Use Parts 1 and 2 to write both numerator and denominator in terms of $z_j^{\text{honest}}$ and $n$.
+:::
+
+:::{.callout-tip collapse="true"}
+## Solution
+
+**Part 1: Mean Leakage from Full-Sample Standardization**
+
+We have
+$$
+n\bar{x}=\sum_{i=1}^{n}x_i=\sum_{i\neq j}x_i+x_j=(n-1)\bar{x}_{-j}+x_j.
+$$
+Dividing by $n$ gives
+$$
+\bar{x}=\frac{n-1}{n}\bar{x}_{-j}+\frac{x_j}{n}
+=\bar{x}_{-j}+\frac{x_j-\bar{x}_{-j}}{n}.
+$$
+
+**Part 2: Variance Leakage from Full-Sample Standardization**
+
+We start from
+$$
+\sum_{i=1}^{n}(x_i-\bar{x})^2
+=
+\sum_{i\neq j}(x_i-\bar{x})^2+(x_j-\bar{x})^2.
+$$
+For $i\neq j$,
+$$
+x_i-\bar{x}
+=(x_i-\bar{x}_{-j})-(\bar{x}-\bar{x}_{-j}).
+$$
+Since $\sum_{i\neq j}(x_i-\bar{x}_{-j})=0$, we obtain
+$$
+\sum_{i\neq j}(x_i-\bar{x})^2
+=
+\sum_{i\neq j}(x_i-\bar{x}_{-j})^2
++(n-1)(\bar{x}-\bar{x}_{-j})^2.
+$$
+By Part 1,
+$$
+\bar{x}-\bar{x}_{-j}=\frac{x_j-\bar{x}_{-j}}{n},
+\qquad
+x_j-\bar{x}=\frac{n-1}{n}(x_j-\bar{x}_{-j}).
+$$
+Therefore
+$$
+\sum_{i=1}^{n}(x_i-\bar{x})^2
+=(n-1)s_{-j}^2+(n-1)\frac{(x_j-\bar{x}_{-j})^2}{n^2}
++\frac{(n-1)^2}{n^2}(x_j-\bar{x}_{-j})^2.
+$$
+Combining the last two terms gives
+$$
+\sum_{i=1}^{n}(x_i-\bar{x})^2
+=(n-1)s_{-j}^2+\frac{n-1}{n}(x_j-\bar{x}_{-j})^2.
+$$
+Dividing by $n$ yields
+$$
+s^2=\frac{n-1}{n}s_{-j}^2+\frac{n-1}{n^2}(x_j-\bar{x}_{-j})^2.
+$$
+
+**Part 3: Closed-Form Expression for the Contaminated Z-Score**
+
+From Part 1,
+$$
+x_j-\bar{x}=\frac{n-1}{n}(x_j-\bar{x}_{-j})
+=\frac{n-1}{n}z_j^{\text{honest}}s_{-j}.
+$$
+From Part 2,
+$$
+s^2=\frac{n-1}{n}s_{-j}^2
++\frac{n-1}{n^2}(z_j^{\text{honest}})^2s_{-j}^2
+=\frac{n-1}{n}s_{-j}^2
+\left(1+\frac{(z_j^{\text{honest}})^2}{n}\right).
+$$
+Hence
+$$
+s=s_{-j}\sqrt{\frac{n-1}{n}}
+\sqrt{1+\frac{(z_j^{\text{honest}})^2}{n}}.
+$$
+Therefore
+$$
+z_j^{\text{full}}
+=\frac{x_j-\bar{x}}{s}
+=
+\frac{\frac{n-1}{n}z_j^{\text{honest}}s_{-j}}
+{s_{-j}\sqrt{\frac{n-1}{n}}
+\sqrt{1+\frac{(z_j^{\text{honest}})^2}{n}}}
+=
+\frac{\sqrt{n-1}\,z_j^{\text{honest}}}
+{\sqrt{n+(z_j^{\text{honest}})^2}}.
+$$
+
+**Part 4: Why the Validation Observation Shrinks Itself**
+
+Using the expression from Part 3,
+$$
+\left|\frac{z_j^{\text{full}}}{z_j^{\text{honest}}}\right|
+=
+\frac{\sqrt{n-1}}{\sqrt{n+(z_j^{\text{honest}})^2}}
+<1
+\qquad\text{for every }z_j^{\text{honest}}\neq 0,
+$$
+because $n+(z_j^{\text{honest}})^2>n-1$.
+
+Thus
+$$
+|z_j^{\text{full}}|<|z_j^{\text{honest}}|
+\qquad\text{whenever }z_j^{\text{honest}}\neq 0.
+$$
+The strict inequality shows mathematically that full-sample standardization is not innocuous: the validation observation enters both the centering and scaling rule, which shrinks its own standardized magnitude. So the validation fold is no longer being evaluated under a preprocessing rule estimated only from the training data.
+:::
+
+:::{.callout-note}
+## Exercise 2.2: Why Model Search Creates Optimistic Validation Scores
+
+Suppose two fitted forecasting models, $A$ and $B$, have the same generalization risk,
+$$
+R(\hat{f}_A)=R(\hat{f}_B)=R_0.
+$$
+Their validation-set risk estimates satisfy
+$$
+\hat{R}_A = R_0+\varepsilon_A,
+\qquad
+\hat{R}_B = R_0+\varepsilon_B,
+$$
+where $\varepsilon_A$ and $\varepsilon_B$ are independent with mean zero and $\Pr(\varepsilon_A\neq\varepsilon_B)>0$, so the two estimates do not coincide with certainty.
+
+The researcher selects the model with the smaller validation estimate.
+
+1. Show that
+   $$
+   \min(\hat{R}_A,\hat{R}_B)
+   =
+   R_0+\frac{\varepsilon_A+\varepsilon_B-|\varepsilon_A-\varepsilon_B|}{2}.
+   $$
+2. Deduce that
+   $$
+   \mathbb{E}\big[\min(\hat{R}_A,\hat{R}_B)\big]
+   =
+   R_0-\frac{1}{2}\mathbb{E}\big[|\varepsilon_A-\varepsilon_B|\big]
+   < R_0.
+   $$
+3. Suppose in addition that
+   $$
+   \varepsilon_A,\varepsilon_B \stackrel{\text{iid}}{\sim} \mathcal{N}(0,\sigma^2).
+   $$
+   Derive the exact expectation of the selected validation score and show that
+   $$
+   \mathbb{E}\big[\min(\hat{R}_A,\hat{R}_B)\big]
+   =
+   R_0-\frac{\sigma}{\sqrt{\pi}}.
+   $$
+4. Explain why the selected validation score is optimistically biased even though both $\hat{R}_A$ and $\hat{R}_B$ are individually unbiased estimates of $R_0$. Relate this result to repeated specification search in econometrics and explain why an untouched test set or nested cross-validation is needed after model selection.
+
+*Exam level. The exercise formalizes a central point of the chapter: validation is noisy, and searching across specifications makes the best observed score look too good.*
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint for Part 1
+Use the identity
+$$
+\min(a,b)=\frac{a+b-|a-b|}{2}.
+$$
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint for Part 3
+Under the Gaussian assumption, $\varepsilon_A-\varepsilon_B$ is also Gaussian. Use the fact that if $Z\sim\mathcal{N}(0,\tau^2)$, then
+$$
+\mathbb{E}|Z|=\tau\sqrt{\frac{2}{\pi}}.
+$$
+:::
+
+:::{.callout-tip collapse="true"}
+## Solution
+
+**Part 1: Writing the Selected Validation Score**
+
+Apply the identity with $a=\hat{R}_A$ and $b=\hat{R}_B$:
+$$
+\min(\hat{R}_A,\hat{R}_B)
+=\frac{\hat{R}_A+\hat{R}_B-|\hat{R}_A-\hat{R}_B|}{2}.
+$$
+Substituting $\hat{R}_A=R_0+\varepsilon_A$ and $\hat{R}_B=R_0+\varepsilon_B$ gives
+$$
+\min(\hat{R}_A,\hat{R}_B)
+=\frac{2R_0+\varepsilon_A+\varepsilon_B-|\varepsilon_A-\varepsilon_B|}{2}
+=R_0+\frac{\varepsilon_A+\varepsilon_B-|\varepsilon_A-\varepsilon_B|}{2}.
+$$
+
+**Part 2: Showing the Optimism Bias**
+
+Taking expectations,
+$$
+\mathbb{E}\big[\min(\hat{R}_A,\hat{R}_B)\big]
+=
+R_0+\frac{\mathbb{E}[\varepsilon_A]+\mathbb{E}[\varepsilon_B]-\mathbb{E}[|\varepsilon_A-\varepsilon_B|]}{2}.
+$$
+Since both errors have mean zero,
+$$
+\mathbb{E}\big[\min(\hat{R}_A,\hat{R}_B)\big]
+=
+R_0-\frac{1}{2}\mathbb{E}[|\varepsilon_A-\varepsilon_B|].
+$$
+Because $|\varepsilon_A-\varepsilon_B|\ge 0$ and, by the assumption $\Pr(\varepsilon_A\neq\varepsilon_B)>0$, is strictly positive with positive probability,
+$$
+\mathbb{E}\big[\min(\hat{R}_A,\hat{R}_B)\big] < R_0.
+$$
+
+**Part 3: Exact Gaussian Optimism**
+
+Under the additional assumption,
+$$
+\varepsilon_A-\varepsilon_B\sim \mathcal{N}(0,2\sigma^2).
+$$
+If $Z\sim\mathcal{N}(0,\tau^2)$, then
+$$
+\mathbb{E}|Z|=\tau\sqrt{\frac{2}{\pi}}.
+$$
+Here $\tau=\sqrt{2}\sigma$, so
+$$
+\mathbb{E}\big[|\varepsilon_A-\varepsilon_B|\big]
+=\sqrt{2}\sigma\sqrt{\frac{2}{\pi}}
+=\frac{2\sigma}{\sqrt{\pi}}.
+$$
+Substituting this into Part 2 gives
+$$
+\mathbb{E}\big[\min(\hat{R}_A,\hat{R}_B)\big]
+=
+R_0-\frac{1}{2}\cdot \frac{2\sigma}{\sqrt{\pi}}
+=
+R_0-\frac{\sigma}{\sqrt{\pi}}.
+$$
+
+**Part 4: Why Specification Search Creates Bias**
+
+Each candidate validation score is unbiased when viewed separately:
+$$
+\mathbb{E}[\hat{R}_A]=\mathbb{E}[\hat{R}_B]=R_0.
+$$
+But the researcher does not report one fixed model’s score; they report the *smaller* of two noisy scores. The minimum operator systematically picks negative noise realizations. That is why the selected validation score is optimistically biased.
+
+The same logic applies when an econometrician searches across many lag lengths, control sets, regularization parameters, or model classes using the same validation sample. The “best” validation score partly reflects good luck.
+
+An untouched test set or nested cross-validation is needed because model selection has already used the validation information. A final honest assessment requires a fresh evaluation sample that was not involved in the search.
+:::
+
+:::{.callout-note}
+## Exercise 2.3: Feasible and Infeasible Time-Series Forecasts
+
+Suppose the data-generating process is
+$$
+y_{t+1}=\beta z_t+u_{t+1},
+\qquad
+z_t=\rho z_{t-1}+\xi_t,
+$$
+where $|\rho|<1$, $\beta\neq 0$, $\mathbb{E}[u_{t+1}]=\mathbb{E}[\xi_t]=0$, $\operatorname{Var}(u_{t+1})=\sigma_u^2$, $\operatorname{Var}(\xi_t)=\sigma_\xi^2>0$, $\{\xi_t\}$ is an i.i.d. innovation sequence (so that $\xi_t$ is independent of $z_{t-1},z_{t-2},\dots$), and $u_{t+1}$ is independent of $\xi_t$ and of the past.
+
+Assume the predictor $z_t$ is published with a one-period delay, so at forecast origin $t$ we observe $z_{t-1}$ but not $z_t$. Let $\mathcal{F}_t=\sigma(z_{t-1},z_{t-2},\dots)$.
+
+Consider the two forecasting rules
+$$
+\hat{y}^{\,\text{oracle}}_{t+1\mid t}=\beta z_t,
+\qquad
+\hat{y}^{\,\text{rt}}_{t+1\mid t}=\mathbb{E}[y_{t+1}\mid \mathcal{F}_t].
+$$
+
+1. Derive the feasible real-time forecast $\hat{y}^{\,\text{rt}}_{t+1\mid t}$ as a function of $z_{t-1}$.
+2. Compute the one-step-ahead forecast error of the feasible real-time forecast and show that its mean squared prediction error (MSPE) is
+   $$
+   \operatorname{MSPE}_{\text{rt}}=\beta^2\sigma_\xi^2+\sigma_u^2.
+   $$
+3. Compute the forecast error of the infeasible oracle forecast $\hat{y}^{\,\text{oracle}}_{t+1\mid t}$ and show that
+   $$
+   \operatorname{MSPE}_{\text{oracle}}=\sigma_u^2.
+   $$
+4. Explain why a random cross-validation design that effectively allows the use of $z_t$ when forecasting $y_{t+1}$ will deliver an unduly optimistic estimate of real-time forecasting performance.
+
+*Exam level. The exercise formalizes the central econometric issue in time-series cross-validation: the validation design must match the real-time information set.*
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint for Part 1
+Use iterated expectations:
+$$
+\mathbb{E}[y_{t+1}\mid \mathcal{F}_t]
+=
+\beta\,\mathbb{E}[z_t\mid \mathcal{F}_t].
+$$
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint for Part 2
+Substitute the first-order autoregressive (AR(1)) representation of $z_t$ into the forecast error.
+:::
+
+:::{.callout-tip collapse="true"}
+## Solution
+
+**Part 1: Deriving the Feasible Real-Time Forecast**
+
+We have
+$$
+\mathbb{E}[y_{t+1}\mid \mathcal{F}_t]
+=
+\beta\,\mathbb{E}[z_t\mid \mathcal{F}_t]
+=
+\beta\,\mathbb{E}[\rho z_{t-1}+\xi_t\mid \mathcal{F}_t].
+$$
+Since $z_{t-1}\in \mathcal{F}_t$ and $\mathbb{E}[\xi_t\mid \mathcal{F}_t]=0$,
+$$
+\hat{y}^{\,\text{rt}}_{t+1\mid t}
+=
+\beta\rho z_{t-1}.
+$$
+
+**Part 2: Real-Time Forecast Error and MSPE**
+
+The real-time forecast error is
+$$
+e^{\text{rt}}_{t+1}
+=
+y_{t+1}-\hat{y}^{\,\text{rt}}_{t+1\mid t}
+=
+\beta z_t+u_{t+1}-\beta\rho z_{t-1}.
+$$
+Using $z_t=\rho z_{t-1}+\xi_t$, this becomes
+$$
+e^{\text{rt}}_{t+1}
+=
+\beta\xi_t+u_{t+1}.
+$$
+Hence
+$$
+\operatorname{MSPE}_{\text{rt}}
+=
+\operatorname{Var}(\beta\xi_t+u_{t+1})
+=
+\beta^2\sigma_\xi^2+\sigma_u^2,
+$$
+using independence of $\xi_t$ and $u_{t+1}$.
+
+**Part 3: Oracle Forecast Error and MSPE**
+
+The oracle forecast error is
+$$
+e^{\text{oracle}}_{t+1}
+=
+y_{t+1}-\hat{y}^{\,\text{oracle}}_{t+1\mid t}
+=
+\beta z_t+u_{t+1}-\beta z_t
+=
+u_{t+1}.
+$$
+Therefore
+$$
+\operatorname{MSPE}_{\text{oracle}}=\operatorname{Var}(u_{t+1})=\sigma_u^2.
+$$
+
+**Part 4: Why Random CV Evaluates an Infeasible Oracle**
+
+The oracle forecast is better on paper because it uses information that is unavailable in real time:
+$$
+\operatorname{MSPE}_{\text{oracle}}=\sigma_u^2
+<
+\beta^2\sigma_\xi^2+\sigma_u^2
+=
+\operatorname{MSPE}_{\text{rt}}
+$$
+which holds by the maintained assumptions $\beta\neq 0$ and $\sigma_\xi^2>0$.
+
+So a random cross-validation design that effectively lets the model exploit $z_t$ when predicting $y_{t+1}$ is evaluating an infeasible forecasting problem. It will produce an overly optimistic estimate of achievable real-time performance. The relevant validation design is the one that reproduces the actual forecast-origin information set, not the one with the lower but infeasible error.
+:::
+
+## References
+
+::: {#refs}
+:::

@@ -1,0 +1,1169 @@
+---
+number-sections: true
+number-offset: [3, 0]
+---
+
+# Optimization for Machine Learning {#sec-optim}
+
+## Overview
+
+Training a machine learning model is an optimization problem. The goal is to find the set of model parameters that minimizes a **loss function**, which measures how poorly the model fits the training data. Gradient-based methods are the standard tools for navigating the high-dimensional "loss landscape" to find this minimum. Stochastic-gradient methods trace back to stochastic approximation ideas such as @RobbinsMonro1951.
+
+For econometricians, the key connection is that this is the same basic problem as nonlinear least squares or maximum likelihood estimation: choose parameters to minimize an objective function. What changes in machine learning is the scale of the parameter space, the non-convexity of the objective, and the reliance on iterative gradient-based updates.
+
+This chapter explains how these optimization methods work at a general level. The next chapter then applies this machinery to feed-forward neural networks and backpropagation.
+
+## Roadmap
+
+1. We begin with the basic intuition behind **gradient descent**.
+2. We then compare **batch**, **stochastic**, and **mini-batch** updates — gradients computed from the full sample, a single observation, or a small random subset — since this distinction is central in machine learning practice.
+3. Next, we discuss the main weaknesses of plain gradient descent and motivate more advanced optimizers.
+4. We then study **Momentum**, **AdaGrad**, **RMSprop**, and **Adam**.
+5. Finally, we compare their behavior visually and summarize practical lessons for modern machine-learning estimation.
+
+## The Core Idea for Optimization: Gradient Descent
+
+Imagine you are standing on a foggy mountain and want to get to the lowest valley. The simplest strategy is to look at the ground at your feet and take a step in the steepest downhill direction. You repeat this process until further steps no longer reduce the loss.
+
+This is the core intuition behind **Gradient Descent**.
+
+- The "mountain" is the loss landscape.
+- Your "position" is the current set of model parameters, $\boldsymbol \theta$.
+- The "steepest downhill direction" is the negative of the **gradient** of the loss function $L$ with respect to the parameters, $-\nabla_{\boldsymbol \theta} L(\boldsymbol \theta)$.
+
+The update rule for the parameters is:
+$$ \boldsymbol \theta_{\text{new}} = \boldsymbol \theta_{\text{old}} - \eta \nabla_{\boldsymbol  \theta} L(\boldsymbol\theta_{\text{old}}) $$
+where $\eta$ is the **learning rate**, a hyperparameter (a quantity chosen by the user rather than estimated from the data) that controls the size of the steps we take.
+
+The main challenge is how to compute the gradient $\nabla_{\boldsymbol \theta} L(\boldsymbol \theta)$. The way we use our training data to compute it leads to three main variants of gradient descent.
+
+## Notation
+
+The notation below is used throughout the chapter:
+
+**Setup**: Consider a supervised training dataset $\mathcal{D}=\{(x_i,y_i)\}_{i=1}^N$ and parameter vectors $\boldsymbol{\theta} \in \mathbb{R}^m$.
+
+**Key definitions**:
+
+- $\ell_i(\boldsymbol{\theta}) = \ell(y_i, \hat{y}_i)$: loss for individual sample $i$
+- $L(\boldsymbol{\theta}) = \frac{1}{N}\sum_{i=1}^N \ell_i(\boldsymbol{\theta})$: average training loss
+- $x_i$: predictors, $y_i$: observed value, $\hat{y}_i$: predicted/fitted value depending on $\boldsymbol{\theta}$
+- $\mathcal{D} = \{(x_i,y_i): i = 1, \dots, N\}$: the complete training dataset
+
+Two remarks connect this notation to the previous chapters. First, relative to [the cross-validation chapter](cross_validation.qmd), which wrote the per-observation loss as $L(y,\hat y)$ and sample averages as $\hat{R}$, we now write $\ell_i(\boldsymbol{\theta})$ for the per-observation loss viewed as a function of the parameters and $L(\boldsymbol{\theta})$ for its average — the same objects in parameter-dependent form. Second, $L(\boldsymbol{\theta})$ is the *empirical* training loss: optimization in this chapter minimizes it, while the generalization risk $R$ of that chapter is what validation ultimately judges — and the gap between the two is exactly the overfitting problem that motivated cross-validation.
+
+:::{.callout-note}
+## Notation Convention
+For brevity, we write $\hat{y}_i$ instead of $\hat{y}_i(\boldsymbol{\theta})$, but remember that predictions always depend on the current parameters.
+:::
+
+## Batch, Stochastic, and Mini-Batch Gradient Descent
+
+**Batch Gradient Descent**
+
+In Batch Gradient Descent, we calculate the gradient of the loss function using the **entire training dataset** in one go. With learning rate $\eta > 0$ and starting value $\boldsymbol{\theta}^{(0)}$, the gradient for iteration $t=1,\ldots,T$ is:
+
+$$ \nabla_{\boldsymbol \theta} L(\boldsymbol \theta^{(t-1)}) = \frac{1}{N} \sum_{i=1}^{N} \nabla_{\boldsymbol \theta} \ell_i(\boldsymbol{\theta}^{(t-1)}) $$
+
+which leads us to the update rule
+
+$$\boldsymbol{\theta}^{(t)} = \boldsymbol{\theta}^{(t-1)} - \eta \frac{1}{N} \sum_{i=1}^N \nabla_{\boldsymbol{\theta}}\ell_i(\boldsymbol{\theta}^{(t-1)})$$
+
+:::{.callout-note}
+-   **Pros**: The gradient is the exact training-set gradient, giving a smooth, deterministic path; see the convergence callout below for the conditions under which this path actually converges.
+-   **Cons**: Computationally expensive and memory-intensive on large datasets; infeasible to load millions of samples into memory at once.
+:::
+
+**Stochastic Gradient Descent (SGD)**
+
+In Stochastic Gradient Descent, we calculate the gradient and update the parameters using just **one training sample** at a time. The gradient approximation reads as follows:
+
+$$ \nabla_{\boldsymbol \theta} L(\boldsymbol{\theta}^{(t-1)}) \approx \nabla_{\boldsymbol  \theta} \ell_i(\boldsymbol{\theta}^{(t-1)}) \quad \text{for a single random sample } i $$
+
+Using only one data point per update instead of all $i = 1, \dots, N$ is a coarse approximation to the full gradient.
+
+:::{.callout-note title="Definition: Convex Function"}
+The convergence statements in this chapter repeatedly refer to convexity, so we fix the term now. A function is **convex** if its graph lies below every chord joining two points on it; for twice-differentiable functions this is equivalent to the Hessian — the matrix of second partial derivatives — being positive semidefinite everywhere. Convex objectives have no spurious local minima (every local minimum is global), which is why convergence guarantees are typically stated for them.
+:::
+
+:::{.callout-note}
+-   **Pros**: Fast per update and requires little memory; the noisy updates can also help the model escape shallow local minima.
+-   **Cons**: The path to the minimum is noisy and erratic; with a *constant* step size the iterates do not converge to a fixed point but bounce around the minimum. For convex objectives, convergence to the minimizer is recovered with a diminishing step-size schedule satisfying the Robbins–Monro conditions $\sum_t \eta_t = \infty$ and $\sum_t \eta_t^2 < \infty$ [@RobbinsMonro1951].
+:::
+
+:::{.callout-note title="What Do Convergence Guarantees Actually Say?"}
+Convergence statements for gradient methods always carry conditions, and it is worth fixing them once. If $L$ is convex and its gradient is Lipschitz continuous with constant $C$, then batch gradient descent with step size $\eta \le 1/C$ drives $L(\boldsymbol\theta^{(t)})$ to the global minimum at rate $O(1/t)$; a step size that is too large can diverge even on a quadratic objective — Exercise 4.1 derives the exact stability threshold. Neural-network objectives, however, are **nonconvex**, and there the honest guarantee is much weaker: under smoothness, gradient methods can only be shown to drive the gradient norm to zero, $\|\nabla L(\boldsymbol\theta^{(t)})\| \to 0$ — convergence to a *stationary point*, which need not be a local (let alone global) minimum. Whenever this chapter speaks of an algorithm "converging" on a neural-network loss, it is this stationary-point notion that applies.
+:::
+
+**Mini-Batch Gradient Descent**
+
+Mini-Batch Gradient Descent is the standard approach in deep learning, balancing batch and SGD. The gradient is computed on a small, random subset of the data called a **mini-batch**.
+
+More precisely: We first define $J$ batches $B_j$ such that $\bigcup_{j=1}^J B_j = \{1,\ldots,N\}$ and $B_j \cap B_{j'} = \emptyset \quad \text{ for all } j,j' = 1,\ldots,J:\ j \neq j'$. With learning rate $\eta > 0$ and starting value $\boldsymbol{\theta}^{(0)}$, we get the following gradient approximation for the selected batch $B_j$:
+
+$$ \nabla_{\boldsymbol \theta} L(\boldsymbol \theta^{(t-1)}) \approx \frac{1}{\left|B_j\right|}  \sum_{i \in B_j} \nabla_{\boldsymbol \theta} \ell_i(\boldsymbol \theta^{(t-1)})$$
+
+and update rule
+
+$$
+\boldsymbol{\theta}^{(t)} = \boldsymbol{\theta}^{(t-1)} - \eta \frac{1}{\left|B_j\right|} \sum_{i \in B_j}\nabla_{\boldsymbol{\theta}}\ell_i(\boldsymbol{\theta}^{(t-1)}).
+$$
+
+A typical mini-batch size $b = |B_j|$ is 32, 64, or 128. The total number of iteration steps for the algorithm $T$ doesn't need to coincide with the number of batches $J$. Typically, we have $J \ll T$ such that, after going through all batches for updating the parameters, we draw new batches of the same size to continue updating our parameter.
+
+
+
+:::{.callout-note}
+-   **Pros**: Mini-Batch Gradient Descent balances the stability of Batch Gradient Descent with the speed of SGD. It also allows for efficient computation using vectorized operations on modern hardware such as graphics processing units (GPUs).
+-   **Cons**: It introduces an additional hyperparameter (the batch size) to (potentially) tune.
+
+If you take 
+- $|B_j| = 1$ for each batch used in the update, then we are back at SGD, and
+- $J = 1$ with $B_1 = \{1,\ldots,N\}$ reduces to Batch Gradient Descent.
+:::
+
+:::{.callout-note title="Question for Reflection"}
+
+Suppose observations are ordered over time or clustered by firm. Does random mini-batch sampling bias the gradient? What does the dependence change about the batch gradient — and in which situations does the *construction* of batches (time blocks, firm clusters) genuinely matter?
+:::
+
+:::{.callout-tip collapse="true" title="Suggested Answer"}
+
+Three distinct mechanisms are worth separating. First, unbiasedness is not the issue: the mini-batch gradient is a linear function of the sampled observations, so it remains an unbiased estimate of the full-sample gradient however dependent the observations are. Second, dependence changes the *variance* of the batch gradient: observations sharing a time period or a firm carry overlapping information, so a random batch of size $b$ contains less independent information than $b$ i.i.d. draws would. Third — and most important econometrically — problems arise when the *model or the preprocessing* interacts with the dependence: models with sequential state (introduced in the [recurrent-networks chapter](recurrent_neural_networks.qmd)) need temporally contiguous inputs, and any transformation estimated on randomly mixed data can leak information across the time or cluster boundaries that a real-time evaluation must respect. Batches that keep time blocks or firm clusters together address this third concern directly; Exercise 4.2 quantifies the second.
+:::
+
+:::{.callout-note}
+## Definition: Epoch
+An epoch refers to one full pass through the training data. With this notion introduced, we get the following pseudocode for mini-batch optimization in supervised learning:
+
+Define $n_e \in \mathbb{N}\setminus\{0\}$ as the number of epochs used for training; within each epoch the $J$ batches defined above are processed once.
+
+**Algorithm: Mini-Batch Gradient Descent Training**
+
+***Input:*** Training data $\{(x_i, y_i)\}_{i=1}^N$, learning rate $\eta$, batch size $b$, number of epochs $n_e$, maximum number of iterations $T$
+
+**Initialize:** $\boldsymbol{\theta}^{(0)}$, set $t = 0$
+
+***Repeat for*** $e = 1, \ldots, n_e$ **(epochs):**
+
+1. Shuffle training data $\{(x_i, y_i)\}_{i=1}^N$
+2. ***For each batch*** $B_j$ where $j = 1, \ldots, J$:
+   - ***Compute fitted values:*** $\hat{y}_i = f(x_i; \boldsymbol{\theta}^{(t)})$ for all observations in $B_j$
+   - ***Compute batch loss (for monitoring):*** $L_j = \frac{1}{|B_j|} \sum_{i \in B_j} \ell(y_i, \hat{y}_i)$
+   - ***Compute batch gradient:*** $\boldsymbol{g}^{(t)} = \frac{1}{|B_j|} \sum_{i \in B_j} \nabla_{\boldsymbol{\theta}} \ell(y_i, f(x_i; \boldsymbol{\theta}^{(t)}))$
+   - ***Update parameters:*** $\boldsymbol{\theta}^{(t+1)} = \boldsymbol{\theta}^{(t)} - \eta \boldsymbol{g}^{(t)}$
+   - ***Increment counter:*** $t \leftarrow t + 1$
+
+***Stopping rule:*** Stop if a convergence criterion is reached or the maximum number of iterations $T$ is reached
+
+***Output:*** Final parameters $\boldsymbol{\theta}^{(t^\ast)}$, where $t^\ast$ is the realized stopping iteration
+:::
+
+## Challenges and Advanced Optimizers
+
+:::{.callout-warning}
+## Challenges with Vanilla Gradient Descent
+- Choosing the right learning rate $\eta$ is difficult
+- The same learning rate applies to all parameters, which may not be ideal
+- It can get stuck in saddle points, where the gradient is zero but the point is neither a local minimum nor a local maximum, which are common in high-dimensional landscapes [@DauphinPascanuGulcehreChoBengioGanguli2014]
+:::
+
+To address these issues, researchers have developed **adaptive optimization algorithms** that adjust the learning rate for each parameter automatically.
+
+In all of the following algorithms, we choose a learning rate $\eta > 0$ and a starting value $\boldsymbol{\theta}^{(0)}$. Consider iteration steps $t = 1,\ldots,T$, and define $\boldsymbol g_t = \frac{1}{N} \sum_{i = 1}^N \nabla_{\boldsymbol{\theta}}\ell_i(\boldsymbol{\theta}^{(t-1)})$ as the gradient used for the $t$th update. We can combine all methods below with mini-batches, but leave this out for brevity in notation.
+
+
+**Momentum**
+
+The momentum idea traces to @Polyak1964, who introduced the "heavy ball" method to accelerate iterative optimization, and @Nesterov1983, whose accelerated-gradient variant achieves a provably better convergence rate on convex objectives. Momentum accelerates SGD in directions of persistent gradient and dampens oscillations. It does so by adding a fraction of the previous update vector to the current gradient, creating a "velocity" term $\boldsymbol u_t$ that accumulates past gradients. (We reserve $\boldsymbol v_t$ for the squared-gradient averages of RMSprop and Adam below.)
+
+$$ \boldsymbol u_t = \delta \boldsymbol u_{t-1} + (1 - \delta) \boldsymbol g_t $$
+$$ \boldsymbol \theta^{(t)} = \boldsymbol \theta^{(t-1)} - \eta \boldsymbol u_t $$
+with $\boldsymbol u_0 = \mathbf 0$. (Note the timing: $\boldsymbol g_t$ is evaluated at $\boldsymbol \theta^{(t-1)}$, and the $t$th update produces $\boldsymbol \theta^{(t)}$ — the same convention as for the algorithms below.)
+
+Here, $\delta \in [0,1)$ is the momentum coefficient, and the velocity $u_t$ accumulates a weighted average of past gradients. This creates a "ball rolling downhill" effect that helps overcome small local minima and accelerates convergence in consistent directions.
+
+**AdaGrad (Adaptive Gradient)**
+
+AdaGrad adapts the learning rate for each parameter individually, performing larger updates for infrequent parameters and smaller updates for frequent ones [@DuchiHazanSinger2011]. It achieves this by dividing the learning rate by the square root of the sum of all past squared gradients for that parameter.
+
+Two versions appear in the literature. The **full-matrix** version accumulates the outer products
+$$
+\boldsymbol{\mathcal{G}}_t = \sum_{\tau=1}^{t} \boldsymbol g_\tau \boldsymbol g_\tau^\top + \varepsilon \boldsymbol I_m
+$$
+and updates
+$$
+\boldsymbol{\theta}^{(t)} = \boldsymbol{\theta}^{(t-1)} - \eta \, \boldsymbol{\mathcal{G}}_t^{-\frac{1}{2}}\boldsymbol g_t.
+$$
+
+This form is mathematically clean but computationally infeasible in modern networks: storing and inverting an $m \times m$ matrix with $m$ in the millions is impractical.
+
+Econometricians may recognize an outer-product structure reminiscent of the BHHH algorithm [@BerndtHallHallHausman1974]. The analogy is instructive but not an identity: BHHH forms an outer product of observation-level likelihood scores evaluated at a *common* parameter value and uses its inverse as a curvature approximation, whereas full-matrix AdaGrad accumulates the gradients used across optimization iterations — full-sample under the displayed notation, stochastic under mini-batching — generally at changing parameter values, and scales the next gradient by the inverse *square root* of the accumulator [@DuchiHazanSinger2011]. What the two share is the construction: both rescale an update using a matrix built from gradient outer products, though the two matrices have different statistical meanings — a rescaling of directions that numerical optimization calls **preconditioning**. This is the concrete sense in which the Overview's promise holds: adaptive optimizers are cousins of the curvature approximations used in maximum-likelihood computation.
+
+The version actually used in software (and called *AdaGrad* below) replaces the full matrix with its diagonal: define the elementwise gradient accumulator
+$$
+\boldsymbol G_t = \sum_{\tau=1}^{t} \boldsymbol g_\tau \odot \boldsymbol g_\tau \in \mathbb{R}^m,
+$$
+where $\odot$ denotes the element-wise (Hadamard) product,
+and update each coordinate by
+$$
+\boldsymbol{\theta}^{(t)} = \boldsymbol{\theta}^{(t-1)} - \eta \, \frac{\boldsymbol g_t}{\sqrt{\boldsymbol G_t + \varepsilon}},
+$$
+where the division and square root are elementwise. For illustration, the one-dimensional case reads
+$$ \theta^{(t)} = \theta^{(t - 1)} - \frac{\eta}{\sqrt{G_{t} + \varepsilon}}\, g_{t}, \qquad G_{t} = \sum_{\tau=1}^{t} g_{\tau}^2.$$
+The small constant $\varepsilon > 0$ is a smoothing term that prevents division by zero. Throughout this book, *AdaGrad* refers to the diagonal version unless stated otherwise.
+
+:::{.callout-note}
+-   **Pros**: Excellent for sparse data — as in text applications, where some predictors appear infrequently.
+-   **Cons**: The denominator $\sqrt{\boldsymbol G_t + \varepsilon}$ grows monotonically. This causes the effective learning rate to eventually become infinitesimally small, effectively stopping the training process.
+:::
+
+**RMSprop (Root Mean Square Propagation)**
+
+RMSprop — which circulated through Hinton's lecture notes [@hinton2012rmsprop] and was never formally published — modifies AdaGrad to resolve its main issue of a learning rate that aggressively and monotonically decreases. Instead of accumulating all past squared gradients, RMSprop uses an exponentially decaying average, preventing the denominator from growing endlessly. Define $g_t$ as above and $g_t^2$ as the elementwise product of $g_t$ times $g_t$; that is, $g_t^2 = g_t \odot g_t$.
+
+The update rules are (with $v_0 = 0$):
+
+1.  **Compute decaying average of squared gradients**:
+    $$ \boldsymbol v_t = \gamma \boldsymbol v_{t-1} + (1 - \gamma) \boldsymbol g_t^2 $$
+2.  **Update parameters**:
+    $$ \boldsymbol{\theta}^{(t)} = \boldsymbol{\theta}^{(t-1)} - \eta \frac{1}{\sqrt{v_t} + \varepsilon}g_t $$
+Here, $v_t$ is the moving average of squared gradients, and $\gamma$ is the squared-gradient decay rate (e.g., 0.9), distinct from the momentum coefficient $\delta$ above. By "forgetting" the distant past, RMSprop keeps the learning rate adaptive and responsive throughout training.
+
+
+**Adam (Adaptive Moment Estimation)**
+
+Adam is a widely used default optimizer for neural networks [@KingmaBa2015]. It combines the ideas of **Momentum** (using the first moment, or mean, of the gradients) and **RMSprop** (using the second moment, or uncentered variance, of the gradients).
+
+The algorithm maintains two moving averages:
+
+1. **First moment estimate** (momentum), with first-moment decay $\beta_1$:
+   $$ \boldsymbol m_t = \beta_1 \boldsymbol m_{t-1} + (1 - \beta_1) \boldsymbol g_{t} $$
+2. **Second moment estimate** (uncentered variance), with second-moment decay $\beta_2$:
+   $$ \boldsymbol v_t = \beta_2 \boldsymbol v_{t-1} + (1 - \beta_2) \boldsymbol g_{t}^2 $$
+
+Here $\beta_1,\beta_2 \in [0,1)$ play the roles that $\delta$ and $\gamma$ played for Momentum and RMSprop, respectively. Since $\boldsymbol m_t$ and $\boldsymbol v_t$ are initialized as zero vectors, they are biased toward zero, especially during the initial time steps. Unrolling the recursion gives $\boldsymbol m_t = (1-\beta_1) \sum_{\tau=1}^{t} \beta_1^{t-\tau} \boldsymbol g_\tau$. To speak of a *bias* we need randomness in the gradients, which is where the mini-batches suppressed from our notation re-enter: think of $\boldsymbol g_\tau$ as the gradient of a randomly drawn batch, with the expectation below taken over that batch sampling. If the batch gradients are stationary with $\mathbb{E}[\boldsymbol g_\tau] = \boldsymbol \mu$, then $\mathbb{E}[\boldsymbol m_t] = (1-\beta_1^t)\boldsymbol \mu$. Adam corrects this bias by rescaling:
+
+3. **Bias-corrected estimates**:
+   $$ \hat{\boldsymbol m}_t = \frac{\boldsymbol m_t}{1 - \beta_1^t} $$
+   $$ \hat{\boldsymbol v}_t = \frac{\boldsymbol v_t}{1 - \beta_2^t} $$
+
+The correction restores unbiasedness under stationarity; during actual training, gradient means and second moments drift across iterations, so the correction is approximate but still removes most of the initial zero-init bias.
+
+4. **Parameter update**:
+   $$ \boldsymbol{\theta}^{(t)} = \boldsymbol{\theta}^{(t-1)} - \eta \frac{\hat{\boldsymbol m}_t}{\sqrt{\hat{\boldsymbol v}_t} + \varepsilon}. $$
+
+Adam is a common default starting point: it usually reduces training loss quickly across a wide range of problems without per-problem tuning. Whether it delivers the best final training loss or out-of-sample performance is problem-dependent, so optimizer choice and tuning remain part of the validation exercise. A modern variant is **AdamW** [@LoshchilovHutter2019AdamW], which decouples **weight decay** — an $L_2$-type shrinkage of the parameters applied directly in the update step, introduced properly in [the next chapter](feed_forward_nns.qmd) — from the adaptive gradient update; this makes the regularization effect easier to tune than in vanilla Adam with an ordinary $L_2$ penalty.
+
+## Optimizer Comparison
+
+The column **Optimizer state** reports the number of running state tensors the optimizer stores *per parameter* (on top of the parameter vector itself). It reflects the memory overhead of the update rule and should not be confused with dataset memory, which is controlled separately by the batch size.
+
+| **Algorithm** | **Optimizer state** | **Hyperparameters** | **Key Advantage** | **Key Limitation** |
+|---------------|---------------------|---------------------|-------------------|-------------------|
+| **Batch Gradient Descent** | 0 | $\eta$ | Stable, smooth convergence | Very slow; loads the full dataset per step |
+| **SGD** | 0 | $\eta$ | Fast per iteration | Noisy, sensitive to $\eta$ |
+| **Mini-Batch Gradient Descent** | 0 | $\eta$, batch size | Balances speed and stability | Additional hyperparameter to tune |
+| **Momentum** | 1 (velocity) | $\eta$, $\delta$ | Accelerates convergence, dampens oscillations | Can overshoot, needs tuning |
+| **AdaGrad** | 1 (squared-gradient sum) | $\eta$, $\varepsilon$ | Adapts per-parameter rates | Learning rate decays to zero |
+| **RMSprop** | 1 (moving average of squared gradients) | $\eta$, $\gamma$, $\varepsilon$ | Fixes AdaGrad's decay problem | No momentum component |
+| **Adam** | 2 (first and second moments) | $\eta$, $\beta_1$, $\beta_2$, $\varepsilon$ | Combines momentum + adaptation | Can converge to suboptimal points |
+
+The advantage and limitation entries describe typical behavior at reasonable tunings; none is unconditional. Actual performance depends on the objective's geometry, the noise induced by mini-batching, and the learning-rate choice — the conditions the convergence callout above spells out — and settling at a suboptimal stationary point is a risk every method on this list shares on non-convex objectives.
+
+## Visualizing Optimizers
+
+The following plot shows the paths taken by different optimizers on a contour plot of the loss function
+$$
+L(\theta_1,\theta_2)=1+0.1\,\theta_1^2+\theta_2^2,
+$$
+which is — up to the harmless constant — exactly the ill-conditioned quadratic of Exercise 4.1 with $a=0.2$ and $b=2$: flat in the $\theta_1$ direction, steep in $\theta_2$.
+
+The algorithms stop after at most 100 iterations, with stopping criterion $L(\theta_1,\theta_2)<1.01$ (close to the global minimum value of 1). Most optimizers use a learning rate of 0.3; the momentum panel uses 0.5 because the convex-combination velocity $u_t = \delta u_{t-1} + (1-\delta)g_t$ already shrinks the effective step by roughly $1-\delta$. The SGD path is illustrated by adding mini-batch-style noise to the gradient update, since there is no actual dataset behind the contour. Code is foldable via "Show the code".
+
+```{python}
+#| label: fig-optimizers
+#| fig-cap: "Paths of six optimizers on the ill-conditioned quadratic $L(\\theta_1,\\theta_2)=1+0.1\\,\\theta_1^2+\\theta_2^2$. In each panel the red line traces the parameter path from the common starting point (green dot) to the final iterate (red dot); the black star marks the global optimum at the origin, gray contour lines show loss levels, and the panel title reports the number of steps taken."
+#| code-fold: true
+import numpy as np
+import matplotlib.pyplot as plt
+
+# Set random seed for reproducibility
+np.random.seed(42)
+
+# Define loss function (less elongated for clearer visualization)
+def f(x, y):
+    return 1 + 0.1 * x**2 + 1 * y**2  # Less extreme ratio
+
+def df(x, y):
+    return 0.2 * x, 2 * y
+
+# Create contour plot
+x = np.linspace(-12, 12, 100)
+y = np.linspace(-8, 8, 100)
+X, Y = np.meshgrid(x, y)
+Z = f(X, Y)
+
+def run_batch_gd(x0, y0, lr=0.3, n_steps=100):
+    """Pure batch gradient descent - smooth path"""
+    path = [(x0, y0)]
+    x, y = x0, y0
+    for _ in range(n_steps):
+        gx, gy = df(x, y)
+        x -= lr * gx
+        y -= lr * gy
+        path.append((x, y))
+        if f(x, y) < 1.01:
+            break
+    return np.array(path)
+
+def run_sgd(x0, y0, lr=0.3, n_steps=100):
+    """Realistic SGD - simulate mini-batch variance"""
+    path = [(x0, y0)]
+    x, y = x0, y0
+    
+    # Generate synthetic dataset that creates natural variance
+    np.random.seed(123)  # Different seed for data generation
+    data_variance = 0.3  # Controls how much mini-batches differ
+    
+    for step in range(n_steps):
+        # Each mini-batch has slightly different gradient estimate
+        gx_base, gy_base = df(x, y)
+        
+        # Add realistic mini-batch variance (not just random noise)
+        gx_noise = np.random.normal(0, data_variance * abs(gx_base * 1))
+        gy_noise = np.random.normal(0, data_variance * abs(gy_base * 1))
+        
+        gx = gx_base + gx_noise
+        gy = gy_base + gy_noise
+        
+        x -= lr * gx
+        y -= lr * gy
+        path.append((x, y))
+        
+        if f(x, y) < 1.01:
+            break
+    
+    return np.array(path)
+
+def run_momentum(x0, y0, lr=0.5, beta=0.9, n_steps=100):
+    """Momentum optimizer with convex-combination velocity (matches the text)."""
+    path = [(x0, y0)]
+    x, y = x0, y0
+    vx, vy = 0, 0  # Initialize velocity
+
+    for _ in range(n_steps):
+        gx, gy = df(x, y)
+
+        # Velocity as convex combination (matches u_t = beta u_{t-1} + (1 - beta) g_t)
+        vx = beta * vx + (1 - beta) * gx
+        vy = beta * vy + (1 - beta) * gy
+
+        # Update parameters
+        x -= lr * vx
+        y -= lr * vy
+        path.append((x, y))
+
+        if f(x, y) < 1.01:
+            break
+
+    return np.array(path)
+
+def run_adagrad(x0, y0, lr=0.3, eps=1e-8, n_steps=100):
+    """AdaGrad optimizer - shows stalling behavior"""
+    path = [(x0, y0)]
+    x, y = x0, y0
+    gx_sum_sq, gy_sum_sq = 0, 0
+    
+    for step in range(n_steps):
+        gx, gy = df(x, y)
+        
+        # Accumulate squared gradients
+        gx_sum_sq += gx**2
+        gy_sum_sq += gy**2
+        
+        # AdaGrad update - learning rate decreases over time
+        effective_lr_x = lr / (np.sqrt(gx_sum_sq) + eps)
+        effective_lr_y = lr / (np.sqrt(gy_sum_sq) + eps)
+        
+        x -= effective_lr_x * gx
+        y -= effective_lr_y * gy
+        path.append((x, y))
+        
+        # More lenient stopping criterion to see stalling
+        if f(x, y) < 1.01 and step > 20:
+            break
+            
+        # Stop if steps become too small (stalling)
+        if step > 10 and effective_lr_x < 1e-4 and effective_lr_y < 1e-4:
+            break
+    
+    return np.array(path)
+
+def run_rmsprop(x0, y0, lr=0.3, gamma=0.9, eps=1e-8, n_steps=100):
+    """RMSprop optimizer - maintains learning rate"""
+    path = [(x0, y0)]
+    x, y = x0, y0
+    vx, vy = 0, 0
+    
+    for step in range(n_steps):
+        gx, gy = df(x, y)
+        
+        # Update moving average of squared gradients
+        vx = gamma * vx + (1 - gamma) * gx**2
+        vy = gamma * vy + (1 - gamma) * gy**2
+        
+        # RMSprop update - learning rate stays more stable
+        effective_lr_x = lr / (np.sqrt(vx) + eps)
+        effective_lr_y = lr / (np.sqrt(vy) + eps)
+        
+        x -= effective_lr_x * gx
+        y -= effective_lr_y * gy
+        path.append((x, y))
+        
+        # Same stopping criterion
+        if f(x, y) < 1.01 and step > 20:
+            break
+    
+    return np.array(path)
+
+def run_adam(x0, y0, lr=0.3, beta1=0.9, beta2=0.999, eps=1e-8, n_steps=100):
+    """Adam optimizer"""
+    path = [(x0, y0)]
+    x, y = x0, y0
+    mx, my = 0, 0
+    vx, vy = 0, 0
+    
+    for t in range(1, n_steps + 1):
+        gx, gy = df(x, y)
+        
+        # Update moments
+        mx = beta1 * mx + (1 - beta1) * gx
+        my = beta1 * my + (1 - beta1) * gy
+        vx = beta2 * vx + (1 - beta2) * gx**2
+        vy = beta2 * vy + (1 - beta2) * gy**2
+        
+        # Bias correction
+        mx_hat = mx / (1 - beta1**t)
+        my_hat = my / (1 - beta1**t)
+        vx_hat = vx / (1 - beta2**t)
+        vy_hat = vy / (1 - beta2**t)
+        
+        # Update parameters
+        x -= lr * mx_hat / (np.sqrt(vx_hat) + eps)
+        y -= lr * my_hat / (np.sqrt(vy_hat) + eps)
+        path.append((x, y))
+        
+        if f(x, y) < 1.01:
+            break
+    
+    return np.array(path)
+
+# Run all optimizers from the same starting point
+start_x, start_y = -10, 5
+path_batch = run_batch_gd(start_x, start_y)
+path_sgd = run_sgd(start_x, start_y)
+path_momentum = run_momentum(start_x, start_y)
+path_adagrad = run_adagrad(start_x, start_y)
+path_rmsprop = run_rmsprop(start_x, start_y)
+path_adam = run_adam(start_x, start_y)
+
+# Plot - using 2x3 grid to accommodate all 6 optimizers
+fig, axes = plt.subplots(3, 2, figsize=(10, 10))
+axes = axes.flatten()
+
+paths_and_titles = [
+    (path_batch, 'Batch Gradient Descent'),
+    (path_sgd, 'Stochastic Gradient Descent'),
+    (path_momentum, 'Momentum'),
+    (path_adagrad, 'AdaGrad'),
+    (path_rmsprop, 'RMSprop'),
+    (path_adam, 'Adam')
+]
+
+for i, (path, title) in enumerate(paths_and_titles):
+    ax = axes[i]
+    
+    # Create contour background
+    levels = np.logspace(0, 2, 15)  # Better level spacing
+    ax.contour(X, Y, Z, levels=levels, alpha=0.6, colors='gray', linewidths=0.5)
+    ax.contourf(X, Y, Z, levels=levels, alpha=0.3, cmap='viridis')
+    
+    # Plot optimization path
+    ax.plot(path[:, 0], path[:, 1], 'r-', linewidth=2, alpha=0.8)
+    ax.plot(path[0, 0], path[0, 1], 'go', markersize=10, label='Start', zorder=5)
+    ax.plot(path[-1, 0], path[-1, 1], 'ro', markersize=8, label='End', zorder=5)
+    ax.plot(0, 0, 'k*', markersize=15, label='Optimum', zorder=5)
+    
+    # Add arrows to show direction (fewer arrows for clarity)
+    if len(path) > 5:
+        arrow_indices = np.linspace(0, len(path)-2, min(6, len(path)-1), dtype=int)
+        for j in arrow_indices:
+            dx = path[j+1, 0] - path[j, 0]
+            dy = path[j+1, 1] - path[j, 1]
+            # Only draw arrow if movement is significant
+            if np.sqrt(dx**2 + dy**2) > 0.1:
+                ax.arrow(path[j, 0], path[j, 1], dx, dy, 
+                        head_width=0.3, head_length=0.2, fc='red', ec='red', alpha=0.7)
+    
+    ax.set_aspect('equal', adjustable='box')
+
+    ax.set_title(f'{title}\n({len(path)-1} steps)')
+    ax.set_xlabel('θ₁')
+    ax.set_ylabel('θ₂')
+    ax.legend(loc='upper right')
+    ax.grid(True, alpha=0.3)
+    ax.set_xlim(-12, 3)
+    ax.set_ylim(-2, 6)
+
+plt.tight_layout()
+plt.show()
+```
+
+:::{.callout-note}
+## Note on Algorithm Performance
+While Adam might not appear dramatically superior to other algorithms in this visualization, keep in mind that we're using a **very well-behaved quadratic function** for demonstration purposes. In practice, neural network loss landscapes are:
+
+- **Highly non-convex** with many local minima and saddle points
+- **High-dimensional** (often millions of parameters)
+- **Ill-conditioned** with vastly different scales across parameters; ill-conditioning is measured by the condition number $\kappa = \lambda_{\max}/\lambda_{\min}$, the ratio of the largest to the smallest eigenvalue of the Hessian (the largest to smallest curvature), with large $\kappa$ indicating a poorly conditioned, hard-to-optimize landscape
+- **Noisy** due to mini-batch sampling
+
+In such challenging real-world scenarios, Adam's adaptive learning rates and momentum typically provide significant advantages over simpler methods. This simple 2D example serves to illustrate the core behavioral differences between optimizers rather than their relative performance on complex problems.
+:::
+
+We can make the minimization problem more challenging by having multiple local minima and one global minimum. Of course, depending on the hyperparameters chosen, all algorithms may find the global minimum. The goal is to find an optimizer that is largely robust to different choices of hyperparameters.
+
+One disclosure is needed to read the figure honestly: the raw-gradient methods use much smaller learning rates (0.01 for batch gradient descent and SGD, 0.001 for momentum) than the adaptive methods (0.3 for AdaGrad, RMSprop, and Adam). This is deliberate rather than an unfair handicap — adaptive methods normalize the gradient scale, so they tolerate, and need, a much larger nominal step size, while plain gradient descent diverges on this surface at 0.3. But it means the panels compare algorithm designs *at workable tunings*, not the algorithms at a common learning rate.
+
+
+```{python}
+#| label: fig-optimizers-nonconvex
+#| fig-cap: "Comparison of optimization algorithms on a non-convex loss landscape with multiple local minima. In each panel the red line traces the path from the common start (green dot) to the final iterate (red dot); the black star marks the global minimum and gray contours show loss levels. Learning rates differ by design: 0.01 for batch gradient descent and SGD, 0.001 for momentum, and 0.3 for the adaptive methods (AdaGrad, RMSprop, Adam), whose gradient normalization requires a larger nominal step size."
+#| code-fold: true
+import numpy as np
+import matplotlib.pyplot as plt
+
+# Set random seed for reproducibility
+np.random.seed(42)
+
+# Define a more challenging non-convex function with multiple local minima
+def f_nonconvex(x, y):
+    return 2/3 * ((x**2 + y - 11)**2 + (x + y**2 - 7)**2 + (x - 4)**2 * (y + 2)**2)
+
+def df_nonconvex(x, y):
+    # Partial derivative with respect to x
+    dx = (2/3) * (4*x*(x**2 + y - 11) + 2*(x + y**2 - 7) + 2*(x - 4)*(y + 2)**2)
+    
+    # Partial derivative with respect to y
+    dy = (2/3) * (2*(x**2 + y - 11) + 4*y*(x + y**2 - 7) + 2*(x - 4)**2*(y + 2))
+    
+    return dx, dy
+
+# Create contour plot for non-convex function
+x_nc = np.linspace(-6, 6, 600)
+y_nc = np.linspace(-6, 6, 600)
+X_nc, Y_nc = np.meshgrid(x_nc, y_nc)
+Z_nc = f_nonconvex(X_nc, Y_nc)
+
+def run_optimizer_nonconvex(optimizer_func, x0, y0, **kwargs):
+    """Generic wrapper for running optimizers on non-convex function"""
+    path = [(x0, y0)]
+    x, y = x0, y0
+    
+    if 'momentum' in optimizer_func.__name__:
+        vx, vy = 0, 0
+        lr = kwargs.get('lr', 0.3)
+        beta = kwargs.get('beta', 0.9)
+        n_steps = kwargs.get('n_steps', 200)
+        
+        for _ in range(n_steps):
+            gx, gy = df_nonconvex(x, y)
+            vx = beta * vx + (1 - beta) * gx
+            vy = beta * vy + (1 - beta) * gy
+            x -= lr * vx
+            y -= lr * vy
+            path.append((x, y))
+            if f_nonconvex(x, y) < 1 or np.isnan(x) or np.isnan(y):
+                break
+                
+    elif 'adagrad' in optimizer_func.__name__:
+        gx_sum_sq, gy_sum_sq = 0, 0
+        lr = kwargs.get('lr', 0.3)
+        eps = kwargs.get('eps', 1e-8)
+        n_steps = kwargs.get('n_steps', 200)
+        
+        for step in range(n_steps):
+            gx, gy = df_nonconvex(x, y)
+            gx_sum_sq += gx**2
+            gy_sum_sq += gy**2
+            
+            effective_lr_x = lr / (np.sqrt(gx_sum_sq) + eps)
+            effective_lr_y = lr / (np.sqrt(gy_sum_sq) + eps)
+            
+            x -= effective_lr_x * gx
+            y -= effective_lr_y * gy
+            path.append((x, y))
+            
+            if f_nonconvex(x, y) < 1 or np.isnan(x) or np.isnan(y):
+                break
+            if step > 10 and effective_lr_x < 1e-6 and effective_lr_y < 1e-6:
+                break
+                
+    elif 'rmsprop' in optimizer_func.__name__:
+        vx, vy = 0, 0
+        lr = kwargs.get('lr', 0.3)
+        gamma = kwargs.get('gamma', 0.9)
+        eps = kwargs.get('eps', 1e-8)
+        n_steps = kwargs.get('n_steps', 200)
+        
+        for _ in range(n_steps):
+            gx, gy = df_nonconvex(x, y)
+            vx = gamma * vx + (1 - gamma) * gx**2
+            vy = gamma * vy + (1 - gamma) * gy**2
+            
+            x -= lr * gx / (np.sqrt(vx) + eps)
+            y -= lr * gy / (np.sqrt(vy) + eps)
+            path.append((x, y))
+            
+            if f_nonconvex(x, y) < 1 or np.isnan(x) or np.isnan(y):
+                break
+                
+    elif 'adam' in optimizer_func.__name__:
+        mx, my = 0, 0
+        vx, vy = 0, 0
+        lr = kwargs.get('lr', 0.3)
+        beta1 = kwargs.get('beta1', 0.9)
+        beta2 = kwargs.get('beta2', 0.99)
+        eps = kwargs.get('eps', 1e-8)
+        n_steps = kwargs.get('n_steps', 200)
+        
+        for t in range(1, n_steps + 1):
+            gx, gy = df_nonconvex(x, y)
+            
+            mx = beta1 * mx + (1 - beta1) * gx
+            my = beta1 * my + (1 - beta1) * gy
+            vx = beta2 * vx + (1 - beta2) * gx**2
+            vy = beta2 * vy + (1 - beta2) * gy**2
+            
+            mx_hat = mx / (1 - beta1**t)
+            my_hat = my / (1 - beta1**t)
+            vx_hat = vx / (1 - beta2**t)
+            vy_hat = vy / (1 - beta2**t)
+            
+            x -= lr * mx_hat / (np.sqrt(vx_hat) + eps)
+            y -= lr * my_hat / (np.sqrt(vy_hat) + eps)
+            path.append((x, y))
+            
+            if f_nonconvex(x, y) < 1 or np.isnan(x) or np.isnan(y):
+                break
+                
+    elif 'sgd' in optimizer_func.__name__:
+        lr = kwargs.get('lr', 0.3)
+        n_steps = kwargs.get('n_steps', 200)
+        np.random.seed(456)  # Different seed for SGD noise
+        data_variance = 0.2
+        
+        for _ in range(n_steps):
+            gx_base, gy_base = df_nonconvex(x, y)
+            
+            gx_noise = np.random.normal(0, data_variance * abs(gx_base * 5.3))
+            gy_noise = np.random.normal(0, data_variance * abs(gy_base * 5.3))
+            
+            gx = gx_base + gx_noise
+            gy = gy_base + gy_noise
+            
+            x -= lr * gx
+            y -= lr * gy
+            path.append((x, y))
+            
+            if f_nonconvex(x, y) < 1 or np.isnan(x) or np.isnan(y):
+                break
+                
+    else:  # Batch GD
+        lr = kwargs.get('lr', 0.3)
+        n_steps = kwargs.get('n_steps', 200)
+        
+        for _ in range(n_steps):
+            gx, gy = df_nonconvex(x, y)
+            x -= lr * gx
+            y -= lr * gy
+            path.append((x, y))
+            
+            if f_nonconvex(x, y) < 1 or np.isnan(x) or np.isnan(y):
+                break
+    
+    return np.array(path)
+
+# Define dummy functions for the wrapper
+def run_batch_gd_nc(): pass
+def run_sgd_nc(): pass
+def run_momentum_nc(): pass
+def run_adagrad_nc(): pass
+def run_rmsprop_nc(): pass
+def run_adam_nc(): pass
+
+# Run all optimizers from the same challenging starting point
+start_x_nc, start_y_nc = -4, 3  # Start far from any minimum
+
+path_batch_nc = run_optimizer_nonconvex(run_batch_gd_nc, start_x_nc, start_y_nc, lr=0.01)
+path_sgd_nc = run_optimizer_nonconvex(run_sgd_nc, start_x_nc, start_y_nc, lr=0.01)
+path_momentum_nc = run_optimizer_nonconvex(run_momentum_nc, start_x_nc, start_y_nc, lr=0.001, beta=0.9)
+path_adagrad_nc = run_optimizer_nonconvex(run_adagrad_nc, start_x_nc, start_y_nc, lr=0.3)
+path_rmsprop_nc = run_optimizer_nonconvex(run_rmsprop_nc, start_x_nc, start_y_nc, lr=0.3)
+path_adam_nc = run_optimizer_nonconvex(run_adam_nc, start_x_nc, start_y_nc, lr=0.3)
+
+# Plot - using 2x3 grid for all 6 optimizers
+fig, axes = plt.subplots(3, 2, figsize=(10, 10))
+axes = axes.flatten()
+
+paths_and_titles_nc = [
+    (path_batch_nc, 'Batch Gradient Descent'),
+    (path_sgd_nc, 'Stochastic Gradient Descent'),
+    (path_momentum_nc, 'Momentum'),
+    (path_adagrad_nc, 'AdaGrad'),
+    (path_rmsprop_nc, 'RMSprop'),
+    (path_adam_nc, 'Adam')
+]
+
+# Known global minima of Himmelblau's function
+global_minima = [(3.584428, -1.848126)]
+
+for i, (path, title) in enumerate(paths_and_titles_nc):
+    ax = axes[i]
+    
+    # Create contour background - use log scale for better visualization
+    levels = np.logspace(0, 3.4, 20)
+    ax.contour(X_nc, Y_nc, Z_nc, levels=levels, alpha=0.6, colors='gray', linewidths=0.5)
+    ax.contourf(X_nc, Y_nc, Z_nc, levels=levels, alpha=0.3, cmap='viridis')
+    
+    # Plot the known global minimum once per panel
+    gm_x, gm_y = global_minima[0]
+    ax.plot(gm_x, gm_y, 'k*', markersize=12, alpha=0.8, label='Global minimum')
+    
+    # Plot optimization path
+    if len(path) > 1:
+        ax.plot(path[:, 0], path[:, 1], 'r-', linewidth=2, alpha=0.8)
+        ax.plot(path[0, 0], path[0, 1], 'go', markersize=10, label='Start', zorder=5)
+        ax.plot(path[-1, 0], path[-1, 1], 'ro', markersize=8, label='End', zorder=5)
+        
+        # Add arrows for direction (fewer for clarity)
+        if len(path) > 5:
+            arrow_indices = np.linspace(0, len(path)-2, min(5, len(path)-1), dtype=int)
+            for j in arrow_indices:
+                dx = path[j+1, 0] - path[j, 0]
+                dy = path[j+1, 1] - path[j, 1]
+                if np.sqrt(dx**2 + dy**2) > 0.05:
+                    ax.arrow(path[j, 0], path[j, 1], dx, dy, 
+                            head_width=0.1, head_length=0.08, fc='red', ec='red', alpha=0.7)
+    
+    ax.set_aspect('equal', adjustable='box')
+
+    ax.set_title(f'{title}\n({len(path)-1} steps)')
+    ax.set_xlabel('θ₁')
+    ax.set_ylabel('θ₂')
+    ax.legend(loc='upper right')
+    ax.grid(True, alpha=0.3)
+    ax.set_xlim(-6.1, 6.1)
+    ax.set_ylim(-6.1, 6.1)
+
+plt.tight_layout()
+plt.show()
+```
+
+The non-convex surface makes the design differences visible in a way the quadratic could not. Compare the endpoints across the panels of @fig-optimizers-nonconvex: with several basins available, where an optimizer lands depends on its trajectory, not only on its speed. The raw-gradient methods follow the local downhill pull at the small step sizes their unnormalized gradients require, while the adaptive methods' rescaled steps carry them through flat regions where raw gradients are tiny. Neither behavior dominates — a path that crosses saddles quickly can also skip past a good basin — and the robust conclusion matches the callout above: judge optimizers by their sensitivity to tuning, not by any single trajectory.
+
+## Summary
+
+:::{.callout-important}
+## Key Takeaways
+1. **Gradient descent** is the basic optimization idea underlying modern neural-network training: update parameters in the direction of steepest descent.
+2. **Mini-batch gradient descent** is the practical standard because it balances computational efficiency with relatively stable gradient information.
+3. **Learning-rate choice** is central: too small leads to painfully slow progress, while too large leads to instability.
+4. **Advanced optimizers** such as Momentum, AdaGrad, RMSprop, and Adam modify vanilla gradient descent to improve stability, speed, or parameter-specific adaptation.
+5. **Adam** is often a strong default in practice, but optimizer choice matters more when the loss surface is non-convex, noisy, and high-dimensional.
+:::
+
+:::{.callout-warning}
+## Common Pitfalls
+
+**Learning Rate Issues**
+
+- Too high: Training becomes unstable, loss explodes
+- Too low: Training is painfully slow, may get stuck in poor local minima
+- Solution: Use adaptive optimizers like Adam, or learning rate schedules
+
+**Overfitting to Simple Examples**
+
+- Don't judge optimizers solely on toy 2D functions
+- Real neural networks have millions of parameters and complex loss landscapes
+- What works on simple problems may not scale to "deep learning"
+
+:::
+
+:::{.callout-note}
+Before moving on to neural networks, note the chapter boundary: so far the objects being optimized were generic objective functions. In the next chapter, the same optimization ideas are applied to feed-forward networks, where gradients are computed by backpropagation.
+:::
+
+## Exercises
+
+:::{.callout-note}
+## Exercise 4.1: Learning Rates in an Ill-Conditioned Quadratic Problem
+
+Consider the objective
+$$
+L(\theta_1,\theta_2)=\frac{1}{2}\left(a\theta_1^2+b\theta_2^2\right),
+\qquad a>b>0.
+$$
+Suppose we apply gradient descent with constant learning rate $\eta>0$:
+$$
+\boldsymbol{\theta}^{(t+1)}=\boldsymbol{\theta}^{(t)}-\eta \nabla L(\boldsymbol{\theta}^{(t)}).
+$$
+
+1. Derive the gradient and show that the updates satisfy
+   $$
+   \theta_1^{(t+1)}=(1-\eta a)\theta_1^{(t)},
+   \qquad
+   \theta_2^{(t+1)}=(1-\eta b)\theta_2^{(t)}.
+   $$
+2. Show that the iterates converge to $(0,0)$ for every initial value $\boldsymbol{\theta}^{(0)}$ if and only if
+   $$
+   0<\eta<\frac{2}{a}.
+   $$
+3. Explain why, when $a\gg b$, a single global learning rate creates a tension between fast progress in the $\theta_2$ direction and stability in the $\theta_1$ direction. Relate this to the motivation for adaptive optimization methods that rescale the update differently across coordinates.
+
+*Exam level. The exercise formalizes why optimization becomes difficult in ill-conditioned problems and why a single learning rate can be inadequate.*
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint for Part 2
+A scalar recursion $x_{t+1}=cx_t$ converges to zero if and only if $|c|<1$.
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint for Part 3
+Compare the learning rate that would be natural for the flat direction, $1/b$, with the stability restriction coming from the steep direction.
+:::
+
+:::{.callout-tip collapse="true"}
+## Solution
+
+**Part 1: Coordinate-Wise Gradient Descent Updates**
+
+The gradient is
+$$
+\nabla L(\theta_1,\theta_2)=
+\begin{pmatrix}
+a\theta_1\\
+b\theta_2
+\end{pmatrix}.
+$$
+Hence gradient descent gives
+$$
+\theta_1^{(t+1)}=\theta_1^{(t)}-\eta a\theta_1^{(t)}
+=(1-\eta a)\theta_1^{(t)},
+$$
+and
+$$
+\theta_2^{(t+1)}=\theta_2^{(t)}-\eta b\theta_2^{(t)}
+=(1-\eta b)\theta_2^{(t)}.
+$$
+
+**Part 2: Deriving the Convergence Restriction**
+
+The iterates converge to zero from every initial value if and only if both scalar recursions contract:
+$$
+|1-\eta a|<1
+\qquad\text{and}\qquad
+|1-\eta b|<1.
+$$
+These are equivalent to
+$$
+0<\eta<\frac{2}{a}
+\qquad\text{and}\qquad
+0<\eta<\frac{2}{b}.
+$$
+Since $a>b$, we have $\frac{2}{a}<\frac{2}{b}$, so the binding restriction is
+$$
+0<\eta<\frac{2}{a}.
+$$
+
+**Part 3: Why Ill-Conditioning Slows Optimization**
+
+If $a\gg b$, then the objective is much steeper in the $\theta_1$ direction than in the $\theta_2$ direction. Stability forces
+$$
+\eta<\frac{2}{a},
+$$
+which can be very small. But then the update factor in the flat direction is
+$$
+1-\eta b,
+$$
+which stays close to 1, so convergence along $\theta_2$ is very slow.
+
+Thus a single global learning rate cannot be simultaneously well-tuned for both directions: a larger $\eta$ would help progress in the flat direction but would destabilize the steep direction. This is one of the main motivations for adaptive methods, which scale updates differently across coordinates — the preconditioning idea introduced with AdaGrad.
+:::
+
+:::{.callout-note}
+## Exercise 4.2: Mini-Batch Gradients as Noisy Gradient Estimators
+
+Let the full-sample objective be
+$$
+L(\boldsymbol{\theta}) = \frac{1}{N}\sum_{i=1}^N \ell_i(\boldsymbol{\theta}),
+$$
+and define the corresponding full-sample gradient
+$$
+g(\boldsymbol{\theta}) = \frac{1}{N}\sum_{i=1}^N \nabla_{\boldsymbol{\theta}} \ell_i(\boldsymbol{\theta}).
+$$
+Now draw a mini-batch $B$ of size $b$ uniformly at random from $\{1,\dots,N\}$ without replacement, and define the mini-batch gradient estimator
+$$
+\hat g_B(\boldsymbol{\theta}) = \frac{1}{b}\sum_{i\in B}\nabla_{\boldsymbol{\theta}} \ell_i(\boldsymbol{\theta}).
+$$
+
+(Note the sampling scheme: the training algorithm in this chapter forms batches as a random *partition* of the data, whereas here a single batch is drawn by simple random sampling without replacement. The first batch of a freshly shuffled partition has exactly this distribution, so the calculations below describe it as well.)
+
+1. Show that
+   $$
+   \mathbb{E}\left[\hat g_B(\boldsymbol{\theta})\right] = g(\boldsymbol{\theta}),
+   $$
+   so the mini-batch gradient is an unbiased estimator of the full gradient.
+2. Consider the scalar case where $\nabla_{\boldsymbol{\theta}} \ell_i(\boldsymbol{\theta})$ is replaced by $z_i \in \mathbb{R}$. Show that
+   $$
+   \mathrm{Var}\left(\frac{1}{b}\sum_{i\in B} z_i\right)
+   =
+   \frac{N-b}{b(N-1)} \cdot \frac{1}{N}\sum_{i=1}^N (z_i-\bar z)^2,
+   $$
+   where $\bar z = \frac{1}{N}\sum_{i=1}^N z_i$.
+3. Use Part 2 to explain why smaller mini-batches (smaller $b$) produce noisier updates. Then explain one reason why such noise may nevertheless be useful in optimization.
+4. Suppose instead the data are a time series and the scalar gradients $z_t$ are covariance stationary with autocovariances $\gamma_\ell=\operatorname{Cov}(z_t,z_{t-\ell})$. An engineer proposes *contiguous time blocks* $\{t_0+1,\dots,t_0+b\}$ as batches, for the econometric reasons discussed in this chapter's reflection question. Show that the variance of the block gradient average is
+   $$
+   \operatorname{Var}\left(\frac{1}{b}\sum_{s=t_0+1}^{t_0+b} z_s\right)
+   =\frac{1}{b}\left[\gamma_0+2\sum_{\ell=1}^{b-1}\left(1-\frac{\ell}{b}\right)\gamma_\ell\right].
+   $$
+5. Assume now that $N$ is large relative to $b$ and that $\gamma_1,\dots,\gamma_{b-1}$ are all positive. Compare the block variance from Part 4 with the random-batch variance from Part 2, and explain why block batches then deliver noisier gradient estimates — yet may still be the right choice.
+
+*Exam level. The exercise formalizes why mini-batch updates are noisy but still useful approximations to the full gradient, and what serial dependence does to that noise.*
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint for Part 1
+Write the mini-batch estimator as an average of terms multiplied by inclusion indicators.
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint for Part 2
+Use the standard variance formula for sampling without replacement, or derive it from inclusion probabilities.
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint for Part 4
+The double-sum computation parallels Exercise 3.4 in the [previous chapter](evaluating_distributions.qmd): count the pairs $(t,s)$ at each lag $|t-s|=\ell$.
+:::
+
+:::{.callout-tip collapse="true"}
+## Solution
+
+**Part 1: Unbiasedness of the Mini-Batch Gradient**
+
+Let
+$$
+\mathbb{1}\{i \in B\}
+$$
+denote the inclusion indicator for observation $i$. Then
+$$
+\hat g_B(\boldsymbol{\theta})
+=
+\frac{1}{b}\sum_{i=1}^N \mathbb{1}\{i \in B\}\nabla_{\boldsymbol{\theta}}\ell_i(\boldsymbol{\theta}).
+$$
+Taking expectations and using
+$$
+\mathbb{E}[\mathbb{1}\{i \in B\}] = \frac{b}{N},
+$$
+$$
+\mathbb{E}[\hat g_B(\boldsymbol{\theta})]
+=
+\frac{1}{b}\sum_{i=1}^N \mathbb{E}[\mathbb{1}\{i \in B\}] \nabla_{\boldsymbol{\theta}}\ell_i(\boldsymbol{\theta})
+=
+\frac{1}{b}\sum_{i=1}^N \frac{b}{N}\nabla_{\boldsymbol{\theta}}\ell_i(\boldsymbol{\theta})
+=
+\frac{1}{N}\sum_{i=1}^N \nabla_{\boldsymbol{\theta}}\ell_i(\boldsymbol{\theta})
+= g(\boldsymbol{\theta}).
+$$
+
+So the mini-batch gradient is an unbiased estimator of the full gradient.
+
+**Part 2: Variance Under Sampling Without Replacement**
+
+Write the estimator with inclusion indicators, as in Part 1:
+$$
+\frac{1}{b}\sum_{i\in B} z_i
+=
+\frac{1}{b}\sum_{i=1}^N \mathbb{1}\{i \in B\}\, z_i.
+$$
+Under simple random sampling without replacement, the first- and second-order inclusion probabilities are
+$$
+\pi_i = \mathbb{P}(i \in B) = \frac{b}{N},
+\qquad
+\pi_{ij} = \mathbb{P}(i \in B,\ j \in B) = \frac{b(b-1)}{N(N-1)}
+\quad (i \neq j),
+$$
+because $b$ of the $N$ slots are filled, and given $i \in B$ the probability that $j$ also entered is $(b-1)/(N-1)$. The indicator moments follow:
+$$
+\mathrm{Var}\big(\mathbb{1}\{i\in B\}\big) = \pi_i(1-\pi_i) = \frac{b(N-b)}{N^2},
+\qquad
+\mathrm{Cov}\big(\mathbb{1}\{i\in B\},\mathbb{1}\{j\in B\}\big)
+= \pi_{ij}-\pi_i\pi_j
+= -\frac{b(N-b)}{N^2(N-1)},
+$$
+where the covariance is negative because drawing $i$ leaves one fewer slot for $j$.
+
+Subtracting the constant $\bar z$ from every $z_i$ shifts the estimator by exactly $\bar z$ (every sample contains $b$ terms) and leaves its variance unchanged, so we may assume $\bar z = 0$ without loss of generality; then $\sum_{i\ne j} z_i z_j = \big(\sum_i z_i\big)^2 - \sum_i z_i^2 = -\sum_i z_i^2$. Expanding the variance of the weighted sum of indicators,
+$$
+\mathrm{Var}\left(\frac{1}{b}\sum_{i\in B} z_i\right)
+=
+\frac{1}{b^2}\left[\sum_{i=1}^N \pi_i(1-\pi_i)\, z_i^2
++ \sum_{i\neq j} \big(\pi_{ij}-\pi_i\pi_j\big)\, z_i z_j\right]
+=
+\frac{1}{b^2}\left[\frac{b(N-b)}{N^2}
++ \frac{b(N-b)}{N^2(N-1)}\right]\sum_{i=1}^N z_i^2,
+$$
+using the sign flip from $\sum_{i\ne j} z_i z_j = -\sum_i z_i^2$ in the second term. The bracket simplifies to $\frac{b(N-b)}{N^2}\cdot\frac{N}{N-1} = \frac{b(N-b)}{N(N-1)}$, so
+$$
+\mathrm{Var}\left(\frac{1}{b}\sum_{i\in B} z_i\right)
+=
+\frac{N-b}{b(N-1)}\cdot\frac{1}{N}\sum_{i=1}^N z_i^2
+=
+\frac{N-b}{b(N-1)}\, S_N^2,
+\qquad
+S_N^2 = \frac{1}{N}\sum_{i=1}^N (z_i-\bar z)^2,
+$$
+which is the stated formula (reinstating a general $\bar z$). Two sanity checks: at $b = N$ the variance is zero, i.e. the full sample is drawn with certainty, and at $b = 1$ it reduces to $S_N^2$, the variance of a single random draw.
+
+**Part 3: Why Gradient Noise Can Help**
+
+The variance factor
+$$
+\frac{N-b}{b(N-1)}
+$$
+falls as $b$ increases. Therefore smaller mini-batches produce noisier gradient estimates and hence noisier parameter updates.
+
+That noise can nevertheless be useful because it can prevent the algorithm from following a rigid deterministic path. In non-convex problems, moderate noise may help the optimizer move away from poor local geometries such as narrow basins or saddle regions.
+
+**Part 4: Contiguous Blocks Under Serial Correlation**
+
+By stationarity, $\operatorname{Cov}(z_t,z_s)=\gamma_{|t-s|}$, and the double sum over the block contains $b$ diagonal pairs and $2(b-\ell)$ pairs at each lag $\ell=1,\dots,b-1$:
+$$
+\operatorname{Var}\left(\frac{1}{b}\sum_{s=t_0+1}^{t_0+b} z_s\right)
+=\frac{1}{b^2}\left[b\gamma_0+2\sum_{\ell=1}^{b-1}(b-\ell)\gamma_\ell\right]
+=\frac{1}{b}\left[\gamma_0+2\sum_{\ell=1}^{b-1}\left(1-\frac{\ell}{b}\right)\gamma_\ell\right].
+$$
+
+**Part 5: Noisier but Sometimes Right**
+
+For $N$ large relative to $b$, the random-batch variance from Part 2 is approximately $S_N^2/b \approx \gamma_0/b$: the finite-population factor $(N-b)/(N-1)$ tends to one, and over a long stationary stretch the cross-sectional dispersion $S_N^2$ approaches $\gamma_0$. The block variance carries the additional term $\frac{2}{b}\sum_{\ell}(1-\ell/b)\gamma_\ell$, which is positive under the assumed positive autocovariances: neighboring observations duplicate information, so a contiguous block contains fewer effective observations than a random batch of the same size. The block scheme can still be the right choice — when the model carries sequential state or preprocessing must respect real-time information sets, the extra gradient noise is the price of econometric validity, a tradeoff invisible if one counts only estimator variance.
+:::
+
+:::{.callout-note}
+## Exercise 4.3: Momentum on a Quadratic Objective
+
+Consider the one-dimensional quadratic objective
+$$
+L(\theta)=\frac{a}{2}\theta^2,
+\qquad a>0,
+$$
+and the momentum updates
+$$
+u_t=\delta u_{t-1}+(1-\delta)a\theta^{(t)},
+\qquad
+\theta^{(t+1)}=\theta^{(t)}-\eta u_t,
+$$
+where $\eta>0$ is the learning rate and $\delta\in[0,1)$ is the momentum parameter. (Note the indexing: here the gradient $a\theta^{(t)}$ is evaluated at the current iterate and produces $\theta^{(t+1)}$ — one index shift relative to the main text's convention, which is harmless for the dynamics.)
+
+1. Eliminate $u_t$ and show that $\theta^{(t)}$ satisfies the second-order recursion
+   $$
+   \theta^{(t+1)}
+   =
+   \big(1+\delta-\eta(1-\delta)a\big)\theta^{(t)}
+   -\delta \theta^{(t-1)}.
+   $$
+2. Show that when $\delta=0$ this reduces to the gradient descent recursion from Exercise 4.1. For the general case, use the following Schur-Cohn stability criterion [see, e.g., @Hamilton1994TimeSeries]: a second-order linear recursion $x_{t+1}=cx_t+dx_{t-1}$ with characteristic polynomial $p(\lambda)=\lambda^2-c\lambda-d$ converges to zero if and only if $p(1)>0$, $p(-1)>0$, and $|d|<1$. Apply this to show that, for general $\delta\in[0,1)$, the recursion converges to zero if and only if
+   $$
+   \eta<\frac{2(1+\delta)}{(1-\delta)\,a}.
+   $$
+3. Compare this stability bound with the vanilla gradient descent bound $\eta<2/a$. Explain why momentum widens the range of stable learning rates and why, despite this, momentum can still produce oscillatory transient behavior.
+
+*Exam level. The exercise turns momentum into a concrete dynamic system, derives its stability region, and compares it with vanilla gradient descent.*
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint for Part 1
+Use the update equation at times $t$ and $t-1$ to write
+$$
+u_{t-1}=\frac{\theta^{(t-1)}-\theta^{(t)}}{\eta}.
+$$
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint for Part 2
+When $\delta=0$ the lagged term vanishes. For the general case, identify $c$ and $d$ in the given stability criterion by matching the recursion to the form $x_{t+1}=cx_t+dx_{t-1}$. Then evaluate $p(1)$, $p(-1)$, and $|d|$ separately.
+:::
+
+:::{.callout-tip collapse="true"}
+## Solution
+
+**Part 1: Deriving the Second-Order Recursion**
+
+From the parameter update,
+$$
+\theta^{(t)}=\theta^{(t-1)}-\eta u_{t-1},
+$$
+so
+$$
+u_{t-1}=\frac{\theta^{(t-1)}-\theta^{(t)}}{\eta}.
+$$
+Now substitute this into the momentum update:
+$$
+u_t=\delta \frac{\theta^{(t-1)}-\theta^{(t)}}{\eta}+(1-\delta)a\theta^{(t)}.
+$$
+Using $\theta^{(t+1)}=\theta^{(t)}-\eta u_t$, we obtain
+\begin{align*}
+\theta^{(t+1)}
+&=
+\theta^{(t)}-\eta\left[\delta \frac{\theta^{(t-1)}-\theta^{(t)}}{\eta}+(1-\delta)a\theta^{(t)}\right] \\
+&=
+\theta^{(t)}-\delta(\theta^{(t-1)}-\theta^{(t)})-\eta(1-\delta)a\theta^{(t)} \\
+&=
+\big(1+\delta-\eta(1-\delta)a\big)\theta^{(t)}-\delta\theta^{(t-1)}.
+\end{align*}
+
+**Part 2: Stability Analysis**
+
+When $\delta=0$, the recursion becomes $\theta^{(t+1)}=(1-\eta a)\theta^{(t)}$, which is the gradient descent recursion from Exercise 4.1. This converges iff $|1-\eta a|<1$, i.e., $0<\eta<2/a$.
+
+For general $\delta\in[0,1)$, write $c=1+\delta-\eta(1-\delta)a$. The recursion has characteristic polynomial
+$$
+p(\lambda)=\lambda^2-c\lambda+\delta.
+$$
+By the stability criterion given in the exercise, convergence requires $p(1)>0$, $p(-1)>0$, and $|\delta|<1$.
+
+(i) $p(1)=1-c+\delta=\eta(1-\delta)a>0$, which always holds.
+
+(ii) $p(-1)=1+c+\delta=2(1+\delta)-\eta(1-\delta)a>0$, giving
+$$
+\eta<\frac{2(1+\delta)}{(1-\delta)\,a}.
+$$
+
+(iii) $|\delta|<1$ holds by assumption.
+
+Therefore convergence requires $\eta<\frac{2(1+\delta)}{(1-\delta)\,a}$.
+
+**Part 3: Wider Stability but Possible Oscillation**
+
+At $\delta=0$ the bound is $\eta<2/a$. For $\delta>0$ the bound becomes $2(1+\delta)/((1-\delta)a)>2/a$, so momentum widens the range of stable learning rates.
+
+However, the characteristic roots are complex when the discriminant $c^2-4\delta<0$. Complex roots mean the iterates oscillate even while converging: the algorithm overshoots and corrects, cycling around the optimum before settling down. This explains why momentum can accelerate convergence in directions of persistent gradient but produces oscillatory transient behavior when the effective step size is aggressive.
+:::
+
+## References
+
+::: {#refs}
+:::
