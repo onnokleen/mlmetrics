@@ -438,7 +438,7 @@ window.Quarto = {
 </section>
 <section id="sec-adv-forest-weights" class="level2" data-number="13.3">
 <h2 data-number="13.3" class="anchored" data-anchor-id="sec-adv-forest-weights"><span class="header-section-number">13.3</span> Standard Forests as Weighted Averages</h2>
-<p>A standard random forest predicts a conditional mean by averaging outcomes of training observations that frequently land in the same leaves as the forecast point. For a forest of <span class="math inline">\(B\)</span> trees trained on <span class="math inline">\(n\)</span> observations, let <span class="math inline">\(L_b(x)\)</span> denote the terminal leaf reached by <span class="math inline">\(x\)</span> in tree <span class="math inline">\(b\)</span>, and let <span class="math inline">\(N_b(x)\)</span> be the number of <em>original</em> training observations assigned to that leaf. The original-observation convention used by QRF defines the neighborhood mean </p>
+<p>Recall from the <a href="./random_forests.html#sec-rf-weights">random-forest weight representation</a> that a forest prediction can be read as a weighted average of training outcomes that frequently land in the same leaves as the forecast point. For a forest of <span class="math inline">\(B\)</span> trees trained on <span class="math inline">\(n\)</span> observations, let <span class="math inline">\(L_b(x)\)</span> denote the terminal leaf reached by <span class="math inline">\(x\)</span> in tree <span class="math inline">\(b\)</span>, and let <span class="math inline">\(N_b(x)\)</span> be the number of <em>original</em> training observations assigned to that leaf. The original-observation convention used by QRF defines the neighborhood mean </p>
 <div class="display-math-block">
 <p><span class="math display">\[
 \hat \mu_w(x)
@@ -475,7 +475,7 @@ Why this matters
 <section id="sec-adv-forest-limits" class="level2" data-number="13.4">
 <h2 data-number="13.4" class="anchored" data-anchor-id="sec-adv-forest-limits"><span class="header-section-number">13.4</span> Limitations of Standard Random Forests</h2>
 <p>The weighted-average view also makes the limitations of ordinary forests clear.</p>
-<p><strong>Only a point prediction.</strong> A standard regression forest estimates something like <span class="math inline">\(\mathbb{E}[Y\mid X=x]\)</span>. It does not directly report tail probabilities, quantiles, skewness, or multimodality of <span class="math inline">\(Y\mid X=x\)</span>.</p>
+<p><strong>Only a point prediction.</strong> A standard regression forest returns an average of training outcomes in forest-defined neighborhoods. Under squared-error risk and conditions that make this weighted average consistent, its population target is the conditional mean <span class="math inline">\(\mathbb{E}[Y\mid X=x]\)</span>. It does not directly report tail probabilities, quantiles, skewness, or multimodality of <span class="math inline">\(Y\mid X=x\)</span>.</p>
 <p><strong>Constant local model.</strong> Inside each leaf, the local prediction is an average. The leaf therefore cannot represent a within-neighborhood slope even when the regression function is locally smooth rather than locally constant.</p>
 <p><strong>Prediction, not causality.</strong> The forest neighborhood is chosen to improve prediction. A split or variable importance measure should not be interpreted as a treatment effect or structural parameter without an identification design.</p>
 <p><strong>Potential honesty problem.</strong> A split is <em>honest</em> when the data used to choose the split structure and the data used to estimate the leaf values are disjoint. Standard forests often use the same observations for both tasks. The resulting adaptivity can bias leaf estimates because the prediction rule reuses outcomes that helped select the splits <span class="citation" data-cites="WagerAthey2018">(<a href="#ref-WagerAthey2018" role="doc-biblioref">Wager and Athey 2018</a>)</span>.</p>
@@ -733,6 +733,72 @@ g_i^{(m)}
 \mathcal{I}(\theta^{(m-1)}(x_i))^{-1}g_i^{(m)}.
 \]</span></p>
 </div>
+<p><a href="#fig-ngboost-natural-step" class="quarto-xref">Figure&nbsp;13.2</a> makes the rescaling visible for a Gaussian negative log-likelihood parameterized by its mean <span class="math inline">\(\mu\)</span> and log standard deviation <span class="math inline">\(\ell=\log\sigma\)</span>. The contour lines are equal-loss sets for a five-observation sample. Both arrows start from the same parameter value and use the same nominal step size; they differ only in whether the loss gradient is used directly or premultiplied by inverse Fisher information.</p>
+<div id="cell-fig-ngboost-natural-step" class="cell" data-execution_count="3">
+<details class="code-fold">
+<summary>Show the code</summary>
+<div class="sourceCode cell-code" id="cb2"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> numpy <span class="im">as</span> np</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> matplotlib.pyplot <span class="im">as</span> plt</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>y_demo <span class="op">=</span> np.array([<span class="op">-</span><span class="fl">2.0</span>, <span class="op">-</span><span class="fl">0.5</span>, <span class="fl">0.0</span>, <span class="fl">1.0</span>, <span class="fl">2.0</span>])</span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>mu_grid <span class="op">=</span> np.linspace(<span class="op">-</span><span class="fl">2.5</span>, <span class="fl">2.5</span>, <span class="dv">260</span>)</span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>ell_grid <span class="op">=</span> np.linspace(<span class="op">-</span><span class="fl">1.0</span>, <span class="fl">1.2</span>, <span class="dv">240</span>)</span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>MU, ELL <span class="op">=</span> np.meshgrid(mu_grid, ell_grid)</span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>LOSS <span class="op">=</span> ELL <span class="op">+</span> <span class="fl">0.5</span> <span class="op">*</span> np.mean(</span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>    (y_demo[<span class="va">None</span>, <span class="va">None</span>, :] <span class="op">-</span> MU[:, :, <span class="va">None</span>]) <span class="op">**</span> <span class="dv">2</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>    <span class="op">*</span> np.exp(<span class="op">-</span><span class="fl">2.0</span> <span class="op">*</span> ELL[:, :, <span class="va">None</span>]),</span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>    axis<span class="op">=</span><span class="dv">2</span>,</span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>LOSS <span class="op">=</span> LOSS <span class="op">-</span> LOSS.<span class="bu">min</span>()</span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a>mu0, ell0 <span class="op">=</span> <span class="op">-</span><span class="fl">1.0</span>, <span class="fl">0.4</span></span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a>mean_sq_resid <span class="op">=</span> np.mean((y_demo <span class="op">-</span> mu0) <span class="op">**</span> <span class="dv">2</span>)</span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a>ordinary <span class="op">=</span> np.array([</span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a>    np.exp(<span class="op">-</span><span class="fl">2.0</span> <span class="op">*</span> ell0) <span class="op">*</span> (mu0 <span class="op">-</span> y_demo.mean()),</span>
+<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a>    <span class="fl">1.0</span> <span class="op">-</span> np.exp(<span class="op">-</span><span class="fl">2.0</span> <span class="op">*</span> ell0) <span class="op">*</span> mean_sq_resid,</span>
+<span id="cb2-20"><a href="#cb2-20" aria-hidden="true" tabindex="-1"></a>])</span>
+<span id="cb2-21"><a href="#cb2-21" aria-hidden="true" tabindex="-1"></a>fisher <span class="op">=</span> np.diag([np.exp(<span class="op">-</span><span class="fl">2.0</span> <span class="op">*</span> ell0), <span class="fl">2.0</span>])</span>
+<span id="cb2-22"><a href="#cb2-22" aria-hidden="true" tabindex="-1"></a>natural <span class="op">=</span> np.linalg.solve(fisher, ordinary)</span>
+<span id="cb2-23"><a href="#cb2-23" aria-hidden="true" tabindex="-1"></a>step <span class="op">=</span> <span class="fl">0.8</span></span>
+<span id="cb2-24"><a href="#cb2-24" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-25"><a href="#cb2-25" aria-hidden="true" tabindex="-1"></a>fig, ax <span class="op">=</span> plt.subplots(figsize<span class="op">=</span>(<span class="fl">8.2</span>, <span class="fl">4.8</span>))</span>
+<span id="cb2-26"><a href="#cb2-26" aria-hidden="true" tabindex="-1"></a>levels <span class="op">=</span> [<span class="fl">0.02</span>, <span class="fl">0.05</span>, <span class="fl">0.10</span>, <span class="fl">0.20</span>, <span class="fl">0.40</span>, <span class="fl">0.80</span>, <span class="fl">1.50</span>, <span class="fl">2.50</span>, <span class="fl">4.00</span>]</span>
+<span id="cb2-27"><a href="#cb2-27" aria-hidden="true" tabindex="-1"></a>contours <span class="op">=</span> ax.contour(MU, ELL, LOSS, levels<span class="op">=</span>levels, cmap<span class="op">=</span><span class="st">"Greys"</span>)</span>
+<span id="cb2-28"><a href="#cb2-28" aria-hidden="true" tabindex="-1"></a>ax.clabel(contours, inline<span class="op">=</span><span class="va">True</span>, fontsize<span class="op">=</span><span class="dv">8</span>, fmt<span class="op">=</span><span class="st">"</span><span class="sc">%.2g</span><span class="st">"</span>)</span>
+<span id="cb2-29"><a href="#cb2-29" aria-hidden="true" tabindex="-1"></a>ax.scatter([mu0], [ell0], color<span class="op">=</span><span class="st">"black"</span>, s<span class="op">=</span><span class="dv">45</span>, zorder<span class="op">=</span><span class="dv">4</span>, label<span class="op">=</span><span class="st">"Starting value"</span>)</span>
+<span id="cb2-30"><a href="#cb2-30" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-31"><a href="#cb2-31" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> direction, color, label <span class="kw">in</span> [</span>
+<span id="cb2-32"><a href="#cb2-32" aria-hidden="true" tabindex="-1"></a>    (ordinary, <span class="st">"C3"</span>, <span class="st">"Ordinary gradient"</span>),</span>
+<span id="cb2-33"><a href="#cb2-33" aria-hidden="true" tabindex="-1"></a>    (natural, <span class="st">"C0"</span>, <span class="st">"Natural gradient"</span>),</span>
+<span id="cb2-34"><a href="#cb2-34" aria-hidden="true" tabindex="-1"></a>]:</span>
+<span id="cb2-35"><a href="#cb2-35" aria-hidden="true" tabindex="-1"></a>    delta <span class="op">=</span> <span class="op">-</span>step <span class="op">*</span> direction</span>
+<span id="cb2-36"><a href="#cb2-36" aria-hidden="true" tabindex="-1"></a>    ax.arrow(mu0, ell0, delta[<span class="dv">0</span>], delta[<span class="dv">1</span>], width<span class="op">=</span><span class="fl">0.012</span>,</span>
+<span id="cb2-37"><a href="#cb2-37" aria-hidden="true" tabindex="-1"></a>             head_width<span class="op">=</span><span class="fl">0.09</span>, length_includes_head<span class="op">=</span><span class="va">True</span>,</span>
+<span id="cb2-38"><a href="#cb2-38" aria-hidden="true" tabindex="-1"></a>             color<span class="op">=</span>color, alpha<span class="op">=</span><span class="fl">0.9</span>, label<span class="op">=</span>label)</span>
+<span id="cb2-39"><a href="#cb2-39" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-40"><a href="#cb2-40" aria-hidden="true" tabindex="-1"></a>ax.set_xlabel(<span class="vs">r"Mean parameter </span><span class="dv">$\m</span><span class="vs">u</span><span class="dv">$</span><span class="vs">"</span>)</span>
+<span id="cb2-41"><a href="#cb2-41" aria-hidden="true" tabindex="-1"></a>ax.set_ylabel(<span class="vs">r"Log standard deviation </span><span class="dv">$</span><span class="er">\</span><span class="vs">ell=</span><span class="er">\</span><span class="vs">log</span><span class="dv">\s</span><span class="vs">igma</span><span class="dv">$</span><span class="vs">"</span>)</span>
+<span id="cb2-42"><a href="#cb2-42" aria-hidden="true" tabindex="-1"></a>ax.set_title(<span class="st">"Fisher scaling changes the descent direction"</span>)</span>
+<span id="cb2-43"><a href="#cb2-43" aria-hidden="true" tabindex="-1"></a>ax.grid(<span class="va">True</span>, alpha<span class="op">=</span><span class="fl">0.18</span>)</span>
+<span id="cb2-44"><a href="#cb2-44" aria-hidden="true" tabindex="-1"></a>ax.legend(frameon<span class="op">=</span><span class="va">False</span>)</span>
+<span id="cb2-45"><a href="#cb2-45" aria-hidden="true" tabindex="-1"></a>plt.tight_layout()</span>
+<span id="cb2-46"><a href="#cb2-46" aria-hidden="true" tabindex="-1"></a>plt.show()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</details>
+<div class="cell-output cell-output-display">
+<div id="fig-ngboost-natural-step" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-ngboost-natural-step-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="adv_tree_based_methods_files/figure-html/fig-ngboost-natural-step-output-1.png" class="img-fluid figure-img">
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-ngboost-natural-step-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;13.2: Ordinary and natural-gradient descent directions for a Gaussian negative log-likelihood in the parameterization <span class="math inline">\((\mu,\ell)\)</span>, where <span class="math inline">\(\ell=\log\sigma\)</span>. Contours show the sample-average loss above its minimum. Both arrows start at <span class="math inline">\((\mu,\ell)=(-1,0.4)\)</span> and use the same nominal step size. Fisher scaling places relatively more weight on correcting the mean at this starting point, so the natural-gradient arrow moves farther horizontally and less vertically.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>In <a href="#fig-ngboost-natural-step" class="quarto-xref">Figure&nbsp;13.2</a>, the ordinary direction reacts to the numerical coordinates themselves, whereas the natural direction measures a change relative to how much it moves the predictive distribution. The figure is illustrative rather than a convergence comparison: line search and repeated boosted stages still determine the realized path.</p>
+<p>The Bernoulli leaf update in the <a href="./gradient_boosting.html#sec-gb-general">gradient-boosting chapter</a> is the scalar version of this connection. Its Newton denominator <span class="math inline">\(\sum_i p_i(1-p_i)\)</span> is the Fisher curvature of the leaf’s log-odds parameter, so dividing the score by that quantity is a one-parameter Fisher-scoring step. NGBoost extends that information scaling to a vector of distribution parameters and then approximates each component with a base learner.</p>
 <p>This chapter uses a positive loss-gradient convention: NGBoost fits a weak learner <span class="math inline">\(\hat h_m(x)\)</span> to <span class="math inline">\(\tilde g_i^{(m)}\)</span> and subtracts the fitted direction. The <a href="./gradient_boosting.html">gradient-boosting chapter</a> instead defined pseudo-residuals as <em>negative</em> gradients and added the fitted tree; the two sign conventions describe the same descent step.</p>
 <p>NGBoost chooses one stage-specific scale by a line search, </p>
 <div class="display-math-block">

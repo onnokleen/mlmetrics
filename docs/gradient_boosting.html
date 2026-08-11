@@ -416,7 +416,7 @@ window.Quarto = {
 <h1 data-number="12"><span class="header-section-number">12</span> Gradient Boosting</h1>
 <section id="overview" class="level2" data-number="12.1">
 <h2 data-number="12.1" class="anchored" data-anchor-id="overview"><span class="header-section-number">12.1</span> Overview</h2>
-<p>Gradient boosting is a sequential tree-based method that builds an additive predictor by repeatedly fitting new trees to the mistakes of the current ensemble. Where random forests mainly reduce variance by averaging many randomized, less-correlated trees, boosting mainly reduces bias by adding weak learners in a carefully targeted way. The modern gradient-boosting formulation is due to <span class="citation" data-cites="Friedman2001Greedy">J. H. Friedman (<a href="#ref-Friedman2001Greedy" role="doc-biblioref">2001</a>)</span>; AdaBoost is an important predecessor and special case in the broader boosting literature <span class="citation" data-cites="FreundSchapire1997">(<a href="#ref-FreundSchapire1997" role="doc-biblioref">Freund and Schapire 1997</a>)</span>.</p>
+<p>Gradient boosting is a sequential tree-based method that builds an additive predictor by repeatedly fitting new trees to the mistakes of the current ensemble. Where random forests mainly reduce variance by averaging many randomized, less-correlated trees, boosting mainly reduces bias by adding weak learners in a carefully targeted way. The modern gradient-boosting formulation is due to <span class="citation" data-cites="Friedman2001Greedy">J. H. Friedman (<a href="#ref-Friedman2001Greedy" role="doc-biblioref">2001</a>)</span>; adaptive boosting (AdaBoost) is an important predecessor and special case in the broader boosting literature <span class="citation" data-cites="FreundSchapire1997">(<a href="#ref-FreundSchapire1997" role="doc-biblioref">Freund and Schapire 1997</a>)</span>.</p>
 <p>For econometricians, boosting is among the strongest predictive tools for tabular data. It can learn nonlinearities, interactions, threshold effects, and asymmetric predictive relationships without the researcher specifying them. It is well suited to settings where the signal is spread across many variables, so that a single tree cannot capture it.</p>
 <p>At the same time, boosting is more sensitive to tuning than random forests. Learning rate, tree depth, early stopping, and validation design are all consequential. In time-series and forecasting applications, careless validation can create large but spurious performance gains.</p>
 </section>
@@ -553,6 +553,7 @@ r_{im} = y_i - \hat F_{m-1}(x_i).
 \]</span></p>
 </div>
 <p>If <span class="math inline">\(\nu = 1\)</span>, the correction is taken in full. If <span class="math inline">\(\nu &lt; 1\)</span>, the update is shrunken.</p>
+<p>For an econometrician, this is shrunken forward-stagewise regression. If the candidate weak learners were single regressors rather than trees, each stage would run a low-complexity ordinary least squares regression of the current residuals on the candidate regressors, add only a fraction <span class="math inline">\(\nu\)</span> of the selected fitted value, and then recompute the residuals. This is the componentwise <span class="math inline">\(L_2\)</span>-boosting connection developed by <span class="citation" data-cites="BuhlmannYu2003">Bühlmann and Yu (<a href="#ref-BuhlmannYu2003" role="doc-biblioref">2003</a>)</span>. A shallow tree changes the function class from one regressor to a piecewise-constant rule, but the stagewise residual-regression logic is the same.</p>
 <div class="callout callout-style-default callout-note callout-titled">
 <div class="callout-header d-flex align-content-center">
 <div class="callout-icon-container">
@@ -662,6 +663,57 @@ r_{im}
 \]</span></p>
 </div>
 <p>The next tree is fit to these pseudo-residuals, and the ensemble is updated in the direction of steepest descent in function space. That is why the method is called <strong>gradient</strong> boosting.</p>
+<div class="callout callout-style-default callout-note callout-titled" title="More info: Pinball and Huber losses">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-3-contents" aria-controls="callout-3" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+More info: Pinball and Huber losses
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-3" class="callout-3-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
+<p>The differentiability assumption can be relaxed. Two useful examples show how the loss changes both the statistical target and the pseudo-residuals.</p>
+<p><strong>Pinball loss for conditional quantiles.</strong> Let <span class="math inline">\(u_i=y_i-F(x_i)\)</span> be the current forecast error and choose a quantile level <span class="math inline">\(\tau\in(0,1)\)</span>. The pinball loss is</p>
+<div class="display-math-block">
+<p><span class="math display">\[
+\rho_\tau(u_i)
+=
+\begin{cases}
+\tau u_i, &amp; u_i\geq 0,\\
+(\tau-1)u_i, &amp; u_i&lt;0.
+\end{cases}
+\]</span></p>
+</div>
+<p>The loss penalizes underprediction at rate <span class="math inline">\(\tau\)</span> and overprediction at rate <span class="math inline">\(1-\tau\)</span>. Minimizing its conditional expected value targets the conditional <span class="math inline">\(\tau\)</span>-quantile; when <span class="math inline">\(\tau=0.5\)</span>, the loss is proportional to absolute error and targets a conditional median. The two linear pieces meet at <span class="math inline">\(u_i=0\)</span>, where the ordinary derivative does not exist. Away from that kink, the negative derivative with respect to <span class="math inline">\(F(x_i)\)</span> is</p>
+<div class="display-math-block">
+<p><span class="math display">\[
+r_{im}
+=
+\begin{cases}
+\tau, &amp; y_i&gt;\hat F_{m-1}(x_i),\\
+\tau-1, &amp; y_i&lt;\hat F_{m-1}(x_i).
+\end{cases}
+\]</span></p>
+</div>
+<p>At equality, the loss subgradient with respect to <span class="math inline">\(F(x_i)\)</span> can be any value in <span class="math inline">\([-\tau,1-\tau]\)</span>, so the corresponding pseudo-residual—its negative—can be any value in <span class="math inline">\([\tau-1,\tau]\)</span>. A <strong>subgradient</strong> is a generalized slope for a non-differentiable point. Implementations choose one valid pseudo-residual and fit the next tree to these asymmetric targets.</p>
+<p><strong>Huber loss for robust location prediction.</strong> For a threshold <span class="math inline">\(\delta&gt;0\)</span>, the Huber loss is quadratic for small errors and linear for large ones:</p>
+<div class="display-math-block">
+<p><span class="math display">\[
+H_\delta(u_i)
+=
+\begin{cases}
+\tfrac{1}{2}u_i^2, &amp; |u_i|\leq\delta,\\
+\delta\bigl(|u_i|-\tfrac{1}{2}\delta\bigr), &amp; |u_i|&gt;\delta.
+\end{cases}
+\]</span></p>
+</div>
+<p>Its negative loss gradient with respect to <span class="math inline">\(F(x_i)\)</span> is the clipped residual <span class="math inline">\(\max\{-\delta,\min(u_i,\delta)\}\)</span>. Large forecast errors therefore cannot generate arbitrarily large pseudo-residuals. The general lesson is that gradient boosting is not tied to squared, Bernoulli, or exponential loss: the chosen loss determines the population target, the pseudo-residuals, and the loss-optimal leaf values.</p>
+</div>
+</div>
+</div>
 <p>To see the gradient structure precisely, think of <span class="math inline">\(F\)</span> as a vector <span class="math inline">\((F(x_1), \ldots, F(x_n))^\top \in \mathbb{R}^n\)</span>, where each coordinate is the fitted value at one training observation. The total loss is a function of this vector, <span class="math inline">\(L(F) = \sum_{i=1}^n \ell(y_i, F(x_i))\)</span> — the same training objective introduced for squared loss in <a href="#sec-gb-squared-error" class="quarto-xref">Section&nbsp;12.4</a>, now written for a general <span class="math inline">\(\ell\)</span> — and the <span class="math inline">\(i\)</span>-th coordinate of its negative gradient at <span class="math inline">\(\hat F_{m-1}\)</span> is exactly <span class="math inline">\(r_{im}\)</span>. Boosting cannot step directly in this direction, because the result would be <span class="math inline">\(n\)</span> numbers with no way to generalize to new observations. Instead, each tree <span class="math inline">\(\hat{h}_m\)</span> approximates the negative gradient within a structured, tree-shaped function class. Fitting a tree to the pseudo-residuals is therefore fitting a generalizable approximation to the steepest-descent direction.</p>
 <p><strong>Refining the leaf values.</strong> Fitting a least-squares tree to the pseudo-residuals serves to determine the <em>split structure</em> — the partition of the predictor space into leaves <span class="math inline">\(R_{jm}\)</span> (the <span class="math inline">\(j\)</span>-th leaf of the tree fit at iteration <span class="math inline">\(m\)</span>) — but the least-squares leaf means need not be the loss-optimal constants on the scale of <span class="math inline">\(\ell\)</span>. The loss-optimal leaf values are obtained by a separate one-dimensional minimization within each leaf,</p>
 <div class="display-math-block">
@@ -669,15 +721,23 @@ r_{im}
 \gamma_{jm} = \arg\min_{\gamma} \sum_{i:\, x_i \in R_{jm}} \ell\big(y_i,\, \hat F_{m-1}(x_i) + \gamma\big),
 \]</span></p>
 </div>
-<p>after which the update becomes <span class="math inline">\(\hat F_m = \hat F_{m-1} + \nu \sum_j \gamma_{jm} \mathbf{1}\{x \in R_{jm}\}\)</span> rather than <span class="math inline">\(\hat F_{m-1} + \nu \hat h_m\)</span>. For the squared-error case the two coincide — the minimizing <span class="math inline">\(\gamma_{jm}\)</span> is just the mean pseudo-residual in the leaf — so the distinction only matters for general losses such as the log-odds-scale Bernoulli loss below. This per-leaf line search is Friedman’s <span class="citation" data-cites="Friedman2001Greedy">(<a href="#ref-Friedman2001Greedy" role="doc-biblioref">J. H. Friedman 2001</a>)</span> TreeBoost refinement.</p>
+<p>after which the update becomes <span class="math inline">\(\hat F_m = \hat F_{m-1} + \nu \sum_j \gamma_{jm} \mathbf{1}\{x \in R_{jm}\}\)</span> rather than <span class="math inline">\(\hat F_{m-1} + \nu \hat h_m\)</span>. For the squared-error case the two coincide — the minimizing <span class="math inline">\(\gamma_{jm}\)</span> is just the mean pseudo-residual in the leaf — so the distinction only matters for general losses such as the Bernoulli loss introduced next. This per-leaf line search is Friedman’s <span class="citation" data-cites="Friedman2001Greedy">(<a href="#ref-Friedman2001Greedy" role="doc-biblioref">J. H. Friedman 2001</a>)</span> TreeBoost refinement.</p>
 <p><strong>Classification with Bernoulli Log-Loss</strong></p>
-<p>For binary outcomes, write</p>
+<p>For binary outcomes, let <span class="math inline">\(F(x_i)\in\mathbb{R}\)</span> denote the ensemble’s unrestricted score. The sigmoid function converts this score into an event probability:</p>
 <div class="display-math-block">
 <p><span class="math display">\[
-p_i = \sigma(F(x_i)) = \frac{1}{1 + e^{-F(x_i)}},
+p_i = \sigma(F(x_i)) = \frac{1}{1 + e^{-F(x_i)}}.
 \]</span></p>
 </div>
-<p>where <span class="math inline">\(F(x_i)\)</span> is now a log-odds score rather than a probability directly. The Bernoulli log-loss is</p>
+<p>For any probability <span class="math inline">\(p_i\in(0,1)\)</span>, the <strong>odds</strong> of the event are <span class="math inline">\(p_i/(1-p_i)\)</span>. The <strong>log-odds</strong>, also called the <strong>logit</strong>, are the logarithm of those odds. Because the logit is the inverse of the sigmoid,</p>
+<div class="display-math-block">
+<p><span class="math display">\[
+F(x_i)
+=
+\log\left(\frac{p_i}{1-p_i}\right).
+\]</span></p>
+</div>
+<p>Thus <span class="math inline">\(F(x_i)\)</span> is measured on the log-odds scale rather than the probability scale: it can take any real value, while the sigmoid maps it into a probability between zero and one. Adding one unit to <span class="math inline">\(F(x_i)\)</span> multiplies the event odds by <span class="math inline">\(e\)</span>; it does not add a fixed amount to the probability. The Bernoulli log-loss is</p>
 <div class="display-math-block">
 <p><span class="math display">\[
 \ell(y_i, F(x_i))
@@ -697,7 +757,7 @@ p_i = \sigma(F(x_i)) = \frac{1}{1 + e^{-F(x_i)}},
 r_{im} = y_i - p_{i,m-1}.
 \]</span></p>
 </div>
-<p>Classification boosting therefore retains the residual structure, but the residual is on the probability scale (<span class="math inline">\(y_i \in \{0,1\}\)</span> minus <span class="math inline">\(p_{i,m-1} \in (0,1)\)</span>) rather than on the outcome scale.</p>
+<p>Classification boosting therefore retains a residual-like target, <span class="math inline">\(y_i-p_{i,m-1}\)</span>, formed from the binary outcome and the current probability. The ensemble score <span class="math inline">\(F\)</span>, however, lives on the log-odds scale. The Newton leaf calculation below uses Bernoulli curvature to translate the probability-scale discrepancy into an update of that log-odds score.</p>
 <p>The Bernoulli case is exactly where the leaf-value refinement above matters: the tree fit to the pseudo-residuals <span class="math inline">\(r_{im} = y_i - p_{i,m-1}\)</span> fixes only the splits, and because Bernoulli log-loss is not squared error, the leaf constants are then set by the per-leaf line search <span class="math inline">\(\gamma_{jm}\)</span> rather than by the mean residual in the leaf. That minimization has no closed form here, so implementations take a single Newton step, </p>
 <div class="display-math-block">
 <p><span class="math display">\[
@@ -707,6 +767,7 @@ r_{im} = y_i - p_{i,m-1}.
 \]</span></p>
 </div>
 <p> using the gradient <span class="math inline">\(p_{i,m-1} - y_i\)</span> and the curvature <span class="math inline">\(p_{i,m-1}(1-p_{i,m-1})\)</span> evaluated at the probabilities carried in from iteration <span class="math inline">\(m-1\)</span>.</p>
+<p>The denominator is also the observed Fisher curvature for a one-parameter Bernoulli log-odds model within the leaf. Thus the Newton leaf update is a local Fisher-scoring step: it divides the score by the amount of statistical curvature in that leaf. <a href="./adv_tree_based_methods.html#sec-adv-natural-gradients">The natural-gradient section of Chapter 13</a> generalizes the same information-scaling idea to a vector of distribution parameters.</p>
 <div class="callout callout-style-default callout-important callout-titled">
 <div class="callout-header d-flex align-content-center">
 <div class="callout-icon-container">
@@ -753,7 +814,7 @@ Question for Reflection
 </div>
 </div>
 <div class="callout callout-style-default callout-tip callout-titled" title="Suggested Answer">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-5-contents" aria-controls="callout-5" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-6-contents" aria-controls="callout-6" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -762,7 +823,7 @@ Suggested Answer
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-5" class="callout-5-contents callout-collapse collapse">
+<div id="callout-6" class="callout-6-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p>Macroeconomic time series contain unusual observations — financial crises, pandemic quarters — that are influential precisely because they are rare and extreme. Under exponential loss, a persistently misclassified recession quarter receives an exponentially growing weight, so subsequent trees are pulled toward fitting that single observation rather than improving predictions broadly. Log-loss assigns a bounded gradient to each observation, so no single quarter can disproportionately dominate the boosting path. In a setting where rare events matter but should not dictate the entire model, that boundedness is a meaningful practical advantage.</p>
 </div>
@@ -823,17 +884,17 @@ Suggested Answer
 <span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>    learning_rate<span class="op">=</span><span class="fl">0.05</span>,</span>
 <span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <p>See the scikit-learn example <a href="https://scikit-learn.org/stable/auto_examples/ensemble/plot_monotonic_constraints.html">Monotonic Constraints</a> for a visual comparison of constrained and unconstrained fits and a full working interface example.</p>
-<div class="callout callout-style-default callout-note callout-titled" title="Implementation Note: XGBoost">
+<div class="callout callout-style-default callout-note callout-titled" title="Implementation Note: Extreme Gradient Boosting (XGBoost)">
 <div class="callout-header d-flex align-content-center">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
 <div class="callout-title-container flex-fill">
-Implementation Note: XGBoost
+Implementation Note: Extreme Gradient Boosting (XGBoost)
 </div>
 </div>
 <div class="callout-body-container callout-body">
-<p>XGBoost <span class="citation" data-cites="ChenGuestrin2016">(<a href="#ref-ChenGuestrin2016" role="doc-biblioref">Chen and Guestrin 2016</a>)</span> is an optimized implementation family for gradient-boosted trees. Relative to the basic algorithm in this chapter, it adds engineering and regularization features such as efficient split search, <span class="math inline">\(\ell_1/\ell_2\)</span> penalties, sparse or missing-value handling, monotone constraints, and scalable training. The econometric interpretation remains the same: it is still a tuned predictive tree ensemble, so validation design and the information set are central.</p>
+<p>Extreme gradient boosting (XGBoost) <span class="citation" data-cites="ChenGuestrin2016">(<a href="#ref-ChenGuestrin2016" role="doc-biblioref">Chen and Guestrin 2016</a>)</span> is an optimized implementation family for gradient-boosted trees. Relative to the basic algorithm in this chapter, it adds engineering and regularization features such as efficient split search, <span class="math inline">\(\ell_1/\ell_2\)</span> penalties, sparse or missing-value handling, monotone constraints, and scalable training. The econometric interpretation remains the same: it is still a tuned predictive tree ensemble, so validation design and the information set are central.</p>
 </div>
 </div>
 <p><a href="#fig-boosting-learning-rate" class="quarto-xref">Figure&nbsp;12.2</a> plots training and test mean squared error (MSE) along the boosting path for two learning rates.</p>
@@ -921,7 +982,7 @@ Question for Reflection
 </div>
 </div>
 <div class="callout callout-style-default callout-tip callout-titled" title="Suggested Answer">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-8-contents" aria-controls="callout-8" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-9-contents" aria-controls="callout-9" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -930,7 +991,7 @@ Suggested Answer
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-8" class="callout-8-contents callout-collapse collapse">
+<div id="callout-9" class="callout-9-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p>A small learning rate with many trees is better supported when the validation curve is flatter and overfitting appears later along the boosting path. A larger learning rate with fewer trees is better supported when the time-ordered validation curve is genuinely similar but the model reaches that performance with fewer boosting steps and lower computational cost. The comparison should be based on validation over the relevant forecast origins, not on in-sample fit.</p>
 </div>
@@ -1052,7 +1113,7 @@ Econometric Warning
 <ul>
 <li>competitive predictive performance on structured data</li>
 <li>automatic detection of nonlinearities and interactions</li>
-<li>flexible loss functions for means, probabilities, and other targets</li>
+<li>flexible loss functions for means, probabilities, conditional quantiles via pinball loss, and robust location targets via Huber loss</li>
 <li>regularization knobs that can be tuned to the signal-to-noise environment</li>
 </ul>
 <p><strong>Limitations</strong></p>
@@ -1132,24 +1193,9 @@ Exercise 12.1: First Step of Gradient Boosting with Shrinkage
 F_1(x) = F_0(x) + 0.4\, h_1(x).
 \]</span> Compute the fitted values at the four training points.</li>
 <li>Compute the training sum of squared errors (SSE) of <span class="math inline">\(F_1\)</span>. Compare it with the training SSE that would result from taking the full step <span class="math inline">\(\nu=1\)</span>. Why can a smaller learning rate still be useful in practice?</li>
+<li>Now suppose the observations are monthly and ordered in time, and the number of boosting iterations <span class="math inline">\(M\)</span> is selected from a large grid. Explain why random <span class="math inline">\(K\)</span>-fold validation can select an overly large <span class="math inline">\(M\)</span> for a forecasting application, and describe a validation design that targets the intended one-step-ahead forecasting problem.</li>
 </ol>
-<p><em>Exam level: suitable as-is. The exercise combines boosting mechanics, shrinkage, and the regularization interpretation of the learning rate.</em></p>
-</div>
-</div>
-<div class="callout callout-style-default callout-warning callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-13-contents" aria-controls="callout-13" aria-expanded="false" aria-label="Toggle callout">
-<div class="callout-icon-container">
-<i class="callout-icon"></i>
-</div>
-<div class="callout-title-container flex-fill">
-Hint for Part 2
-</div>
-<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
-</div>
-<div id="callout-13" class="callout-13-contents callout-collapse collapse">
-<div class="callout-body-container callout-body">
-<p>Under squared loss, the best constant predictor is the sample mean.</p>
-</div>
+<p><em>Exam level. Parts 1–5 combine boosting mechanics, shrinkage, and the regularization interpretation of the learning rate; Part 6 diagnoses how validation design interacts with the iteration count.</em></p>
 </div>
 </div>
 <div class="callout callout-style-default callout-warning callout-titled">
@@ -1158,13 +1204,13 @@ Hint for Part 2
 <i class="callout-icon"></i>
 </div>
 <div class="callout-title-container flex-fill">
-Hint for Part 3
+Hint for Part 2
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
 <div id="callout-14" class="callout-14-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
-<p>For each candidate split, compute the mean residual in the left and right leaf and then the residual SSE.</p>
+<p>Under squared loss, the best constant predictor is the sample mean.</p>
 </div>
 </div>
 </div>
@@ -1174,18 +1220,50 @@ Hint for Part 3
 <i class="callout-icon"></i>
 </div>
 <div class="callout-title-container flex-fill">
-Hint for Part 5
+Hint for Part 3
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
 <div id="callout-15" class="callout-15-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
+<p>For each candidate split, compute the mean residual in the left and right leaf and then the residual SSE.</p>
+</div>
+</div>
+</div>
+<div class="callout callout-style-default callout-warning callout-titled">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-16-contents" aria-controls="callout-16" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+Hint for Part 5
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-16" class="callout-16-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
 <p>A smaller learning rate usually gives a worse fit after one step, but that is not the right comparison. Boosting is a multi-step procedure.</p>
 </div>
 </div>
 </div>
+<div class="callout callout-style-default callout-warning callout-titled">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-17-contents" aria-controls="callout-17" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+Hint for Part 6
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-17" class="callout-17-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
+<p>Ask whether every training fold would have been available before the observations in its validation fold at a real forecast origin.</p>
+</div>
+</div>
+</div>
 <div class="callout callout-style-default callout-tip callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-16-contents" aria-controls="callout-16" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-18-contents" aria-controls="callout-18" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -1194,7 +1272,7 @@ Solution
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-16" class="callout-16-contents callout-collapse collapse">
+<div id="callout-18" class="callout-18-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p><strong>Part 1: Core idea</strong></p>
 <p>Under squared loss, boosting starts from a simple predictor and then repeatedly fits a weak learner to the current residuals. Each new tree corrects part of the remaining error.</p>
@@ -1304,6 +1382,9 @@ F_1(x)=
 \]</span></p>
 </div>
 <p>So after one step, the full update fits the training sample better. But a smaller learning rate can still be useful because it regularizes the path of the algorithm. With many steps, cautious updates often generalize better out of sample than aggressive early corrections.</p>
+<p><strong>Part 6: Selecting the iteration count for a time series</strong></p>
+<p>Random <span class="math inline">\(K\)</span>-fold validation mixes earlier and later months. A training fold can therefore contain observations dated after a validation observation. If the relationship drifts or the predictors and outcomes are serially dependent, this comparison does not reproduce the information set of a one-step-ahead forecaster. Because larger <span class="math inline">\(M\)</span> gives the ensemble more flexibility to exploit sample-specific patterns, the contaminated validation design can make a long boosting path look better than it will at genuine future origins and can select an overly large <span class="math inline">\(M\)</span>.</p>
+<p>Use rolling- or expanding-window validation instead. At every validation origin, fit the full preprocessing and boosting procedure only on observations available before that origin, evaluate the one-step-ahead loss, and choose <span class="math inline">\(M\)</span> from the average loss across those ordered origins. This treats the iteration count as a hyperparameter and estimates it under the same timing protocol as deployment.</p>
 </div>
 </div>
 </div>
@@ -1347,7 +1428,7 @@ c = \log\left(\frac{\bar y}{1-\bar y}\right).
 </div>
 </div>
 <div class="callout callout-style-default callout-warning callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-18-contents" aria-controls="callout-18" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-20-contents" aria-controls="callout-20" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -1356,14 +1437,14 @@ Hint for Part 1
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-18" class="callout-18-contents callout-collapse collapse">
+<div id="callout-20" class="callout-20-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p>Differentiate through the logistic link: <span class="math inline">\(\sigma'(z)=\sigma(z)(1-\sigma(z))\)</span>.</p>
 </div>
 </div>
 </div>
 <div class="callout callout-style-default callout-warning callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-19-contents" aria-controls="callout-19" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-21-contents" aria-controls="callout-21" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -1372,14 +1453,14 @@ Hint for Part 2
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-19" class="callout-19-contents callout-collapse collapse">
+<div id="callout-21" class="callout-21-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p>Differentiate the total loss with respect to the constant <span class="math inline">\(c\)</span> and set the derivative equal to zero.</p>
 </div>
 </div>
 </div>
 <div class="callout callout-style-default callout-tip callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-20-contents" aria-controls="callout-20" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-22-contents" aria-controls="callout-22" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -1388,7 +1469,7 @@ Solution
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-20" class="callout-20-contents callout-collapse collapse">
+<div id="callout-22" class="callout-22-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p><strong>Part 1: Derivative of log-loss</strong></p>
 <p>Write <span class="math inline">\(p_i=\sigma(F_i)\)</span> with <span class="math inline">\(F_i=F(x_i)\)</span>. Then</p>
@@ -1490,6 +1571,9 @@ r = (1-0.75,\ 1-0.75,\ 0-0.75,\ 1-0.75)
 <section id="references" class="level2" data-number="12.11">
 <h2 data-number="12.11" class="anchored" data-anchor-id="references"><span class="header-section-number">12.11</span> References</h2>
 <div id="refs" class="references csl-bib-body hanging-indent" data-entry-spacing="0" role="list">
+<div id="ref-BuhlmannYu2003" class="csl-entry" role="listitem">
+Bühlmann, Peter, and Bin Yu. 2003. <span>“Boosting with the <span class="math inline">\(L_2\)</span> Loss: Regression and Classification.”</span> <em>Journal of the American Statistical Association</em> 98 (462): 324–39. <a href="https://doi.org/10.1198/016214503000125">https://doi.org/10.1198/016214503000125</a>.
+</div>
 <div id="ref-ChenGuestrin2016" class="csl-entry" role="listitem">
 Chen, Tianqi, and Carlos Guestrin. 2016. <span>“<span>XGBoost</span>: A Scalable Tree Boosting System.”</span> In <em>Proceedings of the 22nd <span>ACM SIGKDD</span> International Conference on Knowledge Discovery and Data Mining</em>, 785–94. <a href="https://doi.org/10.1145/2939672.2939785">https://doi.org/10.1145/2939672.2939785</a>.
 </div>

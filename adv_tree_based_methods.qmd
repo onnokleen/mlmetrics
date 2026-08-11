@@ -26,7 +26,7 @@ The chapter remains predictive rather than structural: it does not estimate caus
 
 ## Standard Forests as Weighted Averages {#sec-adv-forest-weights}
 
-A standard random forest predicts a conditional mean by averaging outcomes of training observations that frequently land in the same leaves as the forecast point. For a forest of $B$ trees trained on $n$ observations, let $L_b(x)$ denote the terminal leaf reached by $x$ in tree $b$, and let $N_b(x)$ be the number of *original* training observations assigned to that leaf. The original-observation convention used by QRF defines the neighborhood mean
+Recall from the [random-forest weight representation](random_forests.qmd#sec-rf-weights) that a forest prediction can be read as a weighted average of training outcomes that frequently land in the same leaves as the forecast point. For a forest of $B$ trees trained on $n$ observations, let $L_b(x)$ denote the terminal leaf reached by $x$ in tree $b$, and let $N_b(x)$ be the number of *original* training observations assigned to that leaf. The original-observation convention used by QRF defines the neighborhood mean
 $$
 \hat \mu_w(x)
 =
@@ -57,7 +57,7 @@ A standard random forest uses those neighbors to estimate a conditional mean. QR
 
 The weighted-average view also makes the limitations of ordinary forests clear.
 
-**Only a point prediction.** A standard regression forest estimates something like $\mathbb{E}[Y\mid X=x]$. It does not directly report tail probabilities, quantiles, skewness, or multimodality of $Y\mid X=x$.
+**Only a point prediction.** A standard regression forest returns an average of training outcomes in forest-defined neighborhoods. Under squared-error risk and conditions that make this weighted average consistent, its population target is the conditional mean $\mathbb{E}[Y\mid X=x]$. It does not directly report tail probabilities, quantiles, skewness, or multimodality of $Y\mid X=x$.
 
 **Constant local model.** Inside each leaf, the local prediction is an average. The leaf therefore cannot represent a within-neighborhood slope even when the regression function is locally smooth rather than locally constant.
 
@@ -271,6 +271,65 @@ $$
 =
 \mathcal{I}(\theta^{(m-1)}(x_i))^{-1}g_i^{(m)}.
 $$
+
+@fig-ngboost-natural-step makes the rescaling visible for a Gaussian negative log-likelihood parameterized by its mean $\mu$ and log standard deviation $\ell=\log\sigma$. The contour lines are equal-loss sets for a five-observation sample. Both arrows start from the same parameter value and use the same nominal step size; they differ only in whether the loss gradient is used directly or premultiplied by inverse Fisher information.
+
+```{python}
+#| label: fig-ngboost-natural-step
+#| fig-cap: 'Ordinary and natural-gradient descent directions for a Gaussian negative log-likelihood in the parameterization $(\mu,\ell)$, where $\ell=\log\sigma$. Contours show the sample-average loss above its minimum. Both arrows start at $(\mu,\ell)=(-1,0.4)$ and use the same nominal step size. Fisher scaling places relatively more weight on correcting the mean at this starting point, so the natural-gradient arrow moves farther horizontally and less vertically.'
+#| echo: true
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+y_demo = np.array([-2.0, -0.5, 0.0, 1.0, 2.0])
+mu_grid = np.linspace(-2.5, 2.5, 260)
+ell_grid = np.linspace(-1.0, 1.2, 240)
+MU, ELL = np.meshgrid(mu_grid, ell_grid)
+LOSS = ELL + 0.5 * np.mean(
+    (y_demo[None, None, :] - MU[:, :, None]) ** 2
+    * np.exp(-2.0 * ELL[:, :, None]),
+    axis=2,
+)
+LOSS = LOSS - LOSS.min()
+
+mu0, ell0 = -1.0, 0.4
+mean_sq_resid = np.mean((y_demo - mu0) ** 2)
+ordinary = np.array([
+    np.exp(-2.0 * ell0) * (mu0 - y_demo.mean()),
+    1.0 - np.exp(-2.0 * ell0) * mean_sq_resid,
+])
+fisher = np.diag([np.exp(-2.0 * ell0), 2.0])
+natural = np.linalg.solve(fisher, ordinary)
+step = 0.8
+
+fig, ax = plt.subplots(figsize=(8.2, 4.8))
+levels = [0.02, 0.05, 0.10, 0.20, 0.40, 0.80, 1.50, 2.50, 4.00]
+contours = ax.contour(MU, ELL, LOSS, levels=levels, cmap="Greys")
+ax.clabel(contours, inline=True, fontsize=8, fmt="%.2g")
+ax.scatter([mu0], [ell0], color="black", s=45, zorder=4, label="Starting value")
+
+for direction, color, label in [
+    (ordinary, "C3", "Ordinary gradient"),
+    (natural, "C0", "Natural gradient"),
+]:
+    delta = -step * direction
+    ax.arrow(mu0, ell0, delta[0], delta[1], width=0.012,
+             head_width=0.09, length_includes_head=True,
+             color=color, alpha=0.9, label=label)
+
+ax.set_xlabel(r"Mean parameter $\mu$")
+ax.set_ylabel(r"Log standard deviation $\ell=\log\sigma$")
+ax.set_title("Fisher scaling changes the descent direction")
+ax.grid(True, alpha=0.18)
+ax.legend(frameon=False)
+plt.tight_layout()
+plt.show()
+```
+
+In @fig-ngboost-natural-step, the ordinary direction reacts to the numerical coordinates themselves, whereas the natural direction measures a change relative to how much it moves the predictive distribution. The figure is illustrative rather than a convergence comparison: line search and repeated boosted stages still determine the realized path.
+
+The Bernoulli leaf update in the [gradient-boosting chapter](gradient_boosting.qmd#sec-gb-general) is the scalar version of this connection. Its Newton denominator $\sum_i p_i(1-p_i)$ is the Fisher curvature of the leaf's log-odds parameter, so dividing the score by that quantity is a one-parameter Fisher-scoring step. NGBoost extends that information scaling to a vector of distribution parameters and then approximates each component with a base learner.
 
 This chapter uses a positive loss-gradient convention: NGBoost fits a weak learner $\hat h_m(x)$ to $\tilde g_i^{(m)}$ and subtracts the fitted direction. The [gradient-boosting chapter](gradient_boosting.qmd) instead defined pseudo-residuals as *negative* gradients and added the fitted tree; the two sign conventions describe the same descent step.
 

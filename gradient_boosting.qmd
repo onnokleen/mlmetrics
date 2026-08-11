@@ -7,7 +7,7 @@ number-offset: [11, 0]
 
 ## Overview
 
-Gradient boosting is a sequential tree-based method that builds an additive predictor by repeatedly fitting new trees to the mistakes of the current ensemble. Where random forests mainly reduce variance by averaging many randomized, less-correlated trees, boosting mainly reduces bias by adding weak learners in a carefully targeted way. The modern gradient-boosting formulation is due to @Friedman2001Greedy; AdaBoost is an important predecessor and special case in the broader boosting literature [@FreundSchapire1997].
+Gradient boosting is a sequential tree-based method that builds an additive predictor by repeatedly fitting new trees to the mistakes of the current ensemble. Where random forests mainly reduce variance by averaging many randomized, less-correlated trees, boosting mainly reduces bias by adding weak learners in a carefully targeted way. The modern gradient-boosting formulation is due to @Friedman2001Greedy; adaptive boosting (AdaBoost) is an important predecessor and special case in the broader boosting literature [@FreundSchapire1997].
 
 For econometricians, boosting is among the strongest predictive tools for tabular data. It can learn nonlinearities, interactions, threshold effects, and asymmetric predictive relationships without the researcher specifying them. It is well suited to settings where the signal is spread across many variables, so that a single tree cannot capture it.
 
@@ -107,6 +107,8 @@ $$
 
 If $\nu = 1$, the correction is taken in full. If $\nu < 1$, the update is shrunken.
 
+For an econometrician, this is shrunken forward-stagewise regression. If the candidate weak learners were single regressors rather than trees, each stage would run a low-complexity ordinary least squares regression of the current residuals on the candidate regressors, add only a fraction $\nu$ of the selected fitted value, and then recompute the residuals. This is the componentwise $L_2$-boosting connection developed by @BuhlmannYu2003. A shallow tree changes the function class from one regressor to a piecewise-constant rule, but the stagewise residual-regression logic is the same.
+
 :::{.callout-note}
 ## Squared-Error Boosting Algorithm
 
@@ -201,6 +203,48 @@ $$
 
 The next tree is fit to these pseudo-residuals, and the ensemble is updated in the direction of steepest descent in function space. That is why the method is called **gradient** boosting.
 
+:::{.callout-note collapse="true" title="More info: Pinball and Huber losses"}
+
+The differentiability assumption can be relaxed. Two useful examples show how the loss changes both the statistical target and the pseudo-residuals.
+
+**Pinball loss for conditional quantiles.** Let $u_i=y_i-F(x_i)$ be the current forecast error and choose a quantile level $\tau\in(0,1)$. The pinball loss is
+
+$$
+\rho_\tau(u_i)
+=
+\begin{cases}
+\tau u_i, & u_i\geq 0,\\
+(\tau-1)u_i, & u_i<0.
+\end{cases}
+$$
+
+The loss penalizes underprediction at rate $\tau$ and overprediction at rate $1-\tau$. Minimizing its conditional expected value targets the conditional $\tau$-quantile; when $\tau=0.5$, the loss is proportional to absolute error and targets a conditional median. The two linear pieces meet at $u_i=0$, where the ordinary derivative does not exist. Away from that kink, the negative derivative with respect to $F(x_i)$ is
+
+$$
+r_{im}
+=
+\begin{cases}
+\tau, & y_i>\hat F_{m-1}(x_i),\\
+\tau-1, & y_i<\hat F_{m-1}(x_i).
+\end{cases}
+$$
+
+At equality, the loss subgradient with respect to $F(x_i)$ can be any value in $[-\tau,1-\tau]$, so the corresponding pseudo-residual—its negative—can be any value in $[\tau-1,\tau]$. A **subgradient** is a generalized slope for a non-differentiable point. Implementations choose one valid pseudo-residual and fit the next tree to these asymmetric targets.
+
+**Huber loss for robust location prediction.** For a threshold $\delta>0$, the Huber loss is quadratic for small errors and linear for large ones:
+
+$$
+H_\delta(u_i)
+=
+\begin{cases}
+\tfrac{1}{2}u_i^2, & |u_i|\leq\delta,\\
+\delta\bigl(|u_i|-\tfrac{1}{2}\delta\bigr), & |u_i|>\delta.
+\end{cases}
+$$
+
+Its negative loss gradient with respect to $F(x_i)$ is the clipped residual $\max\{-\delta,\min(u_i,\delta)\}$. Large forecast errors therefore cannot generate arbitrarily large pseudo-residuals. The general lesson is that gradient boosting is not tied to squared, Bernoulli, or exponential loss: the chosen loss determines the population target, the pseudo-residuals, and the loss-optimal leaf values.
+:::
+
 To see the gradient structure precisely, think of $F$ as a vector $(F(x_1), \ldots, F(x_n))^\top \in \mathbb{R}^n$, where each coordinate is the fitted value at one training observation. The total loss is a function of this vector, $L(F) = \sum_{i=1}^n \ell(y_i, F(x_i))$ — the same training objective introduced for squared loss in @sec-gb-squared-error, now written for a general $\ell$ — and the $i$-th coordinate of its negative gradient at $\hat F_{m-1}$ is exactly $r_{im}$. Boosting cannot step directly in this direction, because the result would be $n$ numbers with no way to generalize to new observations. Instead, each tree $\hat{h}_m$ approximates the negative gradient within a structured, tree-shaped function class. Fitting a tree to the pseudo-residuals is therefore fitting a generalizable approximation to the steepest-descent direction.
 
 **Refining the leaf values.** Fitting a least-squares tree to the pseudo-residuals serves to determine the *split structure* — the partition of the predictor space into leaves $R_{jm}$ (the $j$-th leaf of the tree fit at iteration $m$) — but the least-squares leaf means need not be the loss-optimal constants on the scale of $\ell$. The loss-optimal leaf values are obtained by a separate one-dimensional minimization within each leaf,
@@ -209,17 +253,25 @@ $$
 \gamma_{jm} = \arg\min_{\gamma} \sum_{i:\, x_i \in R_{jm}} \ell\big(y_i,\, \hat F_{m-1}(x_i) + \gamma\big),
 $$
 
-after which the update becomes $\hat F_m = \hat F_{m-1} + \nu \sum_j \gamma_{jm} \mathbf{1}\{x \in R_{jm}\}$ rather than $\hat F_{m-1} + \nu \hat h_m$. For the squared-error case the two coincide — the minimizing $\gamma_{jm}$ is just the mean pseudo-residual in the leaf — so the distinction only matters for general losses such as the log-odds-scale Bernoulli loss below. This per-leaf line search is Friedman's [@Friedman2001Greedy] TreeBoost refinement.
+after which the update becomes $\hat F_m = \hat F_{m-1} + \nu \sum_j \gamma_{jm} \mathbf{1}\{x \in R_{jm}\}$ rather than $\hat F_{m-1} + \nu \hat h_m$. For the squared-error case the two coincide — the minimizing $\gamma_{jm}$ is just the mean pseudo-residual in the leaf — so the distinction only matters for general losses such as the Bernoulli loss introduced next. This per-leaf line search is Friedman's [@Friedman2001Greedy] TreeBoost refinement.
 
 **Classification with Bernoulli Log-Loss**
 
-For binary outcomes, write
+For binary outcomes, let $F(x_i)\in\mathbb{R}$ denote the ensemble's unrestricted score. The sigmoid function converts this score into an event probability:
 
 $$
-p_i = \sigma(F(x_i)) = \frac{1}{1 + e^{-F(x_i)}},
+p_i = \sigma(F(x_i)) = \frac{1}{1 + e^{-F(x_i)}}.
 $$
 
-where $F(x_i)$ is now a log-odds score rather than a probability directly. The Bernoulli log-loss is
+For any probability $p_i\in(0,1)$, the **odds** of the event are $p_i/(1-p_i)$. The **log-odds**, also called the **logit**, are the logarithm of those odds. Because the logit is the inverse of the sigmoid,
+
+$$
+F(x_i)
+=
+\log\left(\frac{p_i}{1-p_i}\right).
+$$
+
+Thus $F(x_i)$ is measured on the log-odds scale rather than the probability scale: it can take any real value, while the sigmoid maps it into a probability between zero and one. Adding one unit to $F(x_i)$ multiplies the event odds by $e$; it does not add a fixed amount to the probability. The Bernoulli log-loss is
 
 $$
 \ell(y_i, F(x_i))
@@ -239,7 +291,7 @@ $$
 r_{im} = y_i - p_{i,m-1}.
 $$
 
-Classification boosting therefore retains the residual structure, but the residual is on the probability scale ($y_i \in \{0,1\}$ minus $p_{i,m-1} \in (0,1)$) rather than on the outcome scale.
+Classification boosting therefore retains a residual-like target, $y_i-p_{i,m-1}$, formed from the binary outcome and the current probability. The ensemble score $F$, however, lives on the log-odds scale. The Newton leaf calculation below uses Bernoulli curvature to translate the probability-scale discrepancy into an update of that log-odds score.
 
 The Bernoulli case is exactly where the leaf-value refinement above matters: the tree fit to the pseudo-residuals $r_{im} = y_i - p_{i,m-1}$ fixes only the splits, and because Bernoulli log-loss is not squared error, the leaf constants are then set by the per-leaf line search $\gamma_{jm}$ rather than by the mean residual in the leaf. That minimization has no closed form here, so implementations take a single Newton step,
 $$
@@ -248,6 +300,8 @@ $$
 \frac{\sum_{i:\, x_i \in R_{jm}} (y_i - p_{i,m-1})}{\sum_{i:\, x_i \in R_{jm}} p_{i,m-1}(1-p_{i,m-1})},
 $$
 using the gradient $p_{i,m-1} - y_i$ and the curvature $p_{i,m-1}(1-p_{i,m-1})$ evaluated at the probabilities carried in from iteration $m-1$.
+
+The denominator is also the observed Fisher curvature for a one-parameter Bernoulli log-odds model within the leaf. Thus the Newton leaf update is a local Fisher-scoring step: it divides the score by the amount of statistical curvature in that leaf. [The natural-gradient section of Chapter 13](adv_tree_based_methods.qmd#sec-adv-natural-gradients) generalizes the same information-scaling idea to a vector of distribution parameters.
 
 :::{.callout-important}
 ## Connection to Cross-Entropy
@@ -360,9 +414,9 @@ model = HistGradientBoostingRegressor(
 
 See the scikit-learn example [Monotonic Constraints](https://scikit-learn.org/stable/auto_examples/ensemble/plot_monotonic_constraints.html) for a visual comparison of constrained and unconstrained fits and a full working interface example.
 
-:::{.callout-note title="Implementation Note: XGBoost"}
+:::{.callout-note title="Implementation Note: Extreme Gradient Boosting (XGBoost)"}
 
-XGBoost [@ChenGuestrin2016] is an optimized implementation family for gradient-boosted trees. Relative to the basic algorithm in this chapter, it adds engineering and regularization features such as efficient split search, $\ell_1/\ell_2$ penalties, sparse or missing-value handling, monotone constraints, and scalable training. The econometric interpretation remains the same: it is still a tuned predictive tree ensemble, so validation design and the information set are central.
+Extreme gradient boosting (XGBoost) [@ChenGuestrin2016] is an optimized implementation family for gradient-boosted trees. Relative to the basic algorithm in this chapter, it adds engineering and regularization features such as efficient split search, $\ell_1/\ell_2$ penalties, sparse or missing-value handling, monotone constraints, and scalable training. The econometric interpretation remains the same: it is still a tuned predictive tree ensemble, so validation design and the information set are central.
 :::
 
 @fig-boosting-learning-rate plots training and test mean squared error (MSE) along the boosting path for two learning rates.
@@ -540,7 +594,7 @@ Boosting is among the strongest off-the-shelf methods for tabular prediction. It
 
 - competitive predictive performance on structured data
 - automatic detection of nonlinearities and interactions
-- flexible loss functions for means, probabilities, and other targets
+- flexible loss functions for means, probabilities, conditional quantiles via pinball loss, and robust location targets via Huber loss
 - regularization knobs that can be tuned to the signal-to-noise environment
 
 **Limitations**
@@ -596,8 +650,9 @@ Consider squared-error boosting with decision stumps as weak learners. Let the l
    $$
    Compute the fitted values at the four training points.
 5. Compute the training sum of squared errors (SSE) of $F_1$. Compare it with the training SSE that would result from taking the full step $\nu=1$. Why can a smaller learning rate still be useful in practice?
+6. Now suppose the observations are monthly and ordered in time, and the number of boosting iterations $M$ is selected from a large grid. Explain why random $K$-fold validation can select an overly large $M$ for a forecasting application, and describe a validation design that targets the intended one-step-ahead forecasting problem.
 
-*Exam level: suitable as-is. The exercise combines boosting mechanics, shrinkage, and the regularization interpretation of the learning rate.*
+*Exam level. Parts 1--5 combine boosting mechanics, shrinkage, and the regularization interpretation of the learning rate; Part 6 diagnoses how validation design interacts with the iteration count.*
 :::
 
 ::: {.callout-warning collapse="true"}
@@ -616,6 +671,12 @@ For each candidate split, compute the mean residual in the left and right leaf a
 ## Hint for Part 5
 
 A smaller learning rate usually gives a worse fit after one step, but that is not the right comparison. Boosting is a multi-step procedure.
+:::
+
+::: {.callout-warning collapse="true"}
+## Hint for Part 6
+
+Ask whether every training fold would have been available before the observations in its validation fold at a real forecast origin.
 :::
 
 ::: {.callout-tip collapse="true"}
@@ -736,6 +797,12 @@ $$
 $$
 
 So after one step, the full update fits the training sample better. But a smaller learning rate can still be useful because it regularizes the path of the algorithm. With many steps, cautious updates often generalize better out of sample than aggressive early corrections.
+
+**Part 6: Selecting the iteration count for a time series**
+
+Random $K$-fold validation mixes earlier and later months. A training fold can therefore contain observations dated after a validation observation. If the relationship drifts or the predictors and outcomes are serially dependent, this comparison does not reproduce the information set of a one-step-ahead forecaster. Because larger $M$ gives the ensemble more flexibility to exploit sample-specific patterns, the contaminated validation design can make a long boosting path look better than it will at genuine future origins and can select an overly large $M$.
+
+Use rolling- or expanding-window validation instead. At every validation origin, fit the full preprocessing and boosting procedure only on observations available before that origin, evaluate the one-step-ahead loss, and choose $M$ from the average loss across those ordered origins. This treats the iteration count as a hyperparameter and estimates it under the same timing protocol as deployment.
 :::
 
 ::: {.callout-note}
