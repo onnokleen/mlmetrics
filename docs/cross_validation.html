@@ -157,8 +157,22 @@ div.csl-indent {
 })();
 </script>
 
-  <script src="https://cdnjs.cloudflare.com/polyfill/v3/polyfill.min.js?features=es6"></script>
-  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml-full.js" type="text/javascript"></script>
+  <script>window.backupDefine = window.define; window.define = undefined;</script><script src="https://cdn.jsdelivr.net/npm/katex@latest/dist/katex.min.js"></script>
+  <script>document.addEventListener("DOMContentLoaded", function () {
+ var mathElements = document.getElementsByClassName("math");
+ var macros = [];
+ for (var i = 0; i < mathElements.length; i++) {
+  var texText = mathElements[i].firstChild;
+  if (mathElements[i].tagName == "SPAN") {
+   katex.render(texText.data, mathElements[i], {
+    displayMode: mathElements[i].classList.contains('display'),
+    throwOnError: false,
+    macros: macros,
+    fleqn: false
+   });
+}}});
+  </script>
+  <script>window.define = window.backupDefine; window.backupDefine = undefined;</script><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@latest/dist/katex.min.css">
 
 <script type="text/javascript">
 const typesetMath = (el) => {
@@ -416,7 +430,7 @@ window.Quarto = {
 <h1 data-number="2"><span class="header-section-number">2</span> Cross Validation</h1>
 <section id="overview" class="level2" data-number="2.1">
 <h2 data-number="2.1" class="anchored" data-anchor-id="overview"><span class="header-section-number">2.1</span> Overview</h2>
-<p>When building a machine learning model, we face several decisions that affect performance: which algorithm to use, and what values to choose for the tuning constants that govern a model’s flexibility — for instance, the degree of a polynomial regression or the weight on a penalty term added to the loss. Here it is worth fixing terminology: ordinary <strong>parameters</strong> (such as regression coefficients <span class="math inline">\(\beta\)</span>) are estimated by minimizing in-sample loss, whereas <strong>hyperparameters</strong> (such as the polynomial degree <span class="math inline">\(d\)</span> of this chapter’s running example, the weight on a penalty term, or the number of knots in a spline) are set before or around fitting and are chosen by out-of-sample criteria. (The number of folds <span class="math inline">\(K\)</span> introduced below is <em>not</em> a hyperparameter in this sense: it parameterizes the validation design that produces the selection criterion, rather than being chosen by it.) The shared challenge is that we cannot evaluate these choices on the same data used for fitting — doing so produces optimistic estimates that do not generalize to new observations.</p>
+<p>When building a machine learning model, we face several decisions that affect performance: which algorithm to use, and what values to choose for the tuning constants that govern a model’s flexibility — for instance, the degree of a polynomial regression or the weight on a penalty term added to the loss. Here it is worth fixing terminology: ordinary <strong>parameters</strong> (such as regression coefficients <span class="math inline">\beta</span>) are estimated by minimizing in-sample loss, whereas <strong>hyperparameters</strong> (such as the polynomial degree <span class="math inline">d</span> of this chapter’s running example, the weight on a penalty term, or the number of knots in a spline) are set before or around fitting and are chosen by out-of-sample criteria. (The number of folds <span class="math inline">K</span> introduced below is <em>not</em> a hyperparameter in this sense: it parameterizes the validation design that produces the selection criterion, rather than being chosen by it.) The shared challenge is that we cannot evaluate these choices on the same data used for fitting — doing so produces optimistic estimates that do not generalize to new observations.</p>
 <p>This chapter introduces <strong>cross-validation</strong> as the principled answer to that challenge. Cross-validation simulates the experience of predicting on unseen data by systematically holding out portions of the training set. The idea dates to <span class="citation" data-cites="Stone1974">Stone (<a href="#ref-Stone1974" role="doc-biblioref">1974</a>)</span> and <span class="citation" data-cites="Geisser1975">Geisser (<a href="#ref-Geisser1975" role="doc-biblioref">1975</a>)</span>, who proposed leave-one-out and predictive-sample-reuse procedures for model assessment well before “machine learning” was a separate field. For econometricians, the issues are familiar: overfitting, specification search, and the bias introduced by repeated use of the same data arise in classical model selection just as in machine learning. The econometric analogue of the problem is pretest and specification-search bias; the machine-learning community’s answer to it is <strong>nested cross-validation</strong> — carrying out model selection on one layer of held-out data while keeping a separate outer layer untouched for the final performance assessment <span class="citation" data-cites="VarmaSimon2006 CawleyTalbot2010">(<a href="#ref-VarmaSimon2006" role="doc-biblioref">Varma and Simon 2006</a>; <a href="#ref-CawleyTalbot2010" role="doc-biblioref">Cawley and Talbot 2010</a>)</span> — an idea we develop at the end of this chapter.</p>
 </section>
 <section id="roadmap" class="level2" data-number="2.2">
@@ -424,43 +438,43 @@ window.Quarto = {
 <ol type="1">
 <li>We illustrate <strong>overfitting</strong> with a polynomial regression example to motivate why the training mean squared error (MSE) is not a reliable guide to predictive performance.</li>
 <li>We introduce the <strong>honest workflow</strong> — separating training, validation, and test sets — and explain when each set should be touched.</li>
-<li>We define <strong>K-fold cross-validation</strong>, discuss common choices of <span class="math inline">\(K\)</span>, and explain why letting information from held-out observations slip into the training step makes the estimated predictive performance look better than it is.</li>
+<li>We define <strong>K-fold cross-validation</strong>, discuss common choices of <span class="math inline">K</span>, and explain why letting information from held-out observations slip into the training step makes the estimated predictive performance look better than it is.</li>
 <li>We extend to <strong>time-series cross-validation</strong> — designs in which the training sample either grows over time or moves forward at a fixed length — and explain why standard K-fold is often invalid for dependent data, and when it can survive.</li>
 <li>We close with a <strong>practical example</strong> of hyperparameter tuning, in which cross-validation selects among candidate model configurations, and explain why an honest performance estimate for the selected configuration requires a second, outer layer of validation around the selection step (<strong>nested cross-validation</strong>).</li>
 </ol>
 </section>
 <section id="a-simple-illustration-of-overfitting" class="level2" data-number="2.3">
 <h2 data-number="2.3" class="anchored" data-anchor-id="a-simple-illustration-of-overfitting"><span class="header-section-number">2.3</span> A Simple Illustration of Overfitting</h2>
-<p>Our running example throughout this chapter is polynomial regression, and the choice is deliberate. Fitting a polynomial of degree <span class="math inline">\(d\)</span> in a single predictor is just ordinary least squares (OLS) on the regressors <span class="math inline">\(x, x^2, \dots, x^d\)</span> — no new estimation machinery is involved, and everything you know about least squares carries over unchanged. Yet the degree <span class="math inline">\(d\)</span> is a genuine hyperparameter: a single dial that moves the model from rigid to extremely flexible. Every issue this chapter treats — overfitting, honest data splits, cross-validated model selection — already arises in full force in this familiar setting; the richer model classes of later chapters, such as <a href="./feed_forward_nns.html">neural networks</a> and <a href="./decision_trees.html">tree-based methods</a>, add more dials but no new logic.</p>
+<p>Our running example throughout this chapter is polynomial regression, and the choice is deliberate. Fitting a polynomial of degree <span class="math inline">d</span> in a single predictor is just ordinary least squares (OLS) on the regressors <span class="math inline">x, x^2, \dots, x^d</span> — no new estimation machinery is involved, and everything you know about least squares carries over unchanged. Yet the degree <span class="math inline">d</span> is a genuine hyperparameter: a single dial that moves the model from rigid to extremely flexible. Every issue this chapter treats — overfitting, honest data splits, cross-validated model selection — already arises in full force in this familiar setting; the richer model classes of later chapters, such as <a href="./feed_forward_nns.html">neural networks</a> and <a href="./decision_trees.html">tree-based methods</a>, add more dials but no new logic.</p>
 <p>Consider a regression model whose errors are independent and identically distributed (i.i.d.) Gaussian given the regressors:</p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 y_i = f(x_i) + \varepsilon_i, \qquad \varepsilon_i \mid x_i \stackrel{\text{iid}}{\sim} \mathcal{N}(0,\sigma^2),
-\]</span></p>
+</span></p>
 </div>
-<p>so that <span class="math inline">\(f(x) = \mathbb{E}[Y \mid X = x]\)</span> is the conditional mean function. Suppose we approximate <span class="math inline">\(f\)</span> by a polynomial of degree <span class="math inline">\(d\)</span>,</p>
+<p>so that <span class="math inline">f(x) = \mathbb{E}[Y \mid X = x]</span> is the conditional mean function. Suppose we approximate <span class="math inline">f</span> by a polynomial of degree <span class="math inline">d</span>,</p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 \mu_d(x) = \beta_0 + \beta_1 x + \cdots + \beta_d x^d,
-\]</span></p>
+</span></p>
 </div>
-<p>and write <span class="math inline">\(\hat{\mu}_d\)</span> for the fit obtained by least squares on the training sample. This is the fitted model denoted generically by <span class="math inline">\(\hat{f}\)</span> below.</p>
-<p>In the illustration below we simulate <span class="math inline">\(n = 25\)</span> training observations and, separately, <span class="math inline">\(200\)</span> test observations drawn independently from the same process. The test sample is therefore not a split of the training data; it plays the role of the “fresh draw” in the definition of generalization risk given next. Think of <span class="math inline">\(x\)</span> as a single standardized predictor and <span class="math inline">\(y\)</span> as an economic outcome whose conditional mean varies smoothly but nonlinearly in <span class="math inline">\(x\)</span> — the kind of shape that arises, for example, in Engel curves or in the response of output growth to financial conditions.</p>
-<p>Recall from the <a href="./information_theory.html">previous chapter</a> that maximizing the likelihood is the same as minimizing the sample average negative log-likelihood. Under Gaussian errors with fixed variance, the negative log-likelihood is, up to an additive constant, proportional to the sum of squared errors, so maximum likelihood amounts to minimizing the training sum of squared errors — equivalently the training mean squared error, which differs only by the factor <span class="math inline">\(1/n\)</span>. This makes the overfitting problem transparent: if the degree <span class="math inline">\(d\)</span> is too large, the model can improve <strong>in-sample fit</strong> by chasing noise in the training data.</p>
-<p><strong>Loss, empirical risk, and generalization risk.</strong> To make the two error curves in <a href="#fig-overfitting-example" class="quarto-xref">Figure&nbsp;2.1</a> precise, fix a <strong>loss function</strong> <span class="math inline">\(L(y,\hat{y})\)</span> that measures the cost of predicting <span class="math inline">\(\hat{y}\)</span> when the outcome is <span class="math inline">\(y\)</span>; our running example is <strong>squared loss</strong> <span class="math inline">\(L(y,\hat{y})=(y-\hat{y})^2\)</span>. For a fitted model <span class="math inline">\(\hat{f}\)</span> and a sample <span class="math inline">\((x_i,y_i)_{i=1}^n\)</span>, the <strong>empirical risk</strong> is the average loss on that sample, </p>
+<p>and write <span class="math inline">\hat{\mu}_d</span> for the fit obtained by least squares on the training sample. This is the fitted model denoted generically by <span class="math inline">\hat{f}</span> below.</p>
+<p>In the illustration below we simulate <span class="math inline">n = 25</span> training observations and, separately, <span class="math inline">200</span> test observations drawn independently from the same process. The test sample is therefore not a split of the training data; it plays the role of the “fresh draw” in the definition of generalization risk given next. Think of <span class="math inline">x</span> as a single standardized predictor and <span class="math inline">y</span> as an economic outcome whose conditional mean varies smoothly but nonlinearly in <span class="math inline">x</span> — the kind of shape that arises, for example, in Engel curves or in the response of output growth to financial conditions.</p>
+<p>Recall from the <a href="./information_theory.html">previous chapter</a> that maximizing the likelihood is the same as minimizing the sample average negative log-likelihood. Under Gaussian errors with fixed variance, the negative log-likelihood is, up to an additive constant, proportional to the sum of squared errors, so maximum likelihood amounts to minimizing the training sum of squared errors — equivalently the training mean squared error, which differs only by the factor <span class="math inline">1/n</span>. This makes the overfitting problem transparent: if the degree <span class="math inline">d</span> is too large, the model can improve <strong>in-sample fit</strong> by chasing noise in the training data.</p>
+<p><strong>Loss, empirical risk, and generalization risk.</strong> To make the two error curves in <a href="#fig-overfitting-example" class="quarto-xref">Figure&nbsp;2.1</a> precise, fix a <strong>loss function</strong> <span class="math inline">L(y,\hat{y})</span> that measures the cost of predicting <span class="math inline">\hat{y}</span> when the outcome is <span class="math inline">y</span>; our running example is <strong>squared loss</strong> <span class="math inline">L(y,\hat{y})=(y-\hat{y})^2</span>. For a fitted model <span class="math inline">\hat{f}</span> and a sample <span class="math inline">(x_i,y_i)_{i=1}^n</span>, the <strong>empirical risk</strong> is the average loss on that sample, </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 \frac{1}{n}\sum_{i=1}^{n}L\big(y_i,\hat{f}(x_i)\big),
-\]</span></p>
+</span></p>
 </div>
 <p> which under squared loss is the <strong>MSE</strong> on that sample. Evaluating this average on the training data gives the <strong>training MSE</strong>; evaluating the same fitted model on the held-out sample gives the <strong>test MSE</strong>. These are the two quantities plotted against polynomial degree in the right panel below.</p>
-<p>The <strong>generalization (prediction) risk</strong> is the expected loss on a fresh draw <span class="math inline">\((X,Y)\)</span> from the same distribution, independent of the data used to fit <span class="math inline">\(\hat{f}\)</span>, </p>
+<p>The <strong>generalization (prediction) risk</strong> is the expected loss on a fresh draw <span class="math inline">(X,Y)</span> from the same distribution, independent of the data used to fit <span class="math inline">\hat{f}</span>, </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 R(\hat{f})=\mathbb{E}_{(X,Y)}\big[L\big(Y,\hat{f}(X)\big)\,\big|\,\hat{f}\big].
-\]</span></p>
+</span></p>
 </div>
-<p> The conditioning bar is not decoration: <span class="math inline">\(\hat{f}\)</span> is held fixed and the expectation runs only over the new observation <span class="math inline">\((X,Y)\)</span>. The training MSE is optimistic for <span class="math inline">\(R(\hat{f})\)</span> because <span class="math inline">\(\hat{f}\)</span> was chosen to make it small; the test MSE, computed on data not used for fitting, is an honest estimate of <span class="math inline">\(R(\hat{f})\)</span>. Cross-validation is designed to estimate this kind of out-of-sample risk without sacrificing a one-time held-out evaluation sample. However, as we describe below, its estimand is not exactly <span class="math inline">\(R(\hat{f})\)</span> for the final fitted model.</p>
+<p> The conditioning bar is not decoration: <span class="math inline">\hat{f}</span> is held fixed and the expectation runs only over the new observation <span class="math inline">(X,Y)</span>. The training MSE is optimistic for <span class="math inline">R(\hat{f})</span> because <span class="math inline">\hat{f}</span> was chosen to make it small; the test MSE, computed on data not used for fitting, is an honest estimate of <span class="math inline">R(\hat{f})</span>. Cross-validation is designed to estimate this kind of out-of-sample risk without sacrificing a one-time held-out evaluation sample. However, as we describe below, its estimand is not exactly <span class="math inline">R(\hat{f})</span> for the final fitted model.</p>
 <div id="cell-fig-overfitting-example" class="cell" data-execution_count="2">
 <details class="code-fold">
 <summary>Show the code</summary>
@@ -534,7 +548,7 @@ R(\hat{f})=\mathbb{E}_{(X,Y)}\big[L\big(Y,\hat{f}(X)\big)\,\big|\,\hat{f}\big].
 <img src="cross_validation_files/figure-html/fig-overfitting-example-output-1.png" class="img-fluid figure-img">
 </div>
 <figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-overfitting-example-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Figure&nbsp;2.1: Overfitting in polynomial regression. Left panel: the <span class="math inline">\(n=25\)</span> training observations (black dots), the true conditional mean (dashed gray), and two least-squares fits — degree 1 (blue) and degree 12 (red). Right panel: training MSE (blue) and test MSE (red) as functions of the polynomial degree, with the dashed vertical line marking degree 12.
+Figure&nbsp;2.1: Overfitting in polynomial regression. Left panel: the <span class="math inline">n=25</span> training observations (black dots), the true conditional mean (dashed gray), and two least-squares fits — degree 1 (blue) and degree 12 (red). Right panel: training MSE (blue) and test MSE (red) as functions of the polynomial degree, with the dashed vertical line marking degree 12.
 </figcaption>
 </figure>
 </div>
@@ -605,24 +619,24 @@ Important
 <p>The most common type of cross-validation is <strong>K-fold cross-validation</strong>. In the form given here it is designed for settings in which the observations can be treated as exchangeable — in particular for independently sampled cross-sectional data without cluster or spatial dependence; <a href="#sec-cv-time-series" class="quarto-xref">Section&nbsp;2.7</a> develops the variants appropriate for time series. The procedure is as follows:</p>
 <ol type="1">
 <li><strong>Shuffle</strong> the dataset randomly.</li>
-<li><strong>Split</strong> the dataset into <span class="math inline">\(K\)</span> equal-sized groups (or “folds”).</li>
+<li><strong>Split</strong> the dataset into <span class="math inline">K</span> equal-sized groups (or “folds”).</li>
 <li>For each fold:
 <ol type="a">
 <li>Use the fold as a <strong>validation set</strong>.</li>
-<li>Use the remaining <span class="math inline">\(K-1\)</span> folds as a <strong>training set</strong>.</li>
+<li>Use the remaining <span class="math inline">K-1</span> folds as a <strong>training set</strong>.</li>
 <li>Train the model on the training set and evaluate it on the validation set.</li>
 </ol></li>
-<li><strong>Average</strong> the performance scores from the <span class="math inline">\(K\)</span> folds to obtain a single performance estimate.</li>
+<li><strong>Average</strong> the performance scores from the <span class="math inline">K</span> folds to obtain a single performance estimate.</li>
 </ol>
-<p>Formally, let <span class="math inline">\(D_k\)</span> be the index set of the observations in fold <span class="math inline">\(k\)</span>, let <span class="math inline">\(|D_k|\)</span> be its size, and let <span class="math inline">\(\hat{f}^{-k}\)</span> denote the model <strong>refit from scratch on all data except fold <span class="math inline">\(k\)</span></strong> — that is, trained only on the <span class="math inline">\(K-1\)</span> remaining folds, including any data-dependent preprocessing re-estimated on those folds alone. The K-fold cross-validation (CV) estimate of the risk is </p>
+<p>Formally, let <span class="math inline">D_k</span> be the index set of the observations in fold <span class="math inline">k</span>, let <span class="math inline">|D_k|</span> be its size, and let <span class="math inline">\hat{f}^{-k}</span> denote the model <strong>refit from scratch on all data except fold <span class="math inline">k</span></strong> — that is, trained only on the <span class="math inline">K-1</span> remaining folds, including any data-dependent preprocessing re-estimated on those folds alone. The K-fold cross-validation (CV) estimate of the risk is </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 \widehat{\mathrm{CV}}_K
 =\frac{1}{K}\sum_{k=1}^{K}\frac{1}{|D_k|}\sum_{i\in D_k}L\big(y_i,\hat{f}^{-k}(x_i)\big).
-\]</span></p>
+</span></p>
 </div>
-<p> When <span class="math inline">\(K\)</span> does not divide <span class="math inline">\(n\)</span>, the folds differ in size; averaging the per-fold mean losses (rather than pooling all losses) is what the inner factor <span class="math inline">\(1/|D_k|\)</span> accounts for, and it is equivalent to averaging the per-observation losses fold by fold.</p>
-<p><strong>What does <span class="math inline">\(\widehat{\mathrm{CV}}_K\)</span> estimate?</strong> Each fold model <span class="math inline">\(\hat{f}^{-k}\)</span> is trained on approximately <span class="math inline">\(n(K-1)/K\)</span> observations — exactly that many when <span class="math inline">\(K\)</span> divides <span class="math inline">\(n\)</span> — and the <span class="math inline">\(K\)</span> fold models all differ from the model <span class="math inline">\(\hat{f}\)</span> refit on the full sample. The average above therefore estimates the <strong>expected risk of the fitting procedure at training-set size <span class="math inline">\(n(K-1)/K\)</span></strong>. This estimand is an expectation over the draw of the training data rather than the risk <span class="math inline">\(R(\hat{f})\)</span> of the one model we actually deploy. Because the fold models are trained on fewer observations, <span class="math inline">\(\widehat{\mathrm{CV}}_K\)</span> is typically mildly pessimistic for the full-sample model; this training-size effect is exactly the bias referred to in the callout below. <span class="citation" data-cites="BatesHastieTibshirani2024">Bates, Hastie, and Tibshirani (<a href="#ref-BatesHastieTibshirani2024" role="doc-biblioref">2024</a>)</span> make the distinction precise and show that cross-validation is better viewed as estimating the expected risk of the procedure than the risk of the fitted model in hand.</p>
+<p> When <span class="math inline">K</span> does not divide <span class="math inline">n</span>, the folds differ in size; averaging the per-fold mean losses (rather than pooling all losses) is what the inner factor <span class="math inline">1/|D_k|</span> accounts for, and it is equivalent to averaging the per-observation losses fold by fold.</p>
+<p><strong>What does <span class="math inline">\widehat{\mathrm{CV}}_K</span> estimate?</strong> Each fold model <span class="math inline">\hat{f}^{-k}</span> is trained on approximately <span class="math inline">n(K-1)/K</span> observations — exactly that many when <span class="math inline">K</span> divides <span class="math inline">n</span> — and the <span class="math inline">K</span> fold models all differ from the model <span class="math inline">\hat{f}</span> refit on the full sample. The average above therefore estimates the <strong>expected risk of the fitting procedure at training-set size <span class="math inline">n(K-1)/K</span></strong>. This estimand is an expectation over the draw of the training data rather than the risk <span class="math inline">R(\hat{f})</span> of the one model we actually deploy. Because the fold models are trained on fewer observations, <span class="math inline">\widehat{\mathrm{CV}}_K</span> is typically mildly pessimistic for the full-sample model; this training-size effect is exactly the bias referred to in the callout below. <span class="citation" data-cites="BatesHastieTibshirani2024">Bates, Hastie, and Tibshirani (<a href="#ref-BatesHastieTibshirani2024" role="doc-biblioref">2024</a>)</span> make the distinction precise and show that cross-validation is better viewed as estimating the expected risk of the procedure than the risk of the fitted model in hand.</p>
 <div class="callout callout-style-default callout-note callout-titled">
 <div class="callout-header d-flex align-content-center">
 <div class="callout-icon-container">
@@ -633,7 +647,7 @@ Common Choices for K
 </div>
 </div>
 <div class="callout-body-container callout-body">
-<p>A common choice for <span class="math inline">\(K\)</span> is 5 or 10; the extreme case <span class="math inline">\(K=n\)</span>, in which each validation fold contains a single observation, is called <strong>leave-one-out cross-validation</strong>. A higher <span class="math inline">\(K\)</span> means each fold model is trained on close to the full sample, so the training-size bias described above is smaller at a higher computational cost. How the <em>variance</em> of <span class="math inline">\(\widehat{\mathrm{CV}}_K\)</span> moves with <span class="math inline">\(K\)</span> has no universal answer: it depends on the stability of the fitting algorithm and on the correlation between fold estimates, and either direction can occur <span class="citation" data-cites="ArlotCelisse2010">(<a href="#ref-ArlotCelisse2010" role="doc-biblioref">Arlot and Celisse 2010</a>)</span>.</p>
+<p>A common choice for <span class="math inline">K</span> is 5 or 10; the extreme case <span class="math inline">K=n</span>, in which each validation fold contains a single observation, is called <strong>leave-one-out cross-validation</strong>. A higher <span class="math inline">K</span> means each fold model is trained on close to the full sample, so the training-size bias described above is smaller at a higher computational cost. How the <em>variance</em> of <span class="math inline">\widehat{\mathrm{CV}}_K</span> moves with <span class="math inline">K</span> has no universal answer: it depends on the stability of the fitting algorithm and on the correlation between fold estimates, and either direction can occur <span class="citation" data-cites="ArlotCelisse2010">(<a href="#ref-ArlotCelisse2010" role="doc-biblioref">Arlot and Celisse 2010</a>)</span>.</p>
 </div>
 </div>
 <div class="callout callout-style-default callout-note callout-titled">
@@ -670,7 +684,7 @@ Question for Reflection
 </div>
 </div>
 <div class="callout-body-container callout-body">
-<p>Suppose excess returns are winsorized before K-fold cross-validation. Analyst A clips returns at thresholds fixed <em>ex ante</em> at <span class="math inline">\(-5\%\)</span> and <span class="math inline">\(+5\%\)</span>. Analyst B clips returns at the sample’s 1st and 99th percentiles, computed once from the full dataset. Which procedure leaks validation information, and how should the data-dependent procedure be implemented instead?</p>
+<p>Suppose excess returns are winsorized before K-fold cross-validation. Analyst A clips returns at thresholds fixed <em>ex ante</em> at <span class="math inline">-5\%</span> and <span class="math inline">+5\%</span>. Analyst B clips returns at the sample’s 1st and 99th percentiles, computed once from the full dataset. Which procedure leaks validation information, and how should the data-dependent procedure be implemented instead?</p>
 </div>
 </div>
 <div class="callout callout-style-default callout-tip callout-titled" title="Suggested Answer">
@@ -685,12 +699,12 @@ Suggested Answer
 </div>
 <div id="callout-6" class="callout-6-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
-<p>Analyst A does not create leakage, provided the <span class="math inline">\(\pm5\%\)</span> thresholds were genuinely fixed before looking at the sample. Analyst B does create leakage because every validation fold helps determine the full-sample percentiles. To make the second procedure honest, estimate the 1st and 99th percentiles using only the training portion of each fold, then apply those fitted thresholds unchanged to that fold’s validation observations. The relevant distinction is not winsorization itself, but whether its thresholds were learned from held-out data.</p>
+<p>Analyst A does not create leakage, provided the <span class="math inline">\pm5\%</span> thresholds were genuinely fixed before looking at the sample. Analyst B does create leakage because every validation fold helps determine the full-sample percentiles. To make the second procedure honest, estimate the 1st and 99th percentiles using only the training portion of each fold, then apply those fitted thresholds unchanged to that fold’s validation observations. The relevant distinction is not winsorization itself, but whether its thresholds were learned from held-out data.</p>
 </div>
 </div>
 </div>
 <p><strong>Visualizing K-Fold Cross-Validation</strong></p>
-<p>The following figure illustrates the K-Fold process for <span class="math inline">\(K=5\)</span> in two equivalent ways. The top panel shows the common implementation in which observations are first shuffled and then assigned to folds. The bottom panel shows the classical schematic in which the sample is partitioned into <span class="math inline">\(K\)</span> contiguous, non-overlapping blocks. In each iteration, one fold is used for validation while the remaining <span class="math inline">\(K-1\)</span> folds are used for training.</p>
+<p>The following figure illustrates the K-Fold process for <span class="math inline">K=5</span> in two equivalent ways. The top panel shows the common implementation in which observations are first shuffled and then assigned to folds. The bottom panel shows the classical schematic in which the sample is partitioned into <span class="math inline">K</span> contiguous, non-overlapping blocks. In each iteration, one fold is used for validation while the remaining <span class="math inline">K-1</span> folds are used for training.</p>
 <div id="cell-fig-kfold-cv" class="cell" data-execution_count="3">
 <details class="code-fold">
 <summary>Show the code</summary>
@@ -749,7 +763,7 @@ Figure&nbsp;2.2: Illustration of 5-fold cross-validation over 100 observations. 
 </div>
 </div>
 </div>
-<p>Reading <a href="#fig-kfold-cv" class="quarto-xref">Figure&nbsp;2.2</a> row by row makes the reuse logic concrete: every observation sits in exactly one validation fold and serves as training data in the remaining <span class="math inline">\(K-1\)</span> splits, so the whole sample contributes to both tasks while no observation is ever validated on by a model that saw it during training. The two panels differ only in how observations are assigned to folds; the training–validation pattern within each split is identical.</p>
+<p>Reading <a href="#fig-kfold-cv" class="quarto-xref">Figure&nbsp;2.2</a> row by row makes the reuse logic concrete: every observation sits in exactly one validation fold and serves as training data in the remaining <span class="math inline">K-1</span> splits, so the whole sample contributes to both tasks while no observation is ever validated on by a model that saw it during training. The two panels differ only in how observations are assigned to folds; the training–validation pattern within each split is identical.</p>
 <div class="callout callout-style-default callout-tip callout-titled">
 <div class="callout-header d-flex align-content-center">
 <div class="callout-icon-container">
@@ -777,10 +791,10 @@ Definition: Forecast-Origin Information Set
 </div>
 </div>
 <div class="callout-body-container callout-body">
-<p>For a forecast made at time <span class="math inline">\(t\)</span>, the <strong>forecast-origin information set</strong> <span class="math inline">\(\mathcal{F}_t\)</span> is the <span class="math inline">\(\sigma\)</span>-algebra generated by all variables — outcomes, predictors, metadata — in the form in which they were actually available at real-world time <span class="math inline">\(t\)</span>. For data subject to revision this means the vintage published by time <span class="math inline">\(t\)</span>: a provisional release available at <span class="math inline">\(t\)</span> belongs to <span class="math inline">\(\mathcal{F}_t\)</span>, while its later revised value does not. A validation design is <strong>time-aware</strong> if, at each forecast origin <span class="math inline">\(t\)</span>, every predictor entering the forecast and every observation used for estimation is measurable with respect to <span class="math inline">\(\mathcal{F}_t\)</span>. The validation <em>outcome</em> is the subsequently realized target. It is of course not <span class="math inline">\(\mathcal{F}_t\)</span>-measurable, since it is precisely what the forecast is evaluated against. Leakage is the violation of this measurability condition: an object on the right-hand side of the forecasting regression depends on information that was not available at <span class="math inline">\(t\)</span>. The same concept reappears in the chapters on <a href="./evaluating_distributions.html">predictive-distribution evaluation</a>, <a href="./recurrent_neural_networks.html">recurrent networks</a>, <a href="./hpo.html">hyperparameter optimization</a>, <a href="./conformal_prediction.html">conformal prediction</a>, and <a href="./foundation_models.html">foundation models</a>.</p>
+<p>For a forecast made at time <span class="math inline">t</span>, the <strong>forecast-origin information set</strong> <span class="math inline">\mathcal{F}_t</span> is the <span class="math inline">\sigma</span>-algebra generated by all variables — outcomes, predictors, metadata — in the form in which they were actually available at real-world time <span class="math inline">t</span>. For data subject to revision this means the vintage published by time <span class="math inline">t</span>: a provisional release available at <span class="math inline">t</span> belongs to <span class="math inline">\mathcal{F}_t</span>, while its later revised value does not. A validation design is <strong>time-aware</strong> if, at each forecast origin <span class="math inline">t</span>, every predictor entering the forecast and every observation used for estimation is measurable with respect to <span class="math inline">\mathcal{F}_t</span>. The validation <em>outcome</em> is the subsequently realized target. It is of course not <span class="math inline">\mathcal{F}_t</span>-measurable, since it is precisely what the forecast is evaluated against. Leakage is the violation of this measurability condition: an object on the right-hand side of the forecasting regression depends on information that was not available at <span class="math inline">t</span>. The same concept reappears in the chapters on <a href="./evaluating_distributions.html">predictive-distribution evaluation</a>, <a href="./recurrent_neural_networks.html">recurrent networks</a>, <a href="./hpo.html">hyperparameter optimization</a>, <a href="./conformal_prediction.html">conformal prediction</a>, and <a href="./foundation_models.html">foundation models</a>.</p>
 </div>
 </div>
-<p>Standard K-fold cross-validation is generally not suitable for time series data: the argument that each held-out fold mimics genuinely unseen data relies on the observations being exchangeable — as they are under i.i.d. sampling — and temporal dependence breaks exchangeability. Randomly shuffling and splitting time-series data violates <span class="math inline">\(\mathcal{F}_t\)</span>-measurability — the resulting training sample contains observations from after the forecast origin — and typically produces an overly optimistic performance estimate. (For purely autoregressive models with correctly specified dynamics, cross-validation on time series can remain asymptotically valid <span class="citation" data-cites="BergmeirHyndmanKoo2018">(<a href="#ref-BergmeirHyndmanKoo2018" role="doc-biblioref">Bergmeir, Hyndman, and Koo 2018</a>)</span>, but the leakage mechanisms discussed below make time-aware designs the safe default.)</p>
+<p>Standard K-fold cross-validation is generally not suitable for time series data: the argument that each held-out fold mimics genuinely unseen data relies on the observations being exchangeable — as they are under i.i.d. sampling — and temporal dependence breaks exchangeability. Randomly shuffling and splitting time-series data violates <span class="math inline">\mathcal{F}_t</span>-measurability — the resulting training sample contains observations from after the forecast origin — and typically produces an overly optimistic performance estimate. (For purely autoregressive models with correctly specified dynamics, cross-validation on time series can remain asymptotically valid <span class="citation" data-cites="BergmeirHyndmanKoo2018">(<a href="#ref-BergmeirHyndmanKoo2018" role="doc-biblioref">Bergmeir, Hyndman, and Koo 2018</a>)</span>, but the leakage mechanisms discussed below make time-aware designs the safe default.)</p>
 <p>Specialized cross-validation techniques are needed for time series data. More generally, the validation split should mirror the dependence structure of the prediction target; <span class="citation" data-cites="RobertsEtAl2017CV">Roberts et al. (<a href="#ref-RobertsEtAl2017CV" role="doc-biblioref">2017</a>)</span> give a useful taxonomy for temporal, spatial, hierarchical, and related dependence settings.</p>
 <div class="callout callout-style-default callout-warning callout-titled">
 <div class="callout-header d-flex align-content-center">
@@ -959,7 +973,7 @@ Figure&nbsp;2.3: Time-series cross-validation designs. Each row is one split ove
 </section>
 <section id="practical-example-tuning-a-neural-network-with-cross-validation" class="level2" data-number="2.8">
 <h2 data-number="2.8" class="anchored" data-anchor-id="practical-example-tuning-a-neural-network-with-cross-validation"><span class="header-section-number">2.8</span> Practical Example: Tuning a Neural Network with Cross-Validation</h2>
-<p>Let’s see how to use cross-validation to select the best hyperparameters for a simple neural network. No knowledge of neural networks is needed here: treat the network as a flexible nonlinear regression model whose fitting procedure comes with several tuning constants — the <strong>hidden-layer architecture</strong> (which controls how rich the fitted function class is), the <strong>learning rate</strong> (a step-size constant of the estimation algorithm), and the <strong>L2 penalty</strong> (the weight on a penalty proportional to the squared magnitude of the coefficients). We study these objects properly in the <a href="./feed_forward_nns.html">chapter on feed-forward neural networks</a>; in this example the network simply provides a realistic tuning problem with several hyperparameters, all tuned using scikit-learn. As data we simulate a cross-section of <span class="math inline">\(1{,}000\)</span> firm-year observations: annual excess returns, in percent, generated from ten standardized firm characteristics with an interaction and a quadratic term that a purely linear model would miss. Because the observations are simulated as an independent cross-section — no cluster, spatial, or time-series dependence — the plain K-fold design of <a href="#sec-cv-kfold" class="quarto-xref">Section&nbsp;2.6</a> is appropriate here.</p>
+<p>Let’s see how to use cross-validation to select the best hyperparameters for a simple neural network. No knowledge of neural networks is needed here: treat the network as a flexible nonlinear regression model whose fitting procedure comes with several tuning constants — the <strong>hidden-layer architecture</strong> (which controls how rich the fitted function class is), the <strong>learning rate</strong> (a step-size constant of the estimation algorithm), and the <strong>L2 penalty</strong> (the weight on a penalty proportional to the squared magnitude of the coefficients). We study these objects properly in the <a href="./feed_forward_nns.html">chapter on feed-forward neural networks</a>; in this example the network simply provides a realistic tuning problem with several hyperparameters, all tuned using scikit-learn. As data we simulate a cross-section of <span class="math inline">1{,}000</span> firm-year observations: annual excess returns, in percent, generated from ten standardized firm characteristics with an interaction and a quadratic term that a purely linear model would miss. Because the observations are simulated as an independent cross-section — no cluster, spatial, or time-series dependence — the plain K-fold design of <a href="#sec-cv-kfold" class="quarto-xref">Section&nbsp;2.6</a> is appropriate here.</p>
 <p>To keep the example honest, we put standardization and model fitting into a single <code>Pipeline</code>. This ensures that scaling is learned separately inside each training fold rather than on the full dataset. <a href="#fig-nn-cv-tuning" class="quarto-xref">Figure&nbsp;2.4</a> summarizes the search: each point is one configuration in the grid, plotted against the learning rate in the left panel and against the architecture in the right panel, with the red star marking the configuration attaining the lowest cross-validated MSE. Scikit-learn follows a higher-is-better scoring convention, so <code>neg_mean_squared_error</code> returns the negative of each fold’s MSE; the minus sign in the code converts the average back to ordinary MSE before comparison and plotting.</p>
 <div id="cell-fig-nn-cv-tuning" class="cell" data-execution_count="5">
 <details class="code-fold">
@@ -1137,7 +1151,7 @@ Key Insights from the Example
 <li><strong>Leakage Prevention</strong>: The <code>Pipeline</code> ensures that standardization is re-estimated inside each fold</li>
 <li><strong>Fair Comparison</strong>: All models are evaluated on the same data splits, ensuring fair comparison</li>
 </ol>
-<p>The reported mean CV MSE ranks the candidate configurations, while the standard deviation of the <span class="math inline">\(K\)</span> fold scores — the <code>std_cv_mse</code> column above — describes how much the score fluctuates from fold to fold. This dispersion is a useful descriptive stability check, but it is <em>not</em> a standard error for the cross-validated risk: the fold scores are correlated because their training sets overlap, so no simple rescaling of their standard deviation delivers a valid uncertainty estimate <span class="citation" data-cites="BatesHastieTibshirani2024">(<a href="#ref-BatesHastieTibshirani2024" role="doc-biblioref">Bates, Hastie, and Tibshirani 2024</a>)</span>. Informally, a configuration with a slightly lower mean but a much larger fold-to-fold dispersion should not be declared the winner outright; a formal comparison would require an inferential procedure beyond the scope of this chapter. In the plots, vertical separation across learning rates or architectures indicates which hyperparameters matter most for this synthetic example; clusters of nearly equal points should be read as practically tied rather than as precise rankings.</p>
+<p>The reported mean CV MSE ranks the candidate configurations, while the standard deviation of the <span class="math inline">K</span> fold scores — the <code>std_cv_mse</code> column above — describes how much the score fluctuates from fold to fold. This dispersion is a useful descriptive stability check, but it is <em>not</em> a standard error for the cross-validated risk: the fold scores are correlated because their training sets overlap, so no simple rescaling of their standard deviation delivers a valid uncertainty estimate <span class="citation" data-cites="BatesHastieTibshirani2024">(<a href="#ref-BatesHastieTibshirani2024" role="doc-biblioref">Bates, Hastie, and Tibshirani 2024</a>)</span>. Informally, a configuration with a slightly lower mean but a much larger fold-to-fold dispersion should not be declared the winner outright; a formal comparison would require an inferential procedure beyond the scope of this chapter. In the plots, vertical separation across learning rates or architectures indicates which hyperparameters matter most for this synthetic example; clusters of nearly equal points should be read as practically tied rather than as precise rankings.</p>
 </div>
 </div>
 <p>The grid search above uses a single level of cross-validation: <code>cross_val_score</code> plays the role of the <strong>inner tuning loop</strong>, comparing configurations and selecting the best. By itself this gives an honest comparison <em>across</em> configurations, but the cross-validated score of the <em>selected</em> configuration is still optimistically biased, for exactly the reason formalized in Exercise 2.2 below: taking the best of many noisy validation scores favors lucky draws. <strong>Nested cross-validation</strong> removes this contamination by wrapping the tuning procedure in a second loop. An <strong>outer CV loop</strong> is used to estimate generalization performance, while an <strong>inner CV loop</strong> — run separately within each outer training fold — selects the hyperparameters; because tuning happens only inside the outer training folds, the outer evaluation folds never enter the selection step, so the performance estimate is not contaminated by tuning.</p>
@@ -1177,7 +1191,7 @@ Key Takeaways
 <div class="callout-body-container callout-body">
 <ol type="1">
 <li>Cross-validation is a validation device for model selection and tuning; it is not a substitute for a final untouched test set.</li>
-<li>K-fold cross-validation estimates the expected risk of a fitting procedure trained on roughly <span class="math inline">\(n(K-1)/K\)</span> observations; it does not estimate exactly the risk <span class="math inline">\(R(\hat{f})\)</span> of the one model refit on the full sample.</li>
+<li>K-fold cross-validation estimates the expected risk of a fitting procedure trained on roughly <span class="math inline">n(K-1)/K</span> observations; it does not estimate exactly the risk <span class="math inline">R(\hat{f})</span> of the one model refit on the full sample.</li>
 <li>A validation strategy is honest only if every data-dependent preprocessing step is recomputed inside each training fold.</li>
 <li>Repeatedly choosing the best specification from noisy validation scores creates selection-induced optimism, even when each candidate score is unbiased on its own.</li>
 <li>In time-series settings, cross-validation must respect the forecast-origin information set and the publication timing of predictors.</li>
@@ -1216,45 +1230,45 @@ Exercise 2.1: Leakage from Full-Sample Standardization
 </div>
 </div>
 <div class="callout-body-container callout-body">
-<p>Consider leave-one-out cross-validation for a scalar predictor <span class="math inline">\(x_1,\dots,x_n\)</span>. Let observation <span class="math inline">\(j\)</span> be the validation observation. Define </p>
+<p>Consider leave-one-out cross-validation for a scalar predictor <span class="math inline">x_1,\dots,x_n</span>. Let observation <span class="math inline">j</span> be the validation observation. Define </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 \bar{x}=\frac{1}{n}\sum_{i=1}^{n}x_i
 \qquad\text{and}\qquad
 \bar{x}_{-j}=\frac{1}{n-1}\sum_{i\neq j}x_i,
-\]</span></p>
+</span></p>
 </div>
-<p> where <span class="math inline">\(\bar{x}\)</span> is the full-sample mean and <span class="math inline">\(\bar{x}_{-j}\)</span> is the mean computed only on the training fold.</p>
+<p> where <span class="math inline">\bar{x}</span> is the full-sample mean and <span class="math inline">\bar{x}_{-j}</span> is the mean computed only on the training fold.</p>
 <p>Define the corresponding second moments </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 s^2=\frac{1}{n}\sum_{i=1}^{n}(x_i-\bar{x})^2,
 \qquad
 s_{-j}^2=\frac{1}{n-1}\sum_{i\neq j}(x_i-\bar{x}_{-j})^2.
-\]</span></p>
+</span></p>
 </div>
-<p>Assume <span class="math inline">\(n\ge 3\)</span> and that the training-fold observations <span class="math inline">\(\{x_i\}_{i\neq j}\)</span> are not all equal, so that <span class="math inline">\(s_{-j}^2&gt;0\)</span>.</p>
+<p>Assume <span class="math inline">n\ge 3</span> and that the training-fold observations <span class="math inline">\{x_i\}_{i\neq j}</span> are not all equal, so that <span class="math inline">s_{-j}^2&gt;0</span>.</p>
 <ol type="1">
-<li>Show that <span class="math display">\[
+<li>Show that <span class="math display">
 \bar{x}=\bar{x}_{-j}+\frac{x_j-\bar{x}_{-j}}{n}.
-\]</span></li>
-<li>Show that <span class="math display">\[
+</span></li>
+<li>Show that <span class="math display">
 s^2=\frac{n-1}{n}s_{-j}^2+\frac{n-1}{n^2}(x_j-\bar{x}_{-j})^2.
-\]</span></li>
-<li>Let <span class="math display">\[
+</span></li>
+<li>Let <span class="math display">
 z_j^{\text{full}}=\frac{x_j-\bar{x}}{s},
 \qquad
 z_j^{\text{honest}}=\frac{x_j-\bar{x}_{-j}}{s_{-j}}.
-\]</span> Show that <span class="math display">\[
+</span> Show that <span class="math display">
 z_j^{\text{full}}
 =
 \frac{\sqrt{n-1}\,z_j^{\text{honest}}}
 {\sqrt{n+(z_j^{\text{honest}})^2}}.
-\]</span></li>
-<li>Deduce that <span class="math display">\[
+</span></li>
+<li>Deduce that <span class="math display">
 |z_j^{\text{full}}|&lt;|z_j^{\text{honest}}|
 \qquad\text{for every }z_j^{\text{honest}}\neq 0.
-\]</span> Explain why this shows that full-sample standardization mechanically uses the validation observation to shrink its own standardized magnitude.</li>
+</span> Explain why this shows that full-sample standardization mechanically uses the validation observation to shrink its own standardized magnitude.</li>
 </ol>
 <p><em>Exam level. The point is to show mathematically that preprocessing on the full sample contaminates the validation fold and changes the object being evaluated.</em></p>
 </div>
@@ -1273,11 +1287,11 @@ Hint for Part 1
 <div class="callout-body-container callout-body">
 <p>Write </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 \sum_{i=1}^{n}x_i = \sum_{i\neq j}x_i + x_j
-\]</span></p>
+</span></p>
 </div>
-<p> and replace the sums by <span class="math inline">\((n-1)\bar{x}_{-j}\)</span> and <span class="math inline">\(n\bar{x}\)</span>.</p>
+<p> and replace the sums by <span class="math inline">(n-1)\bar{x}_{-j}</span> and <span class="math inline">n\bar{x}</span>.</p>
 </div>
 </div>
 </div>
@@ -1295,13 +1309,13 @@ Hint for Part 2
 <div class="callout-body-container callout-body">
 <p>Use the identity </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 \sum_{i=1}^{n}(x_i-\bar{x})^2
 =
 \sum_{i\neq j}(x_i-\bar{x})^2+(x_j-\bar{x})^2
-\]</span></p>
+</span></p>
 </div>
-<p> and rewrite <span class="math inline">\(x_i-\bar{x}\)</span> as <span class="math inline">\((x_i-\bar{x}_{-j})-(\bar{x}-\bar{x}_{-j})\)</span>.</p>
+<p> and rewrite <span class="math inline">x_i-\bar{x}</span> as <span class="math inline">(x_i-\bar{x}_{-j})-(\bar{x}-\bar{x}_{-j})</span>.</p>
 </div>
 </div>
 </div>
@@ -1317,7 +1331,7 @@ Hint for Part 3
 </div>
 <div id="callout-17" class="callout-17-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
-<p>Use Parts 1 and 2 to write both numerator and denominator in terms of <span class="math inline">\(z_j^{\text{honest}}\)</span> and <span class="math inline">\(n\)</span>.</p>
+<p>Use Parts 1 and 2 to write both numerator and denominator in terms of <span class="math inline">z_j^{\text{honest}}</span> and <span class="math inline">n</span>.</p>
 </div>
 </div>
 </div>
@@ -1336,98 +1350,98 @@ Solution
 <p><strong>Part 1: Mean Leakage from Full-Sample Standardization</strong></p>
 <p>We have </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 n\bar{x}=\sum_{i=1}^{n}x_i=\sum_{i\neq j}x_i+x_j=(n-1)\bar{x}_{-j}+x_j.
-\]</span></p>
+</span></p>
 </div>
-<p> Dividing by <span class="math inline">\(n\)</span> gives </p>
+<p> Dividing by <span class="math inline">n</span> gives </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 \bar{x}=\frac{n-1}{n}\bar{x}_{-j}+\frac{x_j}{n}
 =\bar{x}_{-j}+\frac{x_j-\bar{x}_{-j}}{n}.
-\]</span></p>
+</span></p>
 </div>
 <p><strong>Part 2: Variance Leakage from Full-Sample Standardization</strong></p>
 <p>We start from </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 \sum_{i=1}^{n}(x_i-\bar{x})^2
 =
 \sum_{i\neq j}(x_i-\bar{x})^2+(x_j-\bar{x})^2.
-\]</span></p>
+</span></p>
 </div>
-<p> For <span class="math inline">\(i\neq j\)</span>, </p>
+<p> For <span class="math inline">i\neq j</span>, </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 x_i-\bar{x}
 =(x_i-\bar{x}_{-j})-(\bar{x}-\bar{x}_{-j}).
-\]</span></p>
+</span></p>
 </div>
-<p> Since <span class="math inline">\(\sum_{i\neq j}(x_i-\bar{x}_{-j})=0\)</span>, we obtain </p>
+<p> Since <span class="math inline">\sum_{i\neq j}(x_i-\bar{x}_{-j})=0</span>, we obtain </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 \sum_{i\neq j}(x_i-\bar{x})^2
 =
 \sum_{i\neq j}(x_i-\bar{x}_{-j})^2
 +(n-1)(\bar{x}-\bar{x}_{-j})^2.
-\]</span></p>
+</span></p>
 </div>
 <p> By Part 1, </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 \bar{x}-\bar{x}_{-j}=\frac{x_j-\bar{x}_{-j}}{n},
 \qquad
 x_j-\bar{x}=\frac{n-1}{n}(x_j-\bar{x}_{-j}).
-\]</span></p>
+</span></p>
 </div>
 <p> Therefore </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 \sum_{i=1}^{n}(x_i-\bar{x})^2
 =(n-1)s_{-j}^2+(n-1)\frac{(x_j-\bar{x}_{-j})^2}{n^2}
 +\frac{(n-1)^2}{n^2}(x_j-\bar{x}_{-j})^2.
-\]</span></p>
+</span></p>
 </div>
 <p> Combining the last two terms gives </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 \sum_{i=1}^{n}(x_i-\bar{x})^2
 =(n-1)s_{-j}^2+\frac{n-1}{n}(x_j-\bar{x}_{-j})^2.
-\]</span></p>
+</span></p>
 </div>
-<p> Dividing by <span class="math inline">\(n\)</span> yields </p>
+<p> Dividing by <span class="math inline">n</span> yields </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 s^2=\frac{n-1}{n}s_{-j}^2+\frac{n-1}{n^2}(x_j-\bar{x}_{-j})^2.
-\]</span></p>
+</span></p>
 </div>
 <p><strong>Part 3: Closed-Form Expression for the Contaminated Z-Score</strong></p>
 <p>From Part 1, </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 x_j-\bar{x}=\frac{n-1}{n}(x_j-\bar{x}_{-j})
 =\frac{n-1}{n}z_j^{\text{honest}}s_{-j}.
-\]</span></p>
+</span></p>
 </div>
 <p> From Part 2, </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 s^2=\frac{n-1}{n}s_{-j}^2
 +\frac{n-1}{n^2}(z_j^{\text{honest}})^2s_{-j}^2
 =\frac{n-1}{n}s_{-j}^2
 \left(1+\frac{(z_j^{\text{honest}})^2}{n}\right).
-\]</span></p>
+</span></p>
 </div>
 <p> Hence </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 s=s_{-j}\sqrt{\frac{n-1}{n}}
 \sqrt{1+\frac{(z_j^{\text{honest}})^2}{n}}.
-\]</span></p>
+</span></p>
 </div>
 <p> Therefore </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 z_j^{\text{full}}
 =\frac{x_j-\bar{x}}{s}
 =
@@ -1437,26 +1451,26 @@ z_j^{\text{full}}
 =
 \frac{\sqrt{n-1}\,z_j^{\text{honest}}}
 {\sqrt{n+(z_j^{\text{honest}})^2}}.
-\]</span></p>
+</span></p>
 </div>
 <p><strong>Part 4: Why the Validation Observation Shrinks Itself</strong></p>
 <p>Using the expression from Part 3, </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 \left|\frac{z_j^{\text{full}}}{z_j^{\text{honest}}}\right|
 =
 \frac{\sqrt{n-1}}{\sqrt{n+(z_j^{\text{honest}})^2}}
 &lt;1
 \qquad\text{for every }z_j^{\text{honest}}\neq 0,
-\]</span></p>
+</span></p>
 </div>
-<p> because <span class="math inline">\(n+(z_j^{\text{honest}})^2&gt;n-1\)</span>.</p>
+<p> because <span class="math inline">n+(z_j^{\text{honest}})^2&gt;n-1</span>.</p>
 <p>Thus </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 |z_j^{\text{full}}|&lt;|z_j^{\text{honest}}|
 \qquad\text{whenever }z_j^{\text{honest}}\neq 0.
-\]</span></p>
+</span></p>
 </div>
 <p> The strict inequality shows mathematically that full-sample standardization is not innocuous: the validation observation enters both the centering and scaling rule, which shrinks its own standardized magnitude. So the validation fold is no longer being evaluated under a preprocessing rule estimated only from the training data.</p>
 </div>
@@ -1472,42 +1486,42 @@ Exercise 2.2: Why Model Search Creates Optimistic Validation Scores
 </div>
 </div>
 <div class="callout-body-container callout-body">
-<p>Suppose two fitted forecasting models, <span class="math inline">\(A\)</span> and <span class="math inline">\(B\)</span>, have the same generalization risk, </p>
+<p>Suppose two fitted forecasting models, <span class="math inline">A</span> and <span class="math inline">B</span>, have the same generalization risk, </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 R(\hat{f}_A)=R(\hat{f}_B)=R_0.
-\]</span></p>
+</span></p>
 </div>
 <p> Their validation-set risk estimates satisfy </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 \hat{R}_A = R_0+\varepsilon_A,
 \qquad
 \hat{R}_B = R_0+\varepsilon_B,
-\]</span></p>
+</span></p>
 </div>
-<p> where <span class="math inline">\(\varepsilon_A\)</span> and <span class="math inline">\(\varepsilon_B\)</span> are independent with mean zero and <span class="math inline">\(\Pr(\varepsilon_A\neq\varepsilon_B)&gt;0\)</span>, so the two estimates do not coincide with certainty.</p>
+<p> where <span class="math inline">\varepsilon_A</span> and <span class="math inline">\varepsilon_B</span> are independent with mean zero and <span class="math inline">\Pr(\varepsilon_A\neq\varepsilon_B)&gt;0</span>, so the two estimates do not coincide with certainty.</p>
 <p>The researcher selects the model with the smaller validation estimate.</p>
 <ol type="1">
-<li>Show that <span class="math display">\[
+<li>Show that <span class="math display">
 \min(\hat{R}_A,\hat{R}_B)
 =
 R_0+\frac{\varepsilon_A+\varepsilon_B-|\varepsilon_A-\varepsilon_B|}{2}.
-\]</span></li>
-<li>Deduce that <span class="math display">\[
+</span></li>
+<li>Deduce that <span class="math display">
 \mathbb{E}\big[\min(\hat{R}_A,\hat{R}_B)\big]
 =
 R_0-\frac{1}{2}\mathbb{E}\big[|\varepsilon_A-\varepsilon_B|\big]
 &lt; R_0.
-\]</span></li>
-<li>Suppose in addition that <span class="math display">\[
+</span></li>
+<li>Suppose in addition that <span class="math display">
 \varepsilon_A,\varepsilon_B \stackrel{\text{iid}}{\sim} \mathcal{N}(0,\sigma^2).
-\]</span> Derive the exact expectation of the selected validation score and show that <span class="math display">\[
+</span> Derive the exact expectation of the selected validation score and show that <span class="math display">
 \mathbb{E}\big[\min(\hat{R}_A,\hat{R}_B)\big]
 =
 R_0-\frac{\sigma}{\sqrt{\pi}}.
-\]</span></li>
-<li>Explain why the selected validation score is optimistically biased even though both <span class="math inline">\(\hat{R}_A\)</span> and <span class="math inline">\(\hat{R}_B\)</span> are individually unbiased estimates of <span class="math inline">\(R_0\)</span>. Relate this result to repeated specification search in econometrics and explain why an untouched test set or nested cross-validation is needed after model selection.</li>
+</span></li>
+<li>Explain why the selected validation score is optimistically biased even though both <span class="math inline">\hat{R}_A</span> and <span class="math inline">\hat{R}_B</span> are individually unbiased estimates of <span class="math inline">R_0</span>. Relate this result to repeated specification search in econometrics and explain why an untouched test set or nested cross-validation is needed after model selection.</li>
 </ol>
 <p><em>Exam level. The exercise formalizes a central point of the chapter: validation is noisy, and searching across specifications makes the best observed score look too good.</em></p>
 </div>
@@ -1526,9 +1540,9 @@ Hint for Part 1
 <div class="callout-body-container callout-body">
 <p>Use the identity </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 \min(a,b)=\frac{a+b-|a-b|}{2}.
-\]</span></p>
+</span></p>
 </div>
 </div>
 </div>
@@ -1545,11 +1559,11 @@ Hint for Part 3
 </div>
 <div id="callout-21" class="callout-21-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
-<p>Under the Gaussian assumption, <span class="math inline">\(\varepsilon_A-\varepsilon_B\)</span> is also Gaussian. Use the fact that if <span class="math inline">\(Z\sim\mathcal{N}(0,\tau^2)\)</span>, then </p>
+<p>Under the Gaussian assumption, <span class="math inline">\varepsilon_A-\varepsilon_B</span> is also Gaussian. Use the fact that if <span class="math inline">Z\sim\mathcal{N}(0,\tau^2)</span>, then </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 \mathbb{E}|Z|=\tau\sqrt{\frac{2}{\pi}}.
-\]</span></p>
+</span></p>
 </div>
 </div>
 </div>
@@ -1567,81 +1581,81 @@ Solution
 <div id="callout-22" class="callout-22-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p><strong>Part 1: Writing the Selected Validation Score</strong></p>
-<p>Apply the identity with <span class="math inline">\(a=\hat{R}_A\)</span> and <span class="math inline">\(b=\hat{R}_B\)</span>: </p>
+<p>Apply the identity with <span class="math inline">a=\hat{R}_A</span> and <span class="math inline">b=\hat{R}_B</span>: </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 \min(\hat{R}_A,\hat{R}_B)
 =\frac{\hat{R}_A+\hat{R}_B-|\hat{R}_A-\hat{R}_B|}{2}.
-\]</span></p>
+</span></p>
 </div>
-<p> Substituting <span class="math inline">\(\hat{R}_A=R_0+\varepsilon_A\)</span> and <span class="math inline">\(\hat{R}_B=R_0+\varepsilon_B\)</span> gives </p>
+<p> Substituting <span class="math inline">\hat{R}_A=R_0+\varepsilon_A</span> and <span class="math inline">\hat{R}_B=R_0+\varepsilon_B</span> gives </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 \min(\hat{R}_A,\hat{R}_B)
 =\frac{2R_0+\varepsilon_A+\varepsilon_B-|\varepsilon_A-\varepsilon_B|}{2}
 =R_0+\frac{\varepsilon_A+\varepsilon_B-|\varepsilon_A-\varepsilon_B|}{2}.
-\]</span></p>
+</span></p>
 </div>
 <p><strong>Part 2: Showing the Optimism Bias</strong></p>
 <p>Taking expectations, </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 \mathbb{E}\big[\min(\hat{R}_A,\hat{R}_B)\big]
 =
 R_0+\frac{\mathbb{E}[\varepsilon_A]+\mathbb{E}[\varepsilon_B]-\mathbb{E}[|\varepsilon_A-\varepsilon_B|]}{2}.
-\]</span></p>
+</span></p>
 </div>
 <p> Since both errors have mean zero, </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 \mathbb{E}\big[\min(\hat{R}_A,\hat{R}_B)\big]
 =
 R_0-\frac{1}{2}\mathbb{E}[|\varepsilon_A-\varepsilon_B|].
-\]</span></p>
+</span></p>
 </div>
-<p> Because <span class="math inline">\(|\varepsilon_A-\varepsilon_B|\ge 0\)</span> and, by the assumption <span class="math inline">\(\Pr(\varepsilon_A\neq\varepsilon_B)&gt;0\)</span>, is strictly positive with positive probability, </p>
+<p> Because <span class="math inline">|\varepsilon_A-\varepsilon_B|\ge 0</span> and, by the assumption <span class="math inline">\Pr(\varepsilon_A\neq\varepsilon_B)&gt;0</span>, is strictly positive with positive probability, </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 \mathbb{E}\big[\min(\hat{R}_A,\hat{R}_B)\big] &lt; R_0.
-\]</span></p>
+</span></p>
 </div>
 <p><strong>Part 3: Exact Gaussian Optimism</strong></p>
 <p>Under the additional assumption, </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 \varepsilon_A-\varepsilon_B\sim \mathcal{N}(0,2\sigma^2).
-\]</span></p>
+</span></p>
 </div>
-<p> If <span class="math inline">\(Z\sim\mathcal{N}(0,\tau^2)\)</span>, then </p>
+<p> If <span class="math inline">Z\sim\mathcal{N}(0,\tau^2)</span>, then </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 \mathbb{E}|Z|=\tau\sqrt{\frac{2}{\pi}}.
-\]</span></p>
+</span></p>
 </div>
-<p> Here <span class="math inline">\(\tau=\sqrt{2}\sigma\)</span>, so </p>
+<p> Here <span class="math inline">\tau=\sqrt{2}\sigma</span>, so </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 \mathbb{E}\big[|\varepsilon_A-\varepsilon_B|\big]
 =\sqrt{2}\sigma\sqrt{\frac{2}{\pi}}
 =\frac{2\sigma}{\sqrt{\pi}}.
-\]</span></p>
+</span></p>
 </div>
 <p> Substituting this into Part 2 gives </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 \mathbb{E}\big[\min(\hat{R}_A,\hat{R}_B)\big]
 =
 R_0-\frac{1}{2}\cdot \frac{2\sigma}{\sqrt{\pi}}
 =
 R_0-\frac{\sigma}{\sqrt{\pi}}.
-\]</span></p>
+</span></p>
 </div>
 <p><strong>Part 4: Why Specification Search Creates Bias</strong></p>
 <p>Each candidate validation score is unbiased when viewed separately: </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 \mathbb{E}[\hat{R}_A]=\mathbb{E}[\hat{R}_B]=R_0.
-\]</span></p>
+</span></p>
 </div>
 <p> But the researcher does not report one fixed model’s score; they report the <em>smaller</em> of two noisy scores. The minimum operator systematically picks negative noise realizations. That is why the selected validation score is optimistically biased.</p>
 <p>The same logic applies when an econometrician searches across many lag lengths, control sets, regularization parameters, or model classes using the same validation sample. The “best” validation score partly reflects good luck.</p>
@@ -1661,31 +1675,31 @@ Exercise 2.3: Feasible and Infeasible Time-Series Forecasts
 <div class="callout-body-container callout-body">
 <p>Suppose the data-generating process is </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 y_{t+1}=\beta z_t+u_{t+1},
 \qquad
 z_t=\rho z_{t-1}+\xi_t,
-\]</span></p>
+</span></p>
 </div>
-<p> where <span class="math inline">\(|\rho|&lt;1\)</span>, <span class="math inline">\(\beta\neq 0\)</span>, <span class="math inline">\(\mathbb{E}[u_{t+1}]=\mathbb{E}[\xi_t]=0\)</span>, <span class="math inline">\(\operatorname{Var}(u_{t+1})=\sigma_u^2\)</span>, <span class="math inline">\(\operatorname{Var}(\xi_t)=\sigma_\xi^2&gt;0\)</span>, <span class="math inline">\(\{\xi_t\}\)</span> is an i.i.d. innovation sequence (so that <span class="math inline">\(\xi_t\)</span> is independent of <span class="math inline">\(z_{t-1},z_{t-2},\dots\)</span>), and <span class="math inline">\(u_{t+1}\)</span> is independent of <span class="math inline">\(\xi_t\)</span> and of the past.</p>
-<p>Assume the predictor <span class="math inline">\(z_t\)</span> is published with a one-period delay, so at forecast origin <span class="math inline">\(t\)</span> we observe <span class="math inline">\(z_{t-1}\)</span> but not <span class="math inline">\(z_t\)</span>. Let <span class="math inline">\(\mathcal{F}_t=\sigma(z_{t-1},z_{t-2},\dots)\)</span>.</p>
+<p> where <span class="math inline">|\rho|&lt;1</span>, <span class="math inline">\beta\neq 0</span>, <span class="math inline">\mathbb{E}[u_{t+1}]=\mathbb{E}[\xi_t]=0</span>, <span class="math inline">\operatorname{Var}(u_{t+1})=\sigma_u^2</span>, <span class="math inline">\operatorname{Var}(\xi_t)=\sigma_\xi^2&gt;0</span>, <span class="math inline">\{\xi_t\}</span> is an i.i.d. innovation sequence (so that <span class="math inline">\xi_t</span> is independent of <span class="math inline">z_{t-1},z_{t-2},\dots</span>), and <span class="math inline">u_{t+1}</span> is independent of <span class="math inline">\xi_t</span> and of the past.</p>
+<p>Assume the predictor <span class="math inline">z_t</span> is published with a one-period delay, so at forecast origin <span class="math inline">t</span> we observe <span class="math inline">z_{t-1}</span> but not <span class="math inline">z_t</span>. Let <span class="math inline">\mathcal{F}_t=\sigma(z_{t-1},z_{t-2},\dots)</span>.</p>
 <p>Consider the two forecasting rules </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 \hat{y}^{\,\text{oracle}}_{t+1\mid t}=\beta z_t,
 \qquad
 \hat{y}^{\,\text{rt}}_{t+1\mid t}=\mathbb{E}[y_{t+1}\mid \mathcal{F}_t].
-\]</span></p>
+</span></p>
 </div>
 <ol type="1">
-<li>Derive the feasible real-time forecast <span class="math inline">\(\hat{y}^{\,\text{rt}}_{t+1\mid t}\)</span> as a function of <span class="math inline">\(z_{t-1}\)</span>.</li>
-<li>Compute the one-step-ahead forecast error of the feasible real-time forecast and show that its mean squared prediction error (MSPE) is <span class="math display">\[
+<li>Derive the feasible real-time forecast <span class="math inline">\hat{y}^{\,\text{rt}}_{t+1\mid t}</span> as a function of <span class="math inline">z_{t-1}</span>.</li>
+<li>Compute the one-step-ahead forecast error of the feasible real-time forecast and show that its mean squared prediction error (MSPE) is <span class="math display">
 \operatorname{MSPE}_{\text{rt}}=\beta^2\sigma_\xi^2+\sigma_u^2.
-\]</span></li>
-<li>Compute the forecast error of the infeasible oracle forecast <span class="math inline">\(\hat{y}^{\,\text{oracle}}_{t+1\mid t}\)</span> and show that <span class="math display">\[
+</span></li>
+<li>Compute the forecast error of the infeasible oracle forecast <span class="math inline">\hat{y}^{\,\text{oracle}}_{t+1\mid t}</span> and show that <span class="math display">
 \operatorname{MSPE}_{\text{oracle}}=\sigma_u^2.
-\]</span></li>
-<li>Explain why a random cross-validation design that effectively allows the use of <span class="math inline">\(z_t\)</span> when forecasting <span class="math inline">\(y_{t+1}\)</span> will deliver an unduly optimistic estimate of real-time forecasting performance.</li>
+</span></li>
+<li>Explain why a random cross-validation design that effectively allows the use of <span class="math inline">z_t</span> when forecasting <span class="math inline">y_{t+1}</span> will deliver an unduly optimistic estimate of real-time forecasting performance.</li>
 </ol>
 <p><em>Exam level. The exercise formalizes the central econometric issue in time-series cross-validation: the validation design must match the real-time information set.</em></p>
 </div>
@@ -1704,11 +1718,11 @@ Hint for Part 1
 <div class="callout-body-container callout-body">
 <p>Use iterated expectations: </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 \mathbb{E}[y_{t+1}\mid \mathcal{F}_t]
 =
 \beta\,\mathbb{E}[z_t\mid \mathcal{F}_t].
-\]</span></p>
+</span></p>
 </div>
 </div>
 </div>
@@ -1725,7 +1739,7 @@ Hint for Part 2
 </div>
 <div id="callout-25" class="callout-25-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
-<p>Substitute the first-order autoregressive (AR(1)) representation of <span class="math inline">\(z_t\)</span> into the forecast error.</p>
+<p>Substitute the first-order autoregressive (AR(1)) representation of <span class="math inline">z_t</span> into the forecast error.</p>
 </div>
 </div>
 </div>
@@ -1744,56 +1758,56 @@ Solution
 <p><strong>Part 1: Deriving the Feasible Real-Time Forecast</strong></p>
 <p>We have </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 \mathbb{E}[y_{t+1}\mid \mathcal{F}_t]
 =
 \beta\,\mathbb{E}[z_t\mid \mathcal{F}_t]
 =
 \beta\,\mathbb{E}[\rho z_{t-1}+\xi_t\mid \mathcal{F}_t].
-\]</span></p>
+</span></p>
 </div>
-<p> Since <span class="math inline">\(z_{t-1}\in \mathcal{F}_t\)</span> and <span class="math inline">\(\mathbb{E}[\xi_t\mid \mathcal{F}_t]=0\)</span>, </p>
+<p> Since <span class="math inline">z_{t-1}\in \mathcal{F}_t</span> and <span class="math inline">\mathbb{E}[\xi_t\mid \mathcal{F}_t]=0</span>, </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 \hat{y}^{\,\text{rt}}_{t+1\mid t}
 =
 \beta\rho z_{t-1}.
-\]</span></p>
+</span></p>
 </div>
 <p><strong>Part 2: Real-Time Forecast Error and MSPE</strong></p>
 <p>The real-time forecast error is </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 e^{\text{rt}}_{t+1}
 =
 y_{t+1}-\hat{y}^{\,\text{rt}}_{t+1\mid t}
 =
 \beta z_t+u_{t+1}-\beta\rho z_{t-1}.
-\]</span></p>
+</span></p>
 </div>
-<p> Using <span class="math inline">\(z_t=\rho z_{t-1}+\xi_t\)</span>, this becomes </p>
+<p> Using <span class="math inline">z_t=\rho z_{t-1}+\xi_t</span>, this becomes </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 e^{\text{rt}}_{t+1}
 =
 \beta\xi_t+u_{t+1}.
-\]</span></p>
+</span></p>
 </div>
 <p> Hence </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 \operatorname{MSPE}_{\text{rt}}
 =
 \operatorname{Var}(\beta\xi_t+u_{t+1})
 =
 \beta^2\sigma_\xi^2+\sigma_u^2,
-\]</span></p>
+</span></p>
 </div>
-<p> using independence of <span class="math inline">\(\xi_t\)</span> and <span class="math inline">\(u_{t+1}\)</span>.</p>
+<p> using independence of <span class="math inline">\xi_t</span> and <span class="math inline">u_{t+1}</span>.</p>
 <p><strong>Part 3: Oracle Forecast Error and MSPE</strong></p>
 <p>The oracle forecast error is </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 e^{\text{oracle}}_{t+1}
 =
 y_{t+1}-\hat{y}^{\,\text{oracle}}_{t+1\mid t}
@@ -1801,27 +1815,27 @@ y_{t+1}-\hat{y}^{\,\text{oracle}}_{t+1\mid t}
 \beta z_t+u_{t+1}-\beta z_t
 =
 u_{t+1}.
-\]</span></p>
+</span></p>
 </div>
 <p> Therefore </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 \operatorname{MSPE}_{\text{oracle}}=\operatorname{Var}(u_{t+1})=\sigma_u^2.
-\]</span></p>
+</span></p>
 </div>
 <p><strong>Part 4: Why Random CV Evaluates an Infeasible Oracle</strong></p>
 <p>The oracle forecast is better on paper because it uses information that is unavailable in real time: </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 \operatorname{MSPE}_{\text{oracle}}=\sigma_u^2
 &lt;
 \beta^2\sigma_\xi^2+\sigma_u^2
 =
 \operatorname{MSPE}_{\text{rt}}
-\]</span></p>
+</span></p>
 </div>
-<p> which holds by the maintained assumptions <span class="math inline">\(\beta\neq 0\)</span> and <span class="math inline">\(\sigma_\xi^2&gt;0\)</span>.</p>
-<p>So a random cross-validation design that effectively lets the model exploit <span class="math inline">\(z_t\)</span> when predicting <span class="math inline">\(y_{t+1}\)</span> is evaluating an infeasible forecasting problem. It will produce an overly optimistic estimate of achievable real-time performance. The relevant validation design is the one that reproduces the actual forecast-origin information set, not the one with the lower but infeasible error.</p>
+<p> which holds by the maintained assumptions <span class="math inline">\beta\neq 0</span> and <span class="math inline">\sigma_\xi^2&gt;0</span>.</p>
+<p>So a random cross-validation design that effectively lets the model exploit <span class="math inline">z_t</span> when predicting <span class="math inline">y_{t+1}</span> is evaluating an infeasible forecasting problem. It will produce an overly optimistic estimate of achievable real-time performance. The relevant validation design is the one that reproduces the actual forecast-origin information set, not the one with the lower but infeasible error.</p>
 </div>
 </div>
 </div>

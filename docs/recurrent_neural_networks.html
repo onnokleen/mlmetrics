@@ -122,8 +122,22 @@ div.csl-indent {
 })();
 </script>
 
-  <script src="https://cdnjs.cloudflare.com/polyfill/v3/polyfill.min.js?features=es6"></script>
-  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml-full.js" type="text/javascript"></script>
+  <script>window.backupDefine = window.define; window.define = undefined;</script><script src="https://cdn.jsdelivr.net/npm/katex@latest/dist/katex.min.js"></script>
+  <script>document.addEventListener("DOMContentLoaded", function () {
+ var mathElements = document.getElementsByClassName("math");
+ var macros = [];
+ for (var i = 0; i < mathElements.length; i++) {
+  var texText = mathElements[i].firstChild;
+  if (mathElements[i].tagName == "SPAN") {
+   katex.render(texText.data, mathElements[i], {
+    displayMode: mathElements[i].classList.contains('display'),
+    throwOnError: false,
+    macros: macros,
+    fleqn: false
+   });
+}}});
+  </script>
+  <script>window.define = window.backupDefine; window.backupDefine = undefined;</script><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@latest/dist/katex.min.css">
 
 <script type="text/javascript">
 const typesetMath = (el) => {
@@ -383,7 +397,7 @@ window.Quarto = {
 <h1 data-number="6"><span class="header-section-number">6</span> Recurrent Neural Networks</h1>
 <section id="overview" class="level2" data-number="6.1">
 <h2 data-number="6.1" class="anchored" data-anchor-id="overview"><span class="header-section-number">6.1</span> Overview</h2>
-<p>Feed-forward neural networks (FNNs) are flexible nonlinear maps from an input vector to an output, but they do not have a built-in state variable. If we want to use them for time-series forecasting, we usually have to create lagged inputs manually, such as <span class="math inline">\((y_{t-1}, y_{t-2}, \ldots, y_{t-p})\)</span>. That approach is often useful, but it fixes the memory length <span class="math inline">\(p\)</span> in advance and treats temporal dependence as a feature-engineering problem.</p>
+<p>Feed-forward neural networks (FNNs) are flexible nonlinear maps from an input vector to an output, but they do not have a built-in state variable. If we want to use them for time-series forecasting, we usually have to create lagged inputs manually, such as <span class="math inline">(y_{t-1}, y_{t-2}, \ldots, y_{t-p})</span>. That approach is often useful, but it fixes the memory length <span class="math inline">p</span> in advance and treats temporal dependence as a feature-engineering problem.</p>
 <p>Recurrent neural networks (RNNs) instead maintain a hidden state that is updated as new observations arrive. This makes them closer in spirit to econometric models with recursively updated states, such as autoregressive moving-average (ARMA) models, state-space models, or generalized autoregressive conditional heteroskedasticity (GARCH) models. The key difference is that the update function is learned from data and can be nonlinear and high-dimensional.</p>
 <p>This chapter introduces the basic RNN architecture in a forecasting setting, interprets it through an econometric state-variable lens, explains how training works when the data are one long time series, and then turns to the central difficulty of RNNs: vanishing and exploding gradients. The basic recurrent architecture is closely associated with <span class="citation" data-cites="Elman1990">Elman (<a href="#ref-Elman1990" role="doc-biblioref">1990</a>)</span>, while training through an unrolled sequence uses the backpropagation ideas of <span class="citation" data-cites="RumelhartHintonWilliams1986">Rumelhart, Hinton, and Williams (<a href="#ref-RumelhartHintonWilliams1986" role="doc-biblioref">1986</a>)</span> and backpropagation through time as described by <span class="citation" data-cites="Werbos1990">Werbos (<a href="#ref-Werbos1990" role="doc-biblioref">1990</a>)</span>. The vanishing-gradient difficulty is analyzed in <span class="citation" data-cites="BengioSimardFrasconi1994">Bengio, Simard, and Frasconi (<a href="#ref-BengioSimardFrasconi1994" role="doc-biblioref">1994</a>)</span>. That difficulty is the main reason why the next chapter moves to Long Short-Term Memory (LSTM) networks.</p>
 </section>
@@ -401,21 +415,21 @@ window.Quarto = {
 </section>
 <section id="forecasting-setup-and-the-information-set" class="level2" data-number="6.3">
 <h2 data-number="6.3" class="anchored" data-anchor-id="forecasting-setup-and-the-information-set"><span class="header-section-number">6.3</span> Forecasting Setup and the Information Set</h2>
-<p>Suppose we want to forecast a scalar outcome <span class="math inline">\(y_{t+1}\)</span> using information available at time <span class="math inline">\(t\)</span>. Let <span class="math inline">\(\mathcal{F}_t\)</span> denote that information set. In a macroeconomic or financial application, <span class="math inline">\(\mathcal{F}_t\)</span> may contain past values of the target variable, lagged predictors, realized returns, volatility measures, survey variables, text-based indicators, and other signals known at the forecast origin.</p>
+<p>Suppose we want to forecast a scalar outcome <span class="math inline">y_{t+1}</span> using information available at time <span class="math inline">t</span>. Let <span class="math inline">\mathcal{F}_t</span> denote that information set. In a macroeconomic or financial application, <span class="math inline">\mathcal{F}_t</span> may contain past values of the target variable, lagged predictors, realized returns, volatility measures, survey variables, text-based indicators, and other signals known at the forecast origin.</p>
 <p>A lagged feed-forward network uses a fixed window of this information, for example</p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 \hat{y}_{t+1\mid t} = f_\theta(y_t, y_{t-1}, \ldots, y_{t-p}, \mathbf{x}_t, \mathbf{x}_{t-1}, \ldots, \mathbf{x}_{t-p}).
-\]</span></p>
+</span></p>
 </div>
-<p>Here <span class="math inline">\(\hat{y}_{t+1\mid t}\)</span> denotes a forecast of <span class="math inline">\(y_{t+1}\)</span> formed at the origin <span class="math inline">\(t\)</span>; the two-index subscript records both dates. This is a reasonable baseline. It is close to how econometricians build distributed-lag or autoregressive forecasting models. The limitation is that the lag length <span class="math inline">\(p\)</span> must be chosen before estimation, and the model does not update an internal state as new observations arrive.</p>
+<p>Here <span class="math inline">\hat{y}_{t+1\mid t}</span> denotes a forecast of <span class="math inline">y_{t+1}</span> formed at the origin <span class="math inline">t</span>; the two-index subscript records both dates. This is a reasonable baseline. It is close to how econometricians build distributed-lag or autoregressive forecasting models. The limitation is that the lag length <span class="math inline">p</span> must be chosen before estimation, and the model does not update an internal state as new observations arrive.</p>
 <p>An RNN replaces the fixed lag window by a recursively updated summary:</p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 \mathbf{h}_t = \text{summary}_\theta(\mathbf{x}_1, \ldots, \mathbf{x}_t).
-\]</span></p>
+</span></p>
 </div>
-<p>The hidden state <span class="math inline">\(\mathbf{h}_t\)</span> is not observed and should not be interpreted too literally. It is a learned vector summary of the past that is useful for prediction.</p>
+<p>The hidden state <span class="math inline">\mathbf{h}_t</span> is not observed and should not be interpreted too literally. It is a learned vector summary of the past that is useful for prediction.</p>
 <div class="callout callout-style-default callout-important callout-titled">
 <div class="callout-header d-flex align-content-center">
 <div class="callout-icon-container">
@@ -433,17 +447,17 @@ Econometric Interpretation
 <section id="from-a-lagged-fnn-to-a-recurrent-state" class="level2" data-number="6.4">
 <h2 data-number="6.4" class="anchored" data-anchor-id="from-a-lagged-fnn-to-a-recurrent-state"><span class="header-section-number">6.4</span> From a Lagged FNN to a Recurrent State</h2>
 <p>The previous section described the hidden state abstractly, as a recursively updated summary of the past. We now make the recursion explicit. A feed-forward network with lagged inputs can approximate nonlinear autoregressive relationships, but it treats the chosen lag vector as the full input: if the relevant history spans many periods, or if which features of the history matter changes over time, the fixed window becomes the binding constraint. At the architectural level, a state-carrying RNN removes the fixed window: at each step, the network updates a hidden state from the current input and the previous state, so all earlier observations can enter the prediction through the current state. (The fixed-window training scheme introduced later in the chapter truncates this history in estimation.)</p>
-<p>An RNN uses the same update rule at every time step. At time <span class="math inline">\(t\)</span>, it takes the current input <span class="math inline">\(\mathbf{x}_t\)</span> and the previous hidden state <span class="math inline">\(\mathbf{h}_{t-1}\)</span> and produces a new hidden state <span class="math inline">\(\mathbf{h}_t\)</span>. This creates a recursive representation of the past:</p>
+<p>An RNN uses the same update rule at every time step. At time <span class="math inline">t</span>, it takes the current input <span class="math inline">\mathbf{x}_t</span> and the previous hidden state <span class="math inline">\mathbf{h}_{t-1}</span> and produces a new hidden state <span class="math inline">\mathbf{h}_t</span>. This creates a recursive representation of the past:</p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 \mathbf{h}_t = g_\theta(\mathbf{h}_{t-1}, \mathbf{x}_t).
-\]</span></p>
+</span></p>
 </div>
 <p>This state can then be used to produce a forecast, classification probability, or distributional parameter:</p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 \hat{y}_{t+1\mid t} = q_\theta(\mathbf{h}_t).
-\]</span></p>
+</span></p>
 </div>
 <p>The essential point is that the model learns both the update rule and the predictive mapping.</p>
 </section>
@@ -486,58 +500,58 @@ Figure&nbsp;6.1: RNN architecture in compact form (left) and unrolled through ti
 </figure>
 </div>
 <p>The left panel in <a href="#fig-rnn-side-by-side" class="quarto-xref">Figure&nbsp;6.1</a> shows the compact representation: a recurrent link feeds the previous hidden state back into the model. The right panel shows the same model unrolled through time. Unrolling is mainly a computational device for training; it does not mean that the model has different parameters at different dates.</p>
-<p>At each time step <span class="math inline">\(t\)</span>, define:</p>
+<p>At each time step <span class="math inline">t</span>, define:</p>
 <ul>
-<li><span class="math inline">\(\mathbf{x}_t \in \mathbb{R}^{D}\)</span>: The input vector at the current time step (e.g., today’s stock returns and trading volume); <span class="math inline">\(D\)</span> is the per-period input dimension — the same role played by <span class="math inline">\(p\)</span> in Chapter 5.</li>
-<li><span class="math inline">\(\mathbf{h}_{t-1}  \in \mathbb{R}^{H}\)</span>: The hidden state from the <em>previous</em> time step, which acts as the network’s memory of the past.</li>
-<li><span class="math inline">\(\mathbf{h}_t  \in \mathbb{R}^{H}\)</span>: The <em>new</em> hidden state, calculated by combining the current input <span class="math inline">\(\mathbf{x}_t\)</span> with the previous state <span class="math inline">\(\mathbf{h}_{t-1}\)</span>.</li>
-<li><span class="math inline">\(\hat{\mathbf{y}}_t \in \mathbb{R}^{O}\)</span>: The output at the current time step (e.g., the prediction for tomorrow’s volatility), produced from the current hidden state. The hat marks it as a model output rather than an observed quantity.</li>
+<li><span class="math inline">\mathbf{x}_t \in \mathbb{R}^{D}</span>: The input vector at the current time step (e.g., today’s stock returns and trading volume); <span class="math inline">D</span> is the per-period input dimension — the same role played by <span class="math inline">p</span> in Chapter 5.</li>
+<li><span class="math inline">\mathbf{h}_{t-1}  \in \mathbb{R}^{H}</span>: The hidden state from the <em>previous</em> time step, which acts as the network’s memory of the past.</li>
+<li><span class="math inline">\mathbf{h}_t  \in \mathbb{R}^{H}</span>: The <em>new</em> hidden state, calculated by combining the current input <span class="math inline">\mathbf{x}_t</span> with the previous state <span class="math inline">\mathbf{h}_{t-1}</span>.</li>
+<li><span class="math inline">\hat{\mathbf{y}}_t \in \mathbb{R}^{O}</span>: The output at the current time step (e.g., the prediction for tomorrow’s volatility), produced from the current hidden state. The hat marks it as a model output rather than an observed quantity.</li>
 </ul>
 <p>The update equations are:</p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 \begin{align}
 \mathbf{h}_t &amp;= g(\mathbf{W}_{hh}\mathbf{h}_{t-1} + \mathbf{W}_{xh}\mathbf{x}_t + \mathbf{b}_h) \quad &amp;\text{(Update memory)} \\
 \hat{\mathbf{y}}_t &amp;= \mathbf{W}_{hy}\mathbf{h}_t + \mathbf{b}_y \quad &amp;\text{(Produce output)}
 \end{align}
-\]</span></p>
+</span></p>
 </div>
-<p>with <span class="math inline">\(\mathbf{h}_0\)</span> fixed by convention, typically <span class="math inline">\(\mathbf{h}_0 = \mathbf{0}\)</span>, since the state recursion is otherwise undefined at <span class="math inline">\(t=1\)</span>, and with the following parameters:</p>
+<p>with <span class="math inline">\mathbf{h}_0</span> fixed by convention, typically <span class="math inline">\mathbf{h}_0 = \mathbf{0}</span>, since the state recursion is otherwise undefined at <span class="math inline">t=1</span>, and with the following parameters:</p>
 <ul>
-<li><span class="math inline">\(\mathbf{W}_{hh} \in \mathbb{R}^{H \times H}\)</span> (hidden-to-hidden weights)</li>
-<li><span class="math inline">\(\mathbf{W}_{xh} \in \mathbb{R}^{H \times D}\)</span> (input-to-hidden weights)</li>
-<li><span class="math inline">\(\mathbf{W}_{hy} \in \mathbb{R}^{O \times H}\)</span> (hidden-to-output weights)</li>
-<li><span class="math inline">\(\mathbf{b}_h \in \mathbb{R}^{H}\)</span>, <span class="math inline">\(\mathbf{b}_y \in \mathbb{R}^{O}\)</span> (bias terms)</li>
+<li><span class="math inline">\mathbf{W}_{hh} \in \mathbb{R}^{H \times H}</span> (hidden-to-hidden weights)</li>
+<li><span class="math inline">\mathbf{W}_{xh} \in \mathbb{R}^{H \times D}</span> (input-to-hidden weights)</li>
+<li><span class="math inline">\mathbf{W}_{hy} \in \mathbb{R}^{O \times H}</span> (hidden-to-output weights)</li>
+<li><span class="math inline">\mathbf{b}_h \in \mathbb{R}^{H}</span>, <span class="math inline">\mathbf{b}_y \in \mathbb{R}^{O}</span> (bias terms)</li>
 </ul>
-<p>These are collectively <span class="math inline">\(\theta = \{\mathbf{W}_{hh}, \mathbf{W}_{xh}, \mathbf{W}_{hy}, \mathbf{b}_h, \mathbf{b}_y\}\)</span>, the parameters that the generic maps <span class="math inline">\(f_\theta\)</span>, <span class="math inline">\(g_\theta\)</span>, and <span class="math inline">\(q_\theta\)</span> introduced above stand for.</p>
-<p>RNN implementations typically use <span class="math inline">\(\tanh\)</span> as the activation <span class="math inline">\(g\)</span>, because it is bounded and zero-centered.</p>
-<p>In the generic notation above, <span class="math inline">\(\hat{\mathbf{y}}_t\)</span> denotes the output produced after seeing <span class="math inline">\(\mathbf{x}_t\)</span>. In a one-step-ahead forecasting application with a scalar output, the step-<span class="math inline">\(t\)</span> output is the forecast of the next outcome: <span class="math inline">\(\hat{\mathbf{y}}_t\)</span> plays the role of <span class="math inline">\(\hat{y}_{t+1\mid t}\)</span>, or of parameters of the predictive distribution for <span class="math inline">\(y_{t+1} \mid \mathcal{F}_t\)</span>. Output subscripts thus record the origin at which the output is produced, while an unhatted <span class="math inline">\(y_s\)</span> always denotes the outcome realized at calendar time <span class="math inline">\(s\)</span>.</p>
+<p>These are collectively <span class="math inline">\theta = \{\mathbf{W}_{hh}, \mathbf{W}_{xh}, \mathbf{W}_{hy}, \mathbf{b}_h, \mathbf{b}_y\}</span>, the parameters that the generic maps <span class="math inline">f_\theta</span>, <span class="math inline">g_\theta</span>, and <span class="math inline">q_\theta</span> introduced above stand for.</p>
+<p>RNN implementations typically use <span class="math inline">\tanh</span> as the activation <span class="math inline">g</span>, because it is bounded and zero-centered.</p>
+<p>In the generic notation above, <span class="math inline">\hat{\mathbf{y}}_t</span> denotes the output produced after seeing <span class="math inline">\mathbf{x}_t</span>. In a one-step-ahead forecasting application with a scalar output, the step-<span class="math inline">t</span> output is the forecast of the next outcome: <span class="math inline">\hat{\mathbf{y}}_t</span> plays the role of <span class="math inline">\hat{y}_{t+1\mid t}</span>, or of parameters of the predictive distribution for <span class="math inline">y_{t+1} \mid \mathcal{F}_t</span>. Output subscripts thus record the origin at which the output is produced, while an unhatted <span class="math inline">y_s</span> always denotes the outcome realized at calendar time <span class="math inline">s</span>.</p>
 <p><strong>Key Properties</strong></p>
 <ul>
-<li><strong>Parameter sharing:</strong> The same weight matrices (<span class="math inline">\(\mathbf{W}_{hh}, \mathbf{W}_{xh}, \mathbf{W}_{hy}\)</span>) and biases are used at <em>every time step</em>. The total parameter count is therefore independent of sequence length, so the same network can be applied to sequences of different lengths.</li>
-<li><strong>Memory:</strong> The hidden state <span class="math inline">\(\mathbf{h}_t\)</span> carries information from past inputs forward, so observations at <span class="math inline">\(t-k\)</span> for <span class="math inline">\(k\geq 1\)</span> can still influence <span class="math inline">\(\hat{y}_{t+1\mid t}\)</span> through the state.</li>
+<li><strong>Parameter sharing:</strong> The same weight matrices (<span class="math inline">\mathbf{W}_{hh}, \mathbf{W}_{xh}, \mathbf{W}_{hy}</span>) and biases are used at <em>every time step</em>. The total parameter count is therefore independent of sequence length, so the same network can be applied to sequences of different lengths.</li>
+<li><strong>Memory:</strong> The hidden state <span class="math inline">\mathbf{h}_t</span> carries information from past inputs forward, so observations at <span class="math inline">t-k</span> for <span class="math inline">k\geq 1</span> can still influence <span class="math inline">\hat{y}_{t+1\mid t}</span> through the state.</li>
 </ul>
 </section>
 <section id="econometric-state-variable-interpretation" class="level2" data-number="6.6">
 <h2 data-number="6.6" class="anchored" data-anchor-id="econometric-state-variable-interpretation"><span class="header-section-number">6.6</span> Econometric State-Variable Interpretation</h2>
 <p>An RNN can be viewed as a flexible nonlinear generalization of classical time-series models with recursively updated states. A useful benchmark is the GARCH model of <span class="citation" data-cites="Bollerslev1986">Bollerslev (<a href="#ref-Bollerslev1986" role="doc-biblioref">1986</a>)</span>.</p>
-<p>In the <strong>GARCH(1,1)</strong> model, the return at <span class="math inline">\(t\)</span> is decomposed as <span class="math inline">\(r_t = \mu_t + \varepsilon_t\)</span> where <span class="math inline">\(\mu_t\)</span> is the conditional mean and <span class="math inline">\(\varepsilon_t\)</span> is the innovation. The conditional variance of <span class="math inline">\(\varepsilon_t\)</span> then follows the recursion </p>
+<p>In the <strong>GARCH(1,1)</strong> model, the return at <span class="math inline">t</span> is decomposed as <span class="math inline">r_t = \mu_t + \varepsilon_t</span> where <span class="math inline">\mu_t</span> is the conditional mean and <span class="math inline">\varepsilon_t</span> is the innovation. The conditional variance of <span class="math inline">\varepsilon_t</span> then follows the recursion </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 \sigma_t^2 = \omega + \alpha \varepsilon_{t-1}^2 + \beta \sigma_{t-1}^2,
-\]</span></p>
+</span></p>
 </div>
-<p> where <span class="math inline">\(\omega&gt;0\)</span>, <span class="math inline">\(\alpha,\beta\geq 0\)</span>, and <span class="math inline">\(\alpha+\beta&lt;1\)</span> for covariance stationarity. The state is <span class="math inline">\(\sigma_{t-1}^2\)</span>, and the update is linear in the lagged squared innovation and the lagged variance.</p>
+<p> where <span class="math inline">\omega&gt;0</span>, <span class="math inline">\alpha,\beta\geq 0</span>, and <span class="math inline">\alpha+\beta&lt;1</span> for covariance stationarity. The state is <span class="math inline">\sigma_{t-1}^2</span>, and the update is linear in the lagged squared innovation and the lagged variance.</p>
 <p>An RNN-style volatility model could instead use </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 \begin{align}
 \mathbf{h}_t &amp;= \tanh(\mathbf{W}_{hh}\mathbf{h}_{t-1} + \mathbf{W}_{xh}\mathbf{x}_t + \mathbf{b}_h) \\
 \sigma_{t+1}^2 &amp;= \text{softplus}(\mathbf{W}_{hy}\mathbf{h}_t + \mathbf{b}_y),
 \end{align}
-\]</span></p>
+</span></p>
 </div>
-<p>where <span class="math inline">\(\mathbf{x}_t\)</span> might contain lagged returns, squared returns, realized volatility measures, or macro-financial predictors known at time <span class="math inline">\(t\)</span>. The hidden state <span class="math inline">\(\mathbf{h}_t\)</span> is a high-dimensional vector that learns a nonlinear summary of the relevant history. The softplus transformation ensures a positive variance forecast.</p>
+<p>where <span class="math inline">\mathbf{x}_t</span> might contain lagged returns, squared returns, realized volatility measures, or macro-financial predictors known at time <span class="math inline">t</span>. The hidden state <span class="math inline">\mathbf{h}_t</span> is a high-dimensional vector that learns a nonlinear summary of the relevant history. The softplus transformation ensures a positive variance forecast.</p>
 <p>The analogy has clear limits. A GARCH conditional variance is a <em>filtered</em> state: a deterministic function of past observations, updated as new data arrive — what <span class="citation" data-cites="Cox1981">Cox (<a href="#ref-Cox1981" role="doc-biblioref">1981</a>)</span> calls an observation-driven model — and it has a precise probabilistic role as the conditional variance of the innovation within a fully specified conditional distribution. An RNN hidden state is likewise observation-driven, a deterministic function of past inputs, but its components carry no assigned probabilistic role: the hidden state is a predictive representation. The RNN becomes a probabilistic econometric model only after we specify how the output maps into a conditional distribution or likelihood.</p>
 <div class="callout callout-style-default callout-note callout-titled">
 <div class="callout-header d-flex align-content-center">
@@ -549,7 +563,7 @@ RNNs and Classical Time-Series Models
 </div>
 </div>
 <div class="callout-body-container callout-body">
-<p>The hidden state <span class="math inline">\(\mathbf{h}_t\)</span> plays a role similar to a state vector in a state-space model or a volatility state in GARCH. Like the GARCH variance — and unlike the latent state of a stochastic state-space model, which must be inferred by filtering — <span class="math inline">\(\mathbf{h}_t\)</span> is exactly computable from past observations once the parameters are known. The difference is that its components are learned predictive features, without a direct one-to-one econometric interpretation.</p>
+<p>The hidden state <span class="math inline">\mathbf{h}_t</span> plays a role similar to a state vector in a state-space model or a volatility state in GARCH. Like the GARCH variance — and unlike the latent state of a stochastic state-space model, which must be inferred by filtering — <span class="math inline">\mathbf{h}_t</span> is exactly computable from past observations once the parameters are known. The difference is that its components are learned predictive features, without a direct one-to-one econometric interpretation.</p>
 </div>
 </div>
 </section>
@@ -557,17 +571,17 @@ RNNs and Classical Time-Series Models
 <h2 data-number="6.7" class="anchored" data-anchor-id="outputs-and-loss-functions"><span class="header-section-number">6.7</span> Outputs and Loss Functions</h2>
 <p>The output layer determines what kind of forecasting object the RNN produces. For a conditional mean forecast, we can use a linear output</p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 \hat{y}_{t+1\mid t} = \mathbf{W}_{hy}\mathbf{h}_t + \mathbf{b}_y
-\]</span></p>
+</span></p>
 </div>
-<p>and train by minimizing squared loss. For a binary event, such as recession prediction, we can pass the output through a sigmoid and train with cross-entropy. For a probabilistic forecast, the output should parameterize a distribution. For example, for demeaned returns <span class="math inline">\(\varepsilon_{t+1}\)</span>:</p>
+<p>and train by minimizing squared loss. For a binary event, such as recession prediction, we can pass the output through a sigmoid and train with cross-entropy. For a probabilistic forecast, the output should parameterize a distribution. For example, for demeaned returns <span class="math inline">\varepsilon_{t+1}</span>:</p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 \varepsilon_{t+1} \mid \mathcal{F}_t \sim \mathcal{N}(0, \sigma_{t+1}^2),
 \qquad
 \sigma_{t+1}^2 = \text{softplus}(\mathbf{W}_{hy}\mathbf{h}_t + \mathbf{b}_y).
-\]</span></p>
+</span></p>
 </div>
 <p>This distinction matters in econometrics. A deterministic RNN trained by squared loss gives a point forecast. A distributional RNN trained by negative log-likelihood gives a predictive distribution that can be evaluated with the scoring rules from the <a href="./evaluating_distributions.html">predictive-distribution chapter</a>.</p>
 <div class="callout callout-style-default callout-important callout-titled">
@@ -580,7 +594,7 @@ Forecast-Origin Discipline
 </div>
 </div>
 <div class="callout-body-container callout-body">
-<p>For time-series applications, <span class="math inline">\(\mathbf{x}_t\)</span> and <span class="math inline">\(\mathbf{h}_t\)</span> must only use information available at the forecast origin. The recurrent architecture does not remove the usual econometric concern about look-ahead bias, revised macroeconomic data, publication lags, or temporal leakage in validation.</p>
+<p>For time-series applications, <span class="math inline">\mathbf{x}_t</span> and <span class="math inline">\mathbf{h}_t</span> must only use information available at the forecast origin. The recurrent architecture does not remove the usual econometric concern about look-ahead bias, revised macroeconomic data, publication lags, or temporal leakage in validation.</p>
 </div>
 </div>
 <div class="callout callout-style-default callout-note callout-titled" title="Question for Reflection">
@@ -593,7 +607,7 @@ Question for Reflection
 </div>
 </div>
 <div class="callout-body-container callout-body">
-<p>If a macroeconomic predictor is published with a one-month delay and later revised, what should be included in <span class="math inline">\(\mathcal{F}_t\)</span> when training an RNN for real-time forecasting?</p>
+<p>If a macroeconomic predictor is published with a one-month delay and later revised, what should be included in <span class="math inline">\mathcal{F}_t</span> when training an RNN for real-time forecasting?</p>
 </div>
 </div>
 <div class="callout callout-style-default callout-tip callout-titled" title="Suggested Answer">
@@ -608,30 +622,30 @@ Suggested Answer
 </div>
 <div id="callout-5" class="callout-5-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
-<p><span class="math inline">\(\mathcal{F}_t\)</span> should contain only the real-time data vintage available at the forecast origin. With a one-month publication delay, the current-month value is not available, and later revisions are also unavailable. The RNN input should therefore use the last released vintage and respect the release calendar, rather than the revised historical series that becomes available only later.</p>
+<p><span class="math inline">\mathcal{F}_t</span> should contain only the real-time data vintage available at the forecast origin. With a one-month publication delay, the current-month value is not available, and later revisions are also unavailable. The RNN input should therefore use the last released vintage and respect the release calendar, rather than the revised historical series that becomes available only later.</p>
 </div>
 </div>
 </div>
 </section>
 <section id="training-through-time" class="level2" data-number="6.8">
 <h2 data-number="6.8" class="anchored" data-anchor-id="training-through-time"><span class="header-section-number">6.8</span> Training Through Time</h2>
-<p>Training an RNN raises a problem absent from feed-forward networks: because the same weight matrices (<span class="math inline">\(\mathbf{W}_{hh}, \mathbf{W}_{xh}\)</span>) are applied at every time step, their gradient is the sum of contributions from every time step. The algorithm that handles this is <strong>Backpropagation Through Time (BPTT)</strong>.</p>
+<p>Training an RNN raises a problem absent from feed-forward networks: because the same weight matrices (<span class="math inline">\mathbf{W}_{hh}, \mathbf{W}_{xh}</span>) are applied at every time step, their gradient is the sum of contributions from every time step. The algorithm that handles this is <strong>Backpropagation Through Time (BPTT)</strong>.</p>
 <p>The core idea of BPTT is to <strong>unroll</strong> the network through time, as shown in <a href="#fig-rnn-side-by-side" class="quarto-xref">Figure&nbsp;6.1</a>. This conceptually transforms the RNN into a deep feed-forward network where each time step becomes a layer, but with the critical constraint that the weights are shared across all layers. Once unrolled, standard backpropagation can be applied.</p>
-<p>For clarity, the chapter specializes to a single terminal loss evaluated at the terminal step <span class="math inline">\(T\)</span>, written in the forecasting convention: the step-<span class="math inline">\(T\)</span> output is scored against the outcome it forecasts, </p>
+<p>For clarity, the chapter specializes to a single terminal loss evaluated at the terminal step <span class="math inline">T</span>, written in the forecasting convention: the step-<span class="math inline">T</span> output is scored against the outcome it forecasts, </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 \mathcal{L}_T = \ell(y_{T+1}, \hat{\mathbf{y}}_T),
-\]</span></p>
+</span></p>
 </div>
-<p> with the observed target first and the network output second, as in the <a href="./feed_forward_nns.html">feed-forward networks chapter</a>. As there, we write <span class="math inline">\(\mathcal{L}\)</span> rather than <span class="math inline">\(L\)</span> for loss objectives in the network chapters, because <span class="math inline">\(L\)</span> denotes the number of layers. The sequence-to-sequence case with per-step losses <span class="math inline">\(\sum_{t} \ell(y_{t+1}, \hat{\mathbf{y}}_t)\)</span> sums analogously over the terms below. If the loss is evaluated at the final time <span class="math inline">\(T\)</span>, the gradient for a recurrent weight matrix is the sum of its contributions across time. For example, the gradient with respect to <span class="math inline">\(\mathbf{W}_{hh}\)</span> can be written schematically as: </p>
+<p> with the observed target first and the network output second, as in the <a href="./feed_forward_nns.html">feed-forward networks chapter</a>. As there, we write <span class="math inline">\mathcal{L}</span> rather than <span class="math inline">L</span> for loss objectives in the network chapters, because <span class="math inline">L</span> denotes the number of layers. The sequence-to-sequence case with per-step losses <span class="math inline">\sum_{t} \ell(y_{t+1}, \hat{\mathbf{y}}_t)</span> sums analogously over the terms below. If the loss is evaluated at the final time <span class="math inline">T</span>, the gradient for a recurrent weight matrix is the sum of its contributions across time. For example, the gradient with respect to <span class="math inline">\mathbf{W}_{hh}</span> can be written schematically as: </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 \frac{\partial \mathcal{L}_T}{\partial \mathbf{W}_{hh}}=\sum_{t=1}^{T}\frac{\partial \mathcal{L}_T}{\partial \mathbf{h}_t}\frac{\partial \mathbf{h}_t}{\partial \mathbf{W}_{hh}}
-\]</span></p>
+</span></p>
 </div>
-<p>In this decomposition, <span class="math inline">\(\partial \mathbf{h}_t/\partial \mathbf{W}_{hh}\)</span> denotes the <em>local</em> derivative of the step-<span class="math inline">\(t\)</span> update with <span class="math inline">\(\mathbf{h}_{t-1}\)</span> held fixed; the dependence of <span class="math inline">\(\mathbf{h}_{t-1}\)</span> itself on <span class="math inline">\(\mathbf{W}_{hh}\)</span> is not part of this factor — those paths are collected by the other summands. Without this convention the sum would double-count. The term <span class="math inline">\(\frac{\partial \mathcal{L}_T}{\partial \mathbf{h}_t}\)</span> captures how an adjustment to the hidden state at an early time <span class="math inline">\(t\)</span> affects the final loss at time <span class="math inline">\(T\)</span>. This requires propagating the gradient backwards through every intermediate step, leading to a long product of Jacobian matrices: </p>
+<p>In this decomposition, <span class="math inline">\partial \mathbf{h}_t/\partial \mathbf{W}_{hh}</span> denotes the <em>local</em> derivative of the step-<span class="math inline">t</span> update with <span class="math inline">\mathbf{h}_{t-1}</span> held fixed; the dependence of <span class="math inline">\mathbf{h}_{t-1}</span> itself on <span class="math inline">\mathbf{W}_{hh}</span> is not part of this factor — those paths are collected by the other summands. Without this convention the sum would double-count. The term <span class="math inline">\frac{\partial \mathcal{L}_T}{\partial \mathbf{h}_t}</span> captures how an adjustment to the hidden state at an early time <span class="math inline">t</span> affects the final loss at time <span class="math inline">T</span>. This requires propagating the gradient backwards through every intermediate step, leading to a long product of Jacobian matrices: </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 \frac{\partial \mathbf{h}_t}{\partial \mathbf{h}_k}
 = \frac{\partial \mathbf{h}_t}{\partial \mathbf{h}_{t-1}}\,
   \frac{\partial \mathbf{h}_{t-1}}{\partial \mathbf{h}_{t-2}}\cdots
@@ -639,22 +653,22 @@ Suggested Answer
 \qquad
 \frac{\partial \mathbf{h}_i}{\partial \mathbf{h}_{i-1}}
 = \operatorname{diag}\big(g'(\mathbf{z}_i)\big)\,\mathbf{W}_{hh},
-\]</span></p>
+</span></p>
 </div>
-<p>where <span class="math inline">\(g'\)</span> is the derivative of the activation function (e.g., <span class="math inline">\(\tanh'\)</span>) and <span class="math inline">\(\mathbf{z}_i = \mathbf{W}_{hh}\mathbf{h}_{i-1} + \mathbf{W}_{xh}\mathbf{x}_i + \mathbf{b}_h\)</span> is its pre-activation input at step <span class="math inline">\(i\)</span>. Each one-step Jacobian follows from <span class="math inline">\(\mathbf{h}_i = g(\mathbf{z}_i)\)</span> with <span class="math inline">\(\mathbf{z}_i\)</span> affine in <span class="math inline">\(\mathbf{h}_{i-1}\)</span>; note that the factors do not commute, so the product must be composed in the order shown, from step <span class="math inline">\(t\)</span> down to step <span class="math inline">\(k+1\)</span>. (Backpropagation code often works with the transposed form <span class="math inline">\(\mathbf{W}_{hh}^{\top}\operatorname{diag}(g'(\mathbf{z}_i))\)</span> — that is the <em>adjoint</em>, used to propagate gradient vectors backwards, not the Jacobian <span class="math inline">\(\partial \mathbf{h}_i/\partial \mathbf{h}_{i-1}\)</span> itself.) The detailed derivations for a one-dimensional hidden state can be found in Exercise 6.1 at the end of the chapter.</p>
+<p>where <span class="math inline">g'</span> is the derivative of the activation function (e.g., <span class="math inline">\tanh'</span>) and <span class="math inline">\mathbf{z}_i = \mathbf{W}_{hh}\mathbf{h}_{i-1} + \mathbf{W}_{xh}\mathbf{x}_i + \mathbf{b}_h</span> is its pre-activation input at step <span class="math inline">i</span>. Each one-step Jacobian follows from <span class="math inline">\mathbf{h}_i = g(\mathbf{z}_i)</span> with <span class="math inline">\mathbf{z}_i</span> affine in <span class="math inline">\mathbf{h}_{i-1}</span>; note that the factors do not commute, so the product must be composed in the order shown, from step <span class="math inline">t</span> down to step <span class="math inline">k+1</span>. (Backpropagation code often works with the transposed form <span class="math inline">\mathbf{W}_{hh}^{\top}\operatorname{diag}(g'(\mathbf{z}_i))</span> — that is the <em>adjoint</em>, used to propagate gradient vectors backwards, not the Jacobian <span class="math inline">\partial \mathbf{h}_i/\partial \mathbf{h}_{i-1}</span> itself.) The detailed derivations for a one-dimensional hidden state can be found in Exercise 6.1 at the end of the chapter.</p>
 </section>
 <section id="vanishing-and-exploding-gradients" class="level2" data-number="6.9">
 <h2 data-number="6.9" class="anchored" data-anchor-id="vanishing-and-exploding-gradients"><span class="header-section-number">6.9</span> Vanishing and Exploding Gradients</h2>
-<p>The long product of Jacobians is the source of the <strong>vanishing gradient problem</strong>. If each one-step Jacobian along the trajectory satisfies <span class="math inline">\(\lVert \operatorname{diag}(g'(\mathbf{z}_i))\,\mathbf{W}_{hh} \rVert \leq \kappa\)</span> for some <span class="math inline">\(\kappa &lt; 1\)</span>, the norm of the product is at most <span class="math inline">\(\kappa^{T-t}\)</span>: the gradient signal shrinks exponentially as it propagates backwards through time. Consequently, contributions from early time steps (<span class="math inline">\(t \ll T\)</span>) become so small that they are effectively zero.</p>
+<p>The long product of Jacobians is the source of the <strong>vanishing gradient problem</strong>. If each one-step Jacobian along the trajectory satisfies <span class="math inline">\lVert \operatorname{diag}(g'(\mathbf{z}_i))\,\mathbf{W}_{hh} \rVert \leq \kappa</span> for some <span class="math inline">\kappa &lt; 1</span>, the norm of the product is at most <span class="math inline">\kappa^{T-t}</span>: the gradient signal shrinks exponentially as it propagates backwards through time. Consequently, contributions from early time steps (<span class="math inline">t \ll T</span>) become so small that they are effectively zero.</p>
 <p>For econometric forecasting, this is the central limitation of a plain RNN. The model may have a recursive state, but the training algorithm may still fail to learn long-run dependence because the relevant gradients disappear before they can influence the parameters. In practice, parameter updates become dominated by recent observations, which makes the model behave more like a short-memory nonlinear autoregression than a robust long-memory sequence model.</p>
-<p>The same product can also grow, in which case gradients <strong>explode</strong> rather than vanish. Since <span class="math inline">\(g' \leq 1\)</span> for the <span class="math inline">\(\tanh\)</span> activation, each one-step Jacobian is bounded in norm by <span class="math inline">\(\lVert\mathbf{W}_{hh}\rVert\)</span>, so an expansive recurrent matrix with <span class="math inline">\(\lVert\mathbf{W}_{hh}\rVert &gt; 1\)</span> is a <em>necessary</em> condition for explosion. It is not sufficient: whether the product actually grows depends on the entire trajectory of factors <span class="math inline">\(\operatorname{diag}(g'(\mathbf{z}_i))\,\mathbf{W}_{hh}\)</span> — a per-factor bound below one forces decay, but individual factors with norms above one do not by themselves force growth. In the scalar case the picture is transparent: the product is <span class="math inline">\(\prod_i |W_{hh}|\, g'(z_i)\)</span> and grows geometrically whenever the factors stay above some <span class="math inline">\(\gamma &gt; 1\)</span> along the trajectory. Exploding gradients are the less subtle failure mode: they show up as numerical overflow or as parameter updates that jump erratically between iterations, rather than as a silent failure to learn long-run dependence. The standard remedy is <strong>gradient clipping</strong> <span class="citation" data-cites="PascanuMikolovBengio2013">(<a href="#ref-PascanuMikolovBengio2013" role="doc-biblioref">Pascanu, Mikolov, and Bengio 2013</a>)</span>: if the norm of the stacked gradient vector <span class="math inline">\(\mathbf{g}\)</span> exceeds a threshold <span class="math inline">\(c\)</span>, replace <span class="math inline">\(\mathbf{g}\)</span> by <span class="math inline">\(c\,\mathbf{g}/\lVert\mathbf{g}\rVert\)</span> before the parameter update. Clipping caps the step size while preserving its direction, which stabilizes training in the exploding case; it does nothing for vanishing gradients, whose problem is not the step size but the loss of signal from distant time steps.</p>
+<p>The same product can also grow, in which case gradients <strong>explode</strong> rather than vanish. Since <span class="math inline">g' \leq 1</span> for the <span class="math inline">\tanh</span> activation, each one-step Jacobian is bounded in norm by <span class="math inline">\lVert\mathbf{W}_{hh}\rVert</span>, so an expansive recurrent matrix with <span class="math inline">\lVert\mathbf{W}_{hh}\rVert &gt; 1</span> is a <em>necessary</em> condition for explosion. It is not sufficient: whether the product actually grows depends on the entire trajectory of factors <span class="math inline">\operatorname{diag}(g'(\mathbf{z}_i))\,\mathbf{W}_{hh}</span> — a per-factor bound below one forces decay, but individual factors with norms above one do not by themselves force growth. In the scalar case the picture is transparent: the product is <span class="math inline">\prod_i |W_{hh}|\, g'(z_i)</span> and grows geometrically whenever the factors stay above some <span class="math inline">\gamma &gt; 1</span> along the trajectory. Exploding gradients are the less subtle failure mode: they show up as numerical overflow or as parameter updates that jump erratically between iterations, rather than as a silent failure to learn long-run dependence. The standard remedy is <strong>gradient clipping</strong> <span class="citation" data-cites="PascanuMikolovBengio2013">(<a href="#ref-PascanuMikolovBengio2013" role="doc-biblioref">Pascanu, Mikolov, and Bengio 2013</a>)</span>: if the norm of the stacked gradient vector <span class="math inline">\mathbf{g}</span> exceeds a threshold <span class="math inline">c</span>, replace <span class="math inline">\mathbf{g}</span> by <span class="math inline">c\,\mathbf{g}/\lVert\mathbf{g}\rVert</span> before the parameter update. Clipping caps the step size while preserving its direction, which stabilizes training in the exploding case; it does nothing for vanishing gradients, whose problem is not the step size but the loss of signal from distant time steps.</p>
 </section>
 <section id="sec-rnn-windows" class="level2" data-number="6.10">
 <h2 data-number="6.10" class="anchored" data-anchor-id="sec-rnn-windows"><span class="header-section-number">6.10</span> From One Series to Training Windows</h2>
-<p>The derivations above treat one sequence of length <span class="math inline">\(T\)</span> with a single terminal loss. Estimation practice starts from something less tidy: one long time series of, say, <span class="math inline">\(n\)</span> observations, from which the training sequences must first be constructed. Three choices — the window construction, the truncation of the gradient, and the decision to share parameters across time — deserve to be explicit, because each has an econometric interpretation and each reappears in the <a href="./nn_example.html">empirical chapter on networks for time series</a>.</p>
-<p><strong>Windows as training observations.</strong> The standard construction cuts the series into overlapping fixed-length windows. With window length <span class="math inline">\(\tau\)</span>, each forecast origin <span class="math inline">\(t \geq \tau\)</span> contributes one training pair: the input sequence <span class="math inline">\((\mathbf{x}_{t-\tau+1}, \ldots, \mathbf{x}_t)\)</span> and the target <span class="math inline">\(y_{t+1}\)</span>. The state is re-initialized at <span class="math inline">\(\mathbf{h}_0 = \mathbf{0}\)</span> at the start of every window, and the recursion runs only within the window. One series of length <span class="math inline">\(n\)</span> thus becomes roughly <span class="math inline">\(n - \tau\)</span> training sequences. These windows overlap heavily — consecutive windows share <span class="math inline">\(\tau - 1\)</span> observations — so they are anything but independent draws: the caveats about mini-batch gradients under dependent data from the <a href="./optimization.html">optimization chapter</a> apply, and the chronological train–validation–test discipline of the <a href="./cross_validation.html">cross-validation chapter</a> applies at the level of forecast origins.</p>
-<p><strong>Fixed windows and truncated backpropagation.</strong> Re-initializing the state at each window has a second effect: both the state recursion and the gradients run only across the <span class="math inline">\(\tau\)</span> steps inside a window. It is worth separating two horizons that this <strong>fixed-window training</strong> scheme happens to tie together. The <em>gradient horizon</em> is how far back credit assignment reaches. Cutting the backward derivative chain after a fixed number of steps is <strong>truncated backpropagation through time</strong> <span class="citation" data-cites="WilliamsPeng1990">(<a href="#ref-WilliamsPeng1990" role="doc-biblioref">Williams and Peng 1990</a>)</span>, and it caps the Jacobian products of the previous sections at length <span class="math inline">\(\tau\)</span> no matter how long the series is. The <em>state horizon</em> is how far back the forward recursion carries information. A state-carrying variant of truncated backpropagation feeds the final state of one segment in as the initial state of the next while still detaching the gradient computation between segments: the state horizon then extends beyond <span class="math inline">\(\tau\)</span> even though the gradient horizon does not, so information from the distant past can still enter the forecast even though no learning signal flows back to it. Fixed-window training — the scheme used in the <a href="./nn_example.html">empirical chapter on networks for time series</a> — truncates both horizons at <span class="math inline">\(\tau\)</span>. Truncation is partly a computational necessity, because the cost of a backward pass grows with the sequence length, and partly innocuous, because gradient contributions beyond the truncation horizon are often negligible anyway once gradients vanish. The econometric consequence of the fixed-window scheme should be stated plainly: dependence at horizons beyond <span class="math inline">\(\tau\)</span> cannot be learned, by construction. The window length therefore plays the same role as the lag length <span class="math inline">\(p\)</span> of the lagged FNN at the start of the chapter — the recurrence removes the need to hand-pick which lags matter <em>within</em> the window, but the truncation horizon itself returns as a hyperparameter.</p>
-<p><strong>Parameter sharing imposes time-homogeneous dynamics.</strong> Finally, applying the same weights <span class="math inline">\((\mathbf{W}_{hh}, \mathbf{W}_{xh}, \mathbf{W}_{hy})\)</span> at every time step is not a mere convenience: it imposes that the mapping from state and input to the next state is the same at every date. Whether that restriction is plausible is a question about the data, and it is the direct analogue of assuming a stable parametric structure when estimating an ARMA or GARCH model over a long sample. Stability of the relevant conditional relationships is what makes windows drawn from the 1990s and the 2010s informative about the same mapping — which is exactly what gives the network enough effective observations to estimate its many weights; note that the inputs themselves need not be stationary for shared parameters to be coherent, since time-invariance is a restriction on the update rule, not on the input distribution. Under structural breaks in the dynamics, the shared parameters are misspecified, and the usual econometric responses — subsample estimation, rolling estimation windows, break-aware predictors in <span class="math inline">\(\mathbf{x}_t\)</span> — apply to RNNs just as they do to GARCH.</p>
+<p>The derivations above treat one sequence of length <span class="math inline">T</span> with a single terminal loss. Estimation practice starts from something less tidy: one long time series of, say, <span class="math inline">n</span> observations, from which the training sequences must first be constructed. Three choices — the window construction, the truncation of the gradient, and the decision to share parameters across time — deserve to be explicit, because each has an econometric interpretation and each reappears in the <a href="./nn_example.html">empirical chapter on networks for time series</a>.</p>
+<p><strong>Windows as training observations.</strong> The standard construction cuts the series into overlapping fixed-length windows. With window length <span class="math inline">\tau</span>, each forecast origin <span class="math inline">t \geq \tau</span> contributes one training pair: the input sequence <span class="math inline">(\mathbf{x}_{t-\tau+1}, \ldots, \mathbf{x}_t)</span> and the target <span class="math inline">y_{t+1}</span>. The state is re-initialized at <span class="math inline">\mathbf{h}_0 = \mathbf{0}</span> at the start of every window, and the recursion runs only within the window. One series of length <span class="math inline">n</span> thus becomes roughly <span class="math inline">n - \tau</span> training sequences. These windows overlap heavily — consecutive windows share <span class="math inline">\tau - 1</span> observations — so they are anything but independent draws: the caveats about mini-batch gradients under dependent data from the <a href="./optimization.html">optimization chapter</a> apply, and the chronological train–validation–test discipline of the <a href="./cross_validation.html">cross-validation chapter</a> applies at the level of forecast origins.</p>
+<p><strong>Fixed windows and truncated backpropagation.</strong> Re-initializing the state at each window has a second effect: both the state recursion and the gradients run only across the <span class="math inline">\tau</span> steps inside a window. It is worth separating two horizons that this <strong>fixed-window training</strong> scheme happens to tie together. The <em>gradient horizon</em> is how far back credit assignment reaches. Cutting the backward derivative chain after a fixed number of steps is <strong>truncated backpropagation through time</strong> <span class="citation" data-cites="WilliamsPeng1990">(<a href="#ref-WilliamsPeng1990" role="doc-biblioref">Williams and Peng 1990</a>)</span>, and it caps the Jacobian products of the previous sections at length <span class="math inline">\tau</span> no matter how long the series is. The <em>state horizon</em> is how far back the forward recursion carries information. A state-carrying variant of truncated backpropagation feeds the final state of one segment in as the initial state of the next while still detaching the gradient computation between segments: the state horizon then extends beyond <span class="math inline">\tau</span> even though the gradient horizon does not, so information from the distant past can still enter the forecast even though no learning signal flows back to it. Fixed-window training — the scheme used in the <a href="./nn_example.html">empirical chapter on networks for time series</a> — truncates both horizons at <span class="math inline">\tau</span>. Truncation is partly a computational necessity, because the cost of a backward pass grows with the sequence length, and partly innocuous, because gradient contributions beyond the truncation horizon are often negligible anyway once gradients vanish. The econometric consequence of the fixed-window scheme should be stated plainly: dependence at horizons beyond <span class="math inline">\tau</span> cannot be learned, by construction. The window length therefore plays the same role as the lag length <span class="math inline">p</span> of the lagged FNN at the start of the chapter — the recurrence removes the need to hand-pick which lags matter <em>within</em> the window, but the truncation horizon itself returns as a hyperparameter.</p>
+<p><strong>Parameter sharing imposes time-homogeneous dynamics.</strong> Finally, applying the same weights <span class="math inline">(\mathbf{W}_{hh}, \mathbf{W}_{xh}, \mathbf{W}_{hy})</span> at every time step is not a mere convenience: it imposes that the mapping from state and input to the next state is the same at every date. Whether that restriction is plausible is a question about the data, and it is the direct analogue of assuming a stable parametric structure when estimating an ARMA or GARCH model over a long sample. Stability of the relevant conditional relationships is what makes windows drawn from the 1990s and the 2010s informative about the same mapping — which is exactly what gives the network enough effective observations to estimate its many weights; note that the inputs themselves need not be stationary for shared parameters to be coherent, since time-invariance is a restriction on the update rule, not on the input distribution. Under structural breaks in the dynamics, the shared parameters are misspecified, and the usual econometric responses — subsample estimation, rolling estimation windows, break-aware predictors in <span class="math inline">\mathbf{x}_t</span> — apply to RNNs just as they do to GARCH.</p>
 <div class="callout callout-style-default callout-important callout-titled">
 <div class="callout-header d-flex align-content-center">
 <div class="callout-icon-container">
@@ -728,21 +742,21 @@ Exercise 6.1: Vanishing Gradient Problem in RNNs
 </div>
 </div>
 <div class="callout-body-container callout-body">
-<p>In this exercise, we examine the vanishing gradient problem in RNNs. Consider a simple RNN with one-dimensional hidden state <span class="math inline">\(h_t = \tanh(W_{hh} h_{t-1} + W_{xh} x_t + b_h)\)</span> — the scalar case <span class="math inline">\(H = 1\)</span> of the chapter’s update equation, so that <span class="math inline">\(W_{hh}\)</span>, <span class="math inline">\(W_{xh}\)</span>, and <span class="math inline">\(b_h\)</span> are scalars — and loss <span class="math inline">\(\mathcal{L}_T\)</span> at the final time step <span class="math inline">\(T\)</span>.</p>
+<p>In this exercise, we examine the vanishing gradient problem in RNNs. Consider a simple RNN with one-dimensional hidden state <span class="math inline">h_t = \tanh(W_{hh} h_{t-1} + W_{xh} x_t + b_h)</span> — the scalar case <span class="math inline">H = 1</span> of the chapter’s update equation, so that <span class="math inline">W_{hh}</span>, <span class="math inline">W_{xh}</span>, and <span class="math inline">b_h</span> are scalars — and loss <span class="math inline">\mathcal{L}_T</span> at the final time step <span class="math inline">T</span>.</p>
 <p><strong>Parts:</strong></p>
 <ol type="1">
-<li><strong>Derive the gradient formula for backpropagation through time.</strong> Using the chain rule, derive the expression for <span class="math inline">\(\frac{\partial \mathcal{L}_T}{\partial W_{hh}}\)</span>. Show that it involves the term <span class="math inline">\(\frac{\partial h_T}{\partial h_t}\)</span> for each time step <span class="math inline">\(t = 1, 2, \ldots, T\)</span> and express it as a product of derivatives.</li>
-<li><strong>Prove gradient vanishing conditions.</strong> Show that <span class="math inline">\(\left |\frac{\partial h_T}{\partial h_t}\right | \leq | W_{hh} |^{T-t}\)</span> and explain why this leads to exponentially vanishing gradients when <span class="math inline">\(|W_{hh} | &lt; 1\)</span>.</li>
+<li><strong>Derive the gradient formula for backpropagation through time.</strong> Using the chain rule, derive the expression for <span class="math inline">\frac{\partial \mathcal{L}_T}{\partial W_{hh}}</span>. Show that it involves the term <span class="math inline">\frac{\partial h_T}{\partial h_t}</span> for each time step <span class="math inline">t = 1, 2, \ldots, T</span> and express it as a product of derivatives.</li>
+<li><strong>Prove gradient vanishing conditions.</strong> Show that <span class="math inline">\left |\frac{\partial h_T}{\partial h_t}\right | \leq | W_{hh} |^{T-t}</span> and explain why this leads to exponentially vanishing gradients when <span class="math inline">|W_{hh} | &lt; 1</span>.</li>
 <li><strong>Analyze learning implications.</strong> Explain why vanishing gradients prevent RNNs from learning long-term dependencies, including the effect on parameter updates for early time steps and typical sequence length limitations.</li>
-<li><strong>Contrast data memory, model memory, and local learning.</strong> Consider a stationary first-order autoregressive (AR(1)) process <span class="math inline">\(y_t = \phi y_{t-1} + u_t\)</span> with <span class="math inline">\(|\phi| &lt; 1\)</span> and independent and identically distributed (i.i.d.) mean-zero innovations <span class="math inline">\(u_t\)</span>. An RNN is trained to forecast this series one step ahead, observing the current value as its input at each step (<span class="math inline">\(x_t = y_t\)</span>), with a one-step-ahead loss at each forecast origin.</li>
+<li><strong>Contrast data memory, model memory, and local learning.</strong> Consider a stationary first-order autoregressive (AR(1)) process <span class="math inline">y_t = \phi y_{t-1} + u_t</span> with <span class="math inline">|\phi| &lt; 1</span> and independent and identically distributed (i.i.d.) mean-zero innovations <span class="math inline">u_t</span>. An RNN is trained to forecast this series one step ahead, observing the current value as its input at each step (<span class="math inline">x_t = y_t</span>), with a one-step-ahead loss at each forecast origin.</li>
 </ol>
 <ol type="a">
-<li>Derive the impulse response <span class="math inline">\(\partial y_{t+k} / \partial u_t\)</span> and show that it decays geometrically in <span class="math inline">\(k\)</span>, formally paralleling the bound from Part 2.</li>
+<li>Derive the impulse response <span class="math inline">\partial y_{t+k} / \partial u_t</span> and show that it decays geometrically in <span class="math inline">k</span>, formally paralleling the bound from Part 2.</li>
 <li>The impulse response describes the memory of which object, and the bound from Part 2 describes the memory of which object?</li>
-<li>Explain why the vanishing-gradient bound does <em>not</em> prevent this network from learning the AR(1) dynamics — where, in terms of time gaps, is the training signal about <span class="math inline">\(\phi\)</span> located?</li>
+<li>Explain why the vanishing-gradient bound does <em>not</em> prevent this network from learning the AR(1) dynamics — where, in terms of time gaps, is the training signal about <span class="math inline">\phi</span> located?</li>
 </ol>
 <ol start="5" type="1">
-<li><strong>Identify when the bound binds.</strong> Now let the data-generating process be <span class="math inline">\(y_{t+1} = \theta x_{t-k} + u_{t+1}\)</span> for a large delay <span class="math inline">\(k\)</span>, where the network observes the scalar input sequence <span class="math inline">\(\{x_t\}\)</span>, the intermediate inputs <span class="math inline">\(x_{t-k+1}, \ldots, x_t\)</span> carry no information about <span class="math inline">\(y_{t+1}\)</span>, and training again uses a one-step-ahead loss at each origin. The quantity bounded in Part 2 plays two roles at once: it is the fitted network’s sensitivity to past states <em>and</em> a factor in the Part 1 gradient. Explain why the only gradient path connecting the loss to the relevant input now bridges <span class="math inline">\(k\)</span> recurrence steps, and describe the lock-in mechanism by which a contractive network tends to stay short-memoried during training in this setting.</li>
+<li><strong>Identify when the bound binds.</strong> Now let the data-generating process be <span class="math inline">y_{t+1} = \theta x_{t-k} + u_{t+1}</span> for a large delay <span class="math inline">k</span>, where the network observes the scalar input sequence <span class="math inline">\{x_t\}</span>, the intermediate inputs <span class="math inline">x_{t-k+1}, \ldots, x_t</span> carry no information about <span class="math inline">y_{t+1}</span>, and training again uses a one-step-ahead loss at each origin. The quantity bounded in Part 2 plays two roles at once: it is the fitted network’s sensitivity to past states <em>and</em> a factor in the Part 1 gradient. Explain why the only gradient path connecting the loss to the relevant input now bridges <span class="math inline">k</span> recurrence steps, and describe the lock-in mechanism by which a contractive network tends to stay short-memoried during training in this setting.</li>
 </ol>
 <p><em>Exam level, deliberately long as a whole: Parts 1–3 (the BPTT derivation, the bound, and its learning implications) and Parts 4–5 (the econometric extension separating data memory, fitted-model memory, and training signal) are separable as two independent exam questions.</em></p>
 </div>
@@ -759,7 +773,7 @@ Hint for Part 1
 </div>
 <div id="callout-10" class="callout-10-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
-<p>The weight <span class="math inline">\(W_{hh}\)</span> enters the recursion at every time step, so it affects the loss through every hidden state; the gradient is a sum over these paths. For the product of derivatives, think about how <span class="math inline">\(h_T\)</span> depends on <span class="math inline">\(h_t\)</span> through the chain <span class="math inline">\(h_t \to h_{t+1} \to h_{t+2} \to \cdots \to h_T\)</span>.</p>
+<p>The weight <span class="math inline">W_{hh}</span> enters the recursion at every time step, so it affects the loss through every hidden state; the gradient is a sum over these paths. For the product of derivatives, think about how <span class="math inline">h_T</span> depends on <span class="math inline">h_t</span> through the chain <span class="math inline">h_t \to h_{t+1} \to h_{t+2} \to \cdots \to h_T</span>.</p>
 </div>
 </div>
 </div>
@@ -775,7 +789,7 @@ Hint for Part 2
 </div>
 <div id="callout-11" class="callout-11-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
-<p>You need to bound the absolute value of a product of derivatives; use <span class="math inline">\(|ab| = |a||b|\)</span>. Each derivative <span class="math inline">\(\frac{\partial h_k}{\partial h_{k-1}}\)</span> involves both the weight <span class="math inline">\(W_{hh}\)</span> and the derivative of the activation function. What is the maximum value of <span class="math inline">\(\tanh'(z)\)</span>?</p>
+<p>You need to bound the absolute value of a product of derivatives; use <span class="math inline">|ab| = |a||b|</span>. Each derivative <span class="math inline">\frac{\partial h_k}{\partial h_{k-1}}</span> involves both the weight <span class="math inline">W_{hh}</span> and the derivative of the activation function. What is the maximum value of <span class="math inline">\tanh'(z)</span>?</p>
 </div>
 </div>
 </div>
@@ -791,7 +805,7 @@ Hint for Part 4
 </div>
 <div id="callout-12" class="callout-12-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
-<p>Substitute the AR(1) recursion forward <span class="math inline">\(k\)</span> times to express <span class="math inline">\(y_{t+k}\)</span> in terms of <span class="math inline">\(y_t\)</span> and the innovations <span class="math inline">\(u_{t+1}, \ldots, u_{t+k}\)</span>. For (c), ask how many recurrence steps the loss-relevant information must bridge when the one-step conditional mean of an AR(1) depends only on the immediately preceding observation.</p>
+<p>Substitute the AR(1) recursion forward <span class="math inline">k</span> times to express <span class="math inline">y_{t+k}</span> in terms of <span class="math inline">y_t</span> and the innovations <span class="math inline">u_{t+1}, \ldots, u_{t+k}</span>. For (c), ask how many recurrence steps the loss-relevant information must bridge when the one-step conditional mean of an AR(1) depends only on the immediately preceding observation.</p>
 </div>
 </div>
 </div>
@@ -807,7 +821,7 @@ Hint for Part 5
 </div>
 <div id="callout-13" class="callout-13-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
-<p>Note that <span class="math inline">\(\partial h_T / \partial h_t\)</span> appears twice in this chapter: as the fitted network’s sensitivity to an earlier state, and as a factor in the Part 1 gradient decomposition. Ask which parameter movement would extend the network’s memory, and which gradient carries the demand for that movement.</p>
+<p>Note that <span class="math inline">\partial h_T / \partial h_t</span> appears twice in this chapter: as the fitted network’s sensitivity to an earlier state, and as a factor in the Part 1 gradient decomposition. Ask which parameter movement would extend the network’s memory, and which gradient carries the demand for that movement.</p>
 </div>
 </div>
 </div>
@@ -824,92 +838,92 @@ Solution
 <div id="callout-14" class="callout-14-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p><strong>Part 1: Backpropagation through time</strong></p>
-<p>The goal is to find <span class="math inline">\(\frac{\partial \mathcal{L}_T}{\partial W_{hh}}\)</span>. The key challenge is that the weight <span class="math inline">\(W_{hh}\)</span> is used at every time step, so its influence on the final loss <span class="math inline">\(\mathcal{L}_T\)</span> is the sum of its influence through each step.</p>
-<p>The final loss <span class="math inline">\(\mathcal{L}_T\)</span> is a function of the last hidden state, <span class="math inline">\(h_T\)</span>. But <span class="math inline">\(h_T\)</span> is a function of <span class="math inline">\(h_{T-1}\)</span> and <span class="math inline">\(W_{hh}\)</span>. And <span class="math inline">\(h_{T-1}\)</span> is a function of <span class="math inline">\(h_{T-2}\)</span> and <span class="math inline">\(W_{hh}\)</span>, and so on. This means that the final loss <span class="math inline">\(\mathcal{L}_T\)</span> is ultimately a function of <span class="math inline">\(W_{hh}\)</span> through its influence on every single hidden state:</p>
-<p><span class="math inline">\(\mathcal{L}_T = f(h_T(h_{T-1}(...h_1(W_{hh})...), W_{hh}), W_{hh})\)</span></p>
-<p>Since <span class="math inline">\(W_{hh}\)</span> contributes to the final loss through all these paths, we have by the multivariate chain rule:</p>
+<p>The goal is to find <span class="math inline">\frac{\partial \mathcal{L}_T}{\partial W_{hh}}</span>. The key challenge is that the weight <span class="math inline">W_{hh}</span> is used at every time step, so its influence on the final loss <span class="math inline">\mathcal{L}_T</span> is the sum of its influence through each step.</p>
+<p>The final loss <span class="math inline">\mathcal{L}_T</span> is a function of the last hidden state, <span class="math inline">h_T</span>. But <span class="math inline">h_T</span> is a function of <span class="math inline">h_{T-1}</span> and <span class="math inline">W_{hh}</span>. And <span class="math inline">h_{T-1}</span> is a function of <span class="math inline">h_{T-2}</span> and <span class="math inline">W_{hh}</span>, and so on. This means that the final loss <span class="math inline">\mathcal{L}_T</span> is ultimately a function of <span class="math inline">W_{hh}</span> through its influence on every single hidden state:</p>
+<p><span class="math inline">\mathcal{L}_T = f(h_T(h_{T-1}(...h_1(W_{hh})...), W_{hh}), W_{hh})</span></p>
+<p>Since <span class="math inline">W_{hh}</span> contributes to the final loss through all these paths, we have by the multivariate chain rule:</p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 \frac{\partial \mathcal{L}_T}{\partial W_{hh}} = \sum_{t=1}^T \frac{\partial \mathcal{L}_T}{\partial h_t} \frac{\partial h_t}{\partial W_{hh}}
-\]</span></p>
+</span></p>
 </div>
 <p><strong>Calculating the Direct Influence</strong></p>
-<p>The term <span class="math inline">\(\frac{\partial h_t}{\partial W_{hh}}\)</span> represents the <em>direct</em> influence of <span class="math inline">\(W_{hh}\)</span> on <span class="math inline">\(h_t\)</span> at a single time step: the local derivative of the step-<span class="math inline">\(t\)</span> update with <span class="math inline">\(h_{t-1}\)</span> held fixed, sometimes written <span class="math inline">\(\left.\partial h_t/\partial W_{hh}\right|_{h_{t-1}\,\text{fixed}}\)</span>. The dependence of <span class="math inline">\(h_{t-1}\)</span> itself on <span class="math inline">\(W_{hh}\)</span> is <em>not</em> included in this factor — those paths enter the decomposition through the other summands, and including them here would double-count. From the RNN equation <span class="math inline">\(h_t = \tanh(W_{hh} h_{t-1} + W_{xh} x_t + b_h)\)</span>, holding <span class="math inline">\(h_{t-1}\)</span> fixed, this is straightforward: </p>
+<p>The term <span class="math inline">\frac{\partial h_t}{\partial W_{hh}}</span> represents the <em>direct</em> influence of <span class="math inline">W_{hh}</span> on <span class="math inline">h_t</span> at a single time step: the local derivative of the step-<span class="math inline">t</span> update with <span class="math inline">h_{t-1}</span> held fixed, sometimes written <span class="math inline">\left.\partial h_t/\partial W_{hh}\right|_{h_{t-1}\,\text{fixed}}</span>. The dependence of <span class="math inline">h_{t-1}</span> itself on <span class="math inline">W_{hh}</span> is <em>not</em> included in this factor — those paths enter the decomposition through the other summands, and including them here would double-count. From the RNN equation <span class="math inline">h_t = \tanh(W_{hh} h_{t-1} + W_{xh} x_t + b_h)</span>, holding <span class="math inline">h_{t-1}</span> fixed, this is straightforward: </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 \frac{\partial h_t}{\partial W_{hh}} = \tanh'(W_{hh} h_{t-1} + W_{xh} x_t + b_h) \cdot h_{t-1}
-\]</span></p>
+</span></p>
 </div>
 <p><strong>Calculating the Indirect Influence (The Chain Rule Through Time)</strong></p>
-<p>The term <span class="math inline">\(\frac{\partial \mathcal{L}_T}{\partial h_t}\)</span> is more complex. It measures how a change in an early hidden state <span class="math inline">\(h_t\)</span> propagates <em>all the way to the end</em> to affect the final loss <span class="math inline">\(\mathcal{L}_T\)</span>. We must use the chain rule through the sequence of hidden states: </p>
+<p>The term <span class="math inline">\frac{\partial \mathcal{L}_T}{\partial h_t}</span> is more complex. It measures how a change in an early hidden state <span class="math inline">h_t</span> propagates <em>all the way to the end</em> to affect the final loss <span class="math inline">\mathcal{L}_T</span>. We must use the chain rule through the sequence of hidden states: </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 \frac{\partial \mathcal{L}_T}{\partial h_t} = \frac{\partial \mathcal{L}_T}{\partial h_T} \frac{\partial h_T}{\partial h_{T-1}} \frac{\partial h_{T-1}}{\partial h_{T-2}} \cdots \frac{\partial h_{t+1}}{\partial h_t} = \frac{\partial \mathcal{L}_T}{\partial h_T}  \prod_{k=t+1}^T \frac{\partial h_k}{\partial h_{k-1}}
-\]</span></p>
+</span></p>
 </div>
 <p> This long chain of derivatives is the core of backpropagation <em>through time</em>.</p>
 <p>Now we can write the full expression for the gradient. Substituting our product form back into the sum at the beginning, we get </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 \frac{\partial \mathcal{L}_T}{\partial W_{hh}} = \sum_{t=1}^T \underbrace{\left( \frac{\partial \mathcal{L}_T}{\partial h_T} \prod_{k=t+1}^T \frac{\partial h_k}{\partial h_{k-1}} \right)}_{\frac{\partial \mathcal{L}_T}{\partial h_t}} \underbrace{\left( \frac{\partial h_t}{\partial W_{hh}} \right)}_{\text{direct effect}}
-\]</span></p>
+</span></p>
 </div>
-<p> This formula explicitly shows that the gradient contribution from each time step <span class="math inline">\(t\)</span> involves a product of terms that bridges the time gap from <span class="math inline">\(t\)</span> to <span class="math inline">\(T\)</span>.</p>
+<p> This formula explicitly shows that the gradient contribution from each time step <span class="math inline">t</span> involves a product of terms that bridges the time gap from <span class="math inline">t</span> to <span class="math inline">T</span>.</p>
 <p><strong>Part 2: Proving the vanishing-gradient bound</strong></p>
 <p>Each derivative in the product has the form: </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 \frac{\partial h_k}{\partial h_{k-1}} = \tanh'(W_{hh} h_{k-1} + W_{xh} x_k + b_h) \cdot W_{hh}
-\]</span></p>
+</span></p>
 </div>
-<p>Since <span class="math inline">\(\tanh'(z) = 1 - \tanh^2(z) \leq 1\)</span>, its value is always between 0 and 1. We can bound the absolute value of the derivative: </p>
+<p>Since <span class="math inline">\tanh'(z) = 1 - \tanh^2(z) \leq 1</span>, its value is always between 0 and 1. We can bound the absolute value of the derivative: </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 \left|\frac{\partial h_k}{\partial h_{k-1}}\right| = |\tanh'(\cdot)| \cdot |W_{hh}| \leq 1 \cdot |W_{hh}| = |W_{hh}|
-\]</span></p>
+</span></p>
 </div>
-<p>The key term <span class="math inline">\(\frac{\partial h_T}{\partial h_t}\)</span> for <span class="math inline">\(t &lt; T\)</span> represents the product of derivatives through time: </p>
+<p>The key term <span class="math inline">\frac{\partial h_T}{\partial h_t}</span> for <span class="math inline">t &lt; T</span> represents the product of derivatives through time: </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 \left|\frac{\partial h_T}{\partial h_t}\right| = \left|\prod_{k=t+1}^T \frac{\partial h_k}{\partial h_{k-1}}\right| \leq |W_{hh}|^{T-t}
-\]</span></p>
+</span></p>
 </div>
-<p><strong>Exponential vanishing:</strong> When <span class="math inline">\(|W_{hh}| &lt; 1\)</span>, we have <span class="math inline">\(|W_{hh}|^{T-t} \to 0\)</span> exponentially as the time gap <span class="math inline">\((T-t)\)</span> increases. This proves the exponential decay of gradient magnitudes.</p>
-<p>The bound above is the scalar <span class="math inline">\(H=1\)</span> case in which the recurrent weight <span class="math inline">\(W_{hh}\)</span> is a single real number. For a multi-dimensional hidden state (<span class="math inline">\(H&gt;1\)</span>), <span class="math inline">\(W_{hh}\)</span> is a square matrix and the per-step bound uses the <strong>spectral norm</strong> <span class="math inline">\(\|W_{hh}\|_2\)</span> (the largest singular value): </p>
+<p><strong>Exponential vanishing:</strong> When <span class="math inline">|W_{hh}| &lt; 1</span>, we have <span class="math inline">|W_{hh}|^{T-t} \to 0</span> exponentially as the time gap <span class="math inline">(T-t)</span> increases. This proves the exponential decay of gradient magnitudes.</p>
+<p>The bound above is the scalar <span class="math inline">H=1</span> case in which the recurrent weight <span class="math inline">W_{hh}</span> is a single real number. For a multi-dimensional hidden state (<span class="math inline">H&gt;1</span>), <span class="math inline">W_{hh}</span> is a square matrix and the per-step bound uses the <strong>spectral norm</strong> <span class="math inline">\|W_{hh}\|_2</span> (the largest singular value): </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 \left\|\frac{\partial h_T}{\partial h_t}\right\|_2 \le \prod_{k=t+1}^{T} \|W_{hh}\|_2 \cdot \|\mathrm{diag}(g'(\mathbf z_k))\|_2 \le \|W_{hh}\|_2^{T-t}.
-\]</span></p>
+</span></p>
 </div>
-<p> For the <em>linear</em> recurrence <span class="math inline">\(h_t = W_{hh} h_{t-1}\)</span> — equivalently, when all activation derivatives equal one — the asymptotic decay rate is governed by the <strong>spectral radius</strong> <span class="math inline">\(\rho(W_{hh}) = \max_i |\lambda_i(W_{hh})|\)</span>, which coincides with the spectral norm when <span class="math inline">\(W_{hh}\)</span> is normal (e.g., symmetric). For the nonlinear recursion, the time-varying factors <span class="math inline">\(\operatorname{diag}(g'(\mathbf{z}_k))\)</span> prevent such a clean characterization, and the spectral-norm bound above is what remains. The qualitative conclusion is the same as in the scalar case: when the recurrent dynamics are contractive, gradients decay exponentially in <span class="math inline">\(T-t\)</span>.</p>
+<p> For the <em>linear</em> recurrence <span class="math inline">h_t = W_{hh} h_{t-1}</span> — equivalently, when all activation derivatives equal one — the asymptotic decay rate is governed by the <strong>spectral radius</strong> <span class="math inline">\rho(W_{hh}) = \max_i |\lambda_i(W_{hh})|</span>, which coincides with the spectral norm when <span class="math inline">W_{hh}</span> is normal (e.g., symmetric). For the nonlinear recursion, the time-varying factors <span class="math inline">\operatorname{diag}(g'(\mathbf{z}_k))</span> prevent such a clean characterization, and the spectral-norm bound above is what remains. The qualitative conclusion is the same as in the scalar case: when the recurrent dynamics are contractive, gradients decay exponentially in <span class="math inline">T-t</span>.</p>
 <p><strong>Part 3: Learning implications</strong></p>
 <p>The exponential decay has three critical effects on learning:</p>
 <ol type="1">
-<li><p><strong>Dominated parameter updates:</strong> Since <span class="math inline">\(\frac{\partial \mathcal{L}_T}{\partial W_{hh}} = \sum_{t=1}^T \frac{\partial \mathcal{L}_T}{\partial h_T} \frac{\partial h_T}{\partial h_t} \frac{\partial h_t}{\partial W_{hh}}\)</span>, when <span class="math inline">\(\frac{\partial h_T}{\partial h_t}\)</span> becomes exponentially small for early <span class="math inline">\(t\)</span>, the gradient sum becomes dominated by recent time steps (large <span class="math inline">\(t\)</span>).</p></li>
-<li><p><strong>Loss of long-term information:</strong> The network cannot learn patterns where important information at time <span class="math inline">\(t\)</span> influences the loss at time <span class="math inline">\(T\)</span> when <span class="math inline">\(T-t\)</span> is large, because the gradient signal carrying this information becomes negligibly small.</p></li>
-<li><p><strong>Practical sequence limitations:</strong> The bound does not imply a universal cutoff such as a fixed maximum number of lags. It says that, unless the recurrent dynamics are unusually well conditioned, the gradient contribution of distant observations decays exponentially with the gap <span class="math inline">\(T-t\)</span>. In practice this makes plain RNNs unreliable for long-run dependence without architectural or training modifications.</p></li>
+<li><p><strong>Dominated parameter updates:</strong> Since <span class="math inline">\frac{\partial \mathcal{L}_T}{\partial W_{hh}} = \sum_{t=1}^T \frac{\partial \mathcal{L}_T}{\partial h_T} \frac{\partial h_T}{\partial h_t} \frac{\partial h_t}{\partial W_{hh}}</span>, when <span class="math inline">\frac{\partial h_T}{\partial h_t}</span> becomes exponentially small for early <span class="math inline">t</span>, the gradient sum becomes dominated by recent time steps (large <span class="math inline">t</span>).</p></li>
+<li><p><strong>Loss of long-term information:</strong> The network cannot learn patterns where important information at time <span class="math inline">t</span> influences the loss at time <span class="math inline">T</span> when <span class="math inline">T-t</span> is large, because the gradient signal carrying this information becomes negligibly small.</p></li>
+<li><p><strong>Practical sequence limitations:</strong> The bound does not imply a universal cutoff such as a fixed maximum number of lags. It says that, unless the recurrent dynamics are unusually well conditioned, the gradient contribution of distant observations decays exponentially with the gap <span class="math inline">T-t</span>. In practice this makes plain RNNs unreliable for long-run dependence without architectural or training modifications.</p></li>
 </ol>
 <p>The fundamental issue is that learning requires non-negligible gradients to update parameters, but the exponential decay ensures that distant time steps contribute virtually nothing to parameter updates.</p>
 <p><strong>Part 4: Data memory, model memory, and local learning</strong></p>
 <ol type="a">
-<li><p>Iterating the AR(1) recursion forward <span class="math inline">\(k\)</span> times gives </p>
+<li><p>Iterating the AR(1) recursion forward <span class="math inline">k</span> times gives </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 y_{t+k} = \phi^k y_t + \sum_{j=0}^{k-1} \phi^j u_{t+k-j}.
-\]</span></p>
+</span></p>
 </div>
-<p> Since <span class="math inline">\(y_t = \phi y_{t-1} + u_t\)</span> implies <span class="math inline">\(\partial y_t / \partial u_t = 1\)</span>, the impulse response is </p>
+<p> Since <span class="math inline">y_t = \phi y_{t-1} + u_t</span> implies <span class="math inline">\partial y_t / \partial u_t = 1</span>, the impulse response is </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 \frac{\partial y_{t+k}}{\partial u_t} = \phi^k,
-\]</span></p>
+</span></p>
 </div>
-<p> which decays geometrically in <span class="math inline">\(k\)</span> because <span class="math inline">\(|\phi| &lt; 1\)</span> — formally the same geometric decay as the bound <span class="math inline">\(|W_{hh}|^{T-t}\)</span> from Part 2.</p></li>
-<li><p>The impulse response <span class="math inline">\(\phi^k\)</span> is a property of the <em>data-generating process</em>: it describes how a shock at time <span class="math inline">\(t\)</span> propagates into future values of the observed series, and for <span class="math inline">\(\phi\)</span> close to one the data are highly persistent. The bound from Part 2 concerns <span class="math inline">\(\partial h_T / \partial h_t\)</span>, which is a property of the <em>fitted model</em>: it measures how sensitive the network’s state remains to what happened at time <span class="math inline">\(t\)</span>. A contractive network — one whose one-step factors <span class="math inline">\(|W_{hh}| \tanh'(z_k)\)</span> stay below one — is therefore itself a short-memory model, whatever the data are.</p></li>
-<li><p>By Part 1, <span class="math inline">\(\partial h_T / \partial h_t\)</span> is also the factor that carries the training signal from the loss back to early time steps — yet for the AR(1) this does not prevent learning. The one-step conditional mean is <span class="math inline">\(\mathbb{E}[y_{t+1} \mid \mathcal{F}_t] = \phi y_t\)</span>: everything the network needs in order to forecast is contained in its current input <span class="math inline">\(x_t = y_t\)</span>, so the loss-relevant gradient travels across only one or a few recurrence steps, where the product from Part 2 is still far from zero. Adjacent-observation forecast errors deliver a strong local signal about <span class="math inline">\(\phi\)</span>, and training can pick up the AR(1) persistence without any long-range credit assignment.</p></li>
+<p> which decays geometrically in <span class="math inline">k</span> because <span class="math inline">|\phi| &lt; 1</span> — formally the same geometric decay as the bound <span class="math inline">|W_{hh}|^{T-t}</span> from Part 2.</p></li>
+<li><p>The impulse response <span class="math inline">\phi^k</span> is a property of the <em>data-generating process</em>: it describes how a shock at time <span class="math inline">t</span> propagates into future values of the observed series, and for <span class="math inline">\phi</span> close to one the data are highly persistent. The bound from Part 2 concerns <span class="math inline">\partial h_T / \partial h_t</span>, which is a property of the <em>fitted model</em>: it measures how sensitive the network’s state remains to what happened at time <span class="math inline">t</span>. A contractive network — one whose one-step factors <span class="math inline">|W_{hh}| \tanh'(z_k)</span> stay below one — is therefore itself a short-memory model, whatever the data are.</p></li>
+<li><p>By Part 1, <span class="math inline">\partial h_T / \partial h_t</span> is also the factor that carries the training signal from the loss back to early time steps — yet for the AR(1) this does not prevent learning. The one-step conditional mean is <span class="math inline">\mathbb{E}[y_{t+1} \mid \mathcal{F}_t] = \phi y_t</span>: everything the network needs in order to forecast is contained in its current input <span class="math inline">x_t = y_t</span>, so the loss-relevant gradient travels across only one or a few recurrence steps, where the product from Part 2 is still far from zero. Adjacent-observation forecast errors deliver a strong local signal about <span class="math inline">\phi</span>, and training can pick up the AR(1) persistence without any long-range credit assignment.</p></li>
 </ol>
 <p><strong>Part 5: When the bound binds</strong></p>
-<p>In the delayed-signal design, the predictive information sits only at lag <span class="math inline">\(k\)</span> and is, by assumption, not recoverable from the intermediate inputs. The only gradient path connecting the one-step-ahead loss to the relevant input <span class="math inline">\(x_{t-k}\)</span> therefore runs through the state recursion across <span class="math inline">\(k\)</span> steps and is scaled by the vanishing product from Part 2. This is where the double role becomes a trap: a contractive network attenuates exactly the long-range signal that would be needed to push its parameters toward less contractive, longer-memory dynamics, so gradient-based training tends to stay in the short-memory regime — not because the architecture cannot represent the dependence at other parameter values, but because learning receives almost no signal pushing it there. The vanishing-gradient problem is thus a failure of <em>credit assignment</em> for long-gap dependence, over and above the fitted model’s own short memory.</p>
+<p>In the delayed-signal design, the predictive information sits only at lag <span class="math inline">k</span> and is, by assumption, not recoverable from the intermediate inputs. The only gradient path connecting the one-step-ahead loss to the relevant input <span class="math inline">x_{t-k}</span> therefore runs through the state recursion across <span class="math inline">k</span> steps and is scaled by the vanishing product from Part 2. This is where the double role becomes a trap: a contractive network attenuates exactly the long-range signal that would be needed to push its parameters toward less contractive, longer-memory dynamics, so gradient-based training tends to stay in the short-memory regime — not because the architecture cannot represent the dependence at other parameter values, but because learning receives almost no signal pushing it there. The vanishing-gradient problem is thus a failure of <em>credit assignment</em> for long-gap dependence, over and above the fitted model’s own short memory.</p>
 </div>
 </div>
 </div>
@@ -923,29 +937,29 @@ Exercise 6.2: Manual RNN Forward Pass
 </div>
 </div>
 <div class="callout-body-container callout-body">
-<p>Consider the simple RNN shown in <a href="#fig-rnn-exercise" class="quarto-xref">Figure&nbsp;6.2</a>: a single hidden unit processing a sequence of length 3, with hidden update <span class="math inline">\(h_t = \tanh(W_{xh} x_t + W_{hh} h_{t-1} + b_h)\)</span> and linear output <span class="math inline">\(\hat{y}_t = W_{hy} h_t + b_y\)</span> (no output activation).</p>
+<p>Consider the simple RNN shown in <a href="#fig-rnn-exercise" class="quarto-xref">Figure&nbsp;6.2</a>: a single hidden unit processing a sequence of length 3, with hidden update <span class="math inline">h_t = \tanh(W_{xh} x_t + W_{hh} h_{t-1} + b_h)</span> and linear output <span class="math inline">\hat{y}_t = W_{hy} h_t + b_y</span> (no output activation).</p>
 <div id="fig-rnn-exercise" class="quarto-float quarto-figure quarto-figure-center anchored">
 <figure class="quarto-float quarto-float-fig figure">
 <div aria-describedby="fig-rnn-exercise-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
 <img src="figures/rnn_architecture.png" class="img-fluid figure-img">
 </div>
 <figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-rnn-exercise-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Figure&nbsp;6.2: The single-unit RNN of this exercise, unrolled over <span class="math inline">\(t = 0, 1, 2, 3\)</span>. Blue circles are the scalar hidden states <span class="math inline">\(h_t\)</span>, initialized at <span class="math inline">\(h_0 = 0\)</span>; green circles are the inputs <span class="math inline">\(x_t\)</span> with their numerical values printed below; red circles are the outputs <span class="math inline">\(\hat{y}_t\)</span>. Arrow labels give the scalar weight applied along each edge: <span class="math inline">\(W_{xh}\)</span> (input-to-hidden), <span class="math inline">\(W_{hh}\)</span> (hidden-to-hidden), and <span class="math inline">\(W_{hy}\)</span> (hidden-to-output).
+Figure&nbsp;6.2: The single-unit RNN of this exercise, unrolled over <span class="math inline">t = 0, 1, 2, 3</span>. Blue circles are the scalar hidden states <span class="math inline">h_t</span>, initialized at <span class="math inline">h_0 = 0</span>; green circles are the inputs <span class="math inline">x_t</span> with their numerical values printed below; red circles are the outputs <span class="math inline">\hat{y}_t</span>. Arrow labels give the scalar weight applied along each edge: <span class="math inline">W_{xh}</span> (input-to-hidden), <span class="math inline">W_{hh}</span> (hidden-to-hidden), and <span class="math inline">W_{hy}</span> (hidden-to-output).
 </figcaption>
 </figure>
 </div>
 <p>The parameters are:</p>
 <ul>
-<li>Weight for input-to-hidden: <span class="math inline">\(W_{xh} = 0.5\)</span></li>
-<li>Weight for hidden-to-hidden: <span class="math inline">\(W_{hh} = 0.8\)</span></li>
-<li>Bias for hidden unit: <span class="math inline">\(b_h = 0.1\)</span></li>
-<li>Weight for hidden-to-output: <span class="math inline">\(W_{hy} = 1.2\)</span></li>
-<li>Bias for output: <span class="math inline">\(b_y = 0.0\)</span></li>
+<li>Weight for input-to-hidden: <span class="math inline">W_{xh} = 0.5</span></li>
+<li>Weight for hidden-to-hidden: <span class="math inline">W_{hh} = 0.8</span></li>
+<li>Bias for hidden unit: <span class="math inline">b_h = 0.1</span></li>
+<li>Weight for hidden-to-output: <span class="math inline">W_{hy} = 1.2</span></li>
+<li>Bias for output: <span class="math inline">b_y = 0.0</span></li>
 </ul>
-<p>The input sequence is <span class="math inline">\(\mathbf{x} = [0.2, -0.5, 0.3]\)</span> and the initial hidden state is <span class="math inline">\(h_0 = 0\)</span>. Use the approximations <span class="math inline">\(\tanh(0.2) \approx 0.197\)</span>, <span class="math inline">\(\tanh(0.008) \approx 0.008\)</span>, <span class="math inline">\(\tanh(0.256) \approx 0.251\)</span>, <span class="math inline">\(\tanh'(0.2) \approx 0.961\)</span>, and <span class="math inline">\(\tanh'(0.008) \approx 1.000\)</span>.</p>
+<p>The input sequence is <span class="math inline">\mathbf{x} = [0.2, -0.5, 0.3]</span> and the initial hidden state is <span class="math inline">h_0 = 0</span>. Use the approximations <span class="math inline">\tanh(0.2) \approx 0.197</span>, <span class="math inline">\tanh(0.008) \approx 0.008</span>, <span class="math inline">\tanh(0.256) \approx 0.251</span>, <span class="math inline">\tanh'(0.2) \approx 0.961</span>, and <span class="math inline">\tanh'(0.008) \approx 1.000</span>.</p>
 <ol type="1">
-<li><strong>Compute the forward pass.</strong> For <span class="math inline">\(t = 1, 2, 3\)</span>, compute the hidden state <span class="math inline">\(h_t\)</span> and the output <span class="math inline">\(\hat{y}_t\)</span>.</li>
-<li><strong>Separate value from sensitivity.</strong> Your forward pass shows that the second input <span class="math inline">\(x_2 = -0.5\)</span> is large and negative, yet <span class="math inline">\(h_2 \approx 0.008\)</span> is nearly zero. Explain why the memory term <span class="math inline">\(W_{hh} h_1\)</span> and the bias <span class="math inline">\(b_h\)</span> together almost exactly cancel the input contribution at <span class="math inline">\(t=2\)</span>. Then compute the sensitivity <span class="math inline">\(\partial h_2/\partial x_1\)</span> and use it to discuss what a near-zero <em>value</em> of the hidden state does and does not imply about the memory of <span class="math inline">\(x_1\)</span>, connecting your answer to the geometric decay factor from Exercise 6.1.</li>
+<li><strong>Compute the forward pass.</strong> For <span class="math inline">t = 1, 2, 3</span>, compute the hidden state <span class="math inline">h_t</span> and the output <span class="math inline">\hat{y}_t</span>.</li>
+<li><strong>Separate value from sensitivity.</strong> Your forward pass shows that the second input <span class="math inline">x_2 = -0.5</span> is large and negative, yet <span class="math inline">h_2 \approx 0.008</span> is nearly zero. Explain why the memory term <span class="math inline">W_{hh} h_1</span> and the bias <span class="math inline">b_h</span> together almost exactly cancel the input contribution at <span class="math inline">t=2</span>. Then compute the sensitivity <span class="math inline">\partial h_2/\partial x_1</span> and use it to discuss what a near-zero <em>value</em> of the hidden state does and does not imply about the memory of <span class="math inline">x_1</span>, connecting your answer to the geometric decay factor from Exercise 6.1.</li>
 </ol>
 <p><em>Exam level. Part 1 checks the mechanics of the recursion; Part 2 tests the distinction between the value of a state and its sensitivity to past inputs.</em></p>
 </div>
@@ -962,7 +976,7 @@ Hint for Part 2
 </div>
 <div id="callout-16" class="callout-16-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
-<p>The <em>value</em> of <span class="math inline">\(h_2\)</span> and the <em>sensitivity</em> of <span class="math inline">\(h_2\)</span> to an earlier input are two different things, and the question asks you to separate them. For the sensitivity, apply the chain rule along <span class="math inline">\(x_1 \to h_1 \to h_2\)</span>. Recall that <span class="math inline">\(\tanh'(z) = 1-\tanh^2(z)\)</span> is largest exactly where <span class="math inline">\(z=0\)</span>, and note where <span class="math inline">\(z_2\)</span> sits.</p>
+<p>The <em>value</em> of <span class="math inline">h_2</span> and the <em>sensitivity</em> of <span class="math inline">h_2</span> to an earlier input are two different things, and the question asks you to separate them. For the sensitivity, apply the chain rule along <span class="math inline">x_1 \to h_1 \to h_2</span>. Recall that <span class="math inline">\tanh'(z) = 1-\tanh^2(z)</span> is largest exactly where <span class="math inline">z=0</span>, and note where <span class="math inline">z_2</span> sits.</p>
 </div>
 </div>
 </div>
@@ -979,49 +993,49 @@ Solution
 <div id="callout-17" class="callout-17-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p><strong>Part 1: Forward pass</strong></p>
-<p>At <span class="math inline">\(t = 1\)</span>: </p>
+<p>At <span class="math inline">t = 1</span>: </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 \begin{aligned}
 h_1 &amp;= \tanh(0.5 \cdot 0.2 + 0.8 \cdot 0 + 0.1) = \tanh(0.2) \approx 0.197 \\
 \hat{y}_1 &amp;= 1.2 \cdot 0.197 \approx 0.236
 \end{aligned}
-\]</span></p>
+</span></p>
 </div>
-<p>At <span class="math inline">\(t = 2\)</span>: </p>
+<p>At <span class="math inline">t = 2</span>: </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 \begin{aligned}
 h_2 &amp;= \tanh(0.5 \cdot (-0.5) + 0.8 \cdot 0.197 + 0.1) \\
     &amp;= \tanh(-0.25 + 0.158 + 0.1) = \tanh(0.008) \approx 0.008 \\
 \hat{y}_2 &amp;= 1.2 \cdot 0.008 \approx 0.010
 \end{aligned}
-\]</span></p>
+</span></p>
 </div>
-<p>At <span class="math inline">\(t = 3\)</span>: </p>
+<p>At <span class="math inline">t = 3</span>: </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 \begin{aligned}
 h_3 &amp;= \tanh(0.5 \cdot 0.3 + 0.8 \cdot 0.008 + 0.1) \\
     &amp;= \tanh(0.15 + 0.006 + 0.1) = \tanh(0.256) \approx 0.251 \\
 \hat{y}_3 &amp;= 1.2 \cdot 0.251 \approx 0.301
 \end{aligned}
-\]</span></p>
+</span></p>
 </div>
 <p><strong>Part 2: A near-zero state value is not the same as lost memory</strong></p>
-<p>At <span class="math inline">\(t = 2\)</span>, the input contribution <span class="math inline">\(W_{xh} x_2 = 0.5 \times (-0.5) = -0.25\)</span> is almost exactly offset by the memory term <span class="math inline">\(W_{hh} h_1 = 0.8 \times 0.197 = 0.158\)</span> plus the bias <span class="math inline">\(b_h = 0.1\)</span>, giving a pre-activation near zero and thus <span class="math inline">\(h_2 \approx 0\)</span>. This is <em>cancellation</em>: two sizable contributions of opposite sign happen to sum to nearly zero.</p>
-<p>Cancellation of the value does <strong>not</strong> mean the memory of <span class="math inline">\(x_1\)</span> is gone. Memory in the gradient sense is the sensitivity </p>
+<p>At <span class="math inline">t = 2</span>, the input contribution <span class="math inline">W_{xh} x_2 = 0.5 \times (-0.5) = -0.25</span> is almost exactly offset by the memory term <span class="math inline">W_{hh} h_1 = 0.8 \times 0.197 = 0.158</span> plus the bias <span class="math inline">b_h = 0.1</span>, giving a pre-activation near zero and thus <span class="math inline">h_2 \approx 0</span>. This is <em>cancellation</em>: two sizable contributions of opposite sign happen to sum to nearly zero.</p>
+<p>Cancellation of the value does <strong>not</strong> mean the memory of <span class="math inline">x_1</span> is gone. Memory in the gradient sense is the sensitivity </p>
 <div class="display-math-block">
-<p><span class="math display">\[
+<p><span class="math display">
 \frac{\partial h_2}{\partial x_1}
 = \underbrace{\tanh'(z_2)\, W_{hh}}_{\partial h_2/\partial h_1}
   \cdot
   \underbrace{\tanh'(z_1)\, W_{xh}}_{\partial h_1/\partial x_1}
 \approx (1.000 \times 0.8) \times (0.961 \times 0.5) \approx 0.38,
-\]</span></p>
+</span></p>
 </div>
-<p> using <span class="math inline">\(\tanh'(z) = 1 - \tanh^2(z)\)</span> with <span class="math inline">\(z_1 = 0.2\)</span> and <span class="math inline">\(z_2 = 0.008\)</span>. A sensitivity of <span class="math inline">\(0.38\)</span> after one recurrence step is substantial — in fact, because <span class="math inline">\(z_2 \approx 0\)</span> places <span class="math inline">\(\tanh\)</span> in its steepest region, <span class="math inline">\(h_2\)</span> is close to <em>maximally</em> sensitive to perturbations of <span class="math inline">\(h_1\)</span>. Had <span class="math inline">\(x_1\)</span> been slightly different, <span class="math inline">\(h_2\)</span> would have been noticeably different: the state still remembers <span class="math inline">\(x_1\)</span> even though its value happens to sit near zero.</p>
-<p>The genuine connection to Exercise 6.1 runs through the <em>rate of decay</em>, not the value of the state. Each additional recurrence step multiplies the sensitivity by at most <span class="math inline">\(W_{hh}\,\max_z \tanh'(z) = 0.8\)</span>, so the influence of <span class="math inline">\(x_1\)</span> fades geometrically over many steps (<span class="math inline">\(0.8^{10} \approx 0.11\)</span>, <span class="math inline">\(0.8^{30} \approx 0.001\)</span>). The two-part conclusion: after one step, the memory of <span class="math inline">\(x_1\)</span> is still strong despite the near-zero state value; over long horizons, it is the geometric factor from Exercise 6.1 — not value cancellation — that makes plain RNNs forget.</p>
+<p> using <span class="math inline">\tanh'(z) = 1 - \tanh^2(z)</span> with <span class="math inline">z_1 = 0.2</span> and <span class="math inline">z_2 = 0.008</span>. A sensitivity of <span class="math inline">0.38</span> after one recurrence step is substantial — in fact, because <span class="math inline">z_2 \approx 0</span> places <span class="math inline">\tanh</span> in its steepest region, <span class="math inline">h_2</span> is close to <em>maximally</em> sensitive to perturbations of <span class="math inline">h_1</span>. Had <span class="math inline">x_1</span> been slightly different, <span class="math inline">h_2</span> would have been noticeably different: the state still remembers <span class="math inline">x_1</span> even though its value happens to sit near zero.</p>
+<p>The genuine connection to Exercise 6.1 runs through the <em>rate of decay</em>, not the value of the state. Each additional recurrence step multiplies the sensitivity by at most <span class="math inline">W_{hh}\,\max_z \tanh'(z) = 0.8</span>, so the influence of <span class="math inline">x_1</span> fades geometrically over many steps (<span class="math inline">0.8^{10} \approx 0.11</span>, <span class="math inline">0.8^{30} \approx 0.001</span>). The two-part conclusion: after one step, the memory of <span class="math inline">x_1</span> is still strong despite the near-zero state value; over long horizons, it is the geometric factor from Exercise 6.1 — not value cancellation — that makes plain RNNs forget.</p>
 </div>
 </div>
 </div>
