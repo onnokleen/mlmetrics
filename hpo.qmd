@@ -62,7 +62,19 @@ $$
 \min_{1 \le j \le J} c_j.
 $$
 
-The inequality is strict unless the same configuration always wins. After search, the winning validation score is partly low because the model is good and partly low because its realized validation noise was favorable.
+The inequality is strict unless the same configuration always wins.
+
+This display compares the winning score with the best *true* risk in the grid. The claim we actually care about concerns the configuration the search selects, $\hat\jmath = \arg\min_j \hat c_j$, whose true risk $c_{\hat\jmath}$ is itself random because the winner is random. The bridge is one further inequality: since $c_{\hat\jmath} \ge \min_j c_j$ by definition of a minimum, taking expectations gives $\mathbb{E}[c_{\hat\jmath}] \ge \min_j c_j$. Chaining the two,
+
+$$
+\mathbb{E}\Big[\min_{1\le j\le J}\hat c_j\Big]
+\;\le\;
+\min_{1\le j\le J} c_j
+\;\le\;
+\mathbb{E}\big[c_{\hat\jmath}\big],
+$$
+
+and since the left-hand side is exactly the reported validation score of the selected configuration, $\hat c_{\hat\jmath}$, the winning validation number is downward-biased for the true risk of the very model it selects. After search, that score is partly low because the model is good and partly low because its realized validation noise was favorable.
 :::
 
 The same logic is visible in @fig-hpo-selection-bias. The selected configuration is the one with the lowest realized validation loss, but its blue point, which represents true risk, sits above the red validation point. The figure should be read as a visualization of selection-induced optimism, not as a claim about one particular algorithm.
@@ -74,7 +86,6 @@ The same logic is visible in @fig-hpo-selection-bias. The selected configuration
 
 import numpy as np
 import matplotlib.pyplot as plt
-import math
 
 rng = np.random.default_rng(14)
 n_cfg = 20
@@ -312,7 +323,7 @@ plt.show()
 
 **Generic idea.** Bayesian optimization (BO) treats HPO as a sequential learning problem. After each evaluation, it updates a surrogate model for the unknown function $\lambda \mapsto c(\lambda)$ and uses an acquisition rule to decide where to search next. The acquisition balances exploitation of promising regions against exploration of uncertain regions.
 
-**Gaussian-process BO.** A standard BO design places a Gaussian-process prior on the unknown objective. After observing data
+**Gaussian-process (GP) BO.** A standard BO design places a Gaussian-process prior on the unknown objective. After observing data
 
 $$
 \mathcal{D}_t = \{(\lambda_j, \hat c_j)\}_{j=1}^t,
@@ -328,7 +339,13 @@ $$
 \mathbb{E}\left[\max\{c_{\min,t} - C(\lambda), 0\} \mid \mathcal{D}_t\right],
 $$
 
-where $C(\lambda)$ denotes the surrogate's random prediction of the loss at $\lambda$, i.e. the random variable with $C(\lambda)\mid \mathcal{D}_t \sim N(m_t(\lambda), s_t(\lambda)^2)$, and $c_{\min,t} = \min_{1 \le j \le t} \hat c_j$, the smallest validation loss observed so far in $\mathcal{D}_t$.
+where $C(\lambda)$ denotes the surrogate's random prediction of the loss at $\lambda$, i.e. the random variable with $C(\lambda)\mid \mathcal{D}_t \sim N(m_t(\lambda), s_t(\lambda)^2)$, and the incumbent $c_{\min,t}$ is the best value seen so far.
+
+Defining that incumbent requires a choice, and it is exactly the one this chapter opened with. The conventional definition $c_{\min,t} = \min_{1 \le j \le t} \hat c_j$ uses the smallest *observed* validation loss — which, by the selection-bias argument above, is optimistically biased whenever the scores are noisy. Expected improvement is then measured against a target that is too low, which makes the acquisition conservative: improvements look harder to achieve than they are, and the search under-explores. The standard remedy under noisy observations is the plug-in incumbent
+$$
+c_{\min,t} = \min_{1 \le j \le t} m_t(\lambda_j),
+$$
+the smallest *surrogate posterior mean* at the evaluated points, which uses the GP's smoothing to filter observation noise out of the benchmark. We keep the observed-minimum form below because it is what the classical closed form and most implementations use, but the distinction is worth carrying: with noisy validation scores, the incumbent is an estimate too.
 
 Points with low predicted loss and points with high uncertainty can both have high expected improvement. That is the exploration-versus-exploitation tradeoff in one formula [@JonesSchonlauWelch1998; @SnoekLarochelleAdams2012].
 
@@ -341,6 +358,7 @@ Points with low predicted loss and points with high uncertainty can both have hi
 
 import numpy as np
 import matplotlib.pyplot as plt
+import math
 
 x = np.linspace(0.0, 1.0, 500)
 mean = 0.66 - 0.18 * np.exp(-((x - 0.28) / 0.14) ** 2) - 0.10 * np.exp(-((x - 0.78) / 0.11) ** 2)
@@ -415,7 +433,7 @@ z_t(\lambda)
 \frac{c_{\min,t} - m_t(\lambda)}{s_t(\lambda)},
 $$
 
-and $\Phi$ and $\phi$ denote the standard normal cdf and pdf. The first term rewards low predicted loss, while the second rewards uncertainty. This is the standard exploitation-versus-exploration decomposition used in classical Bayesian optimization.
+and $\Phi$ and $\phi$ denote the standard normal cumulative distribution function (CDF) and probability density function (PDF). The first term rewards low predicted loss, while the second rewards uncertainty. This is the standard exploitation-versus-exploration decomposition used in classical Bayesian optimization.
 :::
 
 GP BO is most attractive when each evaluation is expensive and the search dimension is not too high. Its weaknesses are equally important:
@@ -430,10 +448,8 @@ GP BO is most attractive when each evaluation is expensive and the search dimens
 $$
 \ell(\lambda) = p(\lambda \mid y \le y^\ast),
 \qquad
-g(\lambda) = p(\lambda \mid y > y^\ast),
+g(\lambda) = p(\lambda \mid y > y^\ast).
 $$
-
-where $y$ denotes the observed validation loss and $\gamma$ is the same threshold quantile used in the TPE algorithm box below.
 
 The search idea is simple: propose candidates that look likely under the good-trial density and unlikely under the bad-trial density. In practice this means favoring large values of
 
@@ -517,6 +533,8 @@ s_{\max} = \left\lfloor \log_{\eta}(R) \right\rfloor,
 \qquad
 B = (s_{\max}+1)R.
 $$
+
+Here $B$ is the resource budget allocated to *each* bracket, measured in the same units as $R$ — so a bracket spends roughly what it would cost to train $s_{\max}+1$ configurations to the full budget. Since Hyperband runs $s_{\max}+1$ brackets, one full sweep costs approximately $(s_{\max}+1)B$ in total.
 
 Hyperband then runs several successive-halving brackets indexed by $s=s_{\max},\ldots,0$. Note that $s$ is reused here as the bracket index, a different role from the terminal round index $s$ in the successive-halving box above. A common parameterization is
 
@@ -653,18 +671,12 @@ Packages such as Optuna make these search strategies convenient to run, especial
 
 You are tuning a gradient boosting model to forecast monthly industrial production growth. Candidate predictors include lags of the target, survey indicators, and financial variables. The researcher evaluates 12 hyperparameter configurations using the same expanding-window validation design and then keeps the configuration with the lowest average validation mean squared forecast error.
 
-1. Let $R$ denote the common true out-of-sample loss of all 12 configurations, and let $\hat{R}_k = R + \varepsilon_k$, $k=1,\dots,12$, where the $\varepsilon_k$ are iid mean-zero noise terms. First show, using the identity $\min(a,b)=\frac{a+b-|a-b|}{2}$, that for two configurations we have $\mathbb{E}[\min(\hat{R}_1,\hat{R}_2)] < R$. Then explain why this implies $\mathbb{E}[\min_k \hat{R}_k] < R$ for 12 configurations, and interpret the result for the reported validation loss of the selected configuration.
+1. Let $R$ denote the common true out-of-sample loss of all 12 configurations, and let $\hat{R}_k = R + \varepsilon_k$, $k=1,\dots,12$, where the $\varepsilon_k$ are independent and identically distributed (i.i.d.) mean-zero noise terms that are non-degenerate, so that $\Pr(\varepsilon_1 \neq \varepsilon_2) > 0$. First show, using the identity $\min(a,b)=\frac{a+b-|a-b|}{2}$, that for two configurations we have $\mathbb{E}[\min(\hat{R}_1,\hat{R}_2)] < R$. Then explain why this implies $\mathbb{E}[\min_k \hat{R}_k] < R$ for 12 configurations, and interpret the result for the reported validation loss of the selected configuration.
 2. Suppose the research claim is that "tuned gradient boosting improves forecasting performance relative to a benchmark autoregression." Describe a nested time-series evaluation design that can assess this claim honestly.
 3. In one application, an expanding-window search selects a relatively deep tree with many boosting rounds, while a rolling-window search selects a shallower and more heavily regularized configuration. Give an econometric reason why these two validation schemes can favor different hyperparameters, and explain when the rolling-window choice would be more credible.
 4. Suppose the target is now 12-month-ahead cumulative output growth, so adjacent observations have overlapping outcome windows. Explain why this creates an additional leakage problem during tuning and how purging or an embargo around the validation block can help.
 
 *Exam-level. Part 1 is a short derivation that carries the whole selection-bias point; Parts 2 and 3 compare validation designs; Part 4 is the econometric-diagnostic part on overlapping forecast targets.*
-:::
-
-:::{.callout-warning collapse="true"}
-## Hint for Part 1
-
-For two candidates, use $\min(\hat{R}_1,\hat{R}_2) = R + \frac{\varepsilon_1+\varepsilon_2-|\varepsilon_1-\varepsilon_2|}{2}$ and take expectations. Then argue that the same logic extends to $K>2$.
 :::
 
 :::{.callout-warning collapse="true"}
@@ -677,12 +689,6 @@ Separate the job of choosing hyperparameters from the job of evaluating the enti
 ## Hint for Part 3
 
 Think about structural change and whether older observations are still informative for the current forecasting environment.
-:::
-
-:::{.callout-warning collapse="true"}
-## Hint for Part 4
-
-Nearby training observations may share future realizations with the validation target when horizons overlap.
 :::
 
 :::{.callout-tip collapse="true"}
@@ -698,7 +704,7 @@ Taking expectations and using $\mathbb{E}[\varepsilon_k]=0$,
 $$
 \mathbb{E}\big[\min(\hat{R}_1,\hat{R}_2)\big]=R-\tfrac{1}{2}\mathbb{E}\big[|\varepsilon_1-\varepsilon_2|\big]<R,
 $$
-since $|\varepsilon_1-\varepsilon_2|>0$ with positive probability. The same logic extends by induction: for any $K\ge 2$, $\mathbb{E}[\min_k \hat{R}_k]\le \mathbb{E}[\min(\hat{R}_1,\hat{R}_2)]<R$, because adding candidates can only lower the minimum further.
+since non-degeneracy gives $|\varepsilon_1-\varepsilon_2|>0$ with positive probability, so its expectation is strictly positive. (Without that assumption the noise could be identically zero and the inequality would hold only weakly.) The same logic extends by induction: for any $K\ge 2$, $\mathbb{E}[\min_k \hat{R}_k]\le \mathbb{E}[\min(\hat{R}_1,\hat{R}_2)]<R$, because adding candidates can only lower the minimum further.
 
 This means the reported validation loss of the selected configuration is optimistically biased. The chosen configuration is selected partly because it is genuinely good and partly because its realized validation noise happened to be favorable. This is the HPO analogue of specification search in econometrics.
 
@@ -729,7 +735,16 @@ With a 12-month-ahead cumulative-growth target, adjacent observations can share 
 
 Suppose you are tuning a forecasting model with four hyperparameters: `learning_rate`, `max_depth`, `min_samples_leaf`, and `subsample`. Each model evaluation requires a full rolling-window validation exercise and is therefore expensive.
 
-1. Explain the main idea of Bayesian optimization. What are the roles of the surrogate model and the acquisition rule?
+1. **Derive the closed form of expected improvement.** Under the Gaussian surrogate $C(\lambda)\mid\mathcal{D}_t \sim \mathcal{N}(m,s^2)$ with $s>0$, start from the definition
+   $$
+   \operatorname{EI}(\lambda)=\mathbb{E}\big[\max\{c_{\min}-C(\lambda),0\}\big]
+   $$
+   and show that
+   $$
+   \operatorname{EI}(\lambda) = (c_{\min}-m)\Phi(z) + s\,\phi(z),
+   \qquad z=\frac{c_{\min}-m}{s}.
+   $$
+   Then read off which term rewards a low predicted loss and which rewards uncertainty, and state what happens to $\operatorname{EI}$ as $s\downarrow 0$ with $m>c_{\min}$ held fixed.
 2. In a Gaussian-process BO scheme, the current best observed validation loss is $c_{\min}=0.45$. The surrogate model predicts:
    - Configuration A: posterior mean $m_A=0.42$, posterior standard deviation $s_A=0.01$.
    - Configuration B: posterior mean $m_B=0.47$, posterior standard deviation $s_B=0.10$.
@@ -741,48 +756,64 @@ Suppose you are tuning a forecasting model with four hyperparameters: `learning_
    z=\frac{c_{\min}-m}{s},
    $$
    where $\Phi$ and $\phi$ are the standard normal CDF and PDF. Using $\Phi(3)\approx 0.999$, $\phi(3)\approx 0.004$, $\Phi(-0.2)\approx 0.421$, and $\phi(-0.2)\approx 0.391$, compute $\mathrm{EI}$ for both configurations and explain which one the acquisition function prefers.
-3. In a TPE scheme, three candidate configurations have estimated density ratios
+3. **Show why TPE ranks candidates by the density ratio.** TPE models the trials as $p(\lambda \mid y) = \ell(\lambda)$ if $y \le y^\ast$ and $g(\lambda)$ if $y > y^\ast$, with $\Pr(y \le y^\ast) = \gamma$. Using $p(\lambda) = \gamma\,\ell(\lambda) + (1-\gamma)\,g(\lambda)$ and the definition
    $$
-   \frac{\ell(\lambda_A)}{g(\lambda_A)} = 1.2, \qquad
-   \frac{\ell(\lambda_B)}{g(\lambda_B)} = 2.8, \qquad
-   \frac{\ell(\lambda_C)}{g(\lambda_C)} = 0.9.
+   \operatorname{EI}(\lambda) = \int_{-\infty}^{y^\ast} (y^\ast - y)\, p(y \mid \lambda)\, dy,
    $$
-   Which candidate would TPE prefer next, and what is the economic interpretation of that choice?
+   together with Bayes' rule $p(y\mid\lambda) = p(\lambda\mid y)p(y)/p(\lambda)$, show that
+   $$
+   \operatorname{EI}(\lambda)
+   =
+   \frac{K}{\gamma + (1-\gamma)\,g(\lambda)/\ell(\lambda)}
+   $$
+   for a constant $K$ that does not depend on $\lambda$. Conclude that maximizing $\operatorname{EI}$ is equivalent to maximizing $\ell(\lambda)/g(\lambda)$. Then apply the result: for candidates with ratios $\ell/g$ equal to $1.2$, $2.8$, and $0.9$, which does TPE evaluate next?
 4. Give two conditions under which Bayesian optimization is likely to outperform plain random search, and one condition under which random search may still be preferable.
 
-*Exam-level. Part 2 is the computational core and supplies the normal-table values it needs; Parts 1, 3, and 4 are shorter and work best as scaffolding around it.*
+*Exam-level. Parts 1 and 3 are the derivations — the Gaussian closed form and the TPE density-ratio criterion — Part 2 is the numerical comparison and supplies the normal-table values it needs, and Part 4 closes with the design conditions.*
 :::
 
 :::{.callout-warning collapse="true"}
 ## Hint for Part 1
 
-Bayesian optimization learns from previous trials instead of treating each draw independently.
-:::
-
-:::{.callout-warning collapse="true"}
-## Hint for Part 2
-
-Compute $z_A=(0.45-0.42)/0.01$ and $z_B=(0.45-0.47)/0.10$, then substitute into the EI formula with $(m,s)=(m_A,s_A)$ and $(m_B,s_B)$.
+Standardize first: write $C = m + sZ$ so the expectation becomes an integral against the standard normal density over the region where the improvement is positive. For the harder of the two resulting integrals, use the fact that the standard normal density satisfies $\phi'(u) = -u\,\phi(u)$.
 :::
 
 :::{.callout-warning collapse="true"}
 ## Hint for Part 3
 
-TPE prefers candidates that look much more like the good set than the bad set.
-:::
-
-:::{.callout-warning collapse="true"}
-## Hint for Part 4
-
-Think about evaluation cost, search dimension, and whether the objective looks learnable from a small number of noisy observations.
+Over the whole region of integration $y \le y^\ast$, the conditional density $p(\lambda\mid y)$ equals $\ell(\lambda)$ and does not depend on $y$ — so it factors out of the integral, leaving something that does not involve $\lambda$ at all.
 :::
 
 :::{.callout-tip collapse="true"}
 ## Solution
 
-**Part 1: Core idea of Bayesian optimization**
+**Part 1: The Gaussian closed form**
 
-Bayesian optimization treats validation loss as an unknown function of the hyperparameters. A surrogate model summarizes what past evaluations imply about that function, while the acquisition rule uses the surrogate to choose the next point. The acquisition balances exploitation of regions with low predicted loss against exploration of regions where uncertainty is still high.
+Write $C = m + sZ$ with $Z \sim \mathcal{N}(0,1)$. Then $c_{\min} - C = s(z - Z)$ with $z = (c_{\min}-m)/s$, and since $s>0$,
+$$
+\operatorname{EI} = \mathbb{E}\big[\max\{s(z-Z),0\}\big] = s\,\mathbb{E}\big[\max\{z-Z,0\}\big] = s\int_{-\infty}^{z}(z-u)\phi(u)\,du.
+$$
+Split the integral:
+$$
+\int_{-\infty}^{z}(z-u)\phi(u)\,du
+=
+z\int_{-\infty}^{z}\phi(u)\,du - \int_{-\infty}^{z}u\,\phi(u)\,du
+=
+z\Phi(z) - \int_{-\infty}^{z}u\,\phi(u)\,du .
+$$
+The remaining integral has a closed form because the standard normal density satisfies $\phi'(u) = -u\,\phi(u)$, so $u\,\phi(u) = -\phi'(u)$ and
+$$
+\int_{-\infty}^{z}u\,\phi(u)\,du = -\big[\phi(u)\big]_{-\infty}^{z} = -\phi(z).
+$$
+Therefore
+$$
+\operatorname{EI} = s\big[z\Phi(z) + \phi(z)\big] = (c_{\min}-m)\Phi(z) + s\,\phi(z),
+$$
+using $sz = c_{\min}-m$ in the last step.
+
+The first term, $(c_{\min}-m)\Phi(z)$, is the exploitation term: it is large when the predicted loss $m$ sits well below the incumbent, weighted by the probability of improving. The second term, $s\phi(z)$, is the exploration term: it is proportional to the posterior standard deviation and rewards uncertainty regardless of the sign of $c_{\min}-m$.
+
+As $s \downarrow 0$ with $m > c_{\min}$ fixed, we have $z \to -\infty$, and both $\Phi(z)$ and $\phi(z)$ go to zero — the second faster than any polynomial — so $\operatorname{EI} \to 0$. A point the surrogate is *certain* is worse than the incumbent has no expected improvement at all, which is exactly the behavior an acquisition rule should have.
 
 **Part 2: EI computation and exploration**
 
@@ -796,9 +827,27 @@ $$
 $$
 Configuration B has slightly higher EI despite a worse posterior mean. The high posterior uncertainty creates enough probability of beating $c_{\min}$ that the exploration payoff outweighs A's lower point prediction. This is why expected improvement naturally balances exploitation and exploration.
 
-**Part 3: TPE choice**
+**Part 3: The TPE density-ratio criterion**
 
-TPE would prefer configuration B because it has the largest ratio $\ell(\lambda)/g(\lambda)$. That means B looks relatively likely under the density fitted to historically good trials and relatively unlikely under the density fitted to bad trials. Economically, the algorithm is concentrating scarce validation budget on a region of the search space that past evidence suggests is more promising.
+Apply Bayes' rule inside the integral. Since $p(y\mid\lambda) = p(\lambda\mid y)p(y)/p(\lambda)$ and $p(\lambda\mid y) = \ell(\lambda)$ throughout the region $y \le y^\ast$,
+$$
+\operatorname{EI}(\lambda)
+=
+\frac{1}{p(\lambda)}\int_{-\infty}^{y^\ast}(y^\ast-y)\,\ell(\lambda)\,p(y)\,dy
+=
+\frac{\ell(\lambda)}{p(\lambda)}\underbrace{\int_{-\infty}^{y^\ast}(y^\ast-y)\,p(y)\,dy}_{=:\,K},
+$$
+where $K$ depends only on $y^\ast$ and the marginal distribution of the losses — not on $\lambda$. Substituting the mixture $p(\lambda) = \gamma\ell(\lambda) + (1-\gamma)g(\lambda)$ and dividing numerator and denominator by $\ell(\lambda)$,
+$$
+\operatorname{EI}(\lambda)
+=
+\frac{K\,\ell(\lambda)}{\gamma\ell(\lambda)+(1-\gamma)g(\lambda)}
+=
+\frac{K}{\gamma + (1-\gamma)\,g(\lambda)/\ell(\lambda)} .
+$$
+Because $K>0$ and $\gamma \in (0,1)$, the right-hand side is a strictly increasing function of $\ell(\lambda)/g(\lambda)$: the ratio enters only through $g/\ell$ in the denominator. Maximizing expected improvement is therefore *equivalent* to maximizing the density ratio, which is why TPE never needs to model the loss surface itself — it only has to rank candidates by how much more likely they are under the good-trial density than the bad-trial density.
+
+Applying this to the three candidates: the ratios are $1.2$, $2.8$, and $0.9$, so TPE evaluates the second one next. It looks relatively likely under the density fitted to historically good trials and relatively unlikely under the bad-trial density, so the algorithm concentrates scarce validation budget where past evidence is most promising.
 
 **Part 4: When BO should or should not beat random search**
 
@@ -817,34 +866,11 @@ A neural network is trained to predict firm default probabilities from panel dat
 
 1. Suppose one successive-halving bracket starts with 27 configurations trained for 3 epochs each. How many configurations remain after each elimination round, and what budget does each surviving configuration receive if the budget is multiplied by $\eta$ at each stage?
 2. Compute the total cost of this successive-halving bracket in configuration-epochs (sum of configurations $\times$ epochs at each round). Compare this with the cost of evaluating 27 configurations at the full 81-epoch budget. By what factor does successive halving reduce the total compute?
-3. Suppose validation loss is very noisy in the first few epochs and some good models learn slowly. What specific risk does this create for Hyperband?
-4. Compare Hyperband, random search, and Bayesian optimization for this problem. Under what condition would Hyperband clearly have the advantage?
+3. **Generalize the cost calculation.** Consider a successive-halving bracket that starts with $p^{[0]}$ configurations at budget $r^{[0]}$ and runs $s+1$ rounds, with the exact recursions $p^{[t]} = p^{[0]}\eta^{-t}$ and $r^{[t]} = r^{[0]}\eta^{t}$ (ignore rounding). Show that the cost of every round is the same, and hence that the bracket's total cost is $(s+1)\,p^{[0]}r^{[0]}$. Explain how this result accounts for the near-equal total spend across the Hyperband brackets shown in @fig-hyperband-brackets, and what it implies about the breadth-versus-depth tradeoff: what does a bracket give up when it starts with more configurations at the same total cost?
+4. Suppose validation loss is very noisy in the first few epochs and some good models learn slowly. What specific risk does this create for Hyperband?
+5. Compare Hyperband, random search, and Bayesian optimization for this problem. Under what condition would Hyperband clearly have the advantage?
 
-*Exam-level. Parts 1 and 2 are calculator-free arithmetic on the successive-halving schedule; Parts 3 and 4 test whether students see when cheap early evaluations mislead.*
-:::
-
-:::{.callout-warning collapse="true"}
-## Hint for Part 1
-
-Each round keeps the top one-third of the current configurations and triples the budget.
-:::
-
-:::{.callout-warning collapse="true"}
-## Hint for Part 2
-
-Add up the products (number of configurations $\times$ epochs per configuration) across all four rounds from Part 1. For full random search, multiply 27 by 81.
-:::
-
-:::{.callout-warning collapse="true"}
-## Hint for Part 3
-
-If early rankings are unreliable, elimination can be a mistake rather than a saving.
-:::
-
-:::{.callout-warning collapse="true"}
-## Hint for Part 4
-
-Hyperband needs partial training performance to be informative about full training performance.
+*Exam-level. Parts 1 and 2 are calculator-free arithmetic on the successive-halving schedule, Part 3 turns that arithmetic into the general constant-cost-per-round result that motivates Hyperband's bracket design, and Parts 4 and 5 test whether students see when cheap early evaluations mislead.*
 :::
 
 :::{.callout-tip collapse="true"}
@@ -873,11 +899,31 @@ $$
 $$
 Full random search with 27 configurations costs $27\times 81=2{,}187$ configuration-epochs. The ratio is $2{,}187/324 \approx 6.75$, so successive halving reduces the total compute by roughly a factor of 7 while still evaluating 27 initial candidates. The saving comes from discarding weak configurations early rather than training all of them to completion.
 
-**Part 3: Risk from noisy early curves**
+**Part 3: Constant cost per round**
 
-If early validation loss is noisy or some good models improve only later, Hyperband may eliminate them before they have a chance to reveal their true quality. The algorithm then saves computation at the cost of selecting the wrong configurations.
+The cost of round $t$ is the number of surviving configurations times the budget each receives:
+$$
+p^{[t]} r^{[t]}
+=
+\big(p^{[0]}\eta^{-t}\big)\big(r^{[0]}\eta^{t}\big)
+=
+p^{[0]}r^{[0]},
+$$
+because the factors $\eta^{-t}$ and $\eta^{t}$ cancel exactly. The elimination rate and the budget-inflation rate are the same $\eta$, so every round spends the same amount: what is saved by discarding configurations is spent again on the survivors. Summing over the $s+1$ rounds,
+$$
+\sum_{t=0}^{s} p^{[t]}r^{[t]} = (s+1)\,p^{[0]}r^{[0]} .
+$$
+The Part 2 numbers are the special case $p^{[0]}=27$, $r^{[0]}=3$, $s=3$: four rounds of $81$ each, totaling $324$.
 
-**Part 4: Comparison across methods**
+This is exactly why the Hyperband brackets in @fig-hyperband-brackets cost about the same. Bracket $s$ runs $s+1$ rounds starting from $n_s$ configurations at resource $r_s = R\eta^{-s}$, and the parameterization $n_s = \lceil (B/R)\eta^s/(s+1)\rceil$ is chosen precisely so that $(s+1)n_sr_s \approx B$ for every $s$ — the $\eta^s$ in $n_s$ cancels the $\eta^{-s}$ in $r_s$, and the division by $s+1$ offsets the number of rounds.
+
+The tradeoff this exposes is that a bracket buys breadth only by paying in depth. At a fixed budget $B$, starting with more configurations forces each to begin at a proportionally smaller resource level, so the initial ranking on which the first elimination is based comes from noisier, shorter runs. A wide bracket screens many candidates on weak evidence; a deep bracket screens few candidates on strong evidence. Hyperband does not resolve this tradeoff — it hedges across it by running brackets at several points along the spectrum.
+
+**Part 4: Risk from noisy early curves**
+
+If early validation loss is noisy or some good models improve only later, Hyperband may eliminate them before they have a chance to reveal their true quality. The algorithm then saves computation at the cost of selecting the wrong configurations. Note that this risk is most acute in exactly the wide brackets identified in Part 3, where the first elimination is based on the shortest runs.
+
+**Part 5: Comparison across methods**
 
 Random search is simple and highly parallel, but it wastes budget because every configuration receives the full 9-hour run. Bayesian optimization can be more sample-efficient than random search, but unless it is combined with pruning it still spends a full evaluation on each chosen configuration. Hyperband has the clearest advantage when partial training performance is informative about eventual full-budget performance, because then early stopping removes bad configurations cheaply without discarding many genuinely good ones.
 :::

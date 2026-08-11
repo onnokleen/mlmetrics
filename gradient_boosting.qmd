@@ -7,7 +7,7 @@ number-offset: [11, 0]
 
 ## Overview
 
-Gradient boosting is a sequential tree-based method that builds an additive predictor by repeatedly fitting new trees to the mistakes of the current ensemble. Where random forests mainly reduce variance by averaging many decorrelated trees, boosting mainly reduces bias by adding weak learners in a carefully targeted way. The modern gradient-boosting formulation is due to @Friedman2001Greedy; AdaBoost is an important predecessor and special case in the broader boosting literature [@FreundSchapire1997].
+Gradient boosting is a sequential tree-based method that builds an additive predictor by repeatedly fitting new trees to the mistakes of the current ensemble. Where random forests mainly reduce variance by averaging many randomized, less-correlated trees, boosting mainly reduces bias by adding weak learners in a carefully targeted way. The modern gradient-boosting formulation is due to @Friedman2001Greedy; AdaBoost is an important predecessor and special case in the broader boosting literature [@FreundSchapire1997].
 
 For econometricians, boosting is among the strongest predictive tools for tabular data. It can learn nonlinearities, interactions, threshold effects, and asymmetric predictive relationships without the researcher specifying them. It is well suited to settings where the signal is spread across many variables, so that a single tree cannot capture it.
 
@@ -17,8 +17,8 @@ At the same time, boosting is more sensitive to tuning than random forests. Lear
 
 1. We begin with the additive structure of boosting and contrast it with random forests.
 2. We then derive the squared-error version, where each new tree fits residuals.
-3. Next we generalize to arbitrary differentiable losses using pseudo-residuals.
-4. We then discuss shrinkage, tree depth, subsampling, and early stopping.
+3. Next we generalize to arbitrary differentiable losses, with each new tree fitted to the negative loss gradients — the *pseudo-residuals*.
+4. We then discuss shrinkage (scaling each tree's contribution by a learning rate), tree depth, subsampling, and early stopping.
 5. Finally, we summarize how boosting should be interpreted and validated in econometric applications.
 
 ## Additive Stagewise Modeling {#sec-gb-additive}
@@ -51,7 +51,7 @@ The two methods use the same basic building block, the decision tree, but in dif
 |---|---|---|---|
 | Single tree | No ensemble | Tree depth, leaf size, pruning | High variance and discontinuity |
 | Bagging | Parallel bootstrap trees | Number of trees and tree size | Trees may remain highly correlated |
-| Random forest | Parallel bootstrap trees with feature subsampling | `max_features`, leaf size, number of trees | OOB error can mislead under dependence |
+| Random forest | Parallel bootstrap trees with feature subsampling | `max_features`, leaf size, number of trees | Out-of-bag (OOB) error can mislead under dependence |
 | Gradient boosting | Sequential trees fit to residuals or pseudo-residuals | Learning rate, number of trees, tree depth, early stopping | Sensitive tuning and validation leakage |
 :::
 
@@ -64,6 +64,8 @@ L(F) = \frac{1}{2}\sum_{i=1}^n (y_i - F(x_i))^2.
 $$
 
 The factor $\frac{1}{2}$ is algebraically convenient and does not affect the minimizer.
+
+Two conventions in this display are worth flagging, since they differ from earlier chapters. First, $L$ here is the *total* training loss, summed and not averaged over observations — the convention of the boosting literature, and the one that makes the pseudo-residuals below come out as $y_i - F(x_i)$ without a trailing $1/n$. The [optimization chapter](optimization.qmd) instead wrote $L(\boldsymbol\theta) = n^{-1}\sum_i \ell_i(\boldsymbol\theta)$ for the sample average; the two differ by the constant factor $n$, which changes neither the minimizer nor the direction of the gradient. Second, the per-observation loss is written outcome first, $\ell(y_i, F(x_i))$, as in the [feed-forward networks chapter](feed_forward_nns.qmd).
 
 **Step 0: Initial Model**
 
@@ -120,9 +122,11 @@ For the regression-tree case, the algorithm can be summarized as follows.
 The tree depth $d$ controls interaction order, while $\nu$ controls how cautiously each correction is added.
 :::
 
+@fig-boosting-sequence follows the fitted function from the initial constant through two later boosting stages.
+
 ```{python}
 #| label: fig-boosting-sequence
-#| fig-cap: "Boosting refines the fitted function sequentially by adding small tree-based corrections."
+#| fig-cap: "Training observations (gray points) and the boosted fit (red line) at three stages: the initial constant model (left), after 3 trees (center), and after 40 trees (right)."
 #| echo: true
 
 import numpy as np
@@ -229,20 +233,26 @@ $$
 \frac{\partial \ell}{\partial F(x_i)} = p_i - y_i,
 $$
 
-so the negative gradient is
+At boosting iteration $m$ this derivative is evaluated at the current score, so write $p_{i,m-1} = \sigma(\hat F_{m-1}(x_i))$ for the fitted probability that observation $i$ carries into iteration $m$. The probability changes at every iteration, and the subscript keeps that visible. The negative gradient is then
 
 $$
-r_{im} = y_i - p_i.
+r_{im} = y_i - p_{i,m-1}.
 $$
 
-Classification boosting therefore retains the residual structure, but the residual is on the probability scale ($y_i \in \{0,1\}$ minus $p_i \in (0,1)$) rather than on the outcome scale.
+Classification boosting therefore retains the residual structure, but the residual is on the probability scale ($y_i \in \{0,1\}$ minus $p_{i,m-1} \in (0,1)$) rather than on the outcome scale.
 
-This is exactly a case where the leaf-value refinement above matters: the tree fit to the pseudo-residuals $r_{im} = y_i - p_i$ fixes only the splits, and because Bernoulli log-loss is not squared error, the leaf constants are then set by the per-leaf line search $\gamma_{jm}$ rather than by the mean residual in the leaf. That minimization has no closed form here, so implementations take a single Newton step, $\gamma_{jm} = \big(\sum_{i:\, x_i \in R_{jm}} (y_i - p_i)\big) \big/ \big(\sum_{i:\, x_i \in R_{jm}} p_i(1-p_i)\big)$, using the gradient $p_i - y_i$ and the curvature $p_i(1-p_i)$ evaluated at the current probabilities.
+The Bernoulli case is exactly where the leaf-value refinement above matters: the tree fit to the pseudo-residuals $r_{im} = y_i - p_{i,m-1}$ fixes only the splits, and because Bernoulli log-loss is not squared error, the leaf constants are then set by the per-leaf line search $\gamma_{jm}$ rather than by the mean residual in the leaf. That minimization has no closed form here, so implementations take a single Newton step,
+$$
+\gamma_{jm}
+=
+\frac{\sum_{i:\, x_i \in R_{jm}} (y_i - p_{i,m-1})}{\sum_{i:\, x_i \in R_{jm}} p_{i,m-1}(1-p_{i,m-1})},
+$$
+using the gradient $p_{i,m-1} - y_i$ and the curvature $p_{i,m-1}(1-p_{i,m-1})$ evaluated at the probabilities carried in from iteration $m-1$.
 
 :::{.callout-important}
 ## Connection to Cross-Entropy
 
-For classification, boosting with Bernoulli log-loss is minimizing cross-entropy, i.e. the negative log-likelihood of a Bernoulli model. This links boosting directly to the [MLE-as-KL discussion](information_theory.qmd#sec-mle-kl-divergence): fitting the boosted classifier means reducing the discrepancy between observed class outcomes and predicted event probabilities.
+For classification, boosting with Bernoulli log-loss is minimizing cross-entropy, i.e. the negative log-likelihood of a Bernoulli model. The equivalence links boosting directly to the [maximum-likelihood and Kullback–Leibler discussion](information_theory.qmd#sec-mle-kl-divergence): fitting the boosted classifier means reducing the discrepancy between observed class outcomes and predicted event probabilities.
 :::
 
 **AdaBoost as Exponential-Loss Boosting**
@@ -266,7 +276,7 @@ $$
 
 Writing $w_{im} = e^{-y_i \hat F_{m-1}(x_i)}$, the pseudo-residual is $r_{im} = y_i w_{im}$. If the weak learner is constrained to output values in $\{-1,+1\}$ — that is, if it is a classifier — then least-squares fitting of these pseudo-residuals is equivalent to fitting a weighted classifier with weight $w_{im}$ on observation $i$: expanding $\sum_i (r_{im} - h(x_i))^2$ with $h(x_i)^2 = 1$ leaves $-2\sum_i w_{im}\, y_i h(x_i)$ as the only term depending on $h$, and maximizing $\sum_i w_{im}\, y_i h(x_i)$ is exactly weighted misclassification minimization. (For a regression tree with real-valued leaf outputs — the learner used elsewhere in this chapter — this equivalence does not hold.) Observations that are currently misclassified — those for which $y_i \hat F_{m-1}(x_i) < 0$ — have $w_{im} > 1$, so the next tree is directed toward the current mistakes. This is the AdaBoost observation-reweighting step; the full AdaBoost algorithm additionally uses a specific step size $\alpha_m = \tfrac{1}{2}\log\frac{1-\mathrm{err}_m}{\mathrm{err}_m}$, so the correspondence drawn here covers the reweighting, not the step-size choice.
 
-The exponential-loss framing also reveals a limitation: $w_{im}$ grows without bound when an observation is persistently and confidently misclassified. A single outlier can eventually dominate the loss and distort subsequent trees. By contrast, the Bernoulli log-loss gradient $p_i - y_i$ is bounded in $(-1, 1)$, so the weight placed on any single observation is capped. This robustness is one reason log-loss is generally preferred over exponential loss in econometric applications, where outcomes can have heavy tails or influential observations.
+The exponential-loss framing also reveals a limitation: $w_{im}$ grows without bound when an observation is persistently and confidently misclassified. A single outlier can eventually dominate the loss and distort subsequent trees. By contrast, the Bernoulli log-loss gradient $p_i - y_i$ is bounded in $(-1, 1)$, so the weight placed on any single observation is capped. This robustness is one reason log-loss is generally preferred over exponential loss. The relevant danger is not heavy-tailed outcomes — the outcome here is binary — but persistently misclassified observations: a mislabeled event, or a genuine observation from a regime the predictors cannot capture, receives exponentially growing weight under exponential loss and can come to dictate the later trees, while under log-loss its influence is capped.
 
 :::{.callout-note title="Question for Reflection"}
 
@@ -296,7 +306,7 @@ Smaller $\nu$ means:
 - more trees needed
 - often better generalization, because the fit evolves more cautiously
 
-This is called **shrinkage**. The interaction between $\nu$ and the optimal number of trees $M$ is roughly reciprocal: a smaller $\nu$ requires more iterations to reach the same training risk, so halving $\nu$ approximately doubles the optimal $M$ chosen by validation. This reciprocal relation is an empirical regularity reported by @Friedman2001Greedy, not a theorem. What @ZhangYu2005 establish is a different and more basic point: boosting stopped early is consistent, which is what justifies treating the iteration count as a regularization device in the first place. The product $\nu \cdot M$ behaves like a complexity budget, which is the sense in which shrinkage acts as a regularization device.
+Scaling each update by $\nu<1$ is called **shrinkage**. The interaction between $\nu$ and the optimal number of trees $M$ is roughly reciprocal: a smaller $\nu$ requires more iterations to reach the same training risk, so halving $\nu$ approximately doubles the optimal $M$ chosen by validation. This reciprocal relation is an empirical regularity reported by @Friedman2001Greedy, not a theorem. @ZhangYu2005 supply theoretical support for treating the iteration count as a regularization device: for boosting over the linear span of a base class, with independent and identically distributed data and particular early-stopping rules, they establish numerical convergence and consistency under regularity conditions. This is a result about a specific class of stopping strategies, not a blanket guarantee that any validation-based stopping rule applied to boosted trees on dependent data inherits the same property. The product $\nu \cdot M$ behaves like a complexity budget, which is the sense in which shrinkage acts as a regularization device.
 
 **Number of Trees**
 
@@ -334,7 +344,7 @@ In a tree-ensemble model, this means restricting the fitted prediction to move o
 
 When the sign restriction is well founded, monotonicity constraints can improve credibility, stabilize partial-effect summaries, and prevent the ensemble from fitting noise in directions that contradict economic reasoning. But they are not free. If the true conditional relationship is non-monotone, changes sign across regimes, or is only monotone after conditioning on variables the model does not include, the constraint can introduce systematic misspecification.
 
-**How the constraint is enforced.** Inside each tree, a split on a constrained feature is accepted only if the resulting child fitted values respect the sign pattern: for an increasing constraint, the left child's mean must not exceed the right child's. To ensure the constraint holds globally and not just locally at each split, modern implementations propagate bounds through the tree: when a node is split on feature $j$, the fitted values in its children are restricted to an interval computed from the ancestor path, so that even splits on *other* features cannot eventually produce leaves that violate the monotone ordering across the full predictor space. Splits that would violate the constraint are never taken. This is a hard restriction on the function class, not a penalty added to the loss.
+**How the constraint is enforced.** The description that follows is implementation-level intuition rather than part of the definition of boosting; the details differ across libraries. Inside each tree, a split on a constrained feature is accepted only if the resulting child prediction values respect the sign pattern: for an increasing constraint, the value assigned to the left child must not exceed the value assigned to the right child. (In a boosted ensemble these values are loss-optimal gradient or Newton updates, not response means as in a single regression tree.) To ensure the constraint holds globally and not just locally at each split, modern implementations propagate bounds through the tree: when a node is split on feature $j$, the fitted values in its children are restricted to an interval computed from the ancestor path, so that even splits on *other* features cannot eventually produce leaves that violate the monotone ordering across the full predictor space. Splits that would violate the constraint are never taken. This is a hard restriction on the function class, not a penalty added to the loss.
 
 **In scikit-learn.** The histogram-based gradient-boosting estimator `HistGradientBoostingRegressor` accepts a `monotonic_cst` argument with one integer per feature: `+1` for increasing, `-1` for decreasing, and `0` for no constraint. For three predictors where the first is required to enter monotonically increasing:
 
@@ -348,16 +358,18 @@ model = HistGradientBoostingRegressor(
 )
 ```
 
-See the scikit-learn example [Monotonic Constraints](https://scikit-learn.org/stable/auto_examples/ensemble/plot_monotonic_constraints.html) for a visual comparison of constrained and unconstrained fits and a full working API example.
+See the scikit-learn example [Monotonic Constraints](https://scikit-learn.org/stable/auto_examples/ensemble/plot_monotonic_constraints.html) for a visual comparison of constrained and unconstrained fits and a full working interface example.
 
 :::{.callout-note title="Implementation Note: XGBoost"}
 
-XGBoost [@ChenGuestrin2016] is an optimized implementation family for gradient-boosted trees. Relative to the basic algorithm in this chapter, it adds engineering and regularization features such as efficient split search, L1/L2-style penalties, sparse or missing-value handling, monotone constraints, and scalable training. The econometric interpretation remains the same: it is still a tuned predictive tree ensemble, so validation design and the information set are central.
+XGBoost [@ChenGuestrin2016] is an optimized implementation family for gradient-boosted trees. Relative to the basic algorithm in this chapter, it adds engineering and regularization features such as efficient split search, $\ell_1/\ell_2$ penalties, sparse or missing-value handling, monotone constraints, and scalable training. The econometric interpretation remains the same: it is still a tuned predictive tree ensemble, so validation design and the information set are central.
 :::
+
+@fig-boosting-learning-rate plots training and test mean squared error (MSE) along the boosting path for two learning rates.
 
 ```{python}
 #| label: fig-boosting-learning-rate
-#| fig-cap: "Learning rate changes how fast boosting improves and when overfitting sets in."
+#| fig-cap: "Training MSE (blue) and independent-test MSE (red) from the initial constant model at zero trees through 180 boosting iterations. The left panel uses a learning rate of 0.05; the right panel uses 0.2."
 #| echo: true
 
 import numpy as np
@@ -391,17 +403,19 @@ for lr, color in configs:
         random_state=77,
     )
     model.fit(X_train, y_train)
-    train_mse = []
-    test_mse = []
+    initial_prediction = np.mean(y_train)
+    train_mse = [np.mean((y_train - initial_prediction) ** 2)]
+    test_mse = [np.mean((y_test - initial_prediction) ** 2)]
     for pred_train, pred_test in zip(
         model.staged_predict(X_train), model.staged_predict(X_test)
     ):
         train_mse.append(np.mean((y_train - pred_train) ** 2))
         test_mse.append(np.mean((y_test - pred_test) ** 2))
 
+    tree_counts = np.arange(len(train_mse))
     ax = axes[0] if lr == 0.05 else axes[1]
-    ax.plot(train_mse, label="Training MSE", color="C0", linewidth=2)
-    ax.plot(test_mse, label="Test MSE", color="C3", linewidth=2)
+    ax.plot(tree_counts, train_mse, label="Training MSE", color="C0", linewidth=2)
+    ax.plot(tree_counts, test_mse, label="Test MSE", color="C3", linewidth=2)
     ax.set_title(f"Learning rate = {lr}")
     ax.set_xlabel("Number of trees")
     ax.grid(True, alpha=0.3)
@@ -424,13 +438,15 @@ If two boosted models have similar validation error, what evidence from the vali
 A small learning rate with many trees is better supported when the validation curve is flatter and overfitting appears later along the boosting path. A larger learning rate with fewer trees is better supported when the time-ordered validation curve is genuinely similar but the model reaches that performance with fewer boosting steps and lower computational cost. The comparison should be based on validation over the relevant forecast origins, not on in-sample fit.
 :::
 
-The same qualitative pattern appears on actual macroeconomic data. @fig-gb-fredqd shows training and validation MSE curves for annualized GDP growth in quarter $t+1$ from FRED-QD, using five predictors dated quarter $t$ — GDP growth, inflation, the term spread, log VIX, and the unemployment rate — and a time-ordered 75/25 split.[^gb-fredqd-final-vintage] With a small learning rate, the validation curve declines gradually and remains relatively flat; with a large learning rate, validation error reaches its minimum early and then begins to rise — the overfitting signal that early stopping is designed to detect. The absolute MSE values are large relative to the synthetic example because quarterly GDP growth is genuinely difficult to forecast: the 2020 contraction alone generates residuals of tens of annualized percentage points, which dominate the average squared error.
+Real macroeconomic data can be less forgiving. @fig-gb-fredqd shows training and validation MSE curves for annualized gross domestic product (GDP) growth in quarter $t+1$ from the quarterly Federal Reserve Economic Data collection (FRED-QD). The five predictors are dated quarter $t$: GDP growth, inflation, the term spread, the log volatility index (VIX), and the unemployment rate. The evaluation uses a time-ordered 75/25 split.[^gb-fredqd-final-vintage] Training MSE falls steadily in both panels. Neither validation curve improves on the stage-zero constant forecast: both attain their global minimum at zero trees, although they fluctuate locally thereafter. The learning rate governs how fast the deterioration accumulates — gradually at $\nu = 0.02$, faster and more erratically at $\nu = 0.2$.
+
+The immediate deterioration is worth confronting rather than hiding. The lesson of early stopping is not that boosting always improves for a while and then degrades; it is that the iteration count is a regularization dial whose right setting is chosen on held-out data, and here the honest setting is no boosting at all. The validation block is the last 25% of quarters, so it contains the pandemic period, while the training data contain no comparable episode. In this split, additional flexibility fitted to pre-2020 fluctuations did not help and moved forecasts away from the training-sample mean, which happened to be the safer prediction under this break. The absolute MSE values are correspondingly large — the 2020 contraction alone generates residuals of tens of annualized percentage points that dominate the average. The gap between the training and validation levels is consistent with a pronounced distribution shift, although one realized split cannot by itself establish a formal regime change. The comparison with the synthetic example above is instructive precisely because it differs: there, the data-generating process is stable across the split and the validation curve shows the textbook U-shape.
 
 [^gb-fredqd-final-vintage]: This is a pedagogical final-vintage FRED-QD example. A full real-time GDP forecasting evaluation would also need to account for release calendars and data revisions.
 
 ```{python}
 #| label: fig-gb-fredqd
-#| fig-cap: "Training and validation MSE curves for gradient boosting on one-step-ahead GDP growth (annualized log-difference of GDPC1) from FRED-QD, with a time-ordered 75/25 split. Predictors are lagged GDP growth, inflation, the term spread (10y minus 3m Treasury yield), log VIX, and the unemployment rate. Left panel: learning rate 0.02; right panel: learning rate 0.2. Each model uses 250 trees with max depth 2. The high absolute MSE values reflect the difficulty of GDP growth forecasting: the 2020 contraction produces residuals of tens of annualized percentage points that dominate the average. The qualitative pattern — flatter validation curve under the small learning rate, earlier overfitting under the large one — is the key lesson."
+#| fig-cap: "Training MSE (blue) and time-ordered validation MSE (red) for one-step-ahead GDP growth from FRED-QD. Both panels include the initial constant model at zero trees followed by 250 depth-2 trees; the left panel uses a learning rate of 0.02 and the right panel 0.2."
 #| echo: true
 
 import numpy as np
@@ -476,12 +492,15 @@ for (lr, _), ax in zip(configs, axes):
         min_samples_leaf=6, random_state=42,
     )
     model.fit(X_train, y_train)
-    train_mse, val_mse = [], []
+    initial_prediction = np.mean(y_train)
+    train_mse = [np.mean((y_train - initial_prediction) ** 2)]
+    val_mse = [np.mean((y_test - initial_prediction) ** 2)]
     for p_tr, p_te in zip(model.staged_predict(X_train), model.staged_predict(X_test)):
         train_mse.append(np.mean((y_train - p_tr) ** 2))
         val_mse.append(np.mean((y_test  - p_te) ** 2))
-    ax.plot(train_mse, color="C0", linewidth=2, label="Training MSE")
-    ax.plot(val_mse,   color="C3", linewidth=2, label="Validation MSE")
+    tree_counts = np.arange(len(train_mse))
+    ax.plot(tree_counts, train_mse, color="C0", linewidth=2, label="Training MSE")
+    ax.plot(tree_counts, val_mse,   color="C3", linewidth=2, label="Validation MSE")
     ax.set_title(f"Learning rate = {lr}")
     ax.set_xlabel("Number of trees")
     ax.grid(True, alpha=0.3)
@@ -576,7 +595,7 @@ Consider squared-error boosting with decision stumps as weak learners. Let the l
    F_1(x) = F_0(x) + 0.4\, h_1(x).
    $$
    Compute the fitted values at the four training points.
-5. Compute the training SSE of $F_1$. Compare it with the training SSE that would result from taking the full step $\nu=1$. Why can a smaller learning rate still be useful in practice?
+5. Compute the training sum of squared errors (SSE) of $F_1$. Compare it with the training SSE that would result from taking the full step $\nu=1$. Why can a smaller learning rate still be useful in practice?
 
 *Exam level: suitable as-is. The exercise combines boosting mechanics, shrinkage, and the regularization interpretation of the learning rate.*
 :::
@@ -720,7 +739,7 @@ So after one step, the full update fits the training sample better. But a smalle
 :::
 
 ::: {.callout-note}
-## Exercise 12.2: Bernoulli Log-Loss and Early Stopping
+## Exercise 12.2: Bernoulli Log-Loss and the Initial Boosting Model
 
 Consider binary outcomes $y_i \in \{0,1\}$ and a boosting model with score $F(x_i)$ and probability
 
@@ -741,7 +760,7 @@ $$
    \frac{\partial \ell(y_i,F(x_i))}{\partial F(x_i)} = p_i - y_i.
    $$
    Conclude that the pseudo-residual is $r_i = y_i - p_i$.
-2. Suppose the initial model is a constant, $F_0(x)\equiv c$. Show that the value minimizing the total log-loss satisfies
+2. Suppose the initial model is a constant, $F_0(x)\equiv c$, and assume the sample contains both classes, so that $0<\bar y<1$. Show that the value minimizing the total log-loss satisfies
    $$
    \sigma(c)=\bar y,
    $$
@@ -749,9 +768,10 @@ $$
    $$
    c = \log\left(\frac{\bar y}{1-\bar y}\right).
    $$
-3. For the sample $y=(1,1,0,1)$, compute $\bar y$, the optimal initial constant $F_0$, the implied initial probability $p_i$, and the pseudo-residuals.
+3. Explain what happens to the minimization in Part 2 when $\bar y = 0$ or $\bar y = 1$, and why implementations therefore clip the initial probability away from the boundary.
+4. For the sample $y=(1,1,0,1)$, compute $\bar y$, the optimal initial constant $F_0$, the implied initial probability $p_i$, and the pseudo-residuals.
 
-*Exam level: suitable as-is. Parts 1-3 derive the classification gradients formally.*
+*Exam level: suitable as-is. Parts 1-2 derive the classification gradients formally, Part 3 checks the boundary case, and Part 4 applies both to a small sample.*
 :::
 
 ::: {.callout-warning collapse="true"}
@@ -827,13 +847,19 @@ $$
 \sigma(c)=\bar y.
 $$
 
-Applying the logit transformation,
+Applying the logit transformation, which is well defined because $0<\bar y<1$ was assumed,
 
 $$
 c = \log\left(\frac{\bar y}{1-\bar y}\right).
 $$
 
-**Part 3: Numerical example**
+**Part 3: The boundary cases**
+
+If $\bar y = 1$, every $y_i$ equals one and the total loss is $L(c) = -n\log\sigma(c)$, which is strictly decreasing in $c$ and approaches its infimum of $0$ only as $c \to \infty$. The first-order condition $\sigma(c)=\bar y=1$ has no solution, because the logistic function never attains $1$: the loss has no finite minimizer, and $\log(\bar y/(1-\bar y))$ diverges. The case $\bar y = 0$ is symmetric, with $c \to -\infty$.
+
+The statistical content is that an all-one or all-zero sample places the intercept-only Bernoulli likelihood at the boundary and cannot pin down a finite score. This non-existence is analogous to what happens in a logit model under complete separation, where covariates perfectly separate the two classes. Implementations therefore clip the initial probability into an interval such as $[\varepsilon, 1-\varepsilon]$, which keeps $F_0$ finite and the subsequent gradients numerically well behaved, at the price of a small deliberate bias.
+
+**Part 4: Numerical example**
 
 For $y=(1,1,0,1)$,
 
