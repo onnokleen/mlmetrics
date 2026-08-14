@@ -15,22 +15,22 @@ For econometricians, the main attraction is not mystery but flexibility. When th
 - **Macroeconomic forecasting**: combining large predictor sets, survey variables, or text-based indicators
 - **Household or firm behavior**: approximating nonlinear Engel curves, production relationships, or treatment-response surfaces
 
-Throughout this chapter, the econometric interpretation remains central: a feed-forward network is a flexible estimator of a regression function, but its flexibility comes with non-convex optimization, many tuning choices, and a higher risk of overfitting.
+Throughout this chapter, the econometric interpretation remains central, and it turns on a distinction worth making early. A feed-forward network is a *family* of candidate regression functions, one for each value its parameters can take. Only after the data have selected particular parameter values does the resulting function become an estimator of the unknown conditional mean. Keeping the family and the fitted function apart matters here more than in a linear model, because the flexibility of the family is what brings non-convex optimization, many tuning choices, and a higher risk of overfitting.
 
 ## Roadmap
 
 1. We begin with the simplest building block, the perceptron, and then build up the architecture of feed-forward networks as flexible nonlinear basis expansions.
 2. We then discuss activation functions and the universal approximation theorem to clarify why nonlinear layers matter.
 3. Next, we connect neural-network estimation to loss minimization, maximum likelihood, gradient descent, and backpropagation.
-4. We then discuss non-convexity, econometric interpretation, and practical training decisions.
+4. We then show that the training objective is non-convex, and draw out two econometric consequences: the network reads as a penalized nonlinear regression, but its individual weights are not identified.
 5. We close with **applications** in asset pricing and macroeconomic forecasting and a practical training workflow.
 
 ## Basic Architecture {#sec-def-multilayer-nn}
 
-A neural network is a composition of affine maps and nonlinear activations, organized in layers with weights that adjust during learning. We use the standard econometric convention that $Y$ and $\mathbf{X}=(X_1,\ldots,X_p)'$ denote the random outcome and random predictor vector, lowercase $y$ and $\mathbf{x}$ denote their realized values, and a hat denotes a fitted value. The cleanest entry point is a single unit. For a realized predictor vector $\mathbf{x}=(x_1,\ldots,x_p)'$, let $\mathbf{w}=(w_1,\ldots,w_p)'$ be a vector of adjustable coefficients called **weights**, and let $b$ be an adjustable intercept called the **bias**. A **perceptron** first forms the affine score $z=\mathbf{x}'\mathbf{w}+b$ and then applies an **activation function** $g$ to that score. Its scalar prediction for $Y$ at input $\mathbf{x}$ is
+A neural network is a composition of affine maps and nonlinear activations, organized in layers with weights that adjust during learning. We use the standard econometric convention that $Y$ and $\mathbf{X}=(X_1,\ldots,X_p)^\top$ denote the random outcome and random predictor vector, lowercase $y$ and $\mathbf{x}$ denote their realized values, and a hat denotes a fitted value. The cleanest entry point is a single unit. For a realized predictor vector $\mathbf{x}=(x_1,\ldots,x_p)^\top$, let $\mathbf{w}=(w_1,\ldots,w_p)^\top$ be a vector of adjustable coefficients called **weights**, and let $b$ be an adjustable intercept called the **bias**. A **perceptron** first forms the affine score $z=\mathbf{x}^\top\mathbf{w}+b$ and then applies an **activation function** $g$ to that score. Its scalar prediction for $Y$ at input $\mathbf{x}$ is
 
 $$
-\hat y(\mathbf{x}) = g(\mathbf{x}'\mathbf{w}+b).
+\hat y(\mathbf{x}) = g(\mathbf{x}^\top\mathbf{w}+b).
 $$
 
 We call such a single unit a neuron (the terms unit and neuron are used interchangeably). If $g(z)=z$ is the identity function, this is a linear regression. For binary classification, a common choice is the **sigmoid function**
@@ -39,13 +39,15 @@ $$
 \sigma(z)=\frac{1}{1+e^{-z}},
 $$
 
-which maps any real-valued score $z$ monotonically into the interval $(0,1)$. We can interpret $\hat p=\sigma(z)$ as a fitted probability and classify an observation as Class 1 when $\hat p>0.5$. Because $\sigma(0)=0.5$, this classification rule has decision boundary $z=\mathbf{x}'\mathbf{w}+b=0$. With a fixed link $g$, the perceptron is precisely a generalized linear model (GLM)-type index specification; if the link were instead left unknown and estimated, it would be a semiparametric single-index model — a *generalization* of the GLM family. Composing multiple such neurons is what distinguishes a neural network from the GLM baseline.
+which maps any real-valued score $z$ monotonically into the interval $(0,1)$. We can interpret $\hat p=\sigma(z)$ as a fitted probability and classify an observation as Class 1 when $\hat p>0.5$. Because $\sigma(0)=0.5$, this classification rule has decision boundary $z=\mathbf{x}^\top\mathbf{w}+b=0$. The $0.5$ cutoff is the optimal rule under symmetric $0$–$1$ misclassification loss and a correctly calibrated $\hat p$; with an asymmetric loss — the normal case when the two errors have different economic costs, as in default or recession prediction — the optimal threshold moves away from $0.5$.
 
-@fig-perceptron-threshold illustrates this rule for two predictors using $\mathbf{w}=(-0.2,1)'$ and $b=-1.4$. The dashed line collects the predictor combinations for which the score is zero.
+With a fixed activation $g$, the perceptron is precisely a generalized linear model (GLM)-type index specification. One convention is worth pinning down, because the GLM vocabulary runs in the opposite direction: in a GLM the *link* maps the conditional mean to the linear index, so the object playing the role of our activation $g$ — which maps the index back to the mean — is the **inverse link** (also called the response or mean function). The logistic regression a student has already met uses the logit link, and its inverse is exactly the sigmoid $\sigma$ above. If the activation were instead left unknown and estimated, we would have a semiparametric single-index model — a *generalization* of the GLM family. Composing multiple such neurons is what distinguishes a neural network from the GLM baseline.
+
+@fig-perceptron-threshold illustrates this rule for two predictors using $\mathbf{w}=(-0.2,1)^\top$ and $b=-1.4$. The dashed line collects the predictor combinations for which the score is zero.
 
 ```{python}
 #| label: fig-perceptron-threshold
-#| fig-cap: "A sigmoid perceptron with weights $\\mathbf{w}=(-0.2,1)'$ and bias $b=-1.4$. The dashed line is the zero-score decision boundary $x_2 = 1.4 + 0.2x_1$, where the fitted probability equals $0.5$. Class 1 points lie above the boundary and Class 0 points below it."
+#| fig-cap: "A sigmoid perceptron with weights $\\mathbf{w}=(-0.2,1)^\\top$ and bias $b=-1.4$. The dashed line is the zero-score decision boundary $x_2 = 1.4 + 0.2x_1$, where the fitted probability equals $0.5$. Class 1 points lie above the boundary and Class 0 points below it."
 #| echo: true
 
 import numpy as np
@@ -66,9 +68,9 @@ ax.scatter(x1_red, x2_red, color="#c44e52", s=60, label="Class 1")
 ax.scatter(x1_blue, x2_blue, color="#4c72b0", s=60, label="Class 0")
 ax.plot(x_grid, boundary, "--", color="0.3", lw=2, label="Decision boundary")
 
-ax.text(2.55, 2.55, r"$\mathbf{x}'\mathbf{w}+b>0$", fontsize=10,
+ax.text(2.55, 2.55, r"$\mathbf{x}^\top\mathbf{w}+b>0$", fontsize=10,
         bbox=dict(boxstyle="round,pad=0.2", facecolor="white", alpha=0.8))
-ax.text(2.3, 0.45, r"$\mathbf{x}'\mathbf{w}+b\leq 0$", fontsize=10,
+ax.text(2.3, 0.45, r"$\mathbf{x}^\top\mathbf{w}+b\leq 0$", fontsize=10,
         bbox=dict(boxstyle="round,pad=0.2", facecolor="white", alpha=0.8))
 
 ax.set_xlabel(r"$x_1$")
@@ -81,7 +83,7 @@ plt.tight_layout()
 plt.show()
 ```
 
-In @fig-perceptron-threshold, every Class 1 point has $\mathbf{x}'\mathbf{w}+b>0$ and hence a fitted probability above $0.5$, while every Class 0 point has $\mathbf{x}'\mathbf{w}+b<0$ and hence a fitted probability below $0.5$. The sigmoid transforms the score nonlinearly, but the decision boundary of this single unit remains a straight line. A feed-forward network simply stacks many such units, so that the outputs of one layer become regressors for the next layer. That is why neural networks can be understood as learned basis expansions rather than as a fundamentally alien model class. In a polynomial or spline regression, the transformed regressors are chosen before estimation; in a neural network, the hidden activations $a_j^{(l)}$ (the activation of unit $j$ in layer $l$, defined formally below) are themselves learned from the data.
+In @fig-perceptron-threshold, every Class 1 point has $\mathbf{x}^\top\mathbf{w}+b>0$ and hence a fitted probability above $0.5$, while every Class 0 point has $\mathbf{x}^\top\mathbf{w}+b<0$ and hence a fitted probability below $0.5$. The sigmoid transforms the score nonlinearly, but the decision boundary of this single unit remains a straight line. A feed-forward network simply stacks many such units, so that the outputs of one layer become regressors for the next layer. That is why neural networks can be understood as learned basis expansions rather than as a fundamentally alien model class. In a polynomial or spline regression, the transformed regressors are chosen before estimation; in a neural network, the hidden activations $a_j^{(l)}$ (the activation of unit $j$ in layer $l$, defined formally below) are themselves learned from the data.
 
 A feed-forward neural network with $L$ layers (that is, $L-1$ hidden layers followed by an output layer indexed $L$) can have more than one output unit. We collect those outputs in the vector $\hat{\mathbf y}(\mathbf{x})$ and write the network as the composition
 
@@ -96,12 +98,13 @@ $$\mathbf{a}^{(l)} = g^{(l)}\left(\mathbf{W}^{(l)} \mathbf{a}^{(l-1)} + \mathbf{
 Here:
 
 - $\mathbf{a}^{(l)}$ is the output of layer $l$ (with $\mathbf{a}^{(0)} = \mathbf{x}$)
-- $\mathbf{W}^{(l)}$ is the weight matrix for layer $l$, with dimensions $H^{(l)} \times H^{(l-1)}$; the entry $W_{ij}^{(l)}$ connects neuron $j$ in layer $l-1$ to neuron $i$ in layer $l$, where $H^{(l)}$ is the number of units (width) of layer $l$, with $H^{(0)}=p$ the input dimension
+- $H^{(l)}$ is the number of units (the **width**) of layer $l$, with $H^{(0)}=p$ the input dimension
+- $\mathbf{W}^{(l)}$ is the weight matrix for layer $l$, with dimensions $H^{(l)} \times H^{(l-1)}$. Its entry $W_{ij}^{(l)}$ connects neuron $j$ in layer $l-1$ to neuron $i$ in layer $l$
 - $\mathbf{b}^{(l)}$ is the bias vector for layer $l$
 - $g^{(l)}$ is the activation function for layer $l$, applied per vector entry
 - $\boldsymbol{\theta}$ represents all hidden-layer and output-layer parameters
 
-Moreover, we define the following quantity; the pre-activation value in layer $l$: $\mathbf{z}^{(l)} = \mathbf{W}^{(l)}\mathbf{a}^{(l-1)} + \mathbf{b}^{(l)}$.
+Moreover, we define the **pre-activation value** in layer $l$: $\mathbf{z}^{(l)} = \mathbf{W}^{(l)}\mathbf{a}^{(l-1)} + \mathbf{b}^{(l)}$.
 
 ```{mermaid}
 %%| label: fig-ffn-architecture
@@ -140,11 +143,11 @@ flowchart LR
     class Y output
 ```
 
-The diagram in @fig-perceptron-threshold shows one unit. @fig-ffn-architecture shows what changes in a multilayer network: instead of specifying a basis expansion by hand, we let the model learn many intermediate transformed regressors $a_j^{(l)}$ and then combine them again in later layers.
+The perceptron of @fig-perceptron-threshold is a single unit. @fig-ffn-architecture shows what changes in a multilayer network: instead of specifying a basis expansion by hand, we let the model learn many intermediate transformed regressors $a_j^{(l)}$ and then combine them again in later layers.
 
-**Single Hidden Layer Networks**
+**Single-Hidden-Layer Networks**
 
-For the exercises, we'll focus on single hidden layer networks, which have the form:
+Much of this chapter, and all of its exercises, works with single-hidden-layer networks, which have the form:
 
 $$f(x; \boldsymbol{\theta}) = \sum_{j=1}^{H} w_j^{(2)} g(w_j^{(1)} x + b_j^{(1)}) + b^{(2)}$$
 
@@ -155,7 +158,9 @@ where:
 - $w_j^{(2)}, b^{(2)}$ are the hidden-to-output weights and bias
 - $g(\cdot)$ is the activation function
 
-**Why Width and Depth Matter Quantitatively.** A useful discipline is to count parameters before discussing "big" or "small" networks. If the input dimension is $p$, a single-hidden-layer network with $H$ hidden units and one scalar output contains
+This display is written for a scalar predictor $x$, which keeps the algebra readable and is all the exercises need. For a predictor vector $\mathbf{x} \in \mathbb{R}^p$, nothing changes except that the scalar product $w_j^{(1)} x$ becomes the inner product $\mathbf{w}_j^{(1)\top}\mathbf{x}$ with $\mathbf{w}_j^{(1)} \in \mathbb{R}^p$; the parameter count below is stated for that general case.
+
+**Why Width and Depth Matter Quantitatively** A useful discipline is to count parameters before discussing "big" or "small" networks. If the input dimension is $p$, a single-hidden-layer network with $H$ hidden units and one scalar output contains
 
 $$
 (p+1)H + (H+1) = H(p+2)+1
@@ -187,7 +192,7 @@ With one scalar output, the count is $H(p+2)+1$. For $H=10$, this gives $10(42)+
 
 **Common Activation Functions:**
 
-1. Sigmoid (introduced in @sec-def-multilayer-nn): $\sigma(z) = \frac{1}{1 + e^{-z}}$
+1. **Sigmoid** (introduced in @sec-def-multilayer-nn): $\sigma(z) = \frac{1}{1 + e^{-z}}$
    - Range: $(0, 1)$
    - Derivative: $\sigma'(z) = \sigma(z)(1 - \sigma(z))$
    - Use case: Output layer for binary classification, one of the first widely-used activation functions
@@ -199,8 +204,8 @@ With one scalar output, the count is $H(p+2)+1$. For $H=10$, this gives $10(42)+
 
 3. **Rectified Linear Unit (ReLU)**: $\text{ReLU}(z) = \max(0, z)$
    - Range: $[0, \infty)$
-   - Derivative: $\text{ReLU}'(z) = \begin{cases} 1 & \text{if } z > 0 \\ 0 & \text{if } z \leq 0 \end{cases}$
-   - Use case: Hidden layers in deep networks; output layer for non-negative regression when smoothness at zero is not required (otherwise use softplus)
+   - Derivative: $\text{ReLU}'(z) = \begin{cases} 1 & \text{if } z > 0 \\ 0 & \text{if } z < 0 \end{cases}$, with $z=0$ excluded because ReLU has a kink there and is not differentiable (software fixes a convention at the kink, usually $0$; see the callout below)
+   - Use case: Hidden layers in deep networks. ReLU is a poor choice at the *output* layer for non-negative regression, because its derivative is exactly zero for $z<0$: an output unit that drifts into the negative region receives no gradient signal and cannot recover. Prefer softplus, whose derivative is strictly positive everywhere
 
 4. **Softplus**: $\text{Softplus}(z) = \ln(1 + e^z)$
    - Range: $(0, \infty)$
@@ -209,7 +214,7 @@ With one scalar output, the count is $H(p+2)+1$. For $H=10$, this gives $10(42)+
 
 5. **Softmax**: $\text{Softmax}(\mathbf{z})_i = \frac{e^{z_i}}{\sum_{j=1}^K e^{z_j}}$ for $i = 1, \ldots, K$
    - Range: $(0, 1)$ with $\sum_{i=1}^K \text{Softmax}(\mathbf{z})_i = 1$
-   - Derivative: $\frac{\partial \text{Softmax}(\mathbf{z})_i}{\partial z_j} = \text{Softmax}(\mathbf{z})_i(\delta_{ij} - \text{Softmax}(\mathbf{z})_j)$, where $\delta_{ij}=1$ if $i=j$ and $0$ otherwise (the Kronecker delta), which is distinct from the backprop error signal $\delta_i^{(l)}$ introduced later
+   - Derivative: $\frac{\partial \text{Softmax}(\mathbf{z})_i}{\partial z_j} = \text{Softmax}(\mathbf{z})_i(\delta_{ij} - \text{Softmax}(\mathbf{z})_j)$, where $\delta_{ij}=1$ if $i=j$ and $0$ otherwise (the Kronecker delta), which is distinct from the backpropagation error signal $\delta_i^{(l)}$ introduced in @sec-ffn-backprop
    - Use case: Output layer for multi-class classification
 
 6. **Linear/Identity**: $\text{Identity}(z) = z$
@@ -226,61 +231,66 @@ With one scalar output, the count is $H(p+2)+1$. For $H=10$, this gives $10(42)+
 import numpy as np
 import matplotlib.pyplot as plt
 
-# Plotting setup
-plt.style.use('seaborn-v0_8-whitegrid')
-fig, axes = plt.subplots(2, 2, figsize=(10, 8))
 z = np.linspace(-5, 5, 200)
 
-# Sigmoid
-sigmoid = 1 / (1 + np.exp(-z))
-axes[0, 0].plot(z, sigmoid, color='blue')
-axes[0, 0].set_title(r'Sigmoid($z$): $= \frac{1}{1+e^{-z}}$')
-axes[0, 0].set_xlabel('z')
-axes[0, 0].set_ylabel('g(z)')
+# The style is applied inside a context manager so that it does not leak
+# into the styling of any later figure in this chapter.
+with plt.style.context('seaborn-v0_8-whitegrid'):
+    fig, axes = plt.subplots(2, 2, figsize=(10, 8))
 
-# Tanh
-tanh = np.tanh(z)
-axes[0, 1].plot(z, tanh, color='green')
-axes[0, 1].set_title(r'Tanh: $\tanh(z)$')
-axes[0, 1].set_xlabel('z')
-axes[0, 1].set_ylabel('g(z)')
+    # Sigmoid
+    sigmoid = 1 / (1 + np.exp(-z))
+    axes[0, 0].plot(z, sigmoid, color='blue')
+    axes[0, 0].set_title(r'Sigmoid: $\frac{1}{1+e^{-z}}$')
+    axes[0, 0].set_xlabel('z')
+    axes[0, 0].set_ylabel('g(z)')
 
-# ReLU
-relu = np.maximum(0, z)
-axes[1, 0].plot(z, relu, color='red')
-axes[1, 0].set_title(r'ReLU: $\max(0, z)$')
-axes[1, 0].set_xlabel('z')
-axes[1, 0].set_ylabel('g(z)')
+    # Tanh
+    tanh = np.tanh(z)
+    axes[0, 1].plot(z, tanh, color='green')
+    axes[0, 1].set_title(r'Tanh: $\tanh(z)$')
+    axes[0, 1].set_xlabel('z')
+    axes[0, 1].set_ylabel('g(z)')
 
-# Softplus
-softplus = np.log(1 + np.exp(z))
-axes[1, 1].plot(z, softplus, color='purple')
-axes[1, 1].set_title(r'Softplus: $\ln(1+e^z)$')
-axes[1, 1].set_xlabel('z')
-axes[1, 1].set_ylabel('g(z)')
+    # ReLU
+    relu = np.maximum(0, z)
+    axes[1, 0].plot(z, relu, color='red')
+    axes[1, 0].set_title(r'ReLU: $\max(0, z)$')
+    axes[1, 0].set_xlabel('z')
+    axes[1, 0].set_ylabel('g(z)')
 
-for ax in axes.flat:
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-    ax.axhline(y=0, color='gray', linestyle='--', lw=1)
-    ax.axvline(x=0, color='gray', linestyle='--', lw=1)
+    # Softplus: np.logaddexp(0, z) is the overflow-safe form of log(1 + exp(z)),
+    # which would overflow for large z if written literally.
+    softplus = np.logaddexp(0, z)
+    axes[1, 1].plot(z, softplus, color='purple')
+    axes[1, 1].set_title(r'Softplus: $\ln(1+e^z)$')
+    axes[1, 1].set_xlabel('z')
+    axes[1, 1].set_ylabel('g(z)')
 
-plt.tight_layout()
-plt.show()
+    for ax in axes.flat:
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.axhline(y=0, color='gray', linestyle='--', lw=1)
+        ax.axvline(x=0, color='gray', linestyle='--', lw=1)
+
+    plt.tight_layout()
+    plt.show()
 ```
 
-Each function provides a different kind of non-linearity, from the bounded "S-shape" of the sigmoid and tanh to the unbounded, one-sided linearity of ReLU and its smooth counterpart, Softplus.
+Each function provides a different kind of nonlinearity, from the bounded "S-shape" of the sigmoid and tanh to the unbounded, one-sided linearity of ReLU and its smooth counterpart, Softplus.
 
 :::{.callout-note}
 ## Non-Differentiability and Backpropagation
 ReLU is not differentiable at $z=0$. In practice, software chooses a convention for the derivative at the kink, usually 0 or another subgradient; see the discussion of ReLU and other activation functions in @GoodfellowBengioCourville2016. This convention rarely matters for continuous inputs because hitting exactly $z=0$ has probability zero under small perturbations, but it is worth remembering that backpropagation through piecewise-linear activations uses these derivative conventions at kink points.
+
+There is a second consequence worth stating explicitly. With a piecewise-linear activation the training objective is not differentiable everywhere in $\boldsymbol{\theta}$. At parameter values where no pre-activation sits exactly at a kink — all but a Lebesgue-null subset of the parameter space — the objective *is* differentiable, the update below is ordinary gradient descent, and the convergence statements for smooth objectives in the [optimization chapter](optimization.qmd) apply as usual. On the exceptional set, backpropagation does not compute a derivative of the objective at all: it applies the chain rule with whatever value the implementation assigns to $\text{ReLU}'(0)$. Note that this is a statement about the composite objective, not about ReLU alone. The convention is a legitimate choice for the scalar activation, but the vector it produces after propagation through the network need not be a derivative, or even a generalized derivative, of the composite function. The accurate summary is that the smooth theory covers training off the exceptional set — not that training is some weaker method that covers the kinks as well.
 :::
 
 **Practical Selection Guidelines**
 
 *For Hidden Layers:*
 
-- **Start with ReLU**: Most common, efficient, and mitigates *vanishing gradients* — gradient signals shrinking toward zero through saturated activations, the mechanism Exercise 5.2 derives for a single sigmoid unit and the [recurrent-networks chapter](recurrent_neural_networks.qmd) dissects in depth [@GlorotBordesBengio2011]
+- **Start with ReLU**: it is the most common and computationally cheapest choice, and it mitigates *vanishing gradients* — gradient signals shrinking toward zero through saturated activations, the mechanism Exercise 5.2 derives for a single sigmoid unit and the [recurrent-networks chapter](recurrent_neural_networks.qmd) dissects in depth [@GlorotBordesBengio2011]
 - **Consider Tanh**: For the recurrent networks of the coming chapters, or when zero-centered outputs are desired (sometimes better numerically)
 
 *For Output Layers (determined by problem type):*
@@ -290,7 +300,7 @@ ReLU is not differentiable at $z=0$. In practice, software chooses a convention 
 - **Binary classification**: Sigmoid for probability interpretation
 - **Multi-class Classification**: Softmax
 
-**Why Activation Functions Matter:**
+**Why Activation Functions Matter**
 Without activation functions, a deep neural network collapses into a single linear model. With two layers of weight matrices $W_1$ and $W_2$ and zero biases for exposition, the output of a linear-activation network is again a matrix times the input:
 $$\mathbf{W}_2(\mathbf{W}_1 \mathbf{x}) = (\mathbf{W}_2 \mathbf{W}_1)\mathbf{x} = \mathbf{W}_{new}\mathbf{x}.$$
 
@@ -306,7 +316,7 @@ Using the tools introduced in this chapter, a natural raw-scale choice is a `sof
 
 **Universal Approximation Theorem**
 
-**Theorem [@Cybenko1989; @Hornik1991]**: Suppose $g$ is a nonconstant, bounded, continuous activation function, such as a sigmoid. For any continuous function $f$ on a compact (i.e., bounded and closed) set $K$ and any $\varepsilon > 0$, there exist a positive integer $H$ and parameters $\{w_j^{(1)}, b_j^{(1)}, w_j^{(2)}\}_{j=1}^{H}$ and $b^{(2)}$ such that the function
+**Theorem [@Hornik1991, Theorem 2]**: Suppose $g$ is a nonconstant, bounded, continuous activation function, such as a sigmoid. For any continuous function $f$ on a compact (i.e., bounded and closed) set $K \subset \mathbb{R}$ and any $\varepsilon > 0$, there exist a positive integer $H$ and parameters $\{w_j^{(1)}, b_j^{(1)}, w_j^{(2)}\}_{j=1}^{H}$ and $b^{(2)}$ such that the function
 
 $$\hat f(x) = \sum_{j=1}^{H} w_j^{(2)} g(w_j^{(1)} x + b_j^{(1)}) + b^{(2)}$$
 
@@ -316,16 +326,18 @@ $$\sup_{x \in K} |\hat f(x) - f(x)| < \varepsilon.$$
 
 The theorem is an **existence result**: it says a suitable width $H$ exists, but does not tell us how to pick $H$ or how to find the weights.
 
-The notation here matches the single-hidden-layer representation introduced above. The same result extends from scalar $x$ to vector-valued $\mathbf{x} \in \mathbb{R}^p$.
+The notation here matches the single-hidden-layer representation introduced above. The same result extends from scalar $x$ to vector-valued $\mathbf{x} \in \mathbb{R}^p$, with $K \subset \mathbb{R}^p$ compact and $w_j^{(1)} x$ replaced by $\mathbf{w}_j^{(1)\top}\mathbf{x}$.
 
-The activation condition matters. The Cybenko-Hornik statement quoted here is the classical bounded-activation theorem, with sigmoids as the leading example. Modern networks often use ReLU, which is unbounded and therefore not covered by this version of the theorem. The classical extension that does cover ReLU is @LeshnoLinPinkusSchocken1993, who show that a single-hidden-layer network is a universal approximator on compact sets if and only if the activation is not a polynomial; this class includes ReLU and its variants. The practical lesson is the same -- width can approximate rich nonlinear functions on compact domains -- but the theorem being invoked is not literally the same theorem for every activation family.
+**Attribution.** This result is often called the "Cybenko–Hornik" theorem, but the two papers do not prove the same statement, and the difference is the hypothesis on $g$. @Cybenko1989 proves the earlier and weaker version: his activations must be continuous and *sigmoidal*, meaning $g(z) \to 1$ as $z \to +\infty$ and $g(z) \to 0$ as $z \to -\infty$, and his domain is the unit cube. The bounded-nonconstant-continuous form stated above is @Hornik1991, and it is genuinely more general — a bounded continuous nonconstant activation that is not sigmoidal, such as a bump-shaped function, is covered by Hornik and not by Cybenko. Hornik himself describes his results as substantially improving on Cybenko's. We attribute the statement to Hornik and cite Cybenko for the sigmoid special case.
+
+**The activation condition matters.** The statement quoted here is the classical bounded-activation theorem, with sigmoids as the leading example. Modern networks often use ReLU, which is unbounded and therefore not covered by this version of the theorem. The classical extension that does cover ReLU is @LeshnoLinPinkusSchocken1993. Their result is an "if and only if", so it is worth stating with its side conditions rather than in slogan form: within the class of activations that are locally essentially bounded and piecewise continuous, with the closure of their discontinuity set having Lebesgue measure zero, a single-hidden-layer network is a universal approximator on compact sets if and only if the activation is not almost everywhere equal to a polynomial. Both qualifiers do work. The regularity class rules out pathologically discontinuous activations, for which the equivalence simply fails; and "almost everywhere" is what makes the condition checkable for functions like ReLU, which is not a polynomial but *is* a polynomial on each of the two half-lines separately. ReLU and its variants belong to this class and satisfy the condition. The practical lesson is the same — width can approximate rich nonlinear functions on compact domains — but the theorem being invoked is not literally the same theorem for every activation family.
 
 :::{.callout-note title="Practical Implications"}
 
 The theorem provides existence, not construction. It says that *some* width $H$ suffices, but it does not say how to choose $H$, how to find the weights, or how easy the resulting optimization will be. The width required in practice can be very large, and the underlying non-convex optimization remains hard whether or not the approximation theorem applies.
 :::
 
-With a fixed architecture, the network is a finite-dimensional nonlinear regression model. If the width $H_n$ is instead allowed to grow with the sample size under suitable complexity restrictions, the resulting sequence of network classes can be viewed as a **sieve** in the econometric sense: increasing width reduces approximation bias while raising estimation uncertainty — the formal frame behind the bias–variance discussion in Exercise 5.1. Universal approximation establishes that rich functions *can be approximated*; consistency of the estimated network additionally requires the complexity to grow slowly enough relative to the available data [@White1990; @Chen2007].
+With a fixed architecture, the network specifies a finite-dimensional model class: the family of candidate regression functions traced out as the parameter vector ranges over its admissible values. If the width $H_n$ is instead allowed to grow with the sample size under suitable complexity restrictions, the resulting sequence of model classes can be viewed as a **sieve** in the econometric sense: increasing width reduces approximation bias while raising estimation uncertainty. Exercise 5.1 makes the counting side of this tradeoff concrete for a one-dimensional ReLU network, and the [decision-trees chapter](decision_trees.qmd) states the bias–variance decomposition formally. Universal approximation establishes that rich functions *can be approximated*; consistency of the estimated network additionally requires the complexity to grow slowly enough relative to the available data [@White1990; @Chen2007]. Those consistency results carry sampling conditions of their own alongside the complexity-rate restriction — independent sampling in the classical statements, stationarity and ergodicity in the time-series versions — so they are not automatically available in the dependent-data settings this book cares about.
 
 ## Loss Functions and Estimation {#sec-ffn-losses}
 
@@ -337,11 +349,11 @@ For regression problems, we typically use the mean squared error:
 
 $$\mathcal{L}(\boldsymbol{\theta}) = \frac{1}{2n} \sum_{i=1}^n (y_i - f(x_i; \boldsymbol{\theta}))^2$$
 
-The factor of $\frac{1}{2}$ is sometimes included for convenience when taking derivatives. For a fixed network architecture, minimizing this criterion is nonlinear least squares: the regression function is nonlinear in $\boldsymbol{\theta}$, but the estimator still minimizes a sum of squared residuals. We can employ other loss functions as well, to which we return when discussing [distributional networks](distributions_via_nns.qmd).
+The factor of $\frac{1}{2}$ is sometimes included for convenience when taking derivatives. For a fixed network architecture, minimizing this criterion is nonlinear least squares: the fitted values depend nonlinearly on $\boldsymbol{\theta}$, but the estimator is still defined as a minimizer of a sum of squared residuals. We can employ other loss functions as well, to which we return when discussing [distributional networks](distributions_via_nns.qmd).
 
 **Cross-Entropy Loss (Classification)**
 
-For binary classification problems, we typically use the cross-entropy (log-likelihood) loss. Let $s_i=f(x_i;\boldsymbol{\theta})$ denote the network's final real-valued score before the output sigmoid. If $y_i \in \{0, 1\}$ are the true class labels and $\hat{p}_i=\sigma(s_i)$ are the predicted probabilities, where $\sigma$ is the sigmoid function defined above, then
+For binary classification problems, we typically use the cross-entropy (log-likelihood) loss. Such a network has a single output unit, and we write $z_i^{(L)}$ for that unit's **pre-activation** value at input $x_i$ — the real-valued score the network produces *before* the output sigmoid is applied, in the notation of @sec-def-multilayer-nn. Keep this separate from $f(x_i;\boldsymbol{\theta})$, which denotes the network's *output* throughout this chapter: in a classification network the output is the fitted probability $\hat p_i$, not the score. If $y_i \in \{0, 1\}$ are the true class labels and $\hat{p}_i=\sigma(z_i^{(L)})$ are the predicted probabilities, where $\sigma$ is the sigmoid function defined above, then
 
 $$\mathcal{L}(\boldsymbol{\theta}) = -\frac{1}{n} \sum_{i=1}^n [y_i \log(\hat{p}_i) + (1-y_i) \log(1-\hat{p}_i)]$$
 
@@ -349,7 +361,7 @@ For multi-class classification with $K$ classes, we use the categorical cross-en
 
 $$\mathcal{L}(\boldsymbol{\theta}) = -\frac{1}{n} \sum_{i=1}^n \sum_{k=1}^K y_{ik} \log(\hat{p}_{ik})$$
 
-where $y_{ik}$ is the one-hot encoded true label (for a definition see callout box below) and $\hat{p}_{ik} = \frac{\exp(f_k(x_i; \boldsymbol{\theta}))}{\sum_{j=1}^K \exp(f_j(x_i; \boldsymbol{\theta}))}$ is the softmax probability for class $k$.
+where $y_{ik}$ is the one-hot encoded true label (for a definition see callout box below) and $\hat{p}_{ik} = \frac{\exp(z_{ik}^{(L)})}{\sum_{j=1}^K \exp(z_{ij}^{(L)})}$ is the softmax probability for class $k$, with $z_{ik}^{(L)}$ the $k$-th output-layer pre-activation for observation $i$. As in the binary case, the softmax is applied to the scores, and the network's output is the probability vector $(\hat p_{i1},\dots,\hat p_{iK})$.
 
 :::{.callout-note collapse="true" title="Definition: One-hot Encoding"}
 
@@ -366,7 +378,9 @@ This representation is useful because it allows machine learning models, which o
 
 :::{.callout-important title="Connection to Information Theory"}
 
-The cross-entropy loss is not just a convenient formula — it has a direct information-theoretic foundation. Recall from the [Information Theory chapter](information_theory.qmd#sec-mle-kl-divergence) that minimizing cross-entropy between the empirical data distribution and the model is equivalent to maximum likelihood estimation, which in turn minimizes the Kullback–Leibler (KL) divergence between the two distributions. When we train a neural network with cross-entropy loss, we are implicitly finding the parameters $\boldsymbol{\theta}$ whose predicted class probabilities are closest (in KL divergence) to the true conditional class distribution.
+The cross-entropy loss is not just a convenient formula — it has a direct information-theoretic foundation. Recall from the [Information Theory chapter](information_theory.qmd#sec-mle-kl-divergence) that minimizing cross-entropy between the empirical data distribution and the model is equivalent to maximum likelihood estimation, which in turn minimizes the Kullback–Leibler (KL) divergence between the two distributions. In this sense, training a neural network with cross-entropy loss is maximum likelihood estimation of a Bernoulli (or multinomial) model whose success probability is parameterized by the network.
+
+Two conditions from that chapter carry over, and it is worth being precise about them, because the loose version of this statement is false. First, the sample average $\mathcal{L}(\boldsymbol{\theta}) = \frac1n\sum_i \ell_i(\boldsymbol{\theta})$ is a negative log-likelihood only if the $y_i$ are conditionally independent given the predictors, so that the joint likelihood factorizes into the product of the per-observation Bernoulli terms. For dependent data the corresponding object is the prediction-error decomposition, with the conditioning set $\mathcal{F}_{t-1}$ in place of $x_i$. Second, "closest to the true conditional distribution" is a **population**, large-$n$ statement, not a description of what the finite-sample minimizer does: the sample criterion is close to the population one only through a law of large numbers, which requires stationarity and ergodicity rather than independence once the data are dependent. And under misspecification — the normal case for a network of fixed width — the probability limit is the *pseudo-true* parameter, the KL-closest member of the network class, not the truth itself. This is the quasi-MLE interpretation of @White1982.
 :::
 
 :::{.callout-note title="Question for Reflection"}
@@ -492,8 +506,8 @@ fig2.tight_layout()
 - **Non-convex function (right):** Different initializations can fall into different local minima; one of these can be worse than the global minimum.
 - **Neural networks:** Their highly non-convex loss landscapes make optimization sensitive to initialization and learning rate choices.
 
-**Gradient Descent in The Simplest of Networks**
-Consider a simple single hidden layer network with one neuron of the following form:
+**Gradient Descent in the Simplest Possible Network**
+Consider a single-hidden-layer network with one neuron, of the following form:
 
 $$f(x; \boldsymbol{\theta}) = w_2 g(w_1 x + b_1) + b_2$$
 
@@ -556,7 +570,7 @@ Reading @fig-gd-process from top to bottom separates the two passes used in trai
 
 ## Backpropagation {#sec-ffn-backprop}
 
-We now examine how the chain rule can be used to compute the gradient w.r.t. **all parameters** in an efficient way even if we look at a wide multi-layer network with entities defined as in @sec-def-multilayer-nn. The algorithm, popularized by @RumelhartHintonWilliams1986, computes the gradients of the loss with respect to every weight and bias in a single backward sweep that reuses intermediate quantities from the forward pass. For gradient descent updates, we are interested in deriving $$\frac{\partial \mathcal{L}}{\partial W_{ij}^{(l)}} \text{ and } \frac{\partial \mathcal{L}}{\partial b_i^{(l)}}$$
+We now examine how the chain rule can be used to compute the gradient w.r.t. **all parameters** in an efficient way even if we look at a wide multilayer network with entities defined as in @sec-def-multilayer-nn. The algorithm, popularized by @RumelhartHintonWilliams1986, computes the gradients of the loss with respect to every weight and bias in a single backward sweep that reuses intermediate quantities from the forward pass. For gradient descent updates, we are interested in deriving $$\frac{\partial \mathcal{L}}{\partial W_{ij}^{(l)}} \text{ and } \frac{\partial \mathcal{L}}{\partial b_i^{(l)}}$$
 for all neurons $i$ in all layers $l$ and all neurons $j$ in layer $l-1$.
 
 Since $\mathcal{L}$ is the sample average of the per-observation losses, it suffices to differentiate one observation's loss and average at the end. Throughout this section we therefore work with a single observation, write $\ell$ for its loss contribution, and suppress the observation index; all forward-pass quantities ($z_i^{(l)}$, $a_j^{(l-1)}$) belong to that observation, and the letter $i$ is free to serve as a neuron index. The sample gradient is recovered as $\frac{\partial \mathcal{L}}{\partial W_{ij}^{(l)}} = \frac{1}{n}\sum_{r=1}^{n} \frac{\partial \ell_r}{\partial W_{ij}^{(l)}}$, where $\ell_r$ denotes observation $r$'s loss.
@@ -594,12 +608,24 @@ Notice that we end up with $W_{ji}^{(l+1)}$ (not $W_{ij}^{(l+1)}$), which connec
 - In the **backward pass**: $\delta_i^{(l)} = \sum_{j = 1}^{H^{(l+1)}} W_{ji}^{(l+1)} \delta_j^{(l+1)} \cdot g'^{(l)}(z_i^{(l)})$ (neuron $i$ in layer $l$ receives errors from neuron $j$ in layer $l+1$) -->
 
 **Combining step 1 and 2**, gives us the following insight: Backpropagation is also called **Error Propagation** because each neuron's error signal $\delta_i^{(l)}$ is computed as a **weighted sum** of error signals from the next layer. The recursion has a clean temporal reading: each backward step *consumes* the vector $\boldsymbol{\delta}^{(l+1)}$ that was finished at the previous step and *produces* $\boldsymbol{\delta}^{(l)}$ for the next step, with only one quantity — the activation derivative $g'^{(l)}(\mathbf{z}^{(l)})$ — computed fresh at layer $l$:
-   $$\delta_i^{(l)} = \underbrace{\left(\sum_{j=1}^{H_{l+1}} W_{ji}^{(l+1)} \delta_j^{(l+1)}\right)}_{\text{reused from step } l+1} \times \underbrace{g'^{(l)}(z_i^{(l)})}_{\text{computed fresh at layer } l}$$
+   $$\delta_i^{(l)} = \underbrace{\left(\sum_{j=1}^{H^{(l+1)}} W_{ji}^{(l+1)} \delta_j^{(l+1)}\right)}_{\text{reused from step } l+1} \times \underbrace{g'^{(l)}(z_i^{(l)})}_{\text{computed fresh at layer } l}$$
 
 **Matrix Notation:** The backward pass can also be written in matrix notation, which makes the same decomposition visible at the level of vectors:
-$$\boldsymbol{\delta}^{(l)} = \underbrace{\mathbf{W}^{(l+1)T} \boldsymbol{\delta}^{(l+1)}}_{\text{reused from step } l+1} \odot \underbrace{g'^{(l)}(\mathbf{z}^{(l)})}_{\text{computed fresh at layer } l},$$
+$$\boldsymbol{\delta}^{(l)} = \underbrace{\mathbf{W}^{(l+1)\top} \boldsymbol{\delta}^{(l+1)}}_{\text{reused from step } l+1} \odot \underbrace{g'^{(l)}(\mathbf{z}^{(l)})}_{\text{computed fresh at layer } l},$$
 
 where $\odot$ denotes the element-wise (Hadamard) product. The transpose ensures that gradients "flow backward" through the same connections that data flowed forward through, but in reverse order and with transposed weight matrices.
+
+:::{.callout-note title="Question for Reflection"}
+
+Suppose you ignored the recursion and instead computed each $\frac{\partial \ell}{\partial W_{ij}^{(l)}}$ separately, applying the chain rule from the loss all the way down to layer $l$ each time. Which quantities would you recompute, and which does the backward pass compute only once?
+:::
+
+:::{.callout-tip collapse="true" title="Suggested Answer"}
+
+Computing the gradient for a weight in layer $l$ from scratch requires propagating the derivative through every layer between the output and layer $l$ — that is, re-deriving the entire chain $\delta^{(L)}, \delta^{(L-1)}, \dots, \delta^{(l)}$. Doing this separately for every layer means the deep parts of that chain are recomputed once for each layer below them, and the work grows with the square of the depth.
+
+The recursion avoids this because $\boldsymbol{\delta}^{(l)}$ is computed *once* from $\boldsymbol{\delta}^{(l+1)}$, and everything above layer $l$ is already summarized in that one vector. Only two things are genuinely new at layer $l$: the activation derivative $g'^{(l)}(\mathbf{z}^{(l)})$, which was stored during the forward pass, and one matrix-vector product with $\mathbf{W}^{(l+1)\top}$. The gradients for *all* weights in layer $l$ then follow from $\boldsymbol{\delta}^{(l)}$ and the stored activations $\mathbf{a}^{(l-1)}$ without any further propagation. This is why one backward sweep costs about the same as one forward sweep, regardless of how many parameters the layer contains.
+:::
 
 ::: {.callout-tip title="Full Gradient Update Step"}
 
@@ -617,16 +643,19 @@ and $\mathbf{a}^{(L)}$ (i.e., the final output value).
 
 ***Part 2: Reverse Iteration of Gradients***
 
-1. Compute $\boldsymbol{\delta}^{(L)}$.  
-2. For $l = L-1, \dots, 1$: 
+1. Compute the output-layer error signal $\boldsymbol{\delta}^{(L)}$, and immediately convert it into the output-layer gradients:
+   $$ \frac{\partial \ell}{\partial W_{ij}^{(L)}} = \delta_i^{(L)} \cdot a_j^{(L-1)} \text{ and } \frac{\partial \ell}{\partial b_i^{(L)}} = \delta_i^{(L)} $$
+2. For $l = L-1, \dots, 1$:
 
    2.1 Calculate the error signal for layer $l$ by combining the $\boldsymbol{\delta}^{(l+1)}$ just produced in the previous iteration with the activation derivative at layer $l$:
-   $$\delta_i^{(l)} = \underbrace{\left(\sum_{j=1}^{H_{l+1}} W_{ji}^{(l+1)} \delta_j^{(l+1)}\right)}_{\text{reused from step } l+1} \times \underbrace{g'^{(l)}(z_i^{(l)})}_{\text{computed fresh at layer } l}$$
-   
-   2.2 Use $\delta_i^{(l)}$ to compute the gradients w.r.t. the weights and bias in layer $l$:
+   $$\delta_i^{(l)} = \underbrace{\left(\sum_{j=1}^{H^{(l+1)}} W_{ji}^{(l+1)} \delta_j^{(l+1)}\right)}_{\text{reused from step } l+1} \times \underbrace{g'^{(l)}(z_i^{(l)})}_{\text{computed fresh at layer } l}$$
+
+   2.2 Use $\delta_i^{(l)}$ to compute the gradients w.r.t. the weights and bias in layer $l$, by the same two formulas as in step 1 with $L$ replaced by $l$:
    $$ \frac{\partial \ell}{\partial W_{ij}^{(l)}} = \delta_i^{(l)} \cdot a_j^{(l-1)} \text{ and } \frac{\partial \ell}{\partial b_i^{(l)}} = \delta_i^{(l)} $$
 
-   2.3 Go back to 2.1 until $l = 1$ 
+   2.3 Go back to 2.1 until $l = 1$
+
+Every layer $l = 1, \dots, L$ is visited exactly once, so the loop returns the gradient with respect to *all* weights and biases, output layer included.
 
 This reuse of intermediate derivatives is the efficiency gain of backpropagation versus naive differentiation.
 :::
@@ -639,7 +668,25 @@ $$\mathcal{H}_{jk} = \frac{\partial^2 \mathcal{L}}{\partial \theta_j \partial \t
 
 (We write $\mathcal{H}$ for the Hessian to avoid a clash with the layer width $H$.)
 
-A twice-differentiable function on an open convex domain is **convex** if and only if its Hessian is positive semidefinite (PSD) at every point of that domain. Neural-network loss functions are nonlinear in the parameters (because of the activation function $g$), and the loss is in general not a convex function of $\boldsymbol \theta$. A clean way to see this is a symmetry argument. For the sigmoid, $g(-z) = 1 - g(z)$, so the parameter vectors $(w_1, b_1, w_2, b_2)$ and $(-w_1, -b_1, -w_2, b_2 + w_2)$ implement *exactly the same function* $f(x) = w_2\, g(w_1 x + b_1) + b_2$ and attain exactly the same loss. If the loss were convex, its set of minimizers would be convex, so the midpoint of a minimizer and its mirror image — which has $w_1 = b_1 = w_2 = 0$ and therefore represents a *constant* function — would also be a minimizer. Unless the best attainable fit is a constant, that is false, so the loss cannot be convex. The same symmetry shows that minimizers of neural-network losses are never unique.
+A twice-differentiable function on an open convex domain is **convex** if and only if its Hessian is positive semidefinite (PSD) at every point of that domain. Neural-network loss functions are nonlinear in the parameters (because of the activation function $g$), and the loss is in general not a convex function of $\boldsymbol \theta$. A clean way to see this is a symmetry argument. For the sigmoid, $g(-z) = 1 - g(z)$, so the parameter vectors
+$$
+\boldsymbol\theta = (w_1, b_1, w_2, b_2)
+\qquad\text{and}\qquad
+\boldsymbol\theta_{\text{mir}} = (-w_1, -b_1, -w_2, b_2 + w_2)
+$$
+implement *exactly the same function* $f(x) = w_2\, g(w_1 x + b_1) + b_2$ and therefore attain exactly the same loss, $\mathcal{L}(\boldsymbol\theta) = \mathcal{L}(\boldsymbol\theta_{\text{mir}})$.
+
+Now take any $\boldsymbol\theta$ and look at the midpoint $\tfrac12\boldsymbol\theta + \tfrac12\boldsymbol\theta_{\text{mir}} = (0, 0, 0, b_2 + w_2/2)$. Because its hidden-to-output weight is zero, this parameter vector represents a *constant* function. If $\mathcal{L}$ were convex we would have
+$$
+\mathcal{L}\big(\tfrac12\boldsymbol\theta + \tfrac12\boldsymbol\theta_{\text{mir}}\big)
+\;\le\;
+\tfrac12\mathcal{L}(\boldsymbol\theta) + \tfrac12\mathcal{L}(\boldsymbol\theta_{\text{mir}})
+\;=\;
+\mathcal{L}(\boldsymbol\theta)
+$$
+for *every* $\boldsymbol\theta$ — that is, some constant fit would be at least as good as every network in the class. Unless the best attainable fit really is a constant, that is false, so the loss cannot be convex. Note that this version of the argument never assumes a minimizer exists, which matters because on an unbounded parameter space the infimum need not be attained.
+
+The same symmetry also speaks to uniqueness. Whenever a minimizer does exist, it is not unique: if the optimal fit is non-constant then any minimizer has $w_2 \neq 0$, and its mirror image is a *different* parameter vector with the same loss; and if the optimal fit is constant, then every $(w_1, b_1, 0, c)$ with the same $c$ attains it, which is a continuum. We return to what this non-uniqueness means for interpreting estimated weights in the discussion of identification below.
 
 **Example: Non-convexity in Simple Networks**
 
@@ -647,17 +694,33 @@ For the network $f(x) = w_2 g(w_1 x + b_1) + b_2$, the cross-partial derivative 
 
 $$\frac{\partial^2 \mathcal{L}}{\partial w_1 \partial w_2} = \frac{1}{n} \sum_{i=1}^n a_i(1-a_i)x_i \big( w_2 a_i - r_i \big),$$
 
-with $a_i = g(w_1 x_i + b_1)$. This expression can be positive or negative depending on the data and parameter values. On its own, a sign-varying cross-partial does not disprove convexity — off-diagonal entries of a PSD Hessian can take either sign — but it illustrates how parameters interact across layers, creating the curvature structure that the symmetry argument above exploits; Exercise 5.2 works through these derivatives in detail.
+with $a_i = g(w_1 x_i + b_1)$. This expression can be positive or negative depending on the data and parameter values. On its own, a sign-varying cross-partial does not disprove convexity — off-diagonal entries of a PSD Hessian can take either sign — but it illustrates how parameters interact across layers, creating the curvature structure that the symmetry argument above exploits. Exercise 5.2 asks you to derive this cross-partial from the first-order gradients, and to say precisely what a sign-varying off-diagonal entry does and does not establish.
 
 **Connection to Econometric Concepts**
 
-From an econometric perspective, we can view a neural network as a **highly flexible regression function**: we model the conditional mean as
+From an econometric perspective it pays to keep three objects apart, because the claims made in the rest of this chapter attach to different ones and are not interchangeable.
 
-$$\mathbb{E}[Y|\mathbf{X} = \mathbf{x}] \approx f(\mathbf{x}; \boldsymbol{\theta}),$$
+The **population target** is the regression function
 
-with equality holding only under correct specification.
+$$m(\mathbf{x}) = \mathbb{E}[Y \mid \mathbf{X} = \mathbf{x}],$$
 
-The estimation problem becomes:
+an unknown feature of the joint distribution of $(Y, \mathbf{X})$. It exists whether or not anyone ever fits a network to data.
+
+The **model class** is the family of candidate functions the architecture can produce,
+
+$$\mathcal{M}_\Theta = \big\{\, f(\cdot\,; \boldsymbol{\theta}) \;:\; \boldsymbol{\theta} \in \Theta \,\big\},$$
+
+where $\Theta$ denotes the set of admissible parameter vectors. At an arbitrary $\boldsymbol{\theta}$ the network is a parameterized candidate function and nothing more. No data have been used to choose $\boldsymbol{\theta}$, so $f(\cdot\,;\boldsymbol{\theta})$ is not yet an estimator of anything.
+
+The **fitted estimator** appears only once the data have selected a parameter value $\hat{\boldsymbol{\theta}}$:
+
+$$\widehat m(\mathbf{x}) := f(\mathbf{x}; \hat{\boldsymbol{\theta}}).$$
+
+This is the data-dependent object, and it is the one that estimates the unknown regression function $m$. (We continue to write $\hat y$ and $\hat y_i$ for the network's output at whatever parameter value is currently held — during optimization, that is not $\hat{\boldsymbol{\theta}}$ — and reserve $\widehat m$ for the fitted estimator.)
+
+**Correct specification** means $m \in \mathcal{M}_\Theta$: the target is exactly representable by some parameter value in the class. It does *not* mean $\widehat m = m$. Even under correct specification the two differ in any finite sample, because $\hat{\boldsymbol{\theta}}$ is computed from noisy data and estimation error remains. Under misspecification, $m \notin \mathcal{M}_\Theta$, and an approximation error is present on top of the estimation error — the gap that the universal approximation theorem addresses by letting the class grow, and that the sieve discussion in @sec-ffn-activations sets against the resulting rise in estimation uncertainty.
+
+The estimation problem that produces $\hat{\boldsymbol{\theta}}$ is:
 
 $$\hat{\boldsymbol{\theta}} = \arg\min_{\boldsymbol{\theta}} \frac{1}{n} \sum_{i=1}^n \ell\big(y_i, f(\mathbf{x}_i; \boldsymbol{\theta})\big) + \lambda P(\boldsymbol{\theta})$$
 
@@ -667,13 +730,19 @@ where:
 - $P(\boldsymbol{\theta})$ is a regularization penalty (e.g., an $L_1$ or $L_2$ penalty; we write $P$ rather than $R$, which is reserved for the generalization risk)
 - $\lambda$ is the regularization parameter
 
-This formulation directly parallels regularized regression in econometrics (Ridge, Lasso, Elastic Net).
+This formulation directly parallels **regularized regression**, where the same squared-loss-plus-penalty structure is applied to a linear model: *ridge* regression uses the $L_2$ penalty $\lambda\sum_j \theta_j^2$, *lasso* the $L_1$ penalty $\lambda\sum_j |\theta_j|$, and the *elastic net* a weighted combination of the two. The distinction between them is what the penalty does to small coefficients — $L_2$ shrinks them smoothly toward zero, $L_1$ can set them exactly to zero and therefore also selects variables. Only the penalty term carries over unchanged to networks; what does not carry over is everything that depends on linearity in $\boldsymbol{\theta}$, including the closed-form ridge solution and the convexity of the criterion.
+
+**Non-identification of $\boldsymbol{\theta}$.** The $\arg\min$ above should be read as a *set*, not a point. The symmetry argument in this section already shows that a sigmoid unit and its mirror image give the same fitted function and hence the same loss, and there is a second, more general source of multiplicity: in a layer with $H>1$ units, relabeling the hidden units — permuting them, together with their incoming and outgoing weights — leaves the network's output completely unchanged, so every parameter vector has at least $H!$ equivalent twins. The map from parameters to fitted functions is therefore many-to-one, and $\boldsymbol{\theta}$ is **not identified**, even in population and even with infinite data.
+
+This has a concrete consequence that matters more in econometrics than in machine learning: an individual estimated weight has no structural interpretation, and a standard error attached to it is not interpretable the way an OLS coefficient's standard error is. What *can* be identified is the fitted function $\widehat m$ itself — the object that generates predictions — and that is exactly why this chapter evaluates networks by out-of-sample predictive performance rather than by inference on individual coefficients.
+
+One further caution belongs here, because the slide from one to the other is easy to make. Even a network that predicts well out of sample gives $\hat{\boldsymbol{\theta}}$ no causal interpretation. Good predictive performance is evidence that $\widehat m$ approximates the conditional mean $m$ under the distribution that generated the data; it is not evidence about what would happen to $Y$ if a predictor were intervened on. The non-identification just described sharpens the point: individual weights cannot carry a structural reading in the first place, so there is nothing for a causal interpretation to attach to.
 
 ## Applications in Economics and Finance
 
 **Asset pricing and portfolio management.** Predicting stock returns from a large set of firm characteristics and macroeconomic variables is the flagship application. The traditional route specifies linear factor models with pre-specified factors; feed-forward networks instead capture nonlinear interactions between characteristics and let the data suggest the functional form. @GuKellyXiu2020 show that flexible nonlinear specifications can outperform linear benchmarks for individual-stock return prediction.
 
-**Macroeconomic forecasting.** For forecasting gross domestic product (GDP) growth, inflation, or unemployment from high-dimensional datasets, the traditional tools are vector autoregressions (VARs) and dynamic factor models. Feed-forward networks handle many predictors and nonlinear interactions naturally, especially when the problem is cast as one-step-ahead prediction with a large information set; @RichardsonFlorensteinMulderVehbi2021 apply them to macroeconomic forecasting in New Zealand, incorporating textual data from news articles.
+**Macroeconomic forecasting and nowcasting.** For predicting gross domestic product (GDP) growth, inflation, or unemployment from high-dimensional datasets, the traditional tools are vector autoregressions (VARs) and dynamic factor models. Feed-forward networks handle many predictors and nonlinear interactions naturally, especially when the problem is cast as one-step-ahead prediction with a large information set. @RichardsonFlorensteinMulderVehbi2021 nowcast New Zealand GDP growth in real time from roughly 600 domestic and international macroeconomic and financial series, using genuine data vintages so that each nowcast uses only information available at the time. They find that machine-learning algorithms — among them a small feed-forward network with a single sigmoid hidden layer — improve on both an autoregressive benchmark and a dynamic factor model. The real-time design matters econometrically: macroeconomic data are revised, so evaluating on final-vintage data would credit the model with information no forecaster had.
 
 
 ## Practical Training Workflow
@@ -683,8 +752,8 @@ The complexity of the optimization problem, together with large modern datasets,
 **Stochastic Variants:**
 
 - **Batch gradient descent (GD)**: uses the entire dataset per update (slow for large data)
-- **Mini-batch GD**: Use subset of data (most common)
-- **Stochastic gradient descent (SGD)**: Randomly sample one data point (noisy but fast)
+- **Mini-batch GD**: uses a subset of the data per update (most common)
+- **Stochastic gradient descent (SGD)**: uses a single randomly sampled data point per update (noisy but fast)
 
 **Advanced Optimizers:**
 
@@ -705,8 +774,8 @@ The complexity of the optimization problem, together with large modern datasets,
 **2. Architecture Design**
 
 - Start simple: one or two hidden layers are often enough for tabular econometric data
-- Increase width or depth only if validation performance justifies the extra complexity, since predictive performance can be sensitive to architecture choice; see @ChristensenSiggardVeliyev2023 for a finance example
-- Choose appropriate output activation
+- Increase width or depth only if validation performance justifies the extra complexity. Architecture is itself a tuning dimension: @ChristensenSiggardVeliyev2023 compare networks of one to four hidden layers in a realized-variance forecasting exercise, and find that the ranking across depths varies while all of them beat the heterogeneous autoregressive (HAR) benchmark. Their broader finding is a useful corrective in the other direction too — even a shallow network, implemented with minimal tuning, was competitive, so extra depth is not where the gains in that application came from. @GuKellyXiu2020 report the sharper version of the same lesson for return prediction: performance there *deteriorates* beyond roughly three hidden layers
+- Choose an appropriate output activation for the outcome type, using the guidelines in @sec-ffn-activations
 
 **3. Training Process**
 
@@ -717,14 +786,14 @@ The complexity of the optimization problem, together with large modern datasets,
 **4. Iteration and Refinement**
 
 - **Overfitting** (validation loss increases): Add regularization, simplify the architecture, or stop earlier
-- **Underfitting** (both losses high): Increase model size, train longer
+- **Underfitting** (both losses high): Increase model size or train longer
 
 **Regularization Techniques**
 
-We do not discuss all of these methods in detail in this book, but it is useful to recognize the terminology and the role each method plays.
+We do not develop the theoretical properties of these methods in this book, but it is useful to recognize the terminology and the role each method plays.
 
 - **$L_2$ Penalty (Ridge-Type Regularization):** $$\mathcal{L}_{\text{total}} = \mathcal{L}_{\text{original}} + \lambda \sum_{l=1}^{L} ||\mathbf{W}^{(l)}||_F^2$$
-Here, we penalize weights becoming too large in Frobenius norm (the Euclidean norm of all matrix entries stacked into one vector). An $L_2$ penalty on the network weights is the nonlinear-model analogue of ridge-type regularization [@HoerlKennard1970]: it shrinks parameters toward zero, although — unlike in ridge regression — the estimator remains nonlinear and nonconvex in the parameters, and penalties commonly exclude the biases. The related but distinct mechanism of **weight decay** shrinks the weights directly in the optimizer's update step, which is not always identical to adding an $L_2$ term to the loss (recall AdamW from the [optimization chapter](optimization.qmd)).
+Here, we penalize weights becoming too large in Frobenius norm (the Euclidean norm of all matrix entries stacked into one vector). An $L_2$ penalty on the network weights is the nonlinear-model analogue of ridge-type regularization [@HoerlKennard1970]: it shrinks parameters toward zero, although — unlike in ridge regression — the model remains nonlinear in the parameters and the penalized criterion remains non-convex, so there is no closed-form solution; penalties also commonly exclude the biases. The related but distinct mechanism of **weight decay** shrinks the weights directly in the optimizer's update step, which is not always identical to adding an $L_2$ term to the loss (recall AdamW from the [optimization chapter](optimization.qmd)).
 - **Dropout** [@Srivastava2014]**:** During training, each unit in a layer is set to zero *independently* with probability $1-p$, where $p$ is the retention probability. The number of units dropped is therefore binomial, not a fixed fraction. At test time nothing is dropped; to leave the expected input to the next layer unchanged, activations are multiplied by $p$ at test time, or equivalently divided by $p$ during training (the "inverted dropout" form used in most implementations). Beware a convention clash: @Srivastava2014 write $p$ for the retention probability, whereas Keras's `Dropout(rate)` and comparable APIs take the *drop* probability $1-p$.
 - **Early Stopping:**
 Monitor validation loss and stop when it starts increasing
@@ -733,11 +802,11 @@ Monitor validation loss and stop when it starts increasing
 
 :::{.callout-important}
 ## Key Takeaways
-1. A feed-forward neural network can be interpreted as a flexible nonlinear regression or classification model that learns basis functions from the data rather than fixing them in advance.
+1. A feed-forward neural network specifies a flexible model class of nonlinear regression or classification functions whose basis functions are learned from the data rather than fixed in advance. The fitted network is an estimator of the unknown regression function; the architecture on its own is not.
 2. Activation functions are essential because without them, stacking layers would collapse to a single linear transformation.
 3. The universal approximation theorem gives an existence result, not a practical recipe for architecture choice or optimization.
 4. Estimation is based on minimizing a loss function such as mean squared error or cross-entropy, with cross-entropy linking neural-network training back to likelihood and information theory.
-5. Backpropagation is an efficient application of the chain rule that makes gradient-based training feasible even in multi-layer networks.
+5. Backpropagation is an efficient application of the chain rule that makes gradient-based training feasible even in multilayer networks.
 6. Neural-network optimization is non-convex, so initialization, learning rates, regularization, and validation strategy matter much more than in standard linear models.
 7. In econometric applications, the main question is not whether a network is flexible enough, but whether that flexibility improves out-of-sample performance in a way that justifies the added complexity.
 :::
@@ -746,7 +815,8 @@ Monitor validation loss and stop when it starts increasing
 ## Common Pitfalls
 - Treating neural networks as automatic improvements over linear or regularized econometric benchmarks.
 - Using a deep or wide architecture before checking whether a much simpler specification already captures the predictive signal.
-- Forgetting that architecture choice itself can materially affect predictive results, especially in empirical finance applications such as @ChristensenSiggardVeliyev2023.
+- Treating architecture as a free choice made once and never validated, rather than as one more tuning dimension that has to be selected out of sample like any other.
+- Assuming that more depth is better. In the return-prediction exercise of @GuKellyXiu2020, performance deteriorates beyond about three hidden layers; in the volatility-forecasting exercise of @ChristensenSiggardVeliyev2023, even a shallow network beats the HAR benchmark.
 - Ignoring scale normalization, which can make optimization unnecessarily unstable.
 - Evaluating performance only on the training sample instead of using a validation strategy that respects the econometric data structure.
 - For time-series forecasting: shuffling the raw series before constructing lagged inputs, or randomizing the chronological train-validation-test split, leaks future information. (Shuffling already-built training examples within the training block is leakage-neutral — it only changes batch composition; see the [empirical chapter](nn_example.qmd).)
@@ -763,21 +833,21 @@ f(x)=\alpha_0+\alpha_1 x+\sum_{j=1}^K \gamma_j (x-c_j)_+,
 \qquad
 (u)_+=\max\{u,0\},
 $$
-where the knots satisfy $c_1 < c_2 < \cdots < c_K$.
+where the knots satisfy $c_1 < c_2 < \cdots < c_K$. Adopt the conventions $c_0 = -\infty$ and $c_{K+1} = +\infty$, so that the intervals $(c_r, c_{r+1})$ for $r = 0, 1, \dots, K$ cover the whole real line.
 
-1. Show that $f(x)$ is piecewise linear. More precisely, show that on each open interval $(c_r,c_{r+1})$ its slope is
+1. Show that $f(x)$ is piecewise linear. More precisely, show that on each open interval $(c_r,c_{r+1})$, $r = 0,1,\dots,K$, its slope is
    $$
    \alpha_1+\sum_{j=1}^r \gamma_j,
    $$
-   where by convention the slope on $(-\infty,c_1)$ is $\alpha_1$.
+   with the empty sum for $r=0$ equal to zero, so that the slope on $(-\infty,c_1)$ is $\alpha_1$.
 2. Show that this function can be written as a one-hidden-layer neural network with ReLU activation using at most $K+2$ hidden units, that is, in the form
    $$
    f(x)=b^{(2)}+\sum_{j=1}^{K+2} w_j^{(2)}\,\mathrm{ReLU}(w_j^{(1)}x+b_j^{(1)}),
    $$
-   by choosing suitable values for $w_j^{(1)}$, $b_j^{(1)}$, and $w_j^{(2)}$.
-3. Explain why increasing $K$ can reduce approximation bias but raise estimation variance. Why does this make validation or cross-validation important when choosing the width of the network?
+   by choosing suitable values for $b^{(2)}$, $w_j^{(1)}$, $b_j^{(1)}$, and $w_j^{(2)}$. (The count is "at most" rather than "exactly" because units with $w_j^{(2)}=0$ contribute nothing and may be dropped, which happens for the two linear units when $\alpha_1=0$.)
+3. Count the number of free parameters in your Part 2 representation, first treating the knots $c_1,\dots,c_K$ as known, and then treating them as quantities to be estimated from the data. Using these two counts, explain why increasing $K$ can reduce approximation bias but raise estimation variance, and explain why in-sample fit cannot be used to choose $K$ — so that validation or cross-validation is needed.
 
-*Exam level. The exercise gives a formal representation result and then links it to the econometric approximation-estimation tradeoff.*
+*Exam level. The exercise gives a formal representation result, makes the complexity of the representation explicit by counting parameters, and then links both to the econometric approximation-estimation tradeoff.*
 :::
 
 
@@ -796,7 +866,7 @@ $$
 
 ::: {.callout-warning collapse="true"}
 ## Hint for Part 3
-Separate approximation error from estimation error.
+In the construction of Part 2, most of the input-to-hidden weights and biases are pinned down by the knots rather than estimated. Ask which of $w_j^{(1)}$, $b_j^{(1)}$, $w_j^{(2)}$, and $b^{(2)}$ are still free in each of the two cases. For the last step, note that the function classes are nested as $K$ grows.
 :::
 
 ::: {.callout-tip collapse="true"}
@@ -812,13 +882,13 @@ $$
 1, & x>c_j.
 \end{cases}
 $$
-Hence, on an interval where exactly the first $r$ knots have been crossed, that is, on $(c_r,c_{r+1})$, we have
+Hence, on an interval where exactly the first $r$ knots have been crossed, that is, on $(c_r,c_{r+1})$ for $r = 0,1,\dots,K$, we have
 $$
 \frac{d}{dx}f(x)
 =
 \alpha_1+\sum_{j=1}^r \gamma_j.
 $$
-Before the first knot, no ReLU term is active, so the slope on $(-\infty,c_1)$ is simply $\alpha_1$. Therefore $f$ is piecewise linear, with slope changes only at the knot locations.
+The convention $c_0=-\infty$ makes $r=0$ the leftmost piece: before the first knot no ReLU term is active, the sum is empty, and the slope on $(-\infty,c_1)$ is simply $\alpha_1$. The convention $c_{K+1}=+\infty$ makes $r=K$ the rightmost piece, on which all $K$ terms are active. Therefore $f$ is piecewise linear, with slope changes only at the knot locations.
 
 **Part 2: Network Representation**
 
@@ -854,13 +924,20 @@ b_j^{(1)}=-c_j,
 w_j^{(2)}=\gamma_j,
 \qquad j=1,\dots,K.
 $$
-So a one-hidden-layer ReLU network can represent this adaptive spline form exactly.
+So a one-hidden-layer ReLU network can represent this piecewise-linear spline form exactly.
 
-**Part 3: Bias-Variance Tradeoff**
+**Part 3: Counting Parameters and the Bias-Variance Tradeoff**
 
-Increasing $K$ gives the model more knots and therefore more flexibility. This typically lowers approximation bias because the fitted function can adapt more closely to local curvature in the true regression function.
+*Known knots.* In the construction of Part 2, all input-to-hidden parameters are pinned down: $w_j^{(1)} = \pm 1$ and $b_j^{(1)} = 0$ for the two units representing the linear term, and $w_j^{(1)} = 1$, $b_j^{(1)} = -c_j$ for the $K$ knot units. Nothing there is estimated. What remains free is the output bias $b^{(2)} = \alpha_0$ and the $K+1$ output weights $\alpha_1$ (which appears with opposite signs on the two linear units) and $\gamma_1, \dots, \gamma_K$. The count is therefore
+$$
+\underbrace{1}_{\alpha_0} + \underbrace{1}_{\alpha_1} + \underbrace{K}_{\gamma_1,\dots,\gamma_K} = K+2 .
+$$
 
-But a larger $K$ also increases the number of parameters and the effective flexibility of the estimator, which raises estimation variance and makes overfitting more likely in finite samples. That is why validation or cross-validation is important: the choice of width should be based on out-of-sample performance, not only on in-sample fit.
+*Estimated knots.* If the knot locations are also chosen from the data, each $c_j$ frees up the corresponding hidden bias $b_j^{(1)} = -c_j$, adding $K$ more parameters for a total of $2K+2$. This is the case that corresponds to an actual ReLU network, in which the hidden layer's weights and biases are estimated rather than fixed in advance — which is exactly what makes the network's basis *learned* rather than pre-specified.
+
+*The tradeoff.* Both counts grow linearly in $K$. On the approximation side, the function classes are **nested**: any $f$ representable with $K$ knots is also representable with $K+1$ knots (set the extra $\gamma$ to zero). So the best achievable approximation error is non-increasing in $K$, and typically strictly decreasing when the true regression function has curvature the current knots cannot follow. On the estimation side, the same $n$ observations must now pin down more free parameters, so each is estimated less precisely and the fitted function inherits more sampling variability. Increasing $K$ therefore trades approximation bias against estimation variance.
+
+*Why in-sample fit cannot arbitrate.* Nestedness is also what disqualifies the in-sample criterion. Because the $K$-knot class is contained in the $(K+1)$-knot class, the minimized in-sample loss is non-increasing in $K$ by construction, so it can never favor a smaller model, no matter how much of the extra flexibility is spent fitting noise. In-sample fit measures only the first of the two effects. Distinguishing them requires evaluating on data that were not used to estimate the parameters, which is what validation or cross-validation provides.
 :::
 
 ::: {.callout-note}
@@ -871,7 +948,7 @@ Consider the problem of estimating a neural network for a regression problem wit
 You want to estimate a single-hidden-layer network:
 $$f(x; \boldsymbol{\theta}) = w_2 g(w_1 x + b_1) + b_2$$
 
-where $g(z) = \frac{1}{1 + e^{-z}}$ is the sigmoid function and $\boldsymbol{\theta} = (w_1, w_2, b_1, b_2)$.
+where $g(z) = \frac{1}{1 + e^{-z}}$ is the sigmoid function and $\boldsymbol{\theta} = (w_1, b_1, w_2, b_2)$, ordered by layer to match @sec-ffn-nonconvexity.
 
 @fig-ex52-network sketches the network.
 
@@ -901,8 +978,16 @@ flowchart LR
    $$
    \mathcal{L}(\boldsymbol{\theta}) = \frac{1}{2n} \sum_{i=1}^n (y_i - f(x_i; \boldsymbol{\theta}))^2.
    $$
-   Then state the gradient descent update for the full parameter vector $\boldsymbol{\theta}$ in one line, with learning rate $\eta>0$.
-2. Using $g'(z)=g(z)(1-g(z))$, show that
+   Then state the gradient descent update for the full parameter vector $\boldsymbol{\theta}$ in one line, with learning rate $\eta>0$. (This part reproduces a derivation carried out in @sec-ffn-losses; do it without looking, since the remaining parts build directly on these expressions.)
+2. Starting from your expression for $\frac{\partial \mathcal{L}}{\partial w_2}$, derive the cross-partial derivative
+   $$
+   \frac{\partial^2 \mathcal{L}}{\partial w_1 \partial w_2}
+   =
+   \frac{1}{n} \sum_{i=1}^n a_i(1-a_i)\,x_i \big( w_2 a_i - r_i \big),
+   \qquad a_i = g(w_1 x_i + b_1),\quad r_i = y_i - f(x_i;\boldsymbol{\theta}).
+   $$
+   Then answer the following: this expression clearly changes sign as the data and parameters vary. Explain why that fact alone does **not** prove that $\mathcal{L}$ is non-convex, and state what would have to be shown instead.
+3. Using $g'(z)=g(z)(1-g(z))$, show that
    $$
    0<g'(z)\le \frac{1}{4}
    $$
@@ -917,18 +1002,19 @@ flowchart LR
    \frac{|w_2|}{4n}\sum_{i=1}^n |r_i|.
    $$
    These bounds cap how large the hidden-layer gradients can ever be. Explain why *saturation* — $z_i$ far from zero, so that $g'(z_i)$ is close to $0$ rather than to its maximum $1/4$ — makes the actual gradients far smaller than these caps, and hence learning slow.
-3. Explain why this estimation problem is not equivalent to ordinary least squares, even though both problems minimize squared loss. Your answer should refer to the role of the hidden nonlinearity and the resulting optimization landscape.
+4. Explain why this estimation problem is not equivalent to ordinary least squares, even though both problems minimize squared loss. Your answer should refer to the role of the hidden nonlinearity and the resulting optimization landscape, and it should give a *valid* argument for non-convexity rather than inferring it from nonlinearity in the parameters alone. Finally, state what shape restriction this one-unit network imposes on the fitted Engel curve relating log consumption to log income, and name one economically plausible pattern it therefore cannot represent.
 
-*Exam level. The exercise makes students derive backpropagation, study saturation, and explain why neural-network estimation is harder than OLS.*
+*Exam level. The exercise works through the first- and second-order derivatives of the simplest possible network, studies saturation, and asks why neural-network estimation is harder than OLS. Note that Part 2 is also a test of logical care: it asks students to resist an inference that looks natural but does not follow.*
 :::
 
 
 ::: {.callout-warning collapse="true"}
 ## Hint for Part 1
 
-- Start with the loss function $\mathcal{L}(\boldsymbol{\theta}) = \frac{1}{2n} \sum_{i=1}^n (y_i - f(x_i; \boldsymbol{\theta}))^2$. 
+- Start with the loss function $\mathcal{L}(\boldsymbol{\theta}) = \frac{1}{2n} \sum_{i=1}^n (y_i - f(x_i; \boldsymbol{\theta}))^2$.
 
-*The factor of 1/2 is of notational convenience here due to the 2 getting in front when taking the first derivative. A fixed positive real-valued scalar doesn't influence the optimization problem. Otherwise, we have "times 2" everywhere (which is also fine but less elegant).*
+  *The factor of 1/2 is a notational convenience here, because of the 2 that appears in front when taking the first derivative. Multiplying an objective by a fixed positive scalar does not change its minimizer, so the optimization problem is unaffected. Without the 1/2 we would carry a "times 2" everywhere, which is also fine but less elegant.*
+
 - Use the chain rule together with $r_i = y_i - f(x_i; \boldsymbol{\theta})$, so $\frac{\partial \mathcal{L}}{\partial \theta_j} = \frac{1}{n} \sum_{i=1}^n r_i \frac{\partial r_i}{\partial \theta_j}$
 - Remember that $g'(z) = g(z)(1 - g(z))$
 - Compute gradients with respect to each parameter separately
@@ -936,6 +1022,13 @@ flowchart LR
 
 ::: {.callout-warning collapse="true"}
 ## Hint for Part 2
+
+- Differentiate $\frac{\partial \mathcal{L}}{\partial w_2} = -\frac{1}{n}\sum_i r_i a_i$ with respect to $w_1$ using the product rule. Both factors depend on $w_1$: $a_i$ directly, and $r_i$ through the fitted value.
+- For the second question, recall the characterization of convexity used in @sec-ffn-nonconvexity, and ask what a positive semidefinite matrix does and does not restrict about its *off-diagonal* entries.
+:::
+
+::: {.callout-warning collapse="true"}
+## Hint for Part 3
 
 - For the sigmoid, write $u=g(z)$ and maximize $u(1-u)$ over $u \in (0,1)$.
 - Then apply the triangle inequality to the hidden-layer gradients.
@@ -984,7 +1077,49 @@ g'(z_i)=a_i(1-a_i).
 $$
 It does not appear in the output-layer updates because those parameters enter the fitted value linearly once the hidden activation $a_i$ is given.
 
-**Part 2: Saturation and Gradient Bounds**
+**Part 2: The Cross-Partial Derivative**
+
+Start from the first-order condition derived in Part 1,
+$$
+\frac{\partial \mathcal{L}}{\partial w_2} = -\frac{1}{n} \sum_{i=1}^n r_i a_i ,
+$$
+and differentiate with respect to $w_1$. Both factors inside the sum depend on $w_1$, so the product rule gives
+$$
+\frac{\partial^2 \mathcal{L}}{\partial w_1 \partial w_2}
+=
+-\frac{1}{n} \sum_{i=1}^n
+\left[
+\frac{\partial r_i}{\partial w_1}\, a_i
++
+r_i \, \frac{\partial a_i}{\partial w_1}
+\right].
+$$
+For the two ingredients, with $z_i = w_1 x_i + b_1$ and $a_i = g(z_i)$,
+$$
+\frac{\partial a_i}{\partial w_1} = g'(z_i)\, x_i = a_i(1-a_i)\,x_i,
+\qquad
+\frac{\partial r_i}{\partial w_1} = -\frac{\partial \hat y_i}{\partial w_1} = -w_2\, a_i(1-a_i)\, x_i ,
+$$
+where the second expression uses $\hat y_i = w_2 a_i + b_2$. Substituting,
+$$
+\frac{\partial^2 \mathcal{L}}{\partial w_1 \partial w_2}
+=
+-\frac{1}{n} \sum_{i=1}^n a_i(1-a_i)\,x_i
+\big( r_i - w_2 a_i \big)
+=
+\frac{1}{n} \sum_{i=1}^n a_i(1-a_i)\,x_i \big( w_2 a_i - r_i \big),
+$$
+which is the expression stated in @sec-ffn-nonconvexity.
+
+*Why sign variation does not prove non-convexity.* A twice-differentiable function is convex on an open convex domain if and only if its Hessian $\mathcal{H}$ is positive semidefinite everywhere. Positive semidefiniteness restricts the *diagonal* entries — they must satisfy $\mathcal{H}_{jj} \ge 0$ — and it bounds the off-diagonal entries in magnitude, since $|\mathcal{H}_{jk}| \le \sqrt{\mathcal{H}_{jj}\mathcal{H}_{kk}}$. But it places no restriction on their **sign**: the matrix
+$$
+\begin{pmatrix} 1 & -1 \\ -1 & 2 \end{pmatrix}
+$$
+is positive definite (its determinant is $1$ and its leading entry is positive) and has a negative off-diagonal entry. So observing that $\partial^2\mathcal{L}/\partial w_1 \partial w_2$ takes both signs across the parameter space is entirely compatible with convexity, and proves nothing on its own.
+
+What *would* establish non-convexity is exhibiting a point $\boldsymbol{\theta}$ and a direction $\mathbf{v}$ with $\mathbf{v}^\top \mathcal{H}(\boldsymbol{\theta}) \mathbf{v} < 0$, or — avoiding second derivatives altogether — violating the definition of convexity directly, which is what the mirror-symmetry argument in @sec-ffn-nonconvexity does: it exhibits two parameter vectors with equal loss whose midpoint has strictly larger loss whenever the best fit is non-constant.
+
+**Part 3: Saturation and Gradient Bounds**
 
 Since $g(z)\in(0,1)$ for all $z$, we have
 $$
@@ -1013,9 +1148,9 @@ $$
 
 When the hidden unit is saturated, $z_i$ is very positive or very negative, so $g(z_i)$ is close to 1 or 0. Then $g'(z_i)$ is close to 0, which makes the hidden-layer gradients very small. This helps explain slow learning: the optimizer receives only weak gradient information for parameters in saturated units.
 
-**Part 3: Why This Is Not OLS**
+**Part 4: Why This Is Not OLS**
 
-OLS also minimizes squared loss, but its fitted value is linear in the parameter vector. That makes the OLS objective quadratic and therefore convex.
+OLS also minimizes squared loss, but its fitted value is linear in the parameter vector. That makes the OLS objective a quadratic form in the parameters, hence convex, with a Hessian $\frac{1}{n}\mathbf{X}^\top\mathbf{X}$ that does not depend on where in the parameter space it is evaluated.
 
 Here the loss is still based on squared residuals, but the fitted value
 $$
@@ -1023,11 +1158,15 @@ $$
 $$
 is nonlinear in the parameters because of the hidden activation. As a result:
 
-- the gradients contain products such as $w_2 a_i(1-a_i)$,
-- the objective is no longer quadratic in $(w_1,w_2,b_1,b_2)$,
+- the gradients contain products such as $w_2 a_i(1-a_i)$, so parameters from different layers interact,
+- the objective is no longer quadratic in $(w_1,b_1,w_2,b_2)$, and the Hessian varies across the parameter space (Part 2),
 - and the optimization landscape can contain flat regions, saddle points, and local minima.
 
-So neural-network estimation differs from OLS not because the loss function changed, but because the parameterization of the regression function is nonlinear and therefore creates a non-convex optimization problem.
+It is tempting to stop here and conclude that nonlinearity in the parameters *is* what makes the problem non-convex, but that inference does not go through: nonlinear parameterizations can perfectly well produce convex objectives. The conclusion needs the separate argument given in @sec-ffn-nonconvexity. Because $g(-z) = 1-g(z)$ for the sigmoid, the parameter vectors $(w_1,b_1,w_2,b_2)$ and $(-w_1,-b_1,-w_2,b_2+w_2)$ fit the same function and so attain the same loss, while their midpoint $(0,0,0,b_2+w_2/2)$ fits a constant. Convexity would force that constant fit to be at least as good as every network in the class, which is false whenever the best attainable fit is non-constant. Hence $\mathcal{L}$ is genuinely non-convex.
+
+So neural-network estimation differs from OLS not because the loss function changed — it is squared error in both cases — but because the parameterization of the model creates a symmetric, many-to-one, and demonstrably non-convex optimization problem.
+
+*Shape restriction on the Engel curve.* With a single hidden unit, the fitted function is $\hat y = w_2 g(w_1 x + b_1) + b_2$ with $g$ the sigmoid. Since $g$ is strictly increasing and takes values in $(0,1)$, the fitted curve is **strictly monotone** in $x$ — increasing if $w_1 w_2 > 0$ and decreasing if $w_1 w_2 < 0$ — and **bounded** between $b_2$ and $b_2 + w_2$. It is a single S-shape: it can bend once, but its slope cannot change sign. So this specification cannot represent any non-monotone Engel curve, and in particular it cannot represent a good that is a necessity at low income and an inferior good at high income, where log consumption would rise and then fall in log income. It also forces log consumption to flatten out at both extremes of the income distribution rather than continuing to grow. Both restrictions are relaxed by adding hidden units: a sum of several sigmoids can be non-monotone, which is the concrete sense in which width buys flexibility here.
 :::
 
 ::: {.callout-note}
@@ -1037,10 +1176,9 @@ Suppose we observe binary outcomes $y_i \in \{0,1\}$ and model the conditional c
 $$
 p_i = \Pr(y_i=1 \mid x_i) = \sigma(z_i),
 \qquad
-z_i = f(x_i;\boldsymbol{\theta}),
-\qquad
-\sigma(z)=\frac{1}{1+e^{-z}}.
+\sigma(z)=\frac{1}{1+e^{-z}},
 $$
+where $z_i$ is the network's output-layer pre-activation at input $x_i$ (the real-valued score before the sigmoid). Assume throughout that $y_1,\dots,y_n$ are **conditionally independent** given $x_1,\dots,x_n$.
 
 1. Show that the negative Bernoulli log-likelihood contribution of observation $i$ is
    $$
@@ -1048,15 +1186,15 @@ $$
    =
    -\left[y_i \log p_i + (1-y_i)\log(1-p_i)\right],
    $$
-   and explain why the sample-average loss $\mathcal{L}(\boldsymbol{\theta})=\frac{1}{n}\sum_{i=1}^n \ell_i(\boldsymbol{\theta})$ is exactly the binary cross-entropy loss.
+   and explain where the conditional independence assumption is used when you combine these contributions into the sample-average loss $\mathcal{L}(\boldsymbol{\theta})=\frac{1}{n}\sum_{i=1}^n \ell_i(\boldsymbol{\theta})$.
 2. Show that the derivative of the observation loss with respect to the pre-activation $z_i$ is
    $$
    \frac{\partial \ell_i}{\partial z_i}=p_i-y_i,
    $$
    and conclude that $\frac{\partial \mathcal{L}}{\partial z_i}=\frac{p_i-y_i}{n}$.
-3. Explain why this likelihood-based loss is usually preferred to mean squared error for binary classification. Your answer should refer to probabilistic interpretation and gradient behavior.
+3. Now suppose we kept the same sigmoid output layer but replaced cross-entropy by squared error, $\ell_i^{\mathrm{MSE}} = \tfrac12 (y_i - p_i)^2$ with $p_i = \sigma(z_i)$ as before. Derive $\frac{\partial \ell_i^{\mathrm{MSE}}}{\partial z_i}$. Then compare the two derivatives for an observation that the model gets badly wrong — $y_i = 1$ with $p_i$ close to $0$ — and use the comparison to explain why the likelihood-based loss is usually preferred for binary classification.
 
-*Exam level. The exercise links binary classification in neural networks back to likelihood theory and derives the key gradient used in backpropagation.*
+*Exam level. The exercise links binary classification in neural networks back to likelihood theory, derives the key gradient used in backpropagation, and then shows by direct computation why the choice of loss changes the optimizer's behavior. Part 3 reuses the saturation mechanism of Exercise 5.2.*
 :::
 
 ::: {.callout-warning collapse="true"}
@@ -1071,25 +1209,37 @@ $$
 - Remember that $\sigma'(z_i)=p_i(1-p_i)$.
 :::
 
+::: {.callout-warning collapse="true"}
+## Hint for Part 3
+
+- The chain rule runs through $p_i$ in exactly the same way as in Part 2; only $\partial \ell_i / \partial p_i$ changes.
+- Once you have both derivatives, evaluate each in the limit $p_i \to 0$ with $y_i = 1$. One of them stays bounded away from zero and the other does not.
+:::
+
 ::: {.callout-tip collapse="true"}
 ## Solution
 
 **Part 1: From Bernoulli Likelihood to Cross-Entropy**
 
-Under conditional independence, the Bernoulli likelihood of observation $i$ is $p_i^{y_i}(1-p_i)^{1-y_i}$. Taking logs and negating gives the observation-level negative log-likelihood
+Conditional on $x_i$, the outcome $y_i$ is Bernoulli with success probability $p_i$, so its probability mass function is $p_i^{y_i}(1-p_i)^{1-y_i}$ — this step needs no independence assumption, since it concerns a single observation. Taking logs and negating gives the observation-level negative log-likelihood
 $$
 \ell_i(\boldsymbol{\theta})
 =
 -\left[y_i \log p_i + (1-y_i)\log(1-p_i)\right].
 $$
-Averaging over the sample,
+
+Conditional independence is what licenses the *next* step. It lets the joint conditional likelihood factorize into a product of the individual Bernoulli terms,
+$$
+\prod_{i=1}^n p_i^{y_i}(1-p_i)^{1-y_i},
+$$
+so that its negative log is the *sum* $\sum_i \ell_i(\boldsymbol{\theta})$, and the sample-average loss
 $$
 \mathcal{L}(\boldsymbol{\theta})
 =\frac{1}{n}\sum_{i=1}^n \ell_i(\boldsymbol{\theta})
 =
--\frac{1}{n}\sum_{i=1}^n \left[y_i \log p_i + (1-y_i)\log(1-p_i)\right],
+-\frac{1}{n}\sum_{i=1}^n \left[y_i \log p_i + (1-y_i)\log(1-p_i)\right]
 $$
-which is exactly the binary cross-entropy loss displayed in the chapter.
+is exactly $1/n$ times the negative log-likelihood — and is exactly the binary cross-entropy loss displayed in the chapter. Without conditional independence the individual terms remain valid Bernoulli contributions, but their sum is no longer the joint log-likelihood, and the maximum-likelihood interpretation of the minimizer is lost. This matters for the binary outcomes econometricians typically care about, such as recession indicators or the sign of an asset return, which are serially dependent; there the appropriate object is the prediction-error decomposition, conditioning each term on the past rather than on $x_i$ alone.
 
 **Part 2: Derivative with Respect to the Logit**
 
@@ -1118,11 +1268,29 @@ $$
 \frac{\partial \mathcal{L}}{\partial z_i}=\frac{1}{n}\frac{\partial \ell_i}{\partial z_i}=\frac{p_i-y_i}{n}.
 $$
 
-**Part 3: Why Cross-Entropy Is Preferred**
+**Part 3: The Squared-Error Gradient, and Why Cross-Entropy Is Preferred**
 
-Cross-entropy is usually preferred because it is the negative log-likelihood for a Bernoulli model, so it has a direct probabilistic interpretation and is aligned with maximum likelihood estimation.
+With $\ell_i^{\mathrm{MSE}} = \tfrac12 (y_i - p_i)^2$ and $p_i = \sigma(z_i)$, the chain rule gives
+$$
+\frac{\partial \ell_i^{\mathrm{MSE}}}{\partial z_i}
+=
+\frac{\partial \ell_i^{\mathrm{MSE}}}{\partial p_i}\frac{\partial p_i}{\partial z_i}
+=
+-(y_i - p_i)\cdot p_i(1-p_i)
+=
+(p_i - y_i)\,p_i(1-p_i).
+$$
+The two derivatives therefore differ by exactly the factor $p_i(1-p_i) = \sigma'(z_i)$, which the cross-entropy loss cancels and squared error does not.
 
-It also gives a useful gradient signal. If the model assigns a very wrong probability, for example $p_i$ close to 0 when $y_i=1$, then the term $p_i-y_i$ is close to $-1$, so the update pressure remains strong. Mean squared error does not have the same likelihood interpretation and typically yields a weaker learning signal for badly misclassified observations when combined with a sigmoid output layer.
+Now take the badly misclassified case $y_i = 1$ with $p_i \to 0$, that is, $z_i \to -\infty$:
+$$
+\frac{\partial \ell_i}{\partial z_i} = p_i - y_i \longrightarrow -1,
+\qquad
+\frac{\partial \ell_i^{\mathrm{MSE}}}{\partial z_i} = (p_i-1)\,p_i(1-p_i) \longrightarrow 0 .
+$$
+Under cross-entropy the gradient stays bounded away from zero, so the optimizer keeps receiving a strong signal precisely for the observations the model gets most wrong. Under squared error the gradient vanishes: the sigmoid is saturated, $\sigma'(z_i)$ is nearly zero, and that factor multiplies the error signal away. The confidently wrong observation produces almost no learning pressure — a slow-learning pathology, and the same saturation mechanism studied in Exercise 5.2, except that here the choice of loss determines whether it bites at the output layer.
+
+To this we can add the interpretive point. Cross-entropy is the negative log-likelihood of the Bernoulli model (Part 1), so minimizing it is maximum likelihood estimation, with the interpretation of the fitted values as conditional probabilities that comes with it. Squared error on a probability has no comparable likelihood justification for a binary outcome. So the two arguments point the same way: cross-entropy is better motivated statistically *and* better behaved numerically.
 :::
 
 ## References
