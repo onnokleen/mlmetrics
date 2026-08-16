@@ -15,7 +15,7 @@ This chapter explains how these optimization methods work at a general level. Th
 
 ## Roadmap
 
-1. We begin with the basic intuition behind **gradient descent**.
+1. We begin with **gradient descent** which can be interpreted as repeatedly moving the parameters in the direction that most steeply reduces the loss.
 2. We then compare **batch**, **stochastic**, and **mini-batch** updates — gradients computed from the full sample, a single observation, or a small random subset — since this distinction is central in machine learning practice.
 3. Next, we discuss the main weaknesses of plain gradient descent and motivate more advanced optimizers.
 4. We then study **momentum** (an exponentially weighted update direction), **Adaptive Gradient (AdaGrad)** (coordinate-specific scaling by accumulated squared gradients), **root mean square propagation (RMSprop)** (a decaying squared-gradient average), and **adaptive moment estimation (Adam)** (a combination of momentum and adaptive scaling).
@@ -92,7 +92,7 @@ The convergence statements in this chapter repeatedly refer to convexity, so we 
 :::
 
 :::{.callout-note title="What Do Convergence Guarantees Actually Say?"}
-Convergence statements for gradient methods always carry conditions, and it is worth fixing them once. If $L$ is convex and its gradient is Lipschitz continuous with constant $C$, then batch gradient descent with step size $\eta \le 1/C$ drives $L(\boldsymbol\theta^{(t)})$ to the global minimum at rate $O(1/t)$; a step size that is too large can diverge even on a quadratic objective — Exercise 4.1 derives the exact stability threshold. Neural-network objectives, however, are **nonconvex**, and there the honest guarantee is much weaker: under smoothness, gradient methods can only be shown to drive the gradient norm to zero, $\|\nabla L(\boldsymbol\theta^{(t)})\| \to 0$ — convergence to a *stationary point*, which need not be a local (let alone global) minimum. Whenever this chapter speaks of an algorithm "converging" on a neural-network loss, it is this stationary-point notion that applies.
+Convergence statements for gradient methods always carry conditions, and it is worth fixing them once. Consider deterministic batch gradient descent on a differentiable objective $L$ that is bounded below and has a Lipschitz-continuous gradient with constant $C$, using a fixed step size $0<\eta\leq 1/C$. If $L$ is also convex and attains its minimum at $\boldsymbol\theta^\star$, the objective gap $L(\boldsymbol\theta^{(t)})-L(\boldsymbol\theta^\star)$ decreases at rate $O(1/t)$. Without convexity, the same smoothness, lower-bound, and step-size conditions imply only that the gradient norm tends to zero, $\|\nabla L(\boldsymbol\theta^{(t)})\|\to 0$; any finite limit point of the iterates is therefore stationary and may be a saddle or local maximum rather than a local minimum. These deterministic guarantees do not automatically carry over to stochastic or mini-batch gradients, whose convergence requires additional assumptions on gradient noise and the step-size schedule [@GoodfellowBengioCourville2016, chap. 8]. A step size that is too large can diverge even on a quadratic objective; Exercise 4.1 derives the exact stability threshold.
 :::
 
 **Mini-Batch Gradient Descent**
@@ -129,7 +129,7 @@ Suppose observations are ordered over time or clustered by firm. Does random min
 
 :::{.callout-tip collapse="true" title="Suggested Answer"}
 
-Three distinct mechanisms are worth separating. First, unbiasedness is not the issue: the mini-batch gradient is a linear function of the sampled observations, so it remains an unbiased estimate of the full-sample gradient however dependent the observations are. Second, dependence changes the *variance* of the batch gradient: observations sharing a time period or a firm carry overlapping information, so a random batch of size $b$ contains less independent information than $b$ i.i.d. draws would. Third — and most important econometrically — problems arise when the *model or the preprocessing* interacts with the dependence: models with sequential state (introduced in the [recurrent-networks chapter](recurrent_neural_networks.qmd)) need temporally contiguous inputs, and any transformation estimated on randomly mixed data can leak information across the time or cluster boundaries that a real-time evaluation must respect. Batches that keep time blocks or firm clusters together address this third concern directly; Exercise 4.2 quantifies the second.
+Three distinct mechanisms are worth separating. First, unbiasedness is not the issue: the mini-batch gradient is a linear function of the sampled observations, so it remains an unbiased estimate of the full-sample gradient however dependent the observations are. Second, dependence changes the *variance* of the batch gradient: observations sharing a time period or a firm carry overlapping information, so a random batch of size $b$ contains less independent information than $b$ independent and identically distributed (i.i.d.) draws would. Third — and most important econometrically — problems arise when the *model or the preprocessing* interacts with the dependence: models with sequential state (introduced in the [recurrent-networks chapter](recurrent_neural_networks.qmd)) need temporally contiguous inputs, and any transformation estimated on randomly mixed data can leak information across the time or cluster boundaries that a real-time evaluation must respect. Batches that keep time blocks or firm clusters together address this third concern directly; Exercise 4.2 quantifies the second.
 :::
 
 :::{.callout-note}
@@ -233,13 +233,13 @@ Here, $v_t$ is the moving average of squared gradients, and $\gamma$ is the squa
 
 **Adam (Adaptive Moment Estimation)**
 
-Adam is a widely used default optimizer for neural networks [@KingmaBa2015]. It combines the ideas of **Momentum** (using the first moment, or mean, of the gradients) and **RMSprop** (using the second moment, or uncentered variance, of the gradients).
+Adam is a widely used default optimizer for neural networks [@KingmaBa2015]. It combines the ideas of **Momentum** (using the first moment, or mean, of the gradients) and **RMSprop** (using the uncentered second moment of the gradients).
 
 The algorithm maintains two moving averages:
 
 1. **First moment estimate** (momentum), with first-moment decay $\beta_1$:
    $$ \boldsymbol m_t = \beta_1 \boldsymbol m_{t-1} + (1 - \beta_1) \boldsymbol g_{t} $$
-2. **Second moment estimate** (uncentered variance), with second-moment decay $\beta_2$:
+2. **Uncentered second-moment estimate**, with second-moment decay $\beta_2$:
    $$ \boldsymbol v_t = \beta_2 \boldsymbol v_{t-1} + (1 - \beta_2) \boldsymbol g_{t}^2 $$
 
 Here $\beta_1,\beta_2 \in [0,1)$ play the roles that $\delta$ and $\gamma$ played for Momentum and RMSprop, respectively. Since $\boldsymbol m_t$ and $\boldsymbol v_t$ are initialized as zero vectors, they are biased toward zero, especially during the initial time steps. Unrolling the recursion gives $\boldsymbol m_t = (1-\beta_1) \sum_{\tau=1}^{t} \beta_1^{t-\tau} \boldsymbol g_\tau$. To speak of a *bias* we need randomness in the gradients, which is where the mini-batches suppressed from our notation re-enter: think of $\boldsymbol g_\tau$ as the gradient of a randomly drawn batch, with the expectation below taken over that batch sampling. If the batch gradients are stationary with $\mathbb{E}[\boldsymbol g_\tau] = \boldsymbol \mu$, then $\mathbb{E}[\boldsymbol m_t] = (1-\beta_1^t)\boldsymbol \mu$. Adam corrects this bias by rescaling:
@@ -257,17 +257,17 @@ Adam is a common default starting point: it usually reduces training loss quickl
 
 ## Optimizer Comparison
 
-The column **Optimizer state** reports the number of running state tensors the optimizer stores *per parameter* (on top of the parameter vector itself). It reflects the memory overhead of the update rule and should not be confused with dataset memory, which is controlled separately by the batch size.
+The column **Optimizer state** reports the number of running state tensors the optimizer stores *per parameter* (on top of the parameter vector itself). It reflects the memory overhead of the update rule and should not be confused with dataset memory, which is controlled separately by the batch size. The citations in the algorithm column identify standard sources for the update rules; the remaining columns give criterion-specific comparisons that are qualified immediately below the table.
 
 | **Algorithm** | **Optimizer state** | **Hyperparameters** | **Key Advantage** | **Key Limitation** |
 |---------------|---------------------|---------------------|-------------------|-------------------|
-| **Batch Gradient Descent** | 0 | $\eta$ | Stable, smooth convergence | Very slow; loads the full dataset per step |
-| **SGD** | 0 | $\eta$ | Fast per iteration | Noisy, sensitive to $\eta$ |
-| **Mini-Batch Gradient Descent** | 0 | $\eta$, batch size | Balances speed and stability | Additional hyperparameter to tune |
-| **Momentum** | 1 (velocity) | $\eta$, $\delta$ | Accelerates convergence, dampens oscillations | Can overshoot, needs tuning |
-| **AdaGrad** | 1 (squared-gradient sum) | $\eta$, $\varepsilon$ | Adapts per-parameter rates | Learning rate decays to zero |
-| **RMSprop** | 1 (moving average of squared gradients) | $\eta$, $\gamma$, $\varepsilon$ | Fixes AdaGrad's decay problem | No momentum component |
-| **Adam** | 2 (first and second moments) | $\eta$, $\beta_1$, $\beta_2$, $\varepsilon$ | Combines momentum + adaptation | Can converge to suboptimal points |
+| **Batch Gradient Descent** [@GoodfellowBengioCourville2016, chap. 8] | 0 | $\eta$ | Uses the exact full-sample gradient | High computation per update |
+| **SGD** [@RobbinsMonro1951] | 0 | $\eta$ | One observation per update | High gradient noise; sensitive to $\eta$ |
+| **Mini-Batch Gradient Descent** [@GoodfellowBengioCourville2016, chap. 8] | 0 | $\eta$, batch size | Supports vectorized updates with less noise than SGD | Adds batch size as a tuning choice |
+| **Momentum** [@Polyak1964] | 1 (velocity) | $\eta$, $\delta$ | Dampens oscillations along directions with persistent gradients | Can overshoot; requires tuning |
+| **AdaGrad** [@DuchiHazanSinger2011] | 1 (squared-gradient sum) | $\eta$, $\varepsilon$ | Adapts rates coordinate by coordinate | Accumulation can make later steps extremely small |
+| **RMSprop** [@hinton2012rmsprop] | 1 (moving average of squared gradients) | $\eta$, $\gamma$, $\varepsilon$ | Avoids AdaGrad's monotonically growing accumulator | Vanilla form has no first-moment momentum term |
+| **Adam** [@KingmaBa2015] | 2 (first and second moments) | $\eta$, $\beta_1$, $\beta_2$, $\varepsilon$ | Combines momentum with coordinate-specific scaling | Does not guarantee the best attained loss or generalization |
 
 The advantage and limitation entries describe typical behavior at reasonable tunings; none is unconditional. Actual performance depends on the objective's geometry, the noise induced by mini-batching, and the learning-rate choice — the conditions the convergence callout above spells out — and settling at a suboptimal stationary point is a risk every method on this list shares on non-convex objectives.
 
@@ -529,7 +529,7 @@ While Adam might not appear dramatically superior to other algorithms in this vi
 - **Ill-conditioned** with vastly different scales across parameters; ill-conditioning is measured by the condition number $\kappa = \lambda_{\max}/\lambda_{\min}$, the ratio of the largest to the smallest eigenvalue of the Hessian (the largest to smallest curvature), with large $\kappa$ indicating a poorly conditioned, hard-to-optimize landscape
 - **Noisy** due to mini-batch sampling
 
-In such challenging real-world scenarios, Adam's adaptive learning rates and momentum typically provide significant advantages over simpler methods. This simple 2D example serves to illustrate the core behavioral differences between optimizers rather than their relative performance on complex problems.
+In such landscapes, Adam's adaptive scaling and momentum can make early training less sensitive to differences in gradient scale across coordinates than plain gradient descent with one global learning rate. This is a statement about the behavior of the update rule, not a guarantee of a lower final training loss or better out-of-sample performance. The simple two-dimensional example therefore illustrates behavioral differences between optimizers; it does not rank them for complex prediction problems.
 :::
 
 We can make the minimization problem more challenging by having multiple local minima and one global minimum. Of course, depending on the hyperparameters chosen, all algorithms may find the global minimum. The goal is to find an optimizer that is largely robust to different choices of hyperparameters.
@@ -771,7 +771,9 @@ plt.tight_layout()
 plt.show()
 ```
 
-The non-convex surface makes the design differences visible in a way the quadratic could not. Compare the endpoints across the panels of @fig-optimizers-nonconvex: with several basins available, where an optimizer lands depends on its trajectory, not only on its speed. The raw-gradient methods follow the local downhill pull at the small step sizes their unnormalized gradients require, while the adaptive methods' rescaled steps carry them through flat regions where raw gradients are tiny. Neither behavior dominates — a path that crosses saddles quickly can also skip past a good basin — and the robust conclusion matches the callout above: judge optimizers by their sensitivity to tuning, not by any single trajectory.
+The non-convex surface makes the design differences visible in a way the quadratic could not. Compare the endpoints across the panels of @fig-optimizers-nonconvex: with several basins available, where an optimizer lands depends on its trajectory, not only on its speed. The raw-gradient methods follow the local downhill pull at the small step sizes their unnormalized gradients require, while the adaptive methods' rescaled steps carry them through flat regions where raw gradients are tiny. Neither behavior dominates — a path that crosses saddles quickly can also skip past a good basin — so optimizer comparisons should use workable tunings for every candidate and the validation criterion relevant to the final prediction problem.
+
+Before moving on to neural networks, note the chapter boundary: so far the objects being optimized were generic objective functions. In the next chapter, the same optimization ideas are applied to feed-forward networks, where gradients are computed by backpropagation.
 
 ## Summary
 
@@ -781,28 +783,16 @@ The non-convex surface makes the design differences visible in a way the quadrat
 2. **Mini-batch gradient descent** is the practical standard because it balances computational efficiency with relatively stable gradient information.
 3. **Learning-rate choice** is central: too small leads to painfully slow progress, while too large leads to instability.
 4. **Advanced optimizers** such as Momentum, AdaGrad, RMSprop, and Adam modify vanilla gradient descent to improve stability, speed, or parameter-specific adaptation.
-5. **Adam** is often a strong default in practice, but optimizer choice matters more when the loss surface is non-convex, noisy, and high-dimensional.
+5. **Adam** is a common starting point, but optimizer and learning-rate choices should be compared using the validation criterion relevant to the prediction problem.
 :::
 
 :::{.callout-warning}
 ## Common Pitfalls
 
-**Learning Rate Issues**
+**Learning-rate issues.** A learning rate above an algorithm's stability range can make the loss diverge, while a very small rate can make progress too slow to be useful within the training budget. Adaptive scaling does not remove this tuning problem: compare learning rates, schedules, and optimizers on validation data rather than treating one update rule as an automatic solution.
 
-- Too high: Training becomes unstable, loss explodes
-- Too low: Training is painfully slow, may get stuck in poor local minima
-- Solution: Use adaptive optimizers like Adam, or learning rate schedules
+**Over-interpreting simple examples.** Two-dimensional paths reveal how update rules react to curvature, noise, and scaling, but they do not establish which optimizer will minimize training loss or prediction risk in a high-dimensional neural network.
 
-**Overfitting to Simple Examples**
-
-- Don't judge optimizers solely on toy 2D functions
-- Real neural networks have millions of parameters and complex loss landscapes
-- What works on simple problems may not scale to "deep learning"
-
-:::
-
-:::{.callout-note}
-Before moving on to neural networks, note the chapter boundary: so far the objects being optimized were generic objective functions. In the next chapter, the same optimization ideas are applied to feed-forward networks, where gradients are computed by backpropagation.
 :::
 
 ## Exercises
@@ -1072,20 +1062,20 @@ L(\theta)=\frac{a}{2}\theta^2,
 $$
 and the momentum updates
 $$
-u_t=\delta u_{t-1}+(1-\delta)a\theta^{(t)},
+u_t=\delta u_{t-1}+(1-\delta)a\theta^{(t-1)},
 \qquad
-\theta^{(t+1)}=\theta^{(t)}-\eta u_t,
+\theta^{(t)}=\theta^{(t-1)}-\eta u_t,
 $$
-where $\eta>0$ is the learning rate and $\delta\in[0,1)$ is the momentum parameter. (Note the indexing: here the gradient $a\theta^{(t)}$ is evaluated at the current iterate and produces $\theta^{(t+1)}$ — one index shift relative to the main text's convention, which is harmless for the dynamics.)
+where $\eta>0$ is the learning rate and $\delta\in[0,1)$ is the momentum parameter. As in the main text, the gradient used for update $t$ is evaluated at $\theta^{(t-1)}$, and that update produces $\theta^{(t)}$.
 
 1. Eliminate $u_t$ and show that $\theta^{(t)}$ satisfies the second-order recursion
    $$
-   \theta^{(t+1)}
+   \theta^{(t)}
    =
-   \big(1+\delta-\eta(1-\delta)a\big)\theta^{(t)}
-   -\delta \theta^{(t-1)}.
+   \big(1+\delta-\eta(1-\delta)a\big)\theta^{(t-1)}
+   -\delta \theta^{(t-2)}.
    $$
-2. Show that when $\delta=0$ this reduces to the gradient descent recursion from Exercise 4.1. For the general case, use the following Schur-Cohn stability criterion [see, e.g., @Hamilton1994TimeSeries]: a second-order linear recursion $x_{t+1}=cx_t+dx_{t-1}$ with characteristic polynomial $p(\lambda)=\lambda^2-c\lambda-d$ converges to zero if and only if $p(1)>0$, $p(-1)>0$, and $|d|<1$. Apply this to show that, for general $\delta\in[0,1)$, the recursion converges to zero if and only if
+2. Show that when $\delta=0$ this reduces to the gradient descent recursion from Exercise 4.1. For the general case, use the following Schur-Cohn stability criterion [see, e.g., @Hamilton1994TimeSeries]: a second-order linear recursion $x_t=cx_{t-1}+dx_{t-2}$ with characteristic polynomial $p(\lambda)=\lambda^2-c\lambda-d$ converges to zero if and only if $p(1)>0$, $p(-1)>0$, and $|d|<1$. Apply this to show that, for general $\delta\in[0,1)$, the recursion converges to zero if and only if
    $$
    \eta<\frac{2(1+\delta)}{(1-\delta)\,a}.
    $$
@@ -1096,15 +1086,15 @@ where $\eta>0$ is the learning rate and $\delta\in[0,1)$ is the momentum paramet
 
 :::{.callout-warning collapse="true"}
 ## Hint for Part 1
-Use the update equation at times $t$ and $t-1$ to write
+Use the parameter update at time $t-1$ to write
 $$
-u_{t-1}=\frac{\theta^{(t-1)}-\theta^{(t)}}{\eta}.
+u_{t-1}=\frac{\theta^{(t-2)}-\theta^{(t-1)}}{\eta}.
 $$
 :::
 
 :::{.callout-warning collapse="true"}
 ## Hint for Part 2
-When $\delta=0$ the lagged term vanishes. For the general case, identify $c$ and $d$ in the given stability criterion by matching the recursion to the form $x_{t+1}=cx_t+dx_{t-1}$. Then evaluate $p(1)$, $p(-1)$, and $|d|$ separately.
+When $\delta=0$ the lagged term vanishes. For the general case, identify $c$ and $d$ in the given stability criterion by matching the recursion to the form $x_t=cx_{t-1}+dx_{t-2}$. Then evaluate $p(1)$, $p(-1)$, and $|d|$ separately.
 :::
 
 :::{.callout-tip collapse="true"}
@@ -1114,30 +1104,30 @@ When $\delta=0$ the lagged term vanishes. For the general case, identify $c$ and
 
 From the parameter update,
 $$
-\theta^{(t)}=\theta^{(t-1)}-\eta u_{t-1},
+\theta^{(t-1)}=\theta^{(t-2)}-\eta u_{t-1},
 $$
 so
 $$
-u_{t-1}=\frac{\theta^{(t-1)}-\theta^{(t)}}{\eta}.
+u_{t-1}=\frac{\theta^{(t-2)}-\theta^{(t-1)}}{\eta}.
 $$
 Now substitute this into the momentum update:
 $$
-u_t=\delta \frac{\theta^{(t-1)}-\theta^{(t)}}{\eta}+(1-\delta)a\theta^{(t)}.
+u_t=\delta \frac{\theta^{(t-2)}-\theta^{(t-1)}}{\eta}+(1-\delta)a\theta^{(t-1)}.
 $$
-Using $\theta^{(t+1)}=\theta^{(t)}-\eta u_t$, we obtain
+Using $\theta^{(t)}=\theta^{(t-1)}-\eta u_t$, we obtain
 \begin{align*}
-\theta^{(t+1)}
+\theta^{(t)}
 &=
-\theta^{(t)}-\eta\left[\delta \frac{\theta^{(t-1)}-\theta^{(t)}}{\eta}+(1-\delta)a\theta^{(t)}\right] \\
+\theta^{(t-1)}-\eta\left[\delta \frac{\theta^{(t-2)}-\theta^{(t-1)}}{\eta}+(1-\delta)a\theta^{(t-1)}\right] \\
 &=
-\theta^{(t)}-\delta(\theta^{(t-1)}-\theta^{(t)})-\eta(1-\delta)a\theta^{(t)} \\
+\theta^{(t-1)}-\delta(\theta^{(t-2)}-\theta^{(t-1)})-\eta(1-\delta)a\theta^{(t-1)} \\
 &=
-\big(1+\delta-\eta(1-\delta)a\big)\theta^{(t)}-\delta\theta^{(t-1)}.
+\big(1+\delta-\eta(1-\delta)a\big)\theta^{(t-1)}-\delta\theta^{(t-2)}.
 \end{align*}
 
 **Part 2: Stability Analysis**
 
-When $\delta=0$, the recursion becomes $\theta^{(t+1)}=(1-\eta a)\theta^{(t)}$, which is the gradient descent recursion from Exercise 4.1. This converges iff $|1-\eta a|<1$, i.e., $0<\eta<2/a$.
+When $\delta=0$, the recursion becomes $\theta^{(t)}=(1-\eta a)\theta^{(t-1)}$, which is the gradient descent recursion from Exercise 4.1. This converges iff $|1-\eta a|<1$, i.e., $0<\eta<2/a$.
 
 For general $\delta\in[0,1)$, write $c=1+\delta-\eta(1-\delta)a$. The recursion has characteristic polynomial
 $$

@@ -7,7 +7,7 @@ number-offset: [5, 0]
 
 ## Overview
 
-Feed-forward neural networks (FNNs) are flexible nonlinear maps from an input vector to an output, but they do not have a built-in state variable. If we want to use them for time-series forecasting, we usually have to create lagged inputs manually, such as $(y_{t-1}, y_{t-2}, \ldots, y_{t-p})$. That approach is often useful, but it fixes the memory length $p$ in advance and treats temporal dependence as a feature-engineering problem.
+Feed-forward neural networks (FNNs) are flexible nonlinear maps from an input vector to an output, but they do not have a built-in state variable. If we want to use them for time-series forecasting, we usually have to create lagged inputs manually, such as the $L$ most recent observations $(y_t, y_{t-1}, \ldots, y_{t-L+1})$. That approach is often useful, but it fixes the memory length $L$ in advance and treats temporal dependence as a feature-engineering problem.
 
 Recurrent neural networks (RNNs) instead maintain a hidden state that is updated as new observations arrive. This makes them closer in spirit to econometric models with recursively updated states, such as autoregressive moving-average (ARMA) models, state-space models, or generalized autoregressive conditional heteroskedasticity (GARCH) models. The key difference is that the update function is learned from data and can be nonlinear and high-dimensional.
 
@@ -25,15 +25,15 @@ This chapter introduces the basic RNN architecture in a forecasting setting, int
 
 ## Forecasting Setup and the Information Set
 
-Suppose we want to forecast a scalar outcome $y_{t+1}$ using information available at time $t$. Let $\mathcal{F}_t$ denote that information set. In a macroeconomic or financial application, $\mathcal{F}_t$ may contain past values of the target variable, lagged predictors, realized returns, volatility measures, survey variables, text-based indicators, and other signals known at the forecast origin.
+Suppose we want to forecast a scalar outcome $y_{t+1}$ using information available at time $t$. Recall the **forecast-origin information set** $\mathcal{F}_t$ from the [time-series cross-validation discussion](cross_validation.qmd#sec-cv-time-series): it contains the variables in the form in which they were actually available at the forecast origin. In a macroeconomic or financial application, $\mathcal{F}_t$ may contain past values of the target variable, lagged predictors, realized returns, volatility measures, survey variables, text-based indicators, and other signals known at time $t$.
 
 A lagged feed-forward network uses a fixed window of this information, for example
 
 $$
-\hat{y}_{t+1\mid t} = f_\theta(y_t, y_{t-1}, \ldots, y_{t-p}, \mathbf{x}_t, \mathbf{x}_{t-1}, \ldots, \mathbf{x}_{t-p}).
+\hat{y}_{t+1\mid t} = f_\theta(y_t, y_{t-1}, \ldots, y_{t-L+1}, \mathbf{x}_t, \mathbf{x}_{t-1}, \ldots, \mathbf{x}_{t-L+1}).
 $$
 
-Here $\hat{y}_{t+1\mid t}$ denotes a forecast of $y_{t+1}$ formed at the origin $t$; the two-index subscript records both dates. This is a reasonable baseline. It is close to how econometricians build distributed-lag or autoregressive forecasting models. The limitation is that the lag length $p$ must be chosen before estimation, and the model does not update an internal state as new observations arrive.
+Here $\hat{y}_{t+1\mid t}$ denotes a forecast of $y_{t+1}$ formed at the origin $t$; the two-index subscript records both dates. This is a reasonable baseline. It is close to how econometricians build distributed-lag or autoregressive forecasting models. The limitation is that the window length $L$ must be chosen before estimation, and the model does not update an internal state as new observations arrive.
 
 An RNN replaces the fixed lag window by a recursively updated summary:
 
@@ -67,7 +67,7 @@ $$
 
 The essential point is that the model learns both the update rule and the predictive mapping.
 
-## RNN Architecture and Notation
+## RNN Architecture and Notation {#sec-rnn-architecture}
 
 The recurrence can be visualized in two ways: a compact form with a self-loop, representing the recurrence, and an "unrolled" form, which shows the flow of information through time.
 
@@ -219,7 +219,7 @@ $\mathcal{F}_t$ should contain only the real-time data vintage available at the 
 :::
 
 
-## Training Through Time
+## Training Through Time {#sec-rnn-training}
 
 Training an RNN raises a problem absent from feed-forward networks: because the same weight matrices ($\mathbf{W}_{hh}, \mathbf{W}_{xh}$) are applied at every time step, their gradient is the sum of contributions from every time step. The algorithm that handles this is **Backpropagation Through Time (BPTT)**.
 
@@ -261,7 +261,7 @@ The derivations above treat one sequence of length $T$ with a single terminal lo
 
 **Windows as training observations.** The standard construction cuts the series into overlapping fixed-length windows. With window length $\tau$, each forecast origin $t \geq \tau$ contributes one training pair: the input sequence $(\mathbf{x}_{t-\tau+1}, \ldots, \mathbf{x}_t)$ and the target $y_{t+1}$. The state is re-initialized at $\mathbf{h}_0 = \mathbf{0}$ at the start of every window, and the recursion runs only within the window. One series of length $N$ thus becomes roughly $N - \tau$ training sequences. These windows overlap heavily — consecutive windows share $\tau - 1$ observations — so they are anything but independent draws: the caveats about mini-batch gradients under dependent data from the [optimization chapter](optimization.qmd) apply, and the chronological train–validation–test discipline of the [cross-validation chapter](cross_validation.qmd) applies at the level of forecast origins.
 
-**Fixed windows and truncated backpropagation.** Re-initializing the state at each window has a second effect: both the state recursion and the gradients run only across the $\tau$ steps inside a window. It is worth separating two horizons that this **fixed-window training** scheme happens to tie together. The *gradient horizon* is how far back credit assignment reaches. Cutting the backward derivative chain after a fixed number of steps is **truncated backpropagation through time** [@WilliamsPeng1990], and it caps the Jacobian products of the previous sections at length $\tau$ no matter how long the series is. The *state horizon* is how far back the forward recursion carries information. A state-carrying variant of truncated backpropagation feeds the final state of one segment in as the initial state of the next while still detaching the gradient computation between segments: the state horizon then extends beyond $\tau$ even though the gradient horizon does not, so information from the distant past can still enter the forecast even though no learning signal flows back to it. Fixed-window training — the scheme used in the [empirical chapter on networks for time series](nn_example.qmd) — truncates both horizons at $\tau$. Truncation is partly a computational necessity, because the cost of a backward pass grows with the sequence length, and partly innocuous, because gradient contributions beyond the truncation horizon are often negligible anyway once gradients vanish. The econometric consequence of the fixed-window scheme should be stated plainly: dependence at horizons beyond $\tau$ cannot be learned, by construction. The window length therefore plays the same role as the lag length $p$ of the lagged FNN at the start of the chapter — the recurrence removes the need to hand-pick which lags matter *within* the window, but the truncation horizon itself returns as a hyperparameter.
+**Fixed windows and truncated backpropagation.** Re-initializing the state at each window has a second effect: both the state recursion and the gradients run only across the $\tau$ steps inside a window. It is worth separating two horizons that this **fixed-window training** scheme happens to tie together. The *gradient horizon* is how far back credit assignment reaches. Cutting the backward derivative chain after a fixed number of steps is **truncated backpropagation through time** [@WilliamsPeng1990], and it caps the Jacobian products of the previous sections at length $\tau$ no matter how long the series is. The *state horizon* is how far back the forward recursion carries information. A state-carrying variant of truncated backpropagation feeds the final state of one segment in as the initial state of the next while still detaching the gradient computation between segments: the state horizon then extends beyond $\tau$ even though the gradient horizon does not, so information from the distant past can still enter the forecast even though no learning signal flows back to it. Fixed-window training — the scheme used in the [empirical chapter on networks for time series](nn_example.qmd) — truncates both horizons at $\tau$. Truncation reduces computation because the cost of a backward pass grows with sequence length. It may discard little *additional* usable gradient signal when contributions from earlier steps are already numerically negligible, but that negligibility is itself the vanishing-gradient problem rather than evidence that distant dependence is irrelevant. The econometric consequence of the fixed-window scheme should therefore be stated plainly: dependence at horizons beyond $\tau$ cannot be learned, by construction. The window length plays the same role as the lag-window length $L$ of the lagged FNN at the start of the chapter — the recurrence removes the need to hand-pick which lags matter *within* the window, but the truncation horizon itself returns as a hyperparameter.
 
 **Parameter sharing imposes time-homogeneous dynamics.** Finally, applying the same weights $(\mathbf{W}_{hh}, \mathbf{W}_{xh}, \mathbf{W}_{hy})$ at every time step is not a mere convenience: it imposes that the mapping from state and input to the next state is the same at every date. Whether that restriction is plausible is a question about the data, and it is the direct analogue of assuming a stable parametric structure when estimating an ARMA or GARCH model over a long sample. Stability of the relevant conditional relationships is what makes windows drawn from the 1990s and the 2010s informative about the same mapping — which is exactly what gives the network enough effective observations to estimate its many weights; note that the inputs themselves need not be stationary for shared parameters to be coherent, since time-invariance is a restriction on the update rule, not on the input distribution. Under structural breaks in the dynamics, the shared parameters are misspecified, and the usual econometric responses — subsample estimation, rolling estimation windows, break-aware predictors in $\mathbf{x}_t$ — apply to RNNs just as they do to GARCH.
 
@@ -301,7 +301,7 @@ Plain RNNs are hard to train reliably whenever the forecast depends on informati
 
 ## Exercises
 
-:::{.callout-note}
+:::{.callout-note #rnn-exercise-6-1}
 ## Exercise 6.1: Vanishing Gradient Problem in RNNs
 
 In this exercise, we examine the vanishing gradient problem in RNNs. Consider a simple RNN with one-dimensional hidden state $h_t = \tanh(W_{hh} h_{t-1} + W_{xh} x_t + b_h)$ — the scalar case $H = 1$ of the chapter's update equation, so that $W_{hh}$, $W_{xh}$, and $b_h$ are scalars — and loss $L_T$ at the final time step $T$.

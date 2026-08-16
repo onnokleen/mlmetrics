@@ -434,22 +434,21 @@ window.Quarto = {
 <h1 data-number="5"><span class="header-section-number">5</span> Feed-Forward Neural Networks</h1>
 <section id="overview" class="level2" data-number="5.1">
 <h2 data-number="5.1" class="anchored" data-anchor-id="overview"><span class="header-section-number">5.1</span> Overview</h2>
-<p>Feed-forward neural networks are best understood as flexible nonlinear regression models. In classical econometrics, we often begin with a parametric specification such as a linear model, a polynomial expansion, or a spline basis. A feed-forward neural network keeps the same basic goal, estimating a conditional mean or conditional class probability, but replaces hand-crafted basis functions by a learned composition of affine transformations and nonlinear activation functions.</p>
-<p>For econometricians, the main attraction is not mystery but flexibility. When the relationship between <span class="math inline">Y</span> and <span class="math inline">\mathbf{X}</span> is nonlinear, high-dimensional, or shaped by complicated interactions, a neural network offers a way to approximate that relationship without fully specifying it in advance. This is useful in applications such as the nonlinear asset-pricing setting studied by <span class="citation" data-cites="GuKellyXiu2020">Gu, Kelly, and Xiu (<a href="#ref-GuKellyXiu2020" role="doc-biblioref">2020</a>)</span> and in other prediction problems with large information sets:</p>
+<p>Feed-forward neural networks are best understood as flexible nonlinear regression models. In classical econometrics, we often begin with a parametric specification such as a linear model, a polynomial expansion, or a spline basis. A feed-forward neural network keeps the same basic goal, estimating a conditional mean or conditional class probability, but replaces curated basis functions by a learned composition of affine transformations and nonlinear activation functions.</p>
+<p>For econometricians, the main attraction is flexibility. When the relationship between <span class="math inline">Y</span> and <span class="math inline">\mathbf{X}</span> is nonlinear, high-dimensional, or shaped by complicated interactions, a neural network offers a way to approximate that relationship without fully specifying it in advance. This is useful in applications such as the nonlinear asset-pricing setting studied by <span class="citation" data-cites="GuKellyXiu2020">Gu, Kelly, and Xiu (<a href="#ref-GuKellyXiu2020" role="doc-biblioref">2020</a>)</span> and in other prediction problems with large information sets:</p>
 <ul>
 <li><strong>Asset pricing</strong>: mapping many firm characteristics into expected returns</li>
 <li><strong>Macroeconomic forecasting</strong>: combining large predictor sets, survey variables, or text-based indicators</li>
-<li><strong>Household or firm behavior</strong>: approximating nonlinear Engel curves, production relationships, or treatment-response surfaces</li>
+<li><strong>Household or firm behavior</strong>: approximating nonlinear production relationships or treatment-response interactions</li>
 </ul>
-<p>Throughout this chapter, the econometric interpretation remains central, and it turns on a distinction worth making early. A feed-forward network is a <em>family</em> of candidate regression functions, one for each value its parameters can take. Only after the data have selected particular parameter values does the resulting function become an estimator of the unknown conditional mean. Keeping the family and the fitted function apart matters here more than in a linear model, because the flexibility of the family is what brings non-convex optimization, many tuning choices, and a higher risk of overfitting.</p>
 </section>
 <section id="roadmap" class="level2" data-number="5.2">
 <h2 data-number="5.2" class="anchored" data-anchor-id="roadmap"><span class="header-section-number">5.2</span> Roadmap</h2>
 <ol type="1">
-<li>We begin with the simplest building block, the perceptron — one weighted index followed by a transformation — and then build up feed-forward networks as flexible nonlinear basis expansions.</li>
+<li>We begin with the simplest building block, the so-called perceptron and then build up feed-forward networks as flexible nonlinear basis expansions.</li>
 <li>We then discuss activation functions, the transformations that make successive layers nonlinear, and an approximation theorem that explains what sufficiently wide networks can represent.</li>
 <li>Next, we connect neural-network estimation to loss minimization, maximum likelihood, and gradient descent, before introducing backpropagation as an efficient way to reuse chain-rule derivatives across layers.</li>
-<li>We then show that the training objective is non-convex, and draw out two econometric consequences: the network reads as a penalized nonlinear regression, but its individual weights are not identified.</li>
+<li>We then show that the training objective is non-convex, connect the fitted network to familiar econometric objects, and explain why its individual weights are not identified.</li>
 <li>We close with applications in asset pricing and macroeconomic forecasting and a practical training workflow.</li>
 </ol>
 </section>
@@ -519,13 +518,13 @@ Figure&nbsp;5.1: A sigmoid perceptron with weights <span class="math inline">\ma
 </div>
 </div>
 <p>In <a href="#fig-perceptron-threshold" class="quarto-xref">Figure&nbsp;5.1</a>, every Class 1 point has <span class="math inline">\mathbf{x}^\top\mathbf{w}+b&gt;0</span> and hence a fitted probability above <span class="math inline">0.5</span>, while every Class 0 point has <span class="math inline">\mathbf{x}^\top\mathbf{w}+b&lt;0</span> and hence a fitted probability below <span class="math inline">0.5</span>. The sigmoid transforms the score nonlinearly, but the decision boundary of this single unit remains a straight line. A feed-forward network simply stacks many such units, so that the outputs of one layer become regressors for the next layer. That is why neural networks can be understood as learned basis expansions rather than as a fundamentally alien model class. In a polynomial or spline regression, the transformed regressors are chosen before estimation; in a neural network, the hidden activations <span class="math inline">a_j^{(l)}</span> (the activation of unit <span class="math inline">j</span> in layer <span class="math inline">l</span>, defined formally below) are themselves learned from the data.</p>
-<p>A feed-forward neural network with depth <span class="math inline">D</span> (that is, <span class="math inline">D-1</span> hidden layers followed by an output layer indexed <span class="math inline">D</span>) can have more than one output unit. We collect those outputs in the vector <span class="math inline">\hat{\mathbf y}(\mathbf{x})</span> and write the network as the composition</p>
+<p>A network is described in part by its <strong>depth</strong> <span class="math inline">D</span>. Under the convention used here, it has <span class="math inline">D-1</span> hidden layers followed by an output layer, which we index <span class="math inline">D</span>. The output layer need not contain a single unit. With several output units, the network returns one number per unit. A multi-class classifier — with one output unit for each possible class — is an example developed later in this chapter. Thus the network output is generally a vector, which we denote generically in boldface by <span class="math inline">\hat{\mathbf y}(\mathbf{x})</span>. Stacking the layer maps gives the composition</p>
 <div class="display-math-block">
 <p><span class="math display">
 \hat{\mathbf y}(\mathbf{x}) = \mathbf{a}^{(D)} = f^{(D)} \circ f^{(D-1)} \circ \cdots \circ f^{(1)}(\mathbf{x}).
 </span></p>
 </div>
-<p>When the network has one output unit, <span class="math inline">\hat{\mathbf{y}}(\mathbf{x})</span> reduces to the scalar <span class="math inline">\hat y(\mathbf{x})</span> introduced above. The layers play distinct roles: the input layer holds the realized predictors <span class="math inline">\mathbf{x}</span>, the hidden layers compute intermediate activations, and the output layer produces the prediction <span class="math inline">\hat{\mathbf y}(\mathbf{x})</span>. Concretely, each layer <span class="math inline">l</span> computes:</p>
+<p>When the network has one output unit, <span class="math inline">\hat{\mathbf y}(\mathbf{x})</span> reduces to the scalar <span class="math inline">\hat y(\mathbf{x})</span> introduced above. The layers play distinct roles: the input layer holds the realized predictors <span class="math inline">\mathbf{x}</span>, the hidden layers compute intermediate activations, and the output layer produces the prediction <span class="math inline">\hat{\mathbf y}(\mathbf{x})</span>. Concretely, each layer <span class="math inline">l</span> computes:</p>
 <div class="display-math-block">
 <p><span class="math display">\mathbf{a}^{(l)} = g^{(l)}\left(\mathbf{W}^{(l)} \mathbf{a}^{(l-1)} + \mathbf{b}^{(l)}\right)</span></p>
 </div>
@@ -539,6 +538,7 @@ Figure&nbsp;5.1: A sigmoid perceptron with weights <span class="math inline">\ma
 <li><span class="math inline">\boldsymbol{\theta}</span> represents all hidden-layer and output-layer parameters</li>
 </ul>
 <p>Moreover, we define the <strong>pre-activation value</strong> in layer <span class="math inline">l</span>: <span class="math inline">\mathbf{z}^{(l)} = \mathbf{W}^{(l)}\mathbf{a}^{(l-1)} + \mathbf{b}^{(l)}</span>.</p>
+<p><a href="#fig-ffn-architecture" class="quarto-xref">Figure&nbsp;5.2</a> makes the layered vector map concrete in a network with three output units.</p>
 <div class="cell" data-layout-align="default">
 <div class="cell-output-display">
 <div id="fig-ffn-architecture" class="quarto-float quarto-figure quarto-figure-center anchored">
@@ -566,8 +566,12 @@ Figure&nbsp;5.1: A sigmoid perceptron with weights <span class="math inline">\ma
     H13 --&gt; H22
     
     %% Hidden layer 2 to Output
-    H21 --&gt; Y["ŷ"]
-    H22 --&gt; Y
+    H21 --&gt; Y1["ŷ₁"]
+    H21 --&gt; Y2["ŷ₂"]
+    H21 --&gt; Y3["ŷ₃"]
+    H22 --&gt; Y1
+    H22 --&gt; Y2
+    H22 --&gt; Y3
     
     %% Styling
     classDef input fill:#e1f5fe
@@ -576,18 +580,18 @@ Figure&nbsp;5.1: A sigmoid perceptron with weights <span class="math inline">\ma
     
     class X1,X2,X3 input
     class H11,H12,H13,H21,H22 hiddenlayer
-    class Y output
+    class Y1,Y2,Y3 output
 </pre>
 </div>
 </div>
 <figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-ffn-architecture-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Figure&nbsp;5.2: Example of a feed-forward network with two hidden layers. Nodes are units: the left column holds the input coordinates, the middle columns the hidden-layer activations <span class="math inline">a_i^{(l)}</span>, and the right node the output. Each arrow is a weighted connection; every unit applies its activation function to the weighted sum of its incoming values plus a bias.
+Figure&nbsp;5.2: Example of a feed-forward network with three input coordinates, two hidden layers, and three output units. The left column holds the inputs, the middle columns the hidden-layer activations <span class="math inline">a_i^{(l)}</span>, and the right column the coordinates <span class="math inline">\hat y_1</span>, <span class="math inline">\hat y_2</span>, and <span class="math inline">\hat y_3</span> of the vector output <span class="math inline">\hat{\mathbf y}(\mathbf{x})</span>. In a three-class classifier, one output unit is associated with each class. Each arrow is a weighted connection.
 </figcaption>
 </figure>
 </div>
 </div>
 </div>
-<p>The perceptron of <a href="#fig-perceptron-threshold" class="quarto-xref">Figure&nbsp;5.1</a> is a single unit. <a href="#fig-ffn-architecture" class="quarto-xref">Figure&nbsp;5.2</a> shows what changes in a multilayer network: instead of specifying a basis expansion by hand, we let the model learn many intermediate transformed regressors <span class="math inline">a_j^{(l)}</span> and then combine them again in later layers.</p>
+<p>The perceptron of <a href="#fig-perceptron-threshold" class="quarto-xref">Figure&nbsp;5.1</a> is a single unit. <a href="#fig-ffn-architecture" class="quarto-xref">Figure&nbsp;5.2</a> shows what changes in a multilayer network: instead of specifying a basis expansion by hand, we let the model learn many intermediate transformed regressors <span class="math inline">a_j^{(l)}</span> and then combine them again in later layers. The three right-hand nodes make the vector notation explicit. They receive the same final hidden activations but use output-unit-specific weights and biases; a scalar-output network is the special case with only one such node.</p>
 <p><strong>Single-Hidden-Layer Networks</strong></p>
 <p>Much of this chapter, and all of its exercises, works with single-hidden-layer networks, which have the form:</p>
 <div class="display-math-block">
@@ -615,7 +619,7 @@ Figure&nbsp;5.2: Example of a feed-forward network with two hidden layers. Nodes
 \qquad H^{(0)} = p, \quad H^{(D)} = 1,
 </span></p>
 </div>
-<p>parameters. Each layer contributes its weight matrix plus one bias per unit. (For <span class="math inline">D = 2</span> this reduces to the single-hidden-layer count <span class="math inline">H(p+2)+1</span> above.) This is one reason why validation discipline matters so much in econometric applications: architecture choice is itself a high-dimensional tuning problem, not just a second-rank modeling choice.</p>
+<p>parameters. Each layer contributes its weight matrix plus one bias per unit. (For <span class="math inline">D = 2</span> this reduces to the single-hidden-layer count <span class="math inline">H(p+2)+1</span> above.)</p>
 <div class="callout callout-style-default callout-note callout-titled" title="Question for Reflection">
 <div class="callout-header d-flex align-content-center">
 <div class="callout-icon-container">
@@ -671,7 +675,7 @@ Suggested Answer
 <p> where <span class="math inline">\delta_{kq}=1</span> if <span class="math inline">k=q</span> and <span class="math inline">0</span> otherwise is the Kronecker delta, distinct from the backpropagation error signal introduced in <a href="#sec-ffn-backprop" class="quarto-xref">Section&nbsp;5.6</a>.</p></li>
 <li><p>The <strong>linear</strong>, or identity, activation is <span class="math inline">\text{Identity}(z)=z</span>. Its unrestricted range makes it the standard output activation for an unbounded continuous regression target.</p></li>
 </ol>
-<p><a href="#fig-activation-functions" class="quarto-xref">Figure&nbsp;5.3</a> shows the four most common activation functions.</p>
+<p><a href="#fig-activation-functions" class="quarto-xref">Figure&nbsp;5.3</a> shows the four most common non-linear activation functions.</p>
 <div id="cell-fig-activation-functions" class="cell" data-execution_count="3">
 <details class="code-fold">
 <summary>Show the code</summary>
@@ -737,18 +741,17 @@ Figure&nbsp;5.3: The four most common activation functions — Sigmoid, Tanh, Re
 </div>
 </div>
 <p>Each function provides a different kind of nonlinearity, from the bounded “S-shape” of the sigmoid and tanh to the unbounded, one-sided linearity of ReLU and its smooth counterpart, Softplus.</p>
-<div class="callout callout-style-default callout-note callout-titled">
+<div class="callout callout-style-default callout-note callout-titled" title="Additional detail: ReLU at the kink">
 <div class="callout-header d-flex align-content-center">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
 <div class="callout-title-container flex-fill">
-Non-Differentiability and Backpropagation
+Additional detail: ReLU at the kink
 </div>
 </div>
 <div class="callout-body-container callout-body">
-<p>ReLU is not differentiable at <span class="math inline">z=0</span>. In practice, software chooses a convention for the derivative at the kink, usually 0 or another subgradient; see the discussion of ReLU and other activation functions in <span class="citation" data-cites="GoodfellowBengioCourville2016">Goodfellow, Bengio, and Courville (<a href="#ref-GoodfellowBengioCourville2016" role="doc-biblioref">2016</a>)</span>. This convention rarely matters for continuous inputs because hitting exactly <span class="math inline">z=0</span> has probability zero under small perturbations, but it is worth remembering that backpropagation through piecewise-linear activations uses these derivative conventions at kink points.</p>
-<p>There is a second consequence worth stating explicitly. With a piecewise-linear activation the training objective is not differentiable everywhere in <span class="math inline">\boldsymbol{\theta}</span>. At parameter values where no pre-activation sits exactly at a kink — all but a Lebesgue-null subset of the parameter space — the objective <em>is</em> differentiable, the update below is ordinary gradient descent, and the convergence statements for smooth objectives in the <a href="./optimization.html">optimization chapter</a> apply as usual. On the exceptional set, backpropagation does not compute a derivative of the objective at all: it applies the chain rule with whatever value the implementation assigns to <span class="math inline">\text{ReLU}'(0)</span>. Note that this is a statement about the composite objective, not about ReLU alone. The convention is a legitimate choice for the scalar activation, but the vector it produces after propagation through the network need not be a derivative, or even a generalized derivative, of the composite function. The accurate summary is that the smooth theory covers training off the exceptional set — not that training is some weaker method that covers the kinks as well.</p>
+<p>ReLU is not differentiable at <span class="math inline">z=0</span>. Implementations therefore assign a conventional value to <span class="math inline">\operatorname{ReLU}'(0)</span>, usually <span class="math inline">0</span> <span class="citation" data-cites="GoodfellowBengioCourville2016">(<a href="#ref-GoodfellowBengioCourville2016" role="doc-biblioref">Goodfellow, Bengio, and Courville 2016</a>)</span>. We return to what this convention means for network gradients after introducing backpropagation below.</p>
 </div>
 </div>
 <p><strong>Practical selection.</strong> For a feed-forward hidden layer, ReLU is a transparent baseline: away from its kink, positive pre-activations pass their gradient through unchanged instead of multiplying it by a derivative below one. This mitigates <em>vanishing gradients</em> — gradient signals shrinking toward zero through saturated activations — relative to sigmoid or tanh units <span class="citation" data-cites="GlorotBordesBengio2011">(<a href="#ref-GlorotBordesBengio2011" role="doc-biblioref">Glorot, Bordes, and Bengio 2011</a>)</span>. Tanh remains relevant when the architecture specifically benefits from bounded, zero-centered hidden states, as in the recurrent networks of the coming chapters.</p>
@@ -773,7 +776,7 @@ Question for Reflection
 </div>
 </div>
 <div class="callout-body-container callout-body">
-<p>Using the output-layer guidelines above, what activation is natural for a positive regression outcome such as firm sales or volatility? If the loss is the mean squared error (MSE), what target is the network learning?</p>
+<p>Using the output-layer guidelines above, what activation is natural for a positive regression outcome such as firm sales or stock-market volatility? If the loss is the mean squared error (MSE), what target is the network learning?</p>
 </div>
 </div>
 <div class="callout callout-style-default callout-tip callout-titled" title="Suggested Answer">
@@ -803,8 +806,8 @@ Suggested Answer
 </div>
 <p>The theorem is an <strong>existence result</strong>: it says a suitable width <span class="math inline">H</span> exists, but does not tell us how to pick <span class="math inline">H</span> or how to find the weights.</p>
 <p>The notation here matches the single-hidden-layer representation introduced above. The same result extends from scalar <span class="math inline">x</span> to vector-valued <span class="math inline">\mathbf{x} \in \mathbb{R}^p</span>, with <span class="math inline">K \subset \mathbb{R}^p</span> compact and <span class="math inline">w_j^{(1)} x</span> replaced by <span class="math inline">\mathbf{w}_j^{(1)\top}\mathbf{x}</span>.</p>
-<p><strong>Attribution.</strong> This result is often called the “Cybenko–Hornik” theorem, but the two papers do not prove the same statement, and the difference is the hypothesis on <span class="math inline">g</span>. <span class="citation" data-cites="Cybenko1989">Cybenko (<a href="#ref-Cybenko1989" role="doc-biblioref">1989</a>)</span> proves the earlier and weaker version: his activations must be continuous and <em>sigmoidal</em>, meaning <span class="math inline">g(z) \to 1</span> as <span class="math inline">z \to +\infty</span> and <span class="math inline">g(z) \to 0</span> as <span class="math inline">z \to -\infty</span>, and his domain is the unit cube. The bounded-nonconstant-continuous form stated above is <span class="citation" data-cites="Hornik1991">Hornik (<a href="#ref-Hornik1991" role="doc-biblioref">1991</a>)</span>, and it is genuinely more general — a bounded continuous nonconstant activation that is not sigmoidal, such as a bump-shaped function, is covered by Hornik and not by Cybenko. Hornik himself describes his results as substantially improving on Cybenko’s. We attribute the statement to Hornik and cite Cybenko for the sigmoid special case.</p>
-<p><strong>The activation condition matters.</strong> The statement quoted here is the classical bounded-activation theorem, with sigmoids as the leading example. Modern networks often use ReLU, which is unbounded and therefore not covered by this version of the theorem. The classical extension that does cover ReLU is <span class="citation" data-cites="LeshnoLinPinkusSchocken1993">Leshno et al. (<a href="#ref-LeshnoLinPinkusSchocken1993" role="doc-biblioref">1993</a>)</span>. Their result is an “if and only if”, so it is worth stating with its side conditions rather than in slogan form: within the class of activations that are locally essentially bounded and piecewise continuous, with the closure of their discontinuity set having Lebesgue measure zero, a single-hidden-layer network is a universal approximator on compact sets if and only if the activation is not almost everywhere equal to a polynomial. Both qualifiers do work. The regularity class rules out pathologically discontinuous activations, for which the equivalence simply fails; and “almost everywhere” is what makes the condition checkable for functions like ReLU, which is not a polynomial but <em>is</em> a polynomial on each of the two half-lines separately. ReLU and its variants belong to this class and satisfy the condition. The practical lesson is the same — width can approximate rich nonlinear functions on compact domains — but the theorem being invoked is not literally the same theorem for every activation family.</p>
+<p><strong>Attribution.</strong> This result is often called the “Cybenko–Hornik” theorem, but the two papers do not prove the same statement, and the difference is the hypothesis on <span class="math inline">g</span>. <span class="citation" data-cites="Cybenko1989">Cybenko (<a href="#ref-Cybenko1989" role="doc-biblioref">1989</a>)</span> proves the earlier and weaker version: his activations must be continuous and <em>sigmoidal</em>, meaning <span class="math inline">g(z) \to 1</span> as <span class="math inline">z \to +\infty</span> and <span class="math inline">g(z) \to 0</span> as <span class="math inline">z \to -\infty</span>, and his domain is the unit cube. The bounded-nonconstant-continuous form stated above is <span class="citation" data-cites="Hornik1991">Hornik (<a href="#ref-Hornik1991" role="doc-biblioref">1991</a>)</span>.</p>
+<p><strong>The activation condition matters.</strong> The statement quoted here is the classical bounded-activation theorem, with sigmoids as the leading example. Modern networks often use ReLU, which is unbounded and therefore not covered by this version of the theorem. However, the extension of the theoremthat does cover ReLU is <span class="citation" data-cites="LeshnoLinPinkusSchocken1993">Leshno et al. (<a href="#ref-LeshnoLinPinkusSchocken1993" role="doc-biblioref">1993</a>)</span>.</p>
 <div class="callout callout-style-default callout-note callout-titled" title="Practical Implications">
 <div class="callout-header d-flex align-content-center">
 <div class="callout-icon-container">
@@ -818,7 +821,7 @@ Practical Implications
 <p>The theorem provides existence, not construction. It says that <em>some</em> width <span class="math inline">H</span> suffices, but it does not say how to choose <span class="math inline">H</span>, how to find the weights, or how easy the resulting optimization will be. The width required in practice can be very large, and the underlying non-convex optimization remains hard whether or not the approximation theorem applies.</p>
 </div>
 </div>
-<p>With a fixed architecture, the network specifies a finite-dimensional model class: the family of candidate regression functions traced out as the parameter vector ranges over its admissible values. If the width <span class="math inline">H_N</span> is instead allowed to grow with the sample size under suitable complexity restrictions, the resulting sequence of model classes can be viewed as a <strong>sieve</strong> in the econometric sense: increasing width reduces approximation bias while raising estimation uncertainty. Exercise 5.1 makes the counting side of this tradeoff concrete for a one-dimensional ReLU network, and the <a href="./decision_trees.html">decision-trees chapter</a> states the bias–variance decomposition formally. Universal approximation establishes that rich functions <em>can be approximated</em>; consistency of the estimated network additionally requires the complexity to grow slowly enough relative to the available data <span class="citation" data-cites="White1990 Chen2007">(<a href="#ref-White1990" role="doc-biblioref">White 1990</a>; <a href="#ref-Chen2007" role="doc-biblioref">Chen 2007</a>)</span>. Those consistency results carry sampling conditions of their own alongside the complexity-rate restriction — independent sampling in the classical statements, stationarity and ergodicity in the time-series versions — so they are not automatically available in the dependent-data settings this book cares about.</p>
+<p>With a fixed architecture, the network specifies a finite-dimensional model class: the family of candidate regression functions traced out as the parameter vector containing all weights and biases ranges over its admissible values. Universal approximation establishes that rich functions <em>can be approximated</em>; consistency of the estimated network additionally requires the complexity to grow slowly enough relative to the available data <span class="citation" data-cites="White1990 Chen2007">(<a href="#ref-White1990" role="doc-biblioref">White 1990</a>; <a href="#ref-Chen2007" role="doc-biblioref">Chen 2007</a>)</span>.</p>
 </section>
 <section id="sec-ffn-losses" class="level2" data-number="5.5">
 <h2 data-number="5.5" class="anchored" data-anchor-id="sec-ffn-losses"><span class="header-section-number">5.5</span> Loss Functions and Estimation</h2>
@@ -864,7 +867,7 @@ Connection to Information Theory
 </div>
 <div class="callout-body-container callout-body">
 <p>The cross-entropy loss is not just a convenient formula — it has a direct information-theoretic foundation. Recall from the <a href="./information_theory.html#sec-mle-kl-divergence">Information Theory chapter</a> that minimizing cross-entropy between the empirical data distribution and the model is equivalent to maximum likelihood estimation, which in turn minimizes the Kullback–Leibler (KL) divergence between the two distributions. In this sense, training a neural network with cross-entropy loss is maximum likelihood estimation of a Bernoulli (or multinomial) model whose success probability is parameterized by the network.</p>
-<p>Two conditions from that chapter carry over, and it is worth being precise about them, because the loose version of this statement is false. First, the sample average <span class="math inline">L(\boldsymbol{\theta}) = \frac{1}{N}\sum_i \ell_i(\boldsymbol{\theta})</span> is a negative log-likelihood only if the <span class="math inline">y_i</span> are conditionally independent given the predictors, so that the joint likelihood factorizes into the product of the per-observation Bernoulli terms. For dependent data the corresponding object is the prediction-error decomposition, with the conditioning set <span class="math inline">\mathcal{F}_{t-1}</span> in place of <span class="math inline">x_i</span>. Second, “closest to the true conditional distribution” is a <strong>population</strong>, large-<span class="math inline">N</span> statement, not a description of what the finite-sample minimizer does: the sample criterion is close to the population one only through a law of large numbers, which requires stationarity and ergodicity rather than independence once the data are dependent. And under misspecification — the normal case for a network of fixed width — the probability limit is the <em>pseudo-true</em> parameter, the KL-closest member of the network class, not the truth itself. This is the quasi-MLE interpretation of <span class="citation" data-cites="White1982">White (<a href="#ref-White1982" role="doc-biblioref">1982</a>)</span>.</p>
+<p>Two conditions from that chapter carry over, and it is worth being precise about them, because the loose version of this statement is false. First, the sample average <span class="math inline">L(\boldsymbol{\theta}) = \frac{1}{N}\sum_i \ell_i(\boldsymbol{\theta})</span> is a negative log-likelihood only if the <span class="math inline">y_i</span> are conditionally independent given the predictors, so that the joint likelihood factorizes into the product of the per-observation Bernoulli terms. For dependent data the corresponding object is the prediction-error decomposition, with the conditioning set <span class="math inline">\mathcal{F}_{t-1}</span> in place of <span class="math inline">x_i</span>. Second, “closest to the true conditional distribution” is a <strong>population</strong>, large-<span class="math inline">N</span> statement.</p>
 </div>
 </div>
 <div class="callout callout-style-default callout-note callout-titled" title="Question for Reflection">
@@ -1016,13 +1019,13 @@ Suggested Answer
 </div>
 </div>
 <figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-gd-convex-vs-nonconvex-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Figure&nbsp;5.4: Gradient-descent paths for two scalar objectives. Left: six updates from $ heta=2.5$ with learning rate <span class="math inline">0.3</span> approach the unique minimum of <span class="math inline">L(   heta)=  heta^2</span>. Right: seven updates with learning rate <span class="math inline">0.25</span> from each of $ heta=-1$ and $ heta=0.5$ approach different minima of <span class="math inline">L(  heta)=  heta^4- heta^2+0.2  heta</span>, showing dependence on initialization.
+Figure&nbsp;5.4: Gradient-descent paths for two scalar objectives. Left: six updates from <span class="math inline">\theta=2.5</span> with learning rate <span class="math inline">0.3</span> approach the unique minimum of <span class="math inline">L(\theta)=\theta^2</span>. Right: seven updates with learning rate <span class="math inline">0.25</span> from each of <span class="math inline">\theta=-1</span> and <span class="math inline">\theta=0.5</span> approach different minima of <span class="math inline">L(\theta)=\theta^4-\theta^2+0.2\theta</span>, showing dependence on initialization.
 </figcaption>
 </figure>
 </div>
 <p><strong>Key Insights of <a href="#fig-gd-convex-vs-nonconvex" class="quarto-xref">Figure&nbsp;5.4</a>:</strong></p>
 <ul>
-<li><strong>Convex function (left):</strong> For the plotted quadratic and the step size used in the figure, every initialization converges to the unique global minimum, with step sizes naturally shrinking as the gradient norm decreases. (Convexity alone does not guarantee this for an arbitrary learning rate — gradient descent can diverge even on a quadratic if the step size is too large, as discussed in the <a href="./optimization.html">optimization chapter</a>.)</li>
+<li><strong>Convex function (left):</strong> For the plotted quadratic and the step size used in the figure, every initialization converges to the unique global minimum, with step sizes naturally shrinking as the gradient norm decreases. (Convexity alone does not guarantee this: for the quadratic plotted here the iteration is <span class="math inline">x_{k+1}=(1-2\alpha)x_k</span>, which converges only for <span class="math inline">0&lt;\alpha&lt;1</span>. The <a href="./optimization.html">optimization chapter</a> gives the general condition.)</li>
 <li><strong>Non-convex function (right):</strong> Different initializations can fall into different local minima; one of these can be worse than the global minimum.</li>
 <li><strong>Neural networks:</strong> Their highly non-convex loss landscapes make optimization sensitive to initialization and learning rate choices.</li>
 </ul>
@@ -1101,7 +1104,8 @@ Figure&nbsp;5.5: Flowchart of the gradient descent algorithm. Rectangular nodes 
 </section>
 <section id="sec-ffn-backprop" class="level2" data-number="5.6">
 <h2 data-number="5.6" class="anchored" data-anchor-id="sec-ffn-backprop"><span class="header-section-number">5.6</span> Backpropagation</h2>
-<p>We now examine how the chain rule computes the gradient with respect to <strong>all parameters</strong> in a wide multilayer network with the objects defined in <a href="#sec-def-multilayer-nn" class="quarto-xref">Section&nbsp;5.3</a>. The algorithm, popularized by <span class="citation" data-cites="RumelhartHintonWilliams1986">Rumelhart, Hinton, and Williams (<a href="#ref-RumelhartHintonWilliams1986" role="doc-biblioref">1986</a>)</span>, obtains the derivative for every weight and bias in one backward sweep that reuses intermediate quantities from the forward pass. For a weight from unit <span class="math inline">j</span> in layer <span class="math inline">l-1</span> to unit <span class="math inline">h</span> in layer <span class="math inline">l</span>, we want </p>
+<p>We now examine how the chain rule computes the gradient with respect to <strong>all parameters</strong> in a wide multilayer network with the objects defined in <a href="#sec-def-multilayer-nn" class="quarto-xref">Section&nbsp;5.3</a>. Computing the gradient naively would require a separate chain-rule calculation for each weight and bias, which is inefficient. Backpropagation solves this problem by reusing intermediate quantities from the forward pass to compute all gradients in one backward sweep.</p>
+<p>The algorithm, popularized by <span class="citation" data-cites="RumelhartHintonWilliams1986">Rumelhart, Hinton, and Williams (<a href="#ref-RumelhartHintonWilliams1986" role="doc-biblioref">1986</a>)</span>, obtains the derivative for every weight and bias in one backward sweep that reuses intermediate quantities from the forward pass. For a weight from unit <span class="math inline">j</span> in layer <span class="math inline">l-1</span> to unit <span class="math inline">h</span> in layer <span class="math inline">l</span>, we want </p>
 <div class="display-math-block">
 <p><span class="math display">
 \frac{\partial L}{\partial W_{hj}^{(l)}}
@@ -1109,7 +1113,22 @@ Figure&nbsp;5.5: Flowchart of the gradient descent algorithm. Rectangular nodes 
 \frac{\partial L}{\partial b_h^{(l)}}.
 </span></p>
 </div>
-<p>Since <span class="math inline">L</span> is the sample average of the per-observation losses, it suffices to differentiate one observation’s loss and average at the end. Throughout this section, <span class="math inline">\ell</span> denotes that one loss contribution and the observation index is suppressed; <span class="math inline">h</span>, <span class="math inline">j</span>, and <span class="math inline">m</span> index units. The sample gradient is recovered as <span class="math inline">\frac{\partial L}{\partial W_{hj}^{(l)}} = \frac{1}{N}\sum_{i=1}^{N} \frac{\partial \ell_i}{\partial W_{hj}^{(l)}}</span>.</p>
+<p>Because </p>
+<div class="display-math-block">
+<p><span class="math display">
+L(\boldsymbol{\theta})=\frac{1}{N}\sum_{i=1}^N \ell_i(\boldsymbol{\theta}),
+</span></p>
+</div>
+<p> differentiating the finite sum lets us derive the gradient for one observation and then average the resulting gradients: </p>
+<div class="display-math-block">
+<p><span class="math display">
+\frac{\partial L}{\partial W_{hj}^{(l)}}
+=
+\frac{1}{N}\sum_{i=1}^{N}
+\frac{\partial \ell_i}{\partial W_{hj}^{(l)}}.
+</span></p>
+</div>
+<p> For the one-observation derivation below, fix <span class="math inline">i</span> and suppress its index: <span class="math inline">\ell</span>, <span class="math inline">a_h^{(l)}</span>, and <span class="math inline">z_h^{(l)}</span> stand for <span class="math inline">\ell_i</span>, <span class="math inline">a_{ih}^{(l)}</span>, and <span class="math inline">z_{ih}^{(l)}</span>, respectively. The layer index <span class="math inline">l</span> remains explicit; <span class="math inline">h</span> and <span class="math inline">j</span> label connected units, while <span class="math inline">q</span> is used as a summation index over units.</p>
 <p><strong>Error Signal Definition</strong> We define the following key quantity for each unit <span class="math inline">h</span> in layer <span class="math inline">l</span>: </p>
 <div class="display-math-block">
 <p><span class="math display">\delta_h^{(l)} = \frac{\partial \ell}{\partial z_h^{(l)}}</span></p>
@@ -1153,6 +1172,19 @@ Figure&nbsp;5.5: Flowchart of the gradient descent algorithm. Rectangular nodes 
 <p><span class="math display">\boldsymbol{\delta}^{(l)} = \underbrace{\mathbf{W}^{(l+1)\top} \boldsymbol{\delta}^{(l+1)}}_{\text{reused from step } l+1} \odot \underbrace{g'^{(l)}(\mathbf{z}^{(l)})}_{\text{computed fresh at layer } l},</span></p>
 </div>
 <p>where <span class="math inline">\odot</span> denotes the element-wise (Hadamard) product. The transpose ensures that gradients “flow backward” through the same connections that data flowed forward through, but in reverse order and with transposed weight matrices.</p>
+<div class="callout callout-style-default callout-note callout-titled" title="ReLU kinks and the computed gradient">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+ReLU kinks and the computed gradient
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>Suppose the loss and all other activations are differentiable, so ReLU is the network’s only nonsmooth component. If no ReLU pre-activation for any training observation equals zero, the sample objective is differentiable at the current parameter value and the backpropagation recursion returns its ordinary gradient. If some pre-activation does equal zero, ReLU’s derivative does not exist. The composite objective may or may not be differentiable at that parameter value, but standard implementations still apply the chain rule using their assigned value for <span class="math inline">\operatorname{ReLU}'(0)</span>.</p>
+</div>
+</div>
 <div class="callout callout-style-default callout-note callout-titled" title="Question for Reflection">
 <div class="callout-header d-flex align-content-center">
 <div class="callout-icon-container">
@@ -1167,7 +1199,7 @@ Question for Reflection
 </div>
 </div>
 <div class="callout callout-style-default callout-tip callout-titled" title="Suggested Answer">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-12-contents" aria-controls="callout-12" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-13-contents" aria-controls="callout-13" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -1176,7 +1208,7 @@ Suggested Answer
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-12" class="callout-12-contents callout-collapse collapse">
+<div id="callout-13" class="callout-13-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p>Computing the gradient for a weight in layer <span class="math inline">l</span> from scratch requires propagating the derivative through every layer between the output and layer <span class="math inline">l</span> — that is, re-deriving the entire chain <span class="math inline">\delta^{(D)}, \delta^{(D-1)}, \dots, \delta^{(l)}</span>. Doing this separately for every layer means the deep parts of that chain are recomputed once for each layer below them, and the work grows with the square of the depth.</p>
 <p>The recursion avoids this because <span class="math inline">\boldsymbol{\delta}^{(l)}</span> is computed <em>once</em> from <span class="math inline">\boldsymbol{\delta}^{(l+1)}</span>, and everything above layer <span class="math inline">l</span> is already summarized in that one vector. The forward pass stored <span class="math inline">\mathbf{z}^{(l)}</span> and <span class="math inline">\mathbf{a}^{(l-1)}</span>. At layer <span class="math inline">l</span>, the backward pass evaluates <span class="math inline">g'^{(l)}</span> once at the stored <span class="math inline">\mathbf{z}^{(l)}</span> and performs one matrix-vector product with <span class="math inline">\mathbf{W}^{(l+1)\top}</span>. The gradients for <em>all</em> weights in the layer then follow from <span class="math inline">\boldsymbol{\delta}^{(l)}</span> and <span class="math inline">\mathbf{a}^{(l-1)}</span> without further propagation. This is why one backward sweep costs about the same as one forward sweep, regardless of how many parameters the layer contains.</p>
@@ -1258,7 +1290,7 @@ L(\boldsymbol\theta)
 </div>
 <p>with <span class="math inline">a_i = g(w_1 x_i + b_1)</span>. This expression can be positive or negative depending on the data and parameter values. On its own, a sign-varying cross-partial does not disprove convexity — off-diagonal entries of a PSD Hessian can take either sign — but it illustrates how parameters interact across layers, creating the curvature structure that the symmetry argument above exploits. Exercise 5.2 asks you to derive this cross-partial from the first-order gradients, and to say precisely what a sign-varying off-diagonal entry does and does not establish.</p>
 <p><strong>Connection to Econometric Concepts</strong></p>
-<p>From an econometric perspective it pays to keep three objects apart, because the claims made in the rest of this chapter attach to different ones and are not interchangeable.</p>
+<p>From an econometric perspective it pays to keep four objects apart, because the claims made in the rest of this chapter attach to different ones and are not interchangeable.</p>
 <p>The <strong>population target</strong> is the regression function</p>
 <div class="display-math-block">
 <p><span class="math display">m(\mathbf{x}) = \mathbb{E}[Y \mid \mathbf{X} = \mathbf{x}],</span></p>
@@ -1268,25 +1300,22 @@ L(\boldsymbol\theta)
 <div class="display-math-block">
 <p><span class="math display">\mathcal{M}_\Theta = \big\{\, f(\cdot\,; \boldsymbol{\theta}) \;:\; \boldsymbol{\theta} \in \Theta \,\big\},</span></p>
 </div>
-<p>where <span class="math inline">\Theta</span> denotes the set of admissible parameter vectors. At an arbitrary <span class="math inline">\boldsymbol{\theta}</span> the network is a parameterized candidate function and nothing more. No data have been used to choose <span class="math inline">\boldsymbol{\theta}</span>, so <span class="math inline">f(\cdot\,;\boldsymbol{\theta})</span> is not yet an estimator of anything.</p>
-<p>The <strong>fitted estimator</strong> appears only once the data have selected a parameter value <span class="math inline">\hat{\boldsymbol{\theta}}</span>:</p>
+<p>where <span class="math inline">\Theta</span> denotes the set of admissible parameter vectors. At an arbitrary <span class="math inline">\boldsymbol{\theta}</span> the network is a parameterized candidate function and nothing more. Since <span class="math inline">\boldsymbol{\theta}</span> is a free argument rather than a function of the sample, <span class="math inline">f(\cdot\,;\boldsymbol{\theta})</span> is not an estimator of anything.</p>
+<p>The <strong>estimator</strong> is defined by the rule that lets the sample choose the parameter value. Write <span class="math inline">\hat{\boldsymbol{\theta}}</span> for the value that this rule selects from the minimizers of the criterion below, treating any tie-breaking convention as part of the rule; because it is a function of the sample, it is a random object, and so is the fitted regression function</p>
 <div class="display-math-block">
 <p><span class="math display">\widehat m(\mathbf{x}) := f(\mathbf{x}; \hat{\boldsymbol{\theta}}).</span></p>
 </div>
-<p>This is the data-dependent object, and it is the one that estimates the unknown regression function <span class="math inline">m</span>. (We continue to write <span class="math inline">\hat y</span> and <span class="math inline">\hat y_i</span> for the network’s output at whatever parameter value is currently held — during optimization, that is not <span class="math inline">\hat{\boldsymbol{\theta}}</span> — and reserve <span class="math inline">\widehat m</span> for the fitted estimator.)</p>
-<p><strong>Correct specification</strong> means <span class="math inline">m \in \mathcal{M}_\Theta</span>: the target is exactly representable by some parameter value in the class. It does <em>not</em> mean <span class="math inline">\widehat m = m</span>. Even under correct specification the two differ in any finite sample, because <span class="math inline">\hat{\boldsymbol{\theta}}</span> is computed from noisy data and estimation error remains. Under misspecification, <span class="math inline">m \notin \mathcal{M}_\Theta</span>, and an approximation error is present on top of the estimation error — the gap that the universal approximation theorem addresses by letting the class grow, and that the sieve discussion in <a href="#sec-ffn-activations" class="quarto-xref">Section&nbsp;5.4</a> sets against the resulting rise in estimation uncertainty.</p>
-<p>The estimation problem that produces <span class="math inline">\hat{\boldsymbol{\theta}}</span> is:</p>
+<p>So <span class="math inline">\widehat m</span> is an estimator of <span class="math inline">m</span> in the ordinary sense: a rule mapping a sample to a function, random because the sample is. The one curve it returns on the dataset in front of us is the corresponding estimate. The distinction earns its keep below, because claims about sampling variability are claims about the rule, not about the single curve we happen to have drawn. (We continue to write <span class="math inline">\hat y</span> and <span class="math inline">\hat y_i</span> for the network’s output at whatever parameter value is currently held — during optimization, that is not <span class="math inline">\hat{\boldsymbol{\theta}}</span> — and reserve <span class="math inline">\widehat m</span> for the fitted estimator.)</p>
+<p><strong>Correct specification</strong> means <span class="math inline">m \in \mathcal{M}_\Theta</span>: the target is exactly representable by some parameter value in the class. It does <em>not</em> mean <span class="math inline">\widehat m = m</span>. Even under correct specification the two differ in any finite sample, because <span class="math inline">\hat{\boldsymbol{\theta}}</span> is computed from noisy data and estimation error remains. Under misspecification, <span class="math inline">m \notin \mathcal{M}_\Theta</span>, and an approximation error is present on top of the estimation error.</p>
+<p>The estimation rule selects a minimizer of the sample loss:</p>
 <div class="display-math-block">
-<p><span class="math display">\hat{\boldsymbol{\theta}} = \arg\min_{\boldsymbol{\theta}} \frac{1}{N} \sum_{i=1}^N \ell\big(y_i, f(\mathbf{x}_i; \boldsymbol{\theta})\big) + \lambda P(\boldsymbol{\theta})</span></p>
+<p><span class="math display">
+\hat{\boldsymbol{\theta}} \in \arg\min_{\boldsymbol{\theta}}
+\frac{1}{N} \sum_{i=1}^N
+\ell\big(y_i, f(\mathbf{x}_i; \boldsymbol{\theta})\big),
+</span></p>
 </div>
-<p>where:</p>
-<ul>
-<li><span class="math inline">\ell(\cdot, \cdot)</span> is a loss function (e.g., squared loss, cross-entropy)</li>
-<li><span class="math inline">P(\boldsymbol{\theta})</span> is a regularization penalty (e.g., an <span class="math inline">L_1</span> or <span class="math inline">L_2</span> penalty; we write <span class="math inline">P</span> rather than <span class="math inline">R</span>, which is reserved for the generalization risk)</li>
-<li><span class="math inline">\lambda</span> is the regularization parameter</li>
-</ul>
-<p>The subscripts on <span class="math inline">L_1</span> and <span class="math inline">L_2</span> name norms, not losses. This is the one place where the letter <span class="math inline">L</span> does double duty in this chapter, so read a numeric subscript as a norm index and the argument form <span class="math inline">L(\boldsymbol{\theta})</span>, or a word subscript as in <span class="math inline">L_{\text{total}}</span> below, as the criterion being minimized.</p>
-<p>This formulation directly parallels <strong>regularized regression</strong>, where the same squared-loss-plus-penalty structure is applied to a linear model: <em>ridge</em> regression uses the <span class="math inline">L_2</span> penalty <span class="math inline">\lambda\sum_j \theta_j^2</span>, <em>lasso</em> the <span class="math inline">L_1</span> penalty <span class="math inline">\lambda\sum_j |\theta_j|</span>, and the <em>elastic net</em> a weighted combination of the two. The distinction between them is what the penalty does to small coefficients — <span class="math inline">L_2</span> shrinks them smoothly toward zero, <span class="math inline">L_1</span> can set them exactly to zero and therefore also selects variables. Only the penalty term carries over unchanged to networks; what does not carry over is everything that depends on linearity in <span class="math inline">\boldsymbol{\theta}</span>, including the closed-form ridge solution and the convexity of the criterion.</p>
+<p>where <span class="math inline">\ell</span> is the loss appropriate to the prediction problem, such as squared loss or cross-entropy. This is the same sample-average criterion introduced above, now written in terms of the full network <span class="math inline">f</span>.</p>
 <p><strong>Non-identification of <span class="math inline">\boldsymbol{\theta}</span>.</strong> The <span class="math inline">\arg\min</span> above should be read as a <em>set</em>, not a point. The symmetry argument in this section already shows that a sigmoid unit and its mirror image give the same fitted function and hence the same loss. A second, more general source of multiplicity appears in a layer with <span class="math inline">H&gt;1</span> units: permuting the units together with their incoming and outgoing weights leaves the network’s output unchanged. This operation generates up to <span class="math inline">H!</span> parameter vectors, which are distinct except at parameter values that themselves have symmetries. The map from parameters to functions is therefore many-to-one, and <span class="math inline">\boldsymbol{\theta}</span> is <strong>not identified</strong>, even in population and with infinite data.</p>
 <p>This has a concrete consequence that matters more in econometrics than in machine learning: an individual estimated weight has no structural interpretation, and a standard error attached to it is not interpretable the way an OLS coefficient’s standard error is. The fitted prediction function is invariant to these unit relabelings, so it is the economically relevant object. Invariance alone does not make the fitted function unique: distinct functions can attain the same minimum sample loss. At the population level, identifying the regression function as a unique risk minimizer additionally requires the usual uniqueness and support conditions. These qualifications are why the chapter evaluates predictions out of sample rather than interpreting individual weights.</p>
 <p>One further caution belongs here, because the slide from one to the other is easy to make. Even a network that predicts well out of sample gives <span class="math inline">\hat{\boldsymbol{\theta}}</span> no causal interpretation. Good predictive performance is evidence that <span class="math inline">\widehat m</span> approximates the conditional mean <span class="math inline">m</span> under the distribution that generated the data; it is not evidence about what would happen to <span class="math inline">Y</span> if a predictor were intervened on. The non-identification just described sharpens the point: individual weights cannot carry a structural reading in the first place, so there is nothing for a causal interpretation to attach to.</p>
@@ -1315,21 +1344,14 @@ L(\boldsymbol\theta)
 </ul>
 <p><strong>3. Training Process</strong></p>
 <ul>
-<li>Use Adam or another mini-batch optimizer as a practical baseline</li>
+<li>Use Adam or another mini-batch optimizer as a practical baseline; the <a href="./optimization.html">optimization chapter</a> explains these update rules and their tuning parameters</li>
 <li>Monitor both training and validation loss</li>
 <li>Treat the learning rate and batch size as tuning choices rather than fixed defaults</li>
 </ul>
 <p><strong>4. Iteration and Refinement</strong></p>
 <ul>
-<li><strong>Overfitting</strong>: If training loss keeps falling while validation loss begins to rise, add regularization, simplify the architecture, or stop at the best validation iteration</li>
-<li><strong>Underfitting</strong>: If both training and validation losses remain poor relative to a simple benchmark, increase model capacity or continue training before adding regularization</li>
-</ul>
-<p><strong>Regularization Techniques</strong></p>
-<p>We do not develop the theoretical properties of these methods in this book, but it is useful to recognize the terminology and the role each method plays.</p>
-<ul>
-<li><strong><span class="math inline">L_2</span> Penalty (Ridge-Type Regularization):</strong> <span class="math display">L_{\text{total}} = L_{\text{original}} + \lambda \sum_{l=1}^{D} ||\mathbf{W}^{(l)}||_F^2</span> Here, we penalize weights becoming too large in Frobenius norm (the Euclidean norm of all matrix entries stacked into one vector). An <span class="math inline">L_2</span> penalty on the network weights is the nonlinear-model analogue of ridge-type regularization <span class="citation" data-cites="HoerlKennard1970">(<a href="#ref-HoerlKennard1970" role="doc-biblioref">Hoerl and Kennard 1970</a>)</span>: it shrinks parameters toward zero, although, unlike in ridge regression, the model remains nonlinear in the parameters and the penalized criterion remains non-convex, so there is no closed-form solution; penalties also commonly exclude the biases. The related but distinct mechanism of <strong>weight decay</strong> shrinks the weights directly in the optimizer’s update step, which is not always identical to adding an <span class="math inline">L_2</span> term to the loss (recall AdamW from the <a href="./optimization.html">optimization chapter</a>).</li>
-<li><strong>Dropout</strong> <span class="citation" data-cites="Srivastava2014">(<a href="#ref-Srivastava2014" role="doc-biblioref">Srivastava et al. 2014</a>)</span><strong>:</strong> During training, each unit in a layer is set to zero <em>independently</em> with probability <span class="math inline">1-p</span>, where <span class="math inline">p</span> is the retention probability. The number of units dropped is therefore binomial, not a fixed fraction. At test time nothing is dropped; to leave the expected input to the next layer unchanged, activations are multiplied by <span class="math inline">p</span> at test time, or equivalently divided by <span class="math inline">p</span> during training (the “inverted dropout” form used in most implementations). Beware a convention clash: <span class="citation" data-cites="Srivastava2014">Srivastava et al. (<a href="#ref-Srivastava2014" role="doc-biblioref">2014</a>)</span> write <span class="math inline">p</span> for the retention probability, whereas Keras’s <code>Dropout(rate)</code> and comparable application programming interfaces (APIs) take the <em>drop</em> probability <span class="math inline">1-p</span>.</li>
-<li><strong>Early Stopping:</strong> Monitor validation loss and stop when it starts increasing</li>
+<li><strong>Overfitting</strong>: If training loss keeps falling while validation loss begins to rise, simplify the architecture or stop at the best validation iteration</li>
+<li><strong>Underfitting</strong>: If both training and validation losses remain poor relative to a simple benchmark, increase model capacity or continue training</li>
 </ul>
 </section>
 <section id="summary" class="level2" data-number="5.10">
@@ -1345,13 +1367,11 @@ Key Takeaways
 </div>
 <div class="callout-body-container callout-body">
 <ol type="1">
-<li>A feed-forward neural network specifies a flexible model class of nonlinear regression or classification functions whose basis functions are learned from the data rather than fixed in advance. The fitted network is an estimator of the unknown regression function; the architecture on its own is not.</li>
-<li>Activation functions are essential because without them, stacking layers would collapse to a single linear transformation.</li>
-<li>The universal approximation theorem gives an existence result, not a practical recipe for architecture choice or optimization.</li>
-<li>Estimation is based on minimizing a loss function such as mean squared error or cross-entropy, with cross-entropy linking neural-network training back to likelihood and information theory.</li>
-<li>Backpropagation is an efficient application of the chain rule that makes gradient-based training feasible even in multilayer networks.</li>
-<li>Neural-network optimization is non-convex, so initialization, learning rates, regularization, and validation strategy matter much more than in standard linear models.</li>
-<li>In econometric applications, the main question is not whether a network is flexible enough, but whether that flexibility improves out-of-sample performance in a way that justifies the added complexity.</li>
+<li>A feed-forward neural network defines a model class by composing affine transformations and nonlinear activation functions.</li>
+<li>The output activation and loss must match the prediction problem: regression, binary classification, or multi-class classification.</li>
+<li>Universal approximation is an existence result; it neither chooses an architecture nor guarantees successful estimation.</li>
+<li>Backpropagation computes gradients efficiently, but the non-convex objective makes initialization, learning rates, and validation consequential.</li>
+<li>Fitting defines an estimator of the prediction function, while individual weights are not identified and have no structural or causal interpretation; judge the fitted function by its out-of-sample performance against simpler benchmarks.</li>
 </ol>
 </div>
 </div>
@@ -1366,13 +1386,9 @@ Common Pitfalls
 </div>
 <div class="callout-body-container callout-body">
 <ul>
-<li>Treating neural networks as automatic improvements over linear or regularized econometric benchmarks.</li>
-<li>Using a deep or wide architecture before checking whether a much simpler specification already captures the predictive signal.</li>
-<li>Treating architecture as a free choice made once and never validated, rather than as one more tuning dimension that has to be selected out of sample like any other.</li>
-<li>Assuming that more depth is better. In the return-prediction exercise of <span class="citation" data-cites="GuKellyXiu2020">Gu, Kelly, and Xiu (<a href="#ref-GuKellyXiu2020" role="doc-biblioref">2020</a>)</span>, performance deteriorates beyond about three hidden layers; in the volatility-forecasting exercise of <span class="citation" data-cites="ChristensenSiggardVeliyev2023">Christensen, Siggaard, and Veliyev (<a href="#ref-ChristensenSiggardVeliyev2023" role="doc-biblioref">2023</a>)</span>, even a shallow network beats the HAR benchmark.</li>
-<li>Ignoring scale normalization, which can make optimization unnecessarily unstable.</li>
-<li>Evaluating performance only on the training sample instead of using a validation strategy that respects the econometric data structure.</li>
-<li>For time-series forecasting: shuffling the raw series before constructing lagged inputs, or randomizing the chronological train-validation-test split, leaks future information. (Shuffling already-built training examples within the training block is leakage-neutral — it only changes batch composition; see the <a href="./nn_example.html">empirical chapter</a>.)</li>
+<li>Interpreting individual network weights as identified coefficients or causal effects.</li>
+<li>Assuming that a wider or deeper network must improve prediction instead of validating architecture choices against a simpler benchmark.</li>
+<li>Letting evaluation-period information enter training, for example by fitting the scaler on the full sample or randomizing a chronological train-validation-test split.</li>
 </ul>
 </div>
 </div>
@@ -1411,7 +1427,7 @@ f(x)=b^{(2)}+\sum_{j=1}^{K+2} w_j^{(2)}\,\mathrm{ReLU}(w_j^{(1)}x+b_j^{(1)}),
 </div>
 </div>
 <div class="callout callout-style-default callout-warning callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-17-contents" aria-controls="callout-17" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-18-contents" aria-controls="callout-18" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -1420,14 +1436,14 @@ Hint for Part 1
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-17" class="callout-17-contents callout-collapse collapse">
+<div id="callout-18" class="callout-18-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p>Differentiate <span class="math inline">(x-c_j)_+</span> separately on the regions <span class="math inline">x&lt;c_j</span> and <span class="math inline">x&gt;c_j</span>.</p>
 </div>
 </div>
 </div>
 <div class="callout callout-style-default callout-warning callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-18-contents" aria-controls="callout-18" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-19-contents" aria-controls="callout-19" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -1436,7 +1452,7 @@ Hint for Part 2
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-18" class="callout-18-contents callout-collapse collapse">
+<div id="callout-19" class="callout-19-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p>Use <span class="math inline">\mathrm{ReLU}(x-c_j)=(x-c_j)_+</span>. Also note that </p>
 <div class="display-math-block">
@@ -1448,7 +1464,7 @@ x=\mathrm{ReLU}(x)-\mathrm{ReLU}(-x).
 </div>
 </div>
 <div class="callout callout-style-default callout-warning callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-19-contents" aria-controls="callout-19" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-20-contents" aria-controls="callout-20" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -1457,14 +1473,14 @@ Hint for Part 3
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-19" class="callout-19-contents callout-collapse collapse">
+<div id="callout-20" class="callout-20-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p>In the construction of Part 2, most of the input-to-hidden weights and biases are pinned down by the knots rather than estimated. Ask which of <span class="math inline">w_j^{(1)}</span>, <span class="math inline">b_j^{(1)}</span>, <span class="math inline">w_j^{(2)}</span>, and <span class="math inline">b^{(2)}</span> are still free in each of the two cases. For the last step, note that the function classes are nested as <span class="math inline">K</span> grows.</p>
 </div>
 </div>
 </div>
 <div class="callout callout-style-default callout-tip callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-20-contents" aria-controls="callout-20" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-21-contents" aria-controls="callout-21" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -1473,7 +1489,7 @@ Solution
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-20" class="callout-20-contents callout-collapse collapse">
+<div id="callout-21" class="callout-21-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p><strong>Part 1: Piecewise-Linear Slopes</strong></p>
 <p>For each <span class="math inline">j</span>, </p>
@@ -1626,11 +1642,11 @@ L(\boldsymbol{\theta}) = \frac{1}{2N} \sum_{i=1}^N (y_i - f(x_i; \boldsymbol{\th
 <li>Explain why this estimation problem is not equivalent to ordinary least squares, even though both problems minimize squared loss. Your answer should refer to the role of the hidden nonlinearity and the resulting optimization landscape. Assume that some non-constant network fit has strictly lower loss than every constant fit. Use the mirror symmetry from <a href="#sec-ffn-nonconvexity" class="quarto-xref">Section&nbsp;5.7</a> to give a valid argument for non-convexity rather than inferring it from nonlinearity in the parameters alone.</li>
 <li>Assume <span class="math inline">w_1w_2\neq0</span>. State the shape restrictions this one-unit network imposes on the fitted Engel curve relating log consumption to log income, and name one economically plausible pattern it therefore cannot represent. Briefly say what changes if <span class="math inline">w_1w_2=0</span>.</li>
 </ol>
-<p><em>Exam level. The exercise works through the first- and second-order derivatives of the simplest possible network, studies saturation, distinguishes neural-network estimation from OLS, and interprets the model’s shape restrictions. Part 2 also tests logical care: it asks students to resist an inference that looks natural but does not follow.</em></p>
+<p><em>Exam level, deliberately long as a whole. Parts 1–3 form a derivatives-and-saturation question, while Parts 4–5 form a separate non-convexity-and-interpretation question; the two groups can be assigned independently.</em></p>
 </div>
 </div>
 <div class="callout callout-style-default callout-warning callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-22-contents" aria-controls="callout-22" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-23-contents" aria-controls="callout-23" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -1639,7 +1655,7 @@ Hint for Part 1
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-22" class="callout-22-contents callout-collapse collapse">
+<div id="callout-23" class="callout-23-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <ul>
 <li><p>Start with the loss function <span class="math inline">L(\boldsymbol{\theta}) = \frac{1}{2N} \sum_{i=1}^N (y_i - f(x_i; \boldsymbol{\theta}))^2</span>.</p>
@@ -1652,7 +1668,7 @@ Hint for Part 1
 </div>
 </div>
 <div class="callout callout-style-default callout-warning callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-23-contents" aria-controls="callout-23" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-24-contents" aria-controls="callout-24" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -1661,30 +1677,11 @@ Hint for Part 2
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-23" class="callout-23-contents callout-collapse collapse">
+<div id="callout-24" class="callout-24-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <ul>
 <li>Differentiate <span class="math inline">\frac{\partial L}{\partial w_2} = -\frac{1}{N}\sum_i r_i a_i</span> with respect to <span class="math inline">w_1</span> using the product rule. Both factors depend on <span class="math inline">w_1</span>: <span class="math inline">a_i</span> directly, and <span class="math inline">r_i</span> through the fitted value.</li>
 <li>For the second question, recall the characterization of convexity used in <a href="#sec-ffn-nonconvexity" class="quarto-xref">Section&nbsp;5.7</a>, and ask what a positive semidefinite matrix does and does not restrict about its <em>off-diagonal</em> entries.</li>
-</ul>
-</div>
-</div>
-</div>
-<div class="callout callout-style-default callout-warning callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-24-contents" aria-controls="callout-24" aria-expanded="false" aria-label="Toggle callout">
-<div class="callout-icon-container">
-<i class="callout-icon"></i>
-</div>
-<div class="callout-title-container flex-fill">
-Hint for Part 3
-</div>
-<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
-</div>
-<div id="callout-24" class="callout-24-contents callout-collapse collapse">
-<div class="callout-body-container callout-body">
-<ul>
-<li>For the sigmoid, write <span class="math inline">u=g(z)</span> and maximize <span class="math inline">u(1-u)</span> over <span class="math inline">u \in (0,1)</span>.</li>
-<li>Then apply the triangle inequality to the hidden-layer gradients.</li>
 </ul>
 </div>
 </div>
@@ -1695,18 +1692,37 @@ Hint for Part 3
 <i class="callout-icon"></i>
 </div>
 <div class="callout-title-container flex-fill">
-Hint for Parts 4 and 5
+Hint for Part 3
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
 <div id="callout-25" class="callout-25-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
+<ul>
+<li>For the sigmoid, write <span class="math inline">u=g(z)</span> and maximize <span class="math inline">u(1-u)</span> over <span class="math inline">u \in (0,1)</span>.</li>
+<li>Then apply the triangle inequality to the hidden-layer gradients.</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="callout callout-style-default callout-warning callout-titled">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-26-contents" aria-controls="callout-26" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+Hint for Parts 4 and 5
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-26" class="callout-26-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p>For Part 4, compare a parameter vector and its mirror image with their midpoint, which represents a constant function. For Part 5, differentiate <span class="math inline">f(x;\boldsymbol\theta)</span> with respect to <span class="math inline">x</span> and use <span class="math inline">g'(z)&gt;0</span>.</p>
 </div>
 </div>
 </div>
 <div class="callout callout-style-default callout-tip callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-26-contents" aria-controls="callout-26" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-27-contents" aria-controls="callout-27" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -1715,7 +1731,7 @@ Solution
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-26" class="callout-26-contents callout-collapse collapse">
+<div id="callout-27" class="callout-27-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p><strong>Part 1: Gradients and Updates</strong></p>
 <p>The loss function is: </p>
@@ -1885,7 +1901,12 @@ p_i = \Pr(y_i=1 \mid x_i) = \sigma(z_i),
 \sigma(z)=\frac{1}{1+e^{-z}},
 </span></p>
 </div>
-<p> where <span class="math inline">z_i</span> is the network’s output-layer pre-activation at input <span class="math inline">x_i</span> (the real-valued score before the sigmoid). Assume throughout that <span class="math inline">y_1,\dots,y_N</span> are <strong>conditionally independent</strong> given <span class="math inline">x_1,\dots,x_N</span>.</p>
+<p> where <span class="math inline">z_i</span> is the network’s output-layer pre-activation at input <span class="math inline">x_i</span> (the real-valued score before the sigmoid). Write <span class="math inline">x_{1:N}=(x_1,\dots,x_N)</span> for the full collection of predictors. Assume throughout that, conditional on <span class="math inline">x_{1:N}</span>, the outcomes are independent Bernoulli variables with </p>
+<div class="display-math-block">
+<p><span class="math display">
+\Pr(y_i=1\mid x_{1:N})=\Pr(y_i=1\mid x_i)=p_i.
+</span></p>
+</div>
 <ol type="1">
 <li>Show that the negative Bernoulli log-likelihood contribution of observation <span class="math inline">i</span> is <span class="math display">
 \ell_i(\boldsymbol{\theta})
@@ -1901,7 +1922,7 @@ p_i = \Pr(y_i=1 \mid x_i) = \sigma(z_i),
 </div>
 </div>
 <div class="callout callout-style-default callout-warning callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-28-contents" aria-controls="callout-28" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-29-contents" aria-controls="callout-29" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -1910,7 +1931,7 @@ Hint for Part 2
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-28" class="callout-28-contents callout-collapse collapse">
+<div id="callout-29" class="callout-29-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <ul>
 <li>Use the chain rule <span class="math display">
@@ -1924,7 +1945,7 @@ Hint for Part 2
 </div>
 </div>
 <div class="callout callout-style-default callout-warning callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-29-contents" aria-controls="callout-29" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-30-contents" aria-controls="callout-30" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -1933,7 +1954,7 @@ Hint for Part 3
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-29" class="callout-29-contents callout-collapse collapse">
+<div id="callout-30" class="callout-30-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <ul>
 <li>The chain rule runs through <span class="math inline">p_i</span> in exactly the same way as in Part 2; only <span class="math inline">\partial \ell_i / \partial p_i</span> changes.</li>
@@ -1943,7 +1964,7 @@ Hint for Part 3
 </div>
 </div>
 <div class="callout callout-style-default callout-tip callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-30-contents" aria-controls="callout-30" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-31-contents" aria-controls="callout-31" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -1952,10 +1973,10 @@ Solution
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-30" class="callout-30-contents callout-collapse collapse">
+<div id="callout-31" class="callout-31-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p><strong>Part 1: From Bernoulli Likelihood to Cross-Entropy</strong></p>
-<p>Conditional on <span class="math inline">x_i</span>, the outcome <span class="math inline">y_i</span> is Bernoulli with success probability <span class="math inline">p_i</span>, so its probability mass function is <span class="math inline">p_i^{y_i}(1-p_i)^{1-y_i}</span> — this step needs no independence assumption, since it concerns a single observation. Taking logs and negating gives the observation-level negative log-likelihood </p>
+<p>By the maintained full conditional specification, conditional on <span class="math inline">x_{1:N}</span> the marginal distribution of <span class="math inline">y_i</span> is Bernoulli with success probability <span class="math inline">p_i</span>, so its probability mass function is <span class="math inline">p_i^{y_i}(1-p_i)^{1-y_i}</span>. This marginal step uses the assumption that conditioning on the other predictors does not change the success probability; it does not yet use independence across outcomes. Taking logs and negating gives the observation-level negative log-likelihood </p>
 <div class="display-math-block">
 <p><span class="math display">
 \ell_i(\boldsymbol{\theta})
@@ -1963,7 +1984,7 @@ Solution
 -\left[y_i \log p_i + (1-y_i)\log(1-p_i)\right].
 </span></p>
 </div>
-<p>Conditional independence is what licenses the <em>next</em> step. It lets the joint conditional likelihood factorize into a product of the individual Bernoulli terms, </p>
+<p>Conditional independence licenses the <em>next</em> step. It lets the joint likelihood conditional on <span class="math inline">x_{1:N}</span> factorize into a product of the individual Bernoulli terms, </p>
 <div class="display-math-block">
 <p><span class="math display">
 \prod_{i=1}^N p_i^{y_i}(1-p_i)^{1-y_i},
@@ -1978,7 +1999,7 @@ L(\boldsymbol{\theta})
 -\frac{1}{N}\sum_{i=1}^N \left[y_i \log p_i + (1-y_i)\log(1-p_i)\right]
 </span></p>
 </div>
-<p> is exactly <span class="math inline">1/N</span> times the negative log-likelihood — and is exactly the binary cross-entropy loss displayed in the chapter. Without conditional independence the individual terms remain valid Bernoulli contributions, but their sum is no longer the joint log-likelihood, and the maximum-likelihood interpretation of the minimizer is lost. This matters for the binary outcomes econometricians typically care about, such as recession indicators or the sign of an asset return, which are serially dependent; there the appropriate object is the prediction-error decomposition, conditioning each term on the past rather than on <span class="math inline">x_i</span> alone.</p>
+<p> is exactly <span class="math inline">1/N</span> times the negative log-likelihood — and is exactly the binary cross-entropy loss displayed in the chapter. Without the full conditional specification — both the Bernoulli marginals and their factorization — the sum can still be used as a prediction loss or composite criterion, but it is not generally the joint negative log-likelihood. This matters for binary outcomes such as recession indicators or the sign of an asset return, which may be serially dependent; a likelihood can instead be built through the prediction-error decomposition, conditioning each term on the relevant history.</p>
 <p><strong>Part 2: Derivative with Respect to the Logit</strong></p>
 <p>First, </p>
 <div class="display-math-block">
@@ -2057,9 +2078,6 @@ Goodfellow, Ian, Yoshua Bengio, and Aaron Courville. 2016. <em><span>Deep Learni
 <div id="ref-GuKellyXiu2020" class="csl-entry" role="listitem">
 Gu, Shihao, Bryan Kelly, and Dacheng Xiu. 2020. <span>“<span class="nocase">Empirical asset pricing via machine learning</span>.”</span> <em>Review of Financial Studies</em> 33 (5): 2223–73. <a href="https://doi.org/10.1093/rfs/hhaa009">https://doi.org/10.1093/rfs/hhaa009</a>.
 </div>
-<div id="ref-HoerlKennard1970" class="csl-entry" role="listitem">
-Hoerl, Arthur E., and Robert W. Kennard. 1970. <span>“Ridge Regression: Biased Estimation for Nonorthogonal Problems.”</span> <em>Technometrics</em> 12 (1): 55–67. <a href="https://doi.org/10.1080/00401706.1970.10488634">https://doi.org/10.1080/00401706.1970.10488634</a>.
-</div>
 <div id="ref-Hornik1991" class="csl-entry" role="listitem">
 Hornik, Kurt. 1991. <span>“<span class="nocase">Approximation capabilities of multilayer feedforward networks</span>.”</span> <em>Neural Networks</em> 4 (2): 251–57. <a href="https://doi.org/10.1016/0893-6080(91)90009-T">https://doi.org/10.1016/0893-6080(91)90009-T</a>.
 </div>
@@ -2072,14 +2090,8 @@ Richardson, Adam, Thomas van Florenstein Mulder, and Tuğrul Vehbi. 2021. <span>
 <div id="ref-RumelhartHintonWilliams1986" class="csl-entry" role="listitem">
 Rumelhart, David E., Geoffrey E. Hinton, and Ronald J. Williams. 1986. <span>“Learning Representations by Back-Propagating Errors.”</span> <em>Nature</em> 323: 533–36. <a href="https://doi.org/10.1038/323533a0">https://doi.org/10.1038/323533a0</a>.
 </div>
-<div id="ref-Srivastava2014" class="csl-entry" role="listitem">
-Srivastava, Nitish, Geoffrey Hinton, Alex Krizhevsky, Ilya Sutskever, and Ruslan Salakhutdinov. 2014. <span>“Dropout: A Simple Way to Prevent Neural Networks from Overfitting.”</span> <em>Journal of Machine Learning Research</em> 15 (1): 1929–58.
-</div>
-<div id="ref-White1982" class="csl-entry" role="listitem">
-White, Halbert. 1982. <span>“Maximum Likelihood Estimation of Misspecified Models.”</span> <em>Econometrica</em> 50 (1): 1–25. <a href="https://doi.org/10.2307/1912526">https://doi.org/10.2307/1912526</a>.
-</div>
 <div id="ref-White1990" class="csl-entry" role="listitem">
-———. 1990. <span>“Connectionist Nonparametric Regression: Multilayer Feedforward Networks Can Learn Arbitrary Mappings.”</span> <em>Neural Networks</em> 3 (5): 535–49. <a href="https://doi.org/10.1016/0893-6080(90)90004-5">https://doi.org/10.1016/0893-6080(90)90004-5</a>.
+White, Halbert. 1990. <span>“Connectionist Nonparametric Regression: Multilayer Feedforward Networks Can Learn Arbitrary Mappings.”</span> <em>Neural Networks</em> 3 (5): 535–49. <a href="https://doi.org/10.1016/0893-6080(90)90004-5">https://doi.org/10.1016/0893-6080(90)90004-5</a>.
 </div>
 </div>
 
