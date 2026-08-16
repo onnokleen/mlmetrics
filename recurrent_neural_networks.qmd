@@ -124,7 +124,7 @@ The left panel in @fig-rnn-side-by-side shows the compact representation: a recu
 
 At each time step $t$, define:
 
--   $\mathbf{x}_t \in \mathbb{R}^{D}$: The input vector at the current time step (e.g., today's stock returns and trading volume); $D$ is the per-period input dimension — the same role played by $p$ in Chapter 5.
+-   $\mathbf{x}_t \in \mathbb{R}^{p}$: The input vector at the current time step (e.g., today's stock returns and trading volume); $p$ is the per-period input dimension, as in the feed-forward chapter.
 -   $\mathbf{h}_{t-1}  \in \mathbb{R}^{H}$: The hidden state from the *previous* time step, which acts as the network's memory of the past.
 -   $\mathbf{h}_t  \in \mathbb{R}^{H}$: The *new* hidden state, calculated by combining the current input $\mathbf{x}_t$ with the previous state $\mathbf{h}_{t-1}$.
 -   $\hat{\mathbf{y}}_t \in \mathbb{R}^{O}$: The output at the current time step (e.g., the prediction for tomorrow's volatility), produced from the current hidden state. The hat marks it as a model output rather than an observed quantity.
@@ -141,7 +141,7 @@ $$
 with $\mathbf{h}_0$ fixed by convention, typically $\mathbf{h}_0 = \mathbf{0}$, since the state recursion is otherwise undefined at $t=1$, and with the following parameters:
 
   - $\mathbf{W}_{hh} \in \mathbb{R}^{H \times H}$ (hidden-to-hidden weights)
-  - $\mathbf{W}_{xh} \in \mathbb{R}^{H \times D}$ (input-to-hidden weights)
+  - $\mathbf{W}_{xh} \in \mathbb{R}^{H \times p}$ (input-to-hidden weights)
   - $\mathbf{W}_{hy} \in \mathbb{R}^{O \times H}$ (hidden-to-output weights)
   - $\mathbf{b}_h \in \mathbb{R}^{H}$, $\mathbf{b}_y \in \mathbb{R}^{O}$ (bias terms)
 
@@ -227,14 +227,14 @@ The core idea of BPTT is to **unroll** the network through time, as shown in @fi
 
 For clarity, the chapter specializes to a single terminal loss evaluated at the terminal step $T$, written in the forecasting convention: the step-$T$ output is scored against the outcome it forecasts,
 $$
-\mathcal{L}_T = \ell(y_{T+1}, \hat{\mathbf{y}}_T),
+L_T = \ell(y_{T+1}, \hat{\mathbf{y}}_T),
 $$
-with the observed target first and the network output second, as in the [feed-forward networks chapter](feed_forward_nns.qmd). As there, we write $\mathcal{L}$ rather than $L$ for loss objectives in the network chapters, because $L$ denotes the number of layers. The sequence-to-sequence case with per-step losses $\sum_{t} \ell(y_{t+1}, \hat{\mathbf{y}}_t)$ sums analogously over the terms below. If the loss is evaluated at the final time $T$, the gradient for a recurrent weight matrix is the sum of its contributions across time. For example, the gradient with respect to $\mathbf{W}_{hh}$ can be written schematically as:
+with the observed target first and the network output second, as in the [feed-forward networks chapter](feed_forward_nns.qmd). The sequence-to-sequence case with per-step losses $\sum_{t} \ell(y_{t+1}, \hat{\mathbf{y}}_t)$ sums analogously over the terms below. If the loss is evaluated at the final time $T$, the gradient for a recurrent weight matrix is the sum of its contributions across time. For example, the gradient with respect to $\mathbf{W}_{hh}$ can be written schematically as:
 $$
-\frac{\partial \mathcal{L}_T}{\partial \mathbf{W}_{hh}}=\sum_{t=1}^{T}\frac{\partial \mathcal{L}_T}{\partial \mathbf{h}_t}\frac{\partial \mathbf{h}_t}{\partial \mathbf{W}_{hh}}
+\frac{\partial L_T}{\partial \mathbf{W}_{hh}}=\sum_{t=1}^{T}\frac{\partial L_T}{\partial \mathbf{h}_t}\frac{\partial \mathbf{h}_t}{\partial \mathbf{W}_{hh}}
 $$
 
-In this decomposition, $\partial \mathbf{h}_t/\partial \mathbf{W}_{hh}$ denotes the *local* derivative of the step-$t$ update with $\mathbf{h}_{t-1}$ held fixed; the dependence of $\mathbf{h}_{t-1}$ itself on $\mathbf{W}_{hh}$ is not part of this factor — those paths are collected by the other summands. Without this convention the sum would double-count. The term $\frac{\partial \mathcal{L}_T}{\partial \mathbf{h}_t}$ captures how an adjustment to the hidden state at an early time $t$ affects the final loss at time $T$. This requires propagating the gradient backwards through every intermediate step, leading to a long product of Jacobian matrices:
+In this decomposition, $\partial \mathbf{h}_t/\partial \mathbf{W}_{hh}$ denotes the *local* derivative of the step-$t$ update with $\mathbf{h}_{t-1}$ held fixed; the dependence of $\mathbf{h}_{t-1}$ itself on $\mathbf{W}_{hh}$ is not part of this factor — those paths are collected by the other summands. Without this convention the sum would double-count. The term $\frac{\partial L_T}{\partial \mathbf{h}_t}$ captures how an adjustment to the hidden state at an early time $t$ affects the final loss at time $T$. This requires propagating the gradient backwards through every intermediate step, leading to a long product of Jacobian matrices:
 $$
 \frac{\partial \mathbf{h}_t}{\partial \mathbf{h}_k}
 = \frac{\partial \mathbf{h}_t}{\partial \mathbf{h}_{t-1}}\,
@@ -257,9 +257,9 @@ The same product can also grow, in which case gradients **explode** rather than 
 
 ## From One Series to Training Windows {#sec-rnn-windows}
 
-The derivations above treat one sequence of length $T$ with a single terminal loss. Estimation practice starts from something less tidy: one long time series of, say, $n$ observations, from which the training sequences must first be constructed. Three choices — the window construction, the truncation of the gradient, and the decision to share parameters across time — deserve to be explicit, because each has an econometric interpretation and each reappears in the [empirical chapter on networks for time series](nn_example.qmd).
+The derivations above treat one sequence of length $T$ with a single terminal loss. Estimation practice starts from something less tidy: one long time series of, say, $N$ observations, from which the training sequences must first be constructed. Three choices — the window construction, the truncation of the gradient, and the decision to share parameters across time — deserve to be explicit, because each has an econometric interpretation and each reappears in the [empirical chapter on networks for time series](nn_example.qmd).
 
-**Windows as training observations.** The standard construction cuts the series into overlapping fixed-length windows. With window length $\tau$, each forecast origin $t \geq \tau$ contributes one training pair: the input sequence $(\mathbf{x}_{t-\tau+1}, \ldots, \mathbf{x}_t)$ and the target $y_{t+1}$. The state is re-initialized at $\mathbf{h}_0 = \mathbf{0}$ at the start of every window, and the recursion runs only within the window. One series of length $n$ thus becomes roughly $n - \tau$ training sequences. These windows overlap heavily — consecutive windows share $\tau - 1$ observations — so they are anything but independent draws: the caveats about mini-batch gradients under dependent data from the [optimization chapter](optimization.qmd) apply, and the chronological train–validation–test discipline of the [cross-validation chapter](cross_validation.qmd) applies at the level of forecast origins.
+**Windows as training observations.** The standard construction cuts the series into overlapping fixed-length windows. With window length $\tau$, each forecast origin $t \geq \tau$ contributes one training pair: the input sequence $(\mathbf{x}_{t-\tau+1}, \ldots, \mathbf{x}_t)$ and the target $y_{t+1}$. The state is re-initialized at $\mathbf{h}_0 = \mathbf{0}$ at the start of every window, and the recursion runs only within the window. One series of length $N$ thus becomes roughly $N - \tau$ training sequences. These windows overlap heavily — consecutive windows share $\tau - 1$ observations — so they are anything but independent draws: the caveats about mini-batch gradients under dependent data from the [optimization chapter](optimization.qmd) apply, and the chronological train–validation–test discipline of the [cross-validation chapter](cross_validation.qmd) applies at the level of forecast origins.
 
 **Fixed windows and truncated backpropagation.** Re-initializing the state at each window has a second effect: both the state recursion and the gradients run only across the $\tau$ steps inside a window. It is worth separating two horizons that this **fixed-window training** scheme happens to tie together. The *gradient horizon* is how far back credit assignment reaches. Cutting the backward derivative chain after a fixed number of steps is **truncated backpropagation through time** [@WilliamsPeng1990], and it caps the Jacobian products of the previous sections at length $\tau$ no matter how long the series is. The *state horizon* is how far back the forward recursion carries information. A state-carrying variant of truncated backpropagation feeds the final state of one segment in as the initial state of the next while still detaching the gradient computation between segments: the state horizon then extends beyond $\tau$ even though the gradient horizon does not, so information from the distant past can still enter the forecast even though no learning signal flows back to it. Fixed-window training — the scheme used in the [empirical chapter on networks for time series](nn_example.qmd) — truncates both horizons at $\tau$. Truncation is partly a computational necessity, because the cost of a backward pass grows with the sequence length, and partly innocuous, because gradient contributions beyond the truncation horizon are often negligible anyway once gradients vanish. The econometric consequence of the fixed-window scheme should be stated plainly: dependence at horizons beyond $\tau$ cannot be learned, by construction. The window length therefore plays the same role as the lag length $p$ of the lagged FNN at the start of the chapter — the recurrence removes the need to hand-pick which lags matter *within* the window, but the truncation horizon itself returns as a hyperparameter.
 
@@ -304,11 +304,11 @@ Plain RNNs are hard to train reliably whenever the forecast depends on informati
 :::{.callout-note}
 ## Exercise 6.1: Vanishing Gradient Problem in RNNs
 
-In this exercise, we examine the vanishing gradient problem in RNNs. Consider a simple RNN with one-dimensional hidden state $h_t = \tanh(W_{hh} h_{t-1} + W_{xh} x_t + b_h)$ — the scalar case $H = 1$ of the chapter's update equation, so that $W_{hh}$, $W_{xh}$, and $b_h$ are scalars — and loss $\mathcal{L}_T$ at the final time step $T$.
+In this exercise, we examine the vanishing gradient problem in RNNs. Consider a simple RNN with one-dimensional hidden state $h_t = \tanh(W_{hh} h_{t-1} + W_{xh} x_t + b_h)$ — the scalar case $H = 1$ of the chapter's update equation, so that $W_{hh}$, $W_{xh}$, and $b_h$ are scalars — and loss $L_T$ at the final time step $T$.
 
 **Parts:**
 
-1. **Derive the gradient formula for backpropagation through time.** Using the chain rule, derive the expression for $\frac{\partial \mathcal{L}_T}{\partial W_{hh}}$. Show that it involves the term $\frac{\partial h_T}{\partial h_t}$ for each time step $t = 1, 2, \ldots, T$ and express it as a product of derivatives.
+1. **Derive the gradient formula for backpropagation through time.** Using the chain rule, derive the expression for $\frac{\partial L_T}{\partial W_{hh}}$. Show that it involves the term $\frac{\partial h_T}{\partial h_t}$ for each time step $t = 1, 2, \ldots, T$ and express it as a product of derivatives.
 2. **Prove gradient vanishing conditions.** Show that $\left |\frac{\partial h_T}{\partial h_t}\right | \leq | W_{hh} |^{T-t}$ and explain why this leads to exponentially vanishing gradients when $|W_{hh} | < 1$.
 3. **Analyze learning implications.** Explain why vanishing gradients prevent RNNs from learning long-term dependencies, including the effect on parameter updates for early time steps and typical sequence length limitations.
 4. **Contrast data memory, model memory, and local learning.** Consider a stationary first-order autoregressive (AR(1)) process $y_t = \phi y_{t-1} + u_t$ with $|\phi| < 1$ and independent and identically distributed (i.i.d.) mean-zero innovations $u_t$. An RNN is trained to forecast this series one step ahead, observing the current value as its input at each step ($x_t = y_t$), with a one-step-ahead loss at each forecast origin. 
@@ -345,16 +345,16 @@ Note that $\partial h_T / \partial h_t$ appears twice in this chapter: as the fi
 
 **Part 1: Backpropagation through time**
 
-The goal is to find $\frac{\partial \mathcal{L}_T}{\partial W_{hh}}$. The key challenge is that the weight $W_{hh}$ is used at every time step, so its influence on the final loss $\mathcal{L}_T$ is the sum of its influence through each step.
+The goal is to find $\frac{\partial L_T}{\partial W_{hh}}$. The key challenge is that the weight $W_{hh}$ is used at every time step, so its influence on the final loss $L_T$ is the sum of its influence through each step.
 
-The final loss $\mathcal{L}_T$ is a function of the last hidden state, $h_T$. But $h_T$ is a function of $h_{T-1}$ and $W_{hh}$. And $h_{T-1}$ is a function of $h_{T-2}$ and $W_{hh}$, and so on. This means that the final loss $\mathcal{L}_T$ is ultimately a function of $W_{hh}$ through its influence on every single hidden state:
+The final loss $L_T$ is a function of the last hidden state, $h_T$. But $h_T$ is a function of $h_{T-1}$ and $W_{hh}$. And $h_{T-1}$ is a function of $h_{T-2}$ and $W_{hh}$, and so on. This means that the final loss $L_T$ is ultimately a function of $W_{hh}$ through its influence on every single hidden state:
 
-$\mathcal{L}_T = f(h_T(h_{T-1}(...h_1(W_{hh})...), W_{hh}), W_{hh})$
+$L_T = f(h_T(h_{T-1}(...h_1(W_{hh})...), W_{hh}), W_{hh})$
 
 Since $W_{hh}$ contributes to the final loss through all these paths, we have by the multivariate chain rule:
 
 $$
-\frac{\partial \mathcal{L}_T}{\partial W_{hh}} = \sum_{t=1}^T \frac{\partial \mathcal{L}_T}{\partial h_t} \frac{\partial h_t}{\partial W_{hh}}
+\frac{\partial L_T}{\partial W_{hh}} = \sum_{t=1}^T \frac{\partial L_T}{\partial h_t} \frac{\partial h_t}{\partial W_{hh}}
 $$
 
 **Calculating the Direct Influence**
@@ -368,16 +368,16 @@ $$
 **Calculating the Indirect Influence (The Chain Rule Through Time)**
 
 
-The term $\frac{\partial \mathcal{L}_T}{\partial h_t}$ is more complex. It measures how a change in an early hidden state $h_t$ propagates *all the way to the end* to affect the final loss $\mathcal{L}_T$. We must use the chain rule through the sequence of hidden states:
+The term $\frac{\partial L_T}{\partial h_t}$ is more complex. It measures how a change in an early hidden state $h_t$ propagates *all the way to the end* to affect the final loss $L_T$. We must use the chain rule through the sequence of hidden states:
 $$
-\frac{\partial \mathcal{L}_T}{\partial h_t} = \frac{\partial \mathcal{L}_T}{\partial h_T} \frac{\partial h_T}{\partial h_{T-1}} \frac{\partial h_{T-1}}{\partial h_{T-2}} \cdots \frac{\partial h_{t+1}}{\partial h_t} = \frac{\partial \mathcal{L}_T}{\partial h_T}  \prod_{k=t+1}^T \frac{\partial h_k}{\partial h_{k-1}}
+\frac{\partial L_T}{\partial h_t} = \frac{\partial L_T}{\partial h_T} \frac{\partial h_T}{\partial h_{T-1}} \frac{\partial h_{T-1}}{\partial h_{T-2}} \cdots \frac{\partial h_{t+1}}{\partial h_t} = \frac{\partial L_T}{\partial h_T}  \prod_{k=t+1}^T \frac{\partial h_k}{\partial h_{k-1}}
 $$
 This long chain of derivatives is the core of backpropagation *through time*.
 
 
 Now we can write the full expression for the gradient. Substituting our product form back into the sum at the beginning, we get
 $$
-\frac{\partial \mathcal{L}_T}{\partial W_{hh}} = \sum_{t=1}^T \underbrace{\left( \frac{\partial \mathcal{L}_T}{\partial h_T} \prod_{k=t+1}^T \frac{\partial h_k}{\partial h_{k-1}} \right)}_{\frac{\partial \mathcal{L}_T}{\partial h_t}} \underbrace{\left( \frac{\partial h_t}{\partial W_{hh}} \right)}_{\text{direct effect}}
+\frac{\partial L_T}{\partial W_{hh}} = \sum_{t=1}^T \underbrace{\left( \frac{\partial L_T}{\partial h_T} \prod_{k=t+1}^T \frac{\partial h_k}{\partial h_{k-1}} \right)}_{\frac{\partial L_T}{\partial h_t}} \underbrace{\left( \frac{\partial h_t}{\partial W_{hh}} \right)}_{\text{direct effect}}
 $$
 This formula explicitly shows that the gradient contribution from each time step $t$ involves a product of terms that bridges the time gap from $t$ to $T$.
 
@@ -411,7 +411,7 @@ For the *linear* recurrence $h_t = W_{hh} h_{t-1}$ — equivalently, when all ac
 
 The exponential decay has three critical effects on learning:
 
-1. **Dominated parameter updates:** Since $\frac{\partial \mathcal{L}_T}{\partial W_{hh}} = \sum_{t=1}^T \frac{\partial \mathcal{L}_T}{\partial h_T} \frac{\partial h_T}{\partial h_t} \frac{\partial h_t}{\partial W_{hh}}$, when $\frac{\partial h_T}{\partial h_t}$ becomes exponentially small for early $t$, the gradient sum becomes dominated by recent time steps (large $t$).
+1. **Dominated parameter updates:** Since $\frac{\partial L_T}{\partial W_{hh}} = \sum_{t=1}^T \frac{\partial L_T}{\partial h_T} \frac{\partial h_T}{\partial h_t} \frac{\partial h_t}{\partial W_{hh}}$, when $\frac{\partial h_T}{\partial h_t}$ becomes exponentially small for early $t$, the gradient sum becomes dominated by recent time steps (large $t$).
 
 2. **Loss of long-term information:** The network cannot learn patterns where important information at time $t$ influences the loss at time $T$ when $T-t$ is large, because the gradient signal carrying this information becomes negligibly small.
 
