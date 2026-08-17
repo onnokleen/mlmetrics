@@ -259,7 +259,7 @@ The same product can also grow, in which case gradients **explode** rather than 
 
 The derivations above treat one sequence of length $T$ with a single terminal loss. Estimation practice starts from something less tidy: one long time series of, say, $N$ observations, from which the training sequences must first be constructed. Three choices — the window construction, the truncation of the gradient, and the decision to share parameters across time — deserve to be explicit, because each has an econometric interpretation and each reappears in the [empirical chapter on networks for time series](nn_example.qmd).
 
-**Windows as training observations.** The standard construction cuts the series into overlapping fixed-length windows. With window length $\tau$, each forecast origin $t \geq \tau$ contributes one training pair: the input sequence $(\mathbf{x}_{t-\tau+1}, \ldots, \mathbf{x}_t)$ and the target $y_{t+1}$. The state is re-initialized at $\mathbf{h}_0 = \mathbf{0}$ at the start of every window, and the recursion runs only within the window. One series of length $N$ thus becomes roughly $N - \tau$ training sequences. These windows overlap heavily — consecutive windows share $\tau - 1$ observations — so they are anything but independent draws: the caveats about mini-batch gradients under dependent data from the [optimization chapter](optimization.qmd) apply, and the chronological train–validation–test discipline of the [cross-validation chapter](cross_validation.qmd) applies at the level of forecast origins.
+**Windows as training observations.** The standard construction cuts the series into overlapping fixed-length windows. With window length $\tau$, each forecast origin $t \geq \tau$ contributes one training pair: the input sequence $(\mathbf{x}_{t-\tau+1}, \ldots, \mathbf{x}_t)$ and the target $y_{t+1}$. The state is re-initialized at $\mathbf{h}_0 = \mathbf{0}$ at the start of every window, and the recursion runs only within the window. Temporal order therefore matters within each window, but whole windows may be assigned to mini-batches in any order. Contiguity across batch elements becomes necessary only when the final state of one segment is carried into the next. One series of length $N$ thus becomes roughly $N - \tau$ training sequences. These windows overlap heavily — consecutive windows share $\tau - 1$ observations — so they are anything but independent draws: the caveats about mini-batch gradients under dependent data from the [optimization chapter](optimization.qmd) apply, and the chronological train–validation–test discipline of the [cross-validation chapter](cross_validation.qmd) applies at the level of forecast origins.
 
 **Fixed windows and truncated backpropagation.** Re-initializing the state at each window has a second effect: both the state recursion and the gradients run only across the $\tau$ steps inside a window. It is worth separating two horizons that this **fixed-window training** scheme happens to tie together. The *gradient horizon* is how far back credit assignment reaches. Cutting the backward derivative chain after a fixed number of steps is **truncated backpropagation through time** [@WilliamsPeng1990], and it caps the Jacobian products of the previous sections at length $\tau$ no matter how long the series is. The *state horizon* is how far back the forward recursion carries information. A state-carrying variant of truncated backpropagation feeds the final state of one segment in as the initial state of the next while still detaching the gradient computation between segments: the state horizon then extends beyond $\tau$ even though the gradient horizon does not, so information from the distant past can still enter the forecast even though no learning signal flows back to it. Fixed-window training — the scheme used in the [empirical chapter on networks for time series](nn_example.qmd) — truncates both horizons at $\tau$. Truncation reduces computation because the cost of a backward pass grows with sequence length. It may discard little *additional* usable gradient signal when contributions from earlier steps are already numerically negligible, but that negligibility is itself the vanishing-gradient problem rather than evidence that distant dependence is irrelevant. The econometric consequence of the fixed-window scheme should therefore be stated plainly: dependence at horizons beyond $\tau$ cannot be learned, by construction. The window length plays the same role as the lag-window length $L$ of the lagged FNN at the start of the chapter — the recurrence removes the need to hand-pick which lags matter *within* the window, but the truncation horizon itself returns as a hyperparameter.
 
@@ -310,14 +310,14 @@ In this exercise, we examine the vanishing gradient problem in RNNs. Consider a 
 
 1. **Derive the gradient formula for backpropagation through time.** Using the chain rule, derive the expression for $\frac{\partial L_T}{\partial W_{hh}}$. Show that it involves the term $\frac{\partial h_T}{\partial h_t}$ for each time step $t = 1, 2, \ldots, T$ and express it as a product of derivatives.
 2. **Prove gradient vanishing conditions.** Show that $\left |\frac{\partial h_T}{\partial h_t}\right | \leq | W_{hh} |^{T-t}$ and explain why this leads to exponentially vanishing gradients when $|W_{hh} | < 1$.
-3. **Analyze learning implications.** Explain why vanishing gradients prevent RNNs from learning long-term dependencies, including the effect on parameter updates for early time steps and typical sequence length limitations.
-4. **Contrast data memory, model memory, and local learning.** Consider a stationary first-order autoregressive (AR(1)) process $y_t = \phi y_{t-1} + u_t$ with $|\phi| < 1$ and independent and identically distributed (i.i.d.) mean-zero innovations $u_t$. An RNN is trained to forecast this series one step ahead, observing the current value as its input at each step ($x_t = y_t$), with a one-step-ahead loss at each forecast origin. 
-(a) Derive the impulse response $\partial y_{t+k} / \partial u_t$ and show that it decays geometrically in $k$, formally paralleling the bound from Part 2. 
-(b) The impulse response describes the memory of which object, and the bound from Part 2 describes the memory of which object? 
-(c) Explain why the vanishing-gradient bound does *not* prevent this network from learning the AR(1) dynamics — where, in terms of time gaps, is the training signal about $\phi$ located?
-5. **Identify when the bound binds.** Now let the data-generating process be $y_{t+1} = \theta x_{t-k} + u_{t+1}$ for a large delay $k$, where the network observes the scalar input sequence $\{x_t\}$, the intermediate inputs $x_{t-k+1}, \ldots, x_t$ carry no information about $y_{t+1}$, and training again uses a one-step-ahead loss at each origin. The quantity bounded in Part 2 plays two roles at once: it is the fitted network's sensitivity to past states *and* a factor in the Part 1 gradient. Explain why the only gradient path connecting the loss to the relevant input now bridges $k$ recurrence steps, and describe the lock-in mechanism by which a contractive network tends to stay short-memoried during training in this setting.
+3. **Analyze learning implications.** Explain why vanishing gradients weaken parameter updates associated with early time steps. Then explain why the bound does not imply a universal maximum sequence length and identify what determines how quickly the contribution of a distant state fades.
+4. **Derive data memory in an AR(1).** Consider a stationary first-order autoregressive (AR(1)) process $y_t = \phi y_{t-1} + u_t$ with $|\phi| < 1$ and independent and identically distributed (i.i.d.) mean-zero innovations $u_t$. Derive the impulse response $\partial y_{t+k} / \partial u_t$ and show that it decays geometrically in $k$, formally paralleling the bound from Part 2.
+5. **Separate data memory from model memory.** Explain which object's memory is described by the AR(1) impulse response and which object's memory is described by the bound from Part 2.
+6. **Locate the learning signal.** An RNN is trained to forecast the AR(1) process one step ahead, observing the current value as its input at each step ($x_t = y_t$), with a one-step-ahead loss at each forecast origin. Explain why the vanishing-gradient bound does *not* prevent this network from learning the AR(1) dynamics, identifying the time gap across which the loss-relevant signal about $\phi$ must travel.
+7. **Trace a genuinely long-gap signal.** Now let the data-generating process be $y_{t+1} = \psi x_{t-k} + u_{t+1}$ for a large delay $k$, where the network observes the scalar input sequence $\{x_t\}$, the intermediate inputs $x_{t-k+1}, \ldots, x_t$ carry no information about $y_{t+1}$, and training again uses a one-step-ahead loss at each origin. Explain why the only gradient path connecting the loss to the relevant input bridges $k$ recurrence steps.
+8. **Explain the lock-in mechanism.** Using the dual role of $\partial h_T/\partial h_t$ as a measure of fitted-state sensitivity and as a factor in the parameter gradient, explain why a contractive network can remain short-memoried during training in the delayed-signal design of Part 7.
 
-*Exam level, deliberately long as a whole: Parts 1–3 (the BPTT derivation, the bound, and its learning implications) and Parts 4–5 (the econometric extension separating data memory, fitted-model memory, and training signal) are separable as two independent exam questions.*
+*Exam level, deliberately long as a whole: Parts 1–3 (the BPTT derivation, the bound, and its learning implications) and Parts 4–8 (the econometric extension separating data memory, fitted-model memory, and training signal) are separable as two independent exam questions. Each numbered part is intended as one 5–10 minute task.*
 :::
 
 :::{.callout-warning collapse="true"}
@@ -332,11 +332,16 @@ You need to bound the absolute value of a product of derivatives; use $|ab| = |a
 
 :::{.callout-warning collapse="true"}
 ## Hint for Part 4
-Substitute the AR(1) recursion forward $k$ times to express $y_{t+k}$ in terms of $y_t$ and the innovations $u_{t+1}, \ldots, u_{t+k}$. For (c), ask how many recurrence steps the loss-relevant information must bridge when the one-step conditional mean of an AR(1) depends only on the immediately preceding observation.
+Substitute the AR(1) recursion forward $k$ times to express $y_{t+k}$ in terms of $y_t$ and the innovations $u_{t+1}, \ldots, u_{t+k}$.
 :::
 
 :::{.callout-warning collapse="true"}
-## Hint for Part 5
+## Hint for Part 6
+Ask how many recurrence steps the loss-relevant information must bridge when the one-step conditional mean of an AR(1) depends only on the immediately preceding observation.
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint for Part 8
 Note that $\partial h_T / \partial h_t$ appears twice in this chapter: as the fitted network's sensitivity to an earlier state, and as a factor in the Part 1 gradient decomposition. Ask which parameter movement would extend the network's memory, and which gradient carries the demand for that movement.
 :::
 
@@ -415,13 +420,13 @@ The exponential decay has three critical effects on learning:
 
 2. **Loss of long-term information:** The network cannot learn patterns where important information at time $t$ influences the loss at time $T$ when $T-t$ is large, because the gradient signal carrying this information becomes negligibly small.
 
-3. **Practical sequence limitations:** The bound does not imply a universal cutoff such as a fixed maximum number of lags. It says that, unless the recurrent dynamics are unusually well conditioned, the gradient contribution of distant observations decays exponentially with the gap $T-t$. In practice this makes plain RNNs unreliable for long-run dependence without architectural or training modifications.
+3. **No universal sequence cutoff:** The bound does not imply a fixed maximum number of usable lags. The effective decay rate depends on the recurrent weight $|W_{hh}|$ and on the activation derivatives $\tanh'(z_k)$ encountered along the fitted trajectory. Values close to one can preserve signal for many steps; smaller factors make the same signal disappear much sooner. Plain RNNs are therefore unreliable for long-run dependence without architectural or training modifications, but the bound alone does not determine one universal horizon.
 
 The fundamental issue is that learning requires non-negligible gradients to update parameters, but the exponential decay ensures that distant time steps contribute virtually nothing to parameter updates.
 
-**Part 4: Data memory, model memory, and local learning**
+**Part 4: Data memory in an AR(1)**
 
-(a) Iterating the AR(1) recursion forward $k$ times gives
+Iterating the AR(1) recursion forward $k$ times gives
 $$
 y_{t+k} = \phi^k y_t + \sum_{j=0}^{k-1} \phi^j u_{t+k-j}.
 $$
@@ -431,16 +436,24 @@ $$
 $$
 which decays geometrically in $k$ because $|\phi| < 1$ — formally the same geometric decay as the bound $|W_{hh}|^{T-t}$ from Part 2.
 
-(b) The impulse response $\phi^k$ is a property of the *data-generating process*: it describes how a shock at time $t$ propagates into future values of the observed series, and for $\phi$ close to one the data are highly persistent. The bound from Part 2 concerns $\partial h_T / \partial h_t$, which is a property of the *fitted model*: it measures how sensitive the network's state remains to what happened at time $t$. A contractive network — one whose one-step factors $|W_{hh}| \tanh'(z_k)$ stay below one — is therefore itself a short-memory model, whatever the data are.
+**Part 5: Data memory versus model memory**
 
-(c) By Part 1, $\partial h_T / \partial h_t$ is also the factor that carries the training signal from the loss back to early time steps — yet for the AR(1) this does not prevent learning. The one-step conditional mean is $\mathbb{E}[y_{t+1} \mid \mathcal{F}_t] = \phi y_t$: everything the network needs in order to forecast is contained in its current input $x_t = y_t$, so the loss-relevant gradient travels across only one or a few recurrence steps, where the product from Part 2 is still far from zero. Adjacent-observation forecast errors deliver a strong local signal about $\phi$, and training can pick up the AR(1) persistence without any long-range credit assignment.
+The impulse response $\phi^k$ is a property of the *data-generating process*: it describes how a shock at time $t$ propagates into future values of the observed series, and for $\phi$ close to one the data are highly persistent. The bound from Part 2 concerns $\partial h_T / \partial h_t$, which is a property of the *fitted model*: it measures how sensitive the network's state remains to what happened at time $t$. A contractive network — one whose one-step factors $|W_{hh}| \tanh'(z_k)$ stay below one — is therefore itself a short-memory model, whatever the data are.
 
-**Part 5: When the bound binds**
+**Part 6: Why local learning suffices for the AR(1)**
 
-In the delayed-signal design, the predictive information sits only at lag $k$ and is, by assumption, not recoverable from the intermediate inputs. The only gradient path connecting the one-step-ahead loss to the relevant input $x_{t-k}$ therefore runs through the state recursion across $k$ steps and is scaled by the vanishing product from Part 2. This is where the double role becomes a trap: a contractive network attenuates exactly the long-range signal that would be needed to push its parameters toward less contractive, longer-memory dynamics, so gradient-based training tends to stay in the short-memory regime — not because the architecture cannot represent the dependence at other parameter values, but because learning receives almost no signal pushing it there. The vanishing-gradient problem is thus a failure of *credit assignment* for long-gap dependence, over and above the fitted model's own short memory.
+By Part 1, $\partial h_T / \partial h_t$ is also the factor that carries the training signal from the loss back to early time steps — yet for the AR(1) this does not prevent learning. The one-step conditional mean is $\mathbb{E}[y_{t+1} \mid \mathcal{F}_t] = \phi y_t$: everything the network needs in order to forecast is contained in its current input $x_t = y_t$, so the loss-relevant gradient travels across only one or a few recurrence steps, where the product from Part 2 is still far from zero. Adjacent-observation forecast errors deliver a strong local signal about $\phi$, and training can pick up the AR(1) persistence without any long-range credit assignment.
+
+**Part 7: The long-gap gradient path**
+
+In the delayed-signal design, the predictive information sits only at lag $k$ and is, by assumption, not recoverable from the intermediate inputs. The only gradient path connecting the one-step-ahead loss to the relevant input $x_{t-k}$ therefore runs through the state recursion across $k$ steps and is scaled by the product from Part 2.
+
+**Part 8: The lock-in mechanism**
+
+The double role of that product creates the lock-in mechanism. A contractive network attenuates exactly the long-range signal that would be needed to push its parameters toward less contractive, longer-memory dynamics, so gradient-based training tends to stay in the short-memory regime — not because the architecture cannot represent the dependence at other parameter values, but because learning receives almost no signal pushing it there. The vanishing-gradient problem is thus a failure of *credit assignment* for long-gap dependence, over and above the fitted model's own short memory.
 :::
 
-:::{.callout-note}
+:::{.callout-note #rnn-exercise-6-2}
 ## Exercise 6.2: Manual RNN Forward Pass
 
 Consider the simple RNN shown in @fig-rnn-exercise: a single hidden unit processing a sequence of length 3, with hidden update $h_t = \tanh(W_{xh} x_t + W_{hh} h_{t-1} + b_h)$ and linear output $\hat{y}_t = W_{hy} h_t + b_y$ (no output activation).
