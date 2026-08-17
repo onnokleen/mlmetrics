@@ -559,7 +559,8 @@ Because
 $$
 L(\boldsymbol{\theta})=\frac{1}{N}\sum_{i=1}^N \ell_i(\boldsymbol{\theta}),
 $$
-differentiating the finite sum lets us derive the gradient for one observation and then average the resulting gradients:
+differentiating the finite sum lets us derive the gradient for one observation and then average the resulting gradients; for example, the weight gradient is
+
 $$
 \frac{\partial L}{\partial W_{hj}^{(l)}}
 =
@@ -569,21 +570,73 @@ $$
 For the one-observation derivation below, fix $i$ and suppress its index: $\ell$, $a_h^{(l)}$, and $z_h^{(l)}$ stand for $\ell_i$, $a_{ih}^{(l)}$, and $z_{ih}^{(l)}$, respectively. The layer index $l$ remains explicit; $h$ and $j$ label connected units, while $q$ is used as a summation index over units.
 
 **Error Signal Definition**
-We define the following key quantity for each unit $h$ in layer $l$:
-$$\delta_h^{(l)} = \frac{\partial \ell}{\partial z_h^{(l)}}$$
+For each unit $h$ in layer $l$, define the error signal
 
-This error signal measures how the loss changes when the pre-activation of unit $h$ is perturbed. Once it is known, the gradient for a **weight** $W_{hj}^{(l)}$ is
-$$\frac{\partial \ell}{\partial W_{hj}^{(l)}} = \delta_h^{(l)} a_j^{(l-1)},$$
+$$
+\delta_h^{(l)}
+=
+\frac{\partial \ell}{\partial z_h^{(l)}}.
+$$
 
-and the gradient for the corresponding **bias** is
-$$\frac{\partial \ell}{\partial b_h^{(l)}} = \delta_h^{(l)}.$$
+This error signal measures how the loss changes when the pre-activation of unit $h$ is perturbed, holding the other pre-activations in the layer fixed. Writing the pre-activation defined in @sec-def-multilayer-nn entry by entry gives
+
+$$
+z_h^{(l)}
+=
+\sum_{q=1}^{H^{(l-1)}}
+W_{hq}^{(l)}a_q^{(l-1)}
++
+b_h^{(l)}.
+$$
+
+The weight $W_{hj}^{(l)}$ affects $z_h^{(l)}$ but no other pre-activation in layer $l$. Moreover, the activations $a_q^{(l-1)}$ are computed from the input and the parameters of layers $1,\dots,l-1$, so they do not vary with $W_{hj}^{(l)}$. Treating the vector $\mathbf z^{(l)}$ as an intermediate quantity, the multivariate chain rule therefore gives
+
+$$
+\frac{\partial \ell}{\partial W_{hj}^{(l)}}
+=
+\sum_{k=1}^{H^{(l)}}
+\frac{\partial \ell}{\partial z_k^{(l)}}
+\frac{\partial z_k^{(l)}}{\partial W_{hj}^{(l)}}.
+$$
+
+Only the term $k=h$ is nonzero. Differentiating the display for $z_h^{(l)}$ with respect to $W_{hj}^{(l)}$ leaves only the term $q=j$, so
+
+$$
+\frac{\partial z_h^{(l)}}{\partial W_{hj}^{(l)}}
+=
+a_j^{(l-1)}.
+$$
+
+Consequently, the weight gradient is
+
+$$
+\frac{\partial \ell}{\partial W_{hj}^{(l)}}
+=
+\delta_h^{(l)}a_j^{(l-1)}.
+$$
+
+The same reasoning applies to the bias. Since $b_h^{(l)}$ affects only $z_h^{(l)}$ and
+
+$$
+\frac{\partial z_h^{(l)}}{\partial b_h^{(l)}}=1,
+$$
+
+the bias gradient is
+
+$$
+\frac{\partial \ell}{\partial b_h^{(l)}}
+=
+\delta_h^{(l)}.
+$$
+
+Although the loss may depend on $z_h^{(l)}$ through many downstream paths, all those paths are summarized by $\delta_h^{(l)}$. Once the error signals for layer $l$ are available, the stored activation $a_j^{(l-1)}$ supplies the remaining factor: each weight derivative requires one multiplication, while each bias derivative is obtained directly from the error signal.
 
 **Backward Pass**
 
 For an element-wise output activation, the **output-layer** signal is
 $$\delta_h^{(D)} =  \frac{\partial \ell}{\partial a_h^{(D)}} \frac{\partial a_h^{(D)}}{\partial z_h^{(D)}} = \frac{\partial \ell}{\partial a_h^{(D)}} g'^{(D)}(z_h^{(D)}).$$
 
-This formula assumes that $a_h^{(D)}$ depends only on its own pre-activation. Softmax is the notable exception because every output coordinate depends on every pre-activation. Its signal therefore uses the full Jacobian,
+This formula assumes that $a_h^{(D)}$ depends only on its own pre-activation. Softmax is the notable exception because every output coordinate depends on every pre-activation due to the normalization constraint. Its signal therefore uses the full Jacobian,
 $$
 \delta_k^{(D)} = \sum_{q=1}^{K} \frac{\partial \ell}{\partial a_q^{(D)}} \frac{\partial a_q^{(D)}}{\partial z_k^{(D)}}.
 $$
@@ -812,16 +865,12 @@ where the knots satisfy $c_1 < c_2 < \cdots < c_K$. Adopt the conventions $c_0 =
    f(x)=b^{(2)}+\sum_{j=1}^{K+2} w_j^{(2)}\,\mathrm{ReLU}(w_j^{(1)}x+b_j^{(1)}),
    $$
    by choosing suitable values for $b^{(2)}$, $w_j^{(1)}$, $b_j^{(1)}$, and $w_j^{(2)}$. (The count is "at most" rather than "exactly" because units with $w_j^{(2)}=0$ contribute nothing and may be dropped, which happens for the two linear units when $\alpha_1=0$.)
-3. Count the number of free parameters in your Part 2 representation, first treating the knots $c_1,\dots,c_K$ as known, and then treating them as quantities to be estimated from the data. Using these two counts, explain why increasing $K$ can reduce approximation bias but raise estimation variance, and explain why in-sample fit cannot be used to choose $K$ — so that validation or cross-validation is needed.
+3. Count the free parameters of your Part 2 representation, treating an input-to-hidden weight or bias as free only when the construction does not pin it down. Do this twice: first with the knots $c_1,\dots,c_K$ known, then with the knots treated as quantities to be estimated from the data. (This is a count for the spline representation of Part 2, not for an unconstrained ReLU network with $K+2$ hidden units.)
+4. Assume that the known-knot sets are nested as $K$ grows: the specification with $K+1$ knots retains the $K$ existing knots and adds one more. (When the knots are estimated, the classes are nested automatically.) Using the two counts from Part 3, explain why increasing $K$ can reduce the approximation error but raise the estimation error — the split introduced in @sec-ffn-nonconvexity — and explain why in-sample fit cannot be used to choose $K$, so that validation or cross-validation is needed.
 
 *Exam level. The exercise gives a formal representation result, makes the complexity of the representation explicit by counting parameters, and then links both to the econometric approximation-estimation tradeoff.*
 :::
 
-
-::: {.callout-warning collapse="true"}
-## Hint for Part 1
-Differentiate $(x-c_j)_+$ separately on the regions $x<c_j$ and $x>c_j$.
-:::
 
 ::: {.callout-warning collapse="true"}
 ## Hint for Part 2
@@ -833,7 +882,12 @@ $$
 
 ::: {.callout-warning collapse="true"}
 ## Hint for Part 3
-In the construction of Part 2, most of the input-to-hidden weights and biases are pinned down by the knots rather than estimated. Ask which of $w_j^{(1)}$, $b_j^{(1)}$, $w_j^{(2)}$, and $b^{(2)}$ are still free in each of the two cases. For the last step, note that the function classes are nested as $K$ grows.
+In the construction of Part 2, most of the input-to-hidden weights and biases are pinned down by the knots rather than estimated. Ask which of $w_j^{(1)}$, $b_j^{(1)}$, $w_j^{(2)}$, and $b^{(2)}$ are still free in each of the two cases.
+:::
+
+::: {.callout-warning collapse="true"}
+## Hint for Part 4
+Under the nesting condition in the question, setting the extra kink coefficient to zero reproduces any function from the smaller class. Ask what this implies for the *minimized* in-sample loss, and whether the same argument says anything about performance on data that were not used for estimation.
 :::
 
 ::: {.callout-tip collapse="true"}
@@ -872,7 +926,7 @@ f(x)
 - \alpha_1 \mathrm{ReLU}(-x)
 + \sum_{j=1}^K \gamma_j \mathrm{ReLU}(x-c_j).
 $$
-This is exactly a one-hidden-layer ReLU network with at most $K+2$ hidden units. One valid choice is:
+This construction is exactly a one-hidden-layer ReLU network with at most $K+2$ hidden units. One valid choice is:
 $$
 b^{(2)}=\alpha_0,
 $$
@@ -893,29 +947,31 @@ w_j^{(2)}=\gamma_j,
 $$
 So a one-hidden-layer ReLU network can represent this piecewise-linear spline form exactly.
 
-**Part 3: Counting Parameters and the Bias-Variance Tradeoff**
+**Part 3: Counting Parameters**
 
 *Known knots.* In the construction of Part 2, all input-to-hidden parameters are pinned down: $w_j^{(1)} = \pm 1$ and $b_j^{(1)} = 0$ for the two units representing the linear term, and $w_j^{(1)} = 1$, $b_j^{(1)} = -c_j$ for the $K$ knot units. Nothing there is estimated. What remains free is the output bias $b^{(2)} = \alpha_0$ and the $K+1$ output weights $\alpha_1$ (which appears with opposite signs on the two linear units) and $\gamma_1, \dots, \gamma_K$. The count is therefore
 $$
 \underbrace{1}_{\alpha_0} + \underbrace{1}_{\alpha_1} + \underbrace{K}_{\gamma_1,\dots,\gamma_K} = K+2 .
 $$
 
-*Estimated knots.* If the knot locations are also chosen from the data, each $c_j$ frees up the corresponding hidden bias $b_j^{(1)} = -c_j$, adding $K$ more quantities for a total of $2K+2$. This is the count in the **normalized spline representation used in the exercise**, where the input weights are fixed at $1$ or $-1$. It is not the raw count of freely stored weights and biases in an unconstrained ReLU implementation. That raw parameterization is redundant because positive rescaling of a hidden unit can leave its contribution unchanged, and hidden units can be permuted. The normalized count isolates the effective quantities that determine this spline representation: the intercept, linear slope, kink sizes, and knot locations.
+*Estimated knots.* If the knot locations are also chosen from the data, each $c_j$ frees up the corresponding hidden bias $b_j^{(1)} = -c_j$, adding $K$ more quantities for a total of $2K+2$. Both counts refer, as the exercise specifies, to the spline representation, in which the input weights are fixed at $1$ or $-1$. An unconstrained ReLU network with $K+2$ hidden units stores more numbers than this, but that parameterization is redundant: positive rescaling of a hidden unit can leave its contribution unchanged, and hidden units can be permuted. The normalized count isolates the effective quantities that determine the fitted function here — the intercept, the linear slope, the kink sizes, and the knot locations.
 
-*The tradeoff.* Both counts grow linearly in $K$. On the approximation side, the function classes are **nested**: any $f$ representable with $K$ knots is also representable with $K+1$ knots (set the extra $\gamma$ to zero). So the best achievable approximation error is non-increasing in $K$, and typically strictly decreasing when the true regression function has curvature the current knots cannot follow. On the estimation side, the same $N$ observations must now pin down more free parameters, so each is estimated less precisely and the fitted function inherits more sampling variability. Increasing $K$ therefore trades approximation bias against estimation variance.
+**Part 4: Approximation, Estimation, and Why In-Sample Fit Cannot Arbitrate**
+
+*The tradeoff.* Both counts grow linearly in $K$. Under the nesting condition in Part 4 — automatic for estimated knots and imposed explicitly for known knots — any $f$ representable with $K$ knots is also representable with $K+1$ knots: retain the existing knots and set the extra $\gamma$ to zero. The best achievable approximation error is therefore non-increasing in $K$, and typically strictly decreasing when the true regression function has curvature the current knots cannot follow. On the estimation side, the same $N$ observations must now pin down more free parameters, so each is estimated less precisely and the fitted function inherits more sampling variability. Increasing $K$ therefore trades approximation error against estimation error.
 
 *Why in-sample fit cannot arbitrate.* Nestedness is also what disqualifies the in-sample criterion. Because the $K$-knot class is contained in the $(K+1)$-knot class, the minimized in-sample loss is non-increasing in $K$ by construction, so it can never favor a smaller model, no matter how much of the extra flexibility is spent fitting noise. In-sample fit measures only the first of the two effects. Distinguishing them requires evaluating on data that were not used to estimate the parameters, which is what validation or cross-validation provides.
 :::
 
 ::: {.callout-note}
-## Exercise 5.2: Backpropagation and Non-Convexity
+## Exercise 5.2: Gradient Descent and Non-Convexity in a One-Unit Network
 
 Consider the problem of estimating a neural network for a regression problem with economic interpretation. You have data $\{(x_i, y_i)\}_{i=1}^N$ where $x_i$ represents log income and $y_i$ represents log consumption.
 
 You want to estimate a single-hidden-layer network:
 $$f(x; \boldsymbol{\theta}) = w_2 g(w_1 x + b_1) + b_2$$
 
-where $g(z) = \frac{1}{1 + e^{-z}}$ is the sigmoid function and $\boldsymbol{\theta} = (w_1, b_1, w_2, b_2)$, ordered by layer to match @sec-ffn-nonconvexity.
+where $g(z) = \frac{1}{1 + e^{-z}}$ is the sigmoid function and $\boldsymbol{\theta} = (w_1, b_1, w_2, b_2)$, ordered by layer to match @sec-ffn-nonconvexity. Throughout this exercise, the subscripts on $w_1$, $b_1$, $w_2$, and $b_2$ index layers, the subscript $i$ indexes observations, and a parenthesized superscript $(t)$ indexes gradient-descent iterations rather than layers.
 
 @fig-ex52-network sketches the network.
 
@@ -945,7 +1001,7 @@ flowchart LR
    $$
    L(\boldsymbol{\theta}) = \frac{1}{2N} \sum_{i=1}^N (y_i - f(x_i; \boldsymbol{\theta}))^2.
    $$
-   Then state the gradient descent update for the full parameter vector $\boldsymbol{\theta}$ in one line, with learning rate $\eta>0$. (This part reproduces a derivation carried out in @sec-ffn-losses; do it without looking, since the remaining parts build directly on these expressions.)
+   Report the chain-rule factor $\frac{\partial \hat y_i}{\partial \theta_j}$ separately for each parameter before assembling the gradient, and identify the activation-derivative factor that appears in both hidden-layer gradients but neither output-layer gradient. Then state the gradient descent update for the full parameter vector $\boldsymbol{\theta}$ in one line, with learning rate $\eta>0$. (The gradients themselves are stated in @sec-ffn-losses; derive them without looking, since the remaining parts build directly on these expressions.)
 2. Starting from your expression for $\frac{\partial L}{\partial w_2}$, derive the cross-partial derivative
    $$
    \frac{\partial^2 L}{\partial w_1 \partial w_2}
@@ -968,9 +1024,9 @@ flowchart LR
    \le
    \frac{|w_2|}{4N}\sum_{i=1}^N |r_i|.
    $$
-   These bounds cap how large the hidden-layer gradients can ever be. Explain why *saturation* — $z_i$ far from zero, so that $g'(z_i)$ is close to $0$ rather than to its maximum $1/4$ — makes the actual gradients far smaller than these caps, and hence learning slow.
+   At any given data set and parameter value, these bounds cap the hidden-layer gradients through the factor $g'\le 1/4$. Explain why *saturation* — $z_i$ far from zero, so that $g'(z_i)$ is close to $0$ rather than to its maximum $1/4$ — makes the actual gradients far smaller than these caps, and hence learning slow.
 4. Explain why this estimation problem is not equivalent to ordinary least squares, even though both problems minimize squared loss. Your answer should refer to the role of the hidden nonlinearity and the resulting optimization landscape. Assume that some non-constant network fit has strictly lower loss than every constant fit. Use the mirror symmetry from @sec-ffn-nonconvexity to give a valid argument for non-convexity rather than inferring it from nonlinearity in the parameters alone.
-5. Assume $w_1w_2\neq0$. State the shape restrictions this one-unit network imposes on the fitted Engel curve relating log consumption to log income, and name one economically plausible pattern it therefore cannot represent. Briefly say what changes if $w_1w_2=0$.
+5. Assume $w_1w_2\neq0$. State the shape restrictions this one-unit network imposes on the fitted consumption function relating log consumption to log income, and name one economically plausible pattern it therefore cannot represent. Briefly say what changes if $w_1w_2=0$.
 
 *Exam level, deliberately long as a whole. Parts 1–3 form a derivatives-and-saturation question, while Parts 4–5 form a separate non-convexity-and-interpretation question; the two groups can be assigned independently.*
 :::
@@ -979,13 +1035,8 @@ flowchart LR
 ::: {.callout-warning collapse="true"}
 ## Hint for Part 1
 
-- Start with the loss function $L(\boldsymbol{\theta}) = \frac{1}{2N} \sum_{i=1}^N (y_i - f(x_i; \boldsymbol{\theta}))^2$.
-
-  *The factor of 1/2 is a notational convenience here, because of the 2 that appears in front when taking the first derivative. Multiplying an objective by a fixed positive scalar does not change its minimizer, so the optimization problem is unaffected. Without the 1/2 we would carry a "times 2" everywhere, which is also fine but less elegant.*
-
-- Use the chain rule together with $r_i = y_i - f(x_i; \boldsymbol{\theta})$, so $\frac{\partial L}{\partial \theta_j} = \frac{1}{N} \sum_{i=1}^N r_i \frac{\partial r_i}{\partial \theta_j}$
+- Use the chain rule together with $r_i = y_i - f(x_i; \boldsymbol{\theta})$, so that $\frac{\partial L}{\partial \theta_j} = \frac{1}{N} \sum_{i=1}^N r_i \frac{\partial r_i}{\partial \theta_j}$, and note that $\frac{\partial r_i}{\partial \theta_j} = -\frac{\partial \hat y_i}{\partial \theta_j}$
 - Remember that $g'(z) = g(z)(1 - g(z))$
-- Compute gradients with respect to each parameter separately
 :::
 
 ::: {.callout-warning collapse="true"}
@@ -1021,6 +1072,22 @@ Let $z_i = w_1 x_i + b_1$, $a_i = g(z_i)$, and $\hat{y}_i = f(x_i; \boldsymbol{\
 
 The residual is: $r_i = y_i - \hat{y}_i$
 
+Since $L=\frac{1}{2N}\sum_i r_i^2$ and $\partial r_i/\partial \theta_j = -\partial \hat y_i/\partial \theta_j$, every gradient has the form
+$$
+\frac{\partial L}{\partial \theta_j} = -\frac{1}{N}\sum_{i=1}^N r_i \frac{\partial \hat y_i}{\partial \theta_j},
+$$
+so only the four chain-rule factors differ:
+$$
+\frac{\partial \hat y_i}{\partial w_2}=a_i,
+\qquad
+\frac{\partial \hat y_i}{\partial b_2}=1,
+\qquad
+\frac{\partial \hat y_i}{\partial w_1}=w_2\,a_i(1-a_i)\,x_i,
+\qquad
+\frac{\partial \hat y_i}{\partial b_1}=w_2\,a_i(1-a_i),
+$$
+where the last two use $\partial a_i/\partial z_i = g'(z_i)=a_i(1-a_i)$ together with $\partial z_i/\partial w_1 = x_i$ and $\partial z_i/\partial b_1 = 1$. Substituting these factors gives the gradients.
+
 **Gradients:**
 
 $$\frac{\partial L}{\partial w_2} = -\frac{1}{N} \sum_{i=1}^N r_i a_i$$
@@ -1045,15 +1112,15 @@ $$w_1^{(t+1)} = w_1^{(t)} + \frac{\eta}{N} \sum_{i=1}^N r_i^{(t)} w_2^{(t)} a_i^
 
 $$b_1^{(t+1)} = b_1^{(t)} + \frac{\eta}{N} \sum_{i=1}^N r_i^{(t)} w_2^{(t)} a_i^{(t)}(1-a_i^{(t)})$$
 
-The sigmoid derivative enters the hidden-layer updates through the factor
+The distinguishing activation-derivative factor is the sigmoid derivative
 $$
-g'(z_i)=a_i(1-a_i).
+g'(z_i)=a_i(1-a_i),
 $$
-It does not appear in the output-layer updates because those parameters enter the fitted value linearly once the hidden activation $a_i$ is given.
+which enters both hidden-layer gradients and neither output-layer gradient. The sigmoid derivative is absent at the output layer because $w_2$ and $b_2$ enter the fitted value linearly once the hidden activation $a_i$ is given.
 
 **Part 2: The Cross-Partial Derivative**
 
-Start from the first-order condition derived in Part 1,
+Start from the expression for $\partial L/\partial w_2$ derived in Part 1,
 $$
 \frac{\partial L}{\partial w_2} = -\frac{1}{N} \sum_{i=1}^N r_i a_i ,
 $$
@@ -1140,11 +1207,15 @@ It is tempting to stop here and conclude that nonlinearity in the parameters *is
 
 So neural-network estimation differs from OLS not because the loss function changed — it is squared error in both cases — but because the parameterization of the model creates a symmetric, many-to-one, and demonstrably non-convex optimization problem.
 
-**Part 5: Shape Restrictions on the Engel Curve**
+**Part 5: Shape Restrictions on the Consumption Function**
 
 With a single hidden unit, the fitted function is $\hat y = w_2 g(w_1 x + b_1) + b_2$ with $g$ the sigmoid. Under the stated condition $w_1w_2\neq0$, the fitted curve is **strictly monotone** in $x$: increasing if $w_1 w_2 > 0$ and decreasing if $w_1 w_2 < 0$. Because $g(z)\in(0,1)$, its values are bounded between $\min\{b_2,b_2+w_2\}$ and $\max\{b_2,b_2+w_2\}$. It is a single S-shape: its slope cannot change sign.
 
-The specification therefore cannot represent a non-monotone Engel curve, such as log consumption rising with log income at first and then falling when a good becomes inferior at high income. It also forces log consumption to flatten out at both extremes rather than continuing to grow. If $w_1w_2=0$, the fitted curve is constant, so monotonicity is weak rather than strict. Adding hidden units relaxes these restrictions: a sum of sigmoids can be non-monotone, which is the concrete sense in which width buys flexibility here.
+For a consumption function, the economically relevant monotone case is $w_1w_2>0$. Even in that case, boundedness and the shape of the slope are restrictive. The fitted slope is
+$$
+\frac{d\hat y}{dx} = w_1w_2\,g'(w_1x+b_1),
+$$
+whose magnitude tends to zero as $x$ moves far in either direction. Fitted log consumption must therefore flatten at both extremes rather than continuing to grow. The specification cannot represent the workhorse constant-elasticity relationship $\alpha+\beta x$ with fixed $\beta\neq0$ — the log–log specification that ordinary least squares would fit — in which a one-percent increase in income raises consumption by $\beta$ percent at every income level. More generally, the absolute slope is bell-shaped and reaches its maximum where $w_1x+b_1=0$. When $w_1w_2>0$, the signed slope, or fitted income elasticity, rises and then falls; when $w_1w_2<0$, it falls to its most negative value and then rises toward zero. Thus an increasing fit cannot have elasticity that declines over the entire real line, although its elasticity can decline over an observed income range lying entirely to the right of the peak. If $w_1w_2=0$, the fitted curve is constant, so monotonicity is weak rather than strict. Adding hidden units relaxes these restrictions: a sum of sigmoids can be non-monotone and can hold a nearly constant slope over a wide range, which is the concrete sense in which width buys flexibility here.
 :::
 
 ::: {.callout-note}
