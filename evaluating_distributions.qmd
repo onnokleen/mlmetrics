@@ -48,7 +48,7 @@ The figure below illustrates the conceptual difference.
 
 ```{python}
 #| label: fig-point-vs-dist-forecast
-#| fig-cap: "Comparison of a point forecast and a distribution forecast for the same outcome. Left panel: the realized value (green vertical line) and a point forecast (red vertical line). Right panel: the same realized value against a full forecast density (blue curve with shading); the forecast now assigns probability to every possible outcome rather than naming a single one."
+#| fig-cap: "Comparison of a point forecast and a distribution forecast for the same outcome. Left panel: the realized value (green vertical line) and a point forecast (red vertical line). Right panel: the same realized value against a full forecast density (blue curve with shading); the forecast now specifies a complete predictive distribution over possible outcomes rather than naming a single one."
 #| echo: true
 import numpy as np
 import matplotlib.pyplot as plt
@@ -229,11 +229,11 @@ where $\mathbf{1}\{z \geq y\}$ is the Heaviside step function, the CDF of a dege
 
 **Visual Interpretation**
 
-The CRPS measures the squared difference between the forecast CDF, $F(z)$, and the empirical CDF of the outcome, which is a step function at $y$. If the forecast places probability mass near the realization, the shaded area is smaller and the CRPS is better (i.e. lower).
+The CRPS measures the squared difference between the forecast CDF, $F(z)$, and the empirical CDF of the outcome, which is a step function at $y$. The figure therefore plots the squared discrepancy as an orange curve and shades the area beneath it. If the forecast places probability mass near the realization, this area is smaller and the CRPS is better (i.e. lower).
 
 ```{python}
 #| label: fig-crps-viz
-#| fig-cap: "Visual interpretation of the CRPS. Each panel shows a forecast CDF (left panel: blue, concentrated near the outcome; right panel: red, concentrated away from it) against the step-function CDF of the realized outcome (green), with the region between the two curves shaded orange. The CRPS integrates the squared vertical gap between the curves, so the larger shaded region in the right panel corresponds to a higher (worse) score."
+#| fig-cap: "Visual interpretation of the CRPS. Each panel shows a forecast CDF (left panel: blue, concentrated near the outcome; right panel: red, concentrated away from it) against the step-function CDF of the realized outcome (green). The orange curve is the squared vertical discrepancy between the two CDFs, and the area shaded beneath that curve is the CRPS integrand over the displayed range. Integrating it over the real line gives the reported score, so the larger orange area in the right panel corresponds to a higher (worse) CRPS."
 #| echo: true
 
 import numpy as np
@@ -250,13 +250,15 @@ outcome_cdf = np.heaviside(z - y_realized, 1)
 mu_good, sigma_good = 2.3, 0.3
 cdf_good = norm.cdf(z, mu_good, sigma_good)
 crps_good = ps.crps_gaussian(y_realized, mu=mu_good, sig=sigma_good)
+squared_gap_good = (cdf_good - outcome_cdf) ** 2
 
 ax1.plot(z, cdf_good, 'b-', label='Forecast CDF F(z)')
 ax1.plot(z, outcome_cdf, 'g-', lw=2, label=f'Outcome CDF at y={y_realized}')
-ax1.fill_between(z, cdf_good, outcome_cdf, alpha=0.3, color='orange', label='Area representing CRPS')
+ax1.plot(z, squared_gap_good, color='darkorange', lw=1.5, label='Squared CDF gap')
+ax1.fill_between(z, 0, squared_gap_good, alpha=0.3, color='orange')
 ax1.set_title(f'Forecast With Much Probability Mass Around the Outcome\nCRPS = {crps_good:.3f}')
 ax1.set_xlabel('z')
-ax1.set_ylabel('Cumulative Probability')
+ax1.set_ylabel('CDF Value / Squared Discrepancy')
 ax1.legend()
 ax1.set_ylim(-0.05, 1.05)
 
@@ -264,10 +266,12 @@ ax1.set_ylim(-0.05, 1.05)
 mu_bad, sigma_bad = 1.0, 1.0
 cdf_bad = norm.cdf(z, mu_bad, sigma_bad)
 crps_bad = ps.crps_gaussian(y_realized, mu=mu_bad, sig=sigma_bad)
+squared_gap_bad = (cdf_bad - outcome_cdf) ** 2
 
 ax2.plot(z, cdf_bad, 'r-', label='Forecast CDF F(z)')
 ax2.plot(z, outcome_cdf, 'g-', lw=2, label=f'Outcome CDF at y={y_realized}')
-ax2.fill_between(z, cdf_bad, outcome_cdf, alpha=0.3, color='orange', label='Area representing CRPS')
+ax2.plot(z, squared_gap_bad, color='darkorange', lw=1.5, label='Squared CDF gap')
+ax2.fill_between(z, 0, squared_gap_bad, alpha=0.3, color='orange')
 ax2.set_title(f'Forecast With Less Probability Mass Around the Outcome \nCRPS = {crps_bad:.3f}')
 ax2.set_xlabel('z')
 ax2.legend()
@@ -523,18 +527,16 @@ The last expression can be used to define a multivariate CRPS analogue called "E
 
 ## Empirical Application: GDP Growth Density Forecasts {#sec-eval-dist-empirical}
 
-The tools introduced in this chapter — LogS, CRPS, and PIT histograms — are most informative when applied to competing density forecasts on the same data. We use the FRED-QD (Federal Reserve Economic Data, Quarterly Database) macroeconomic panel documented in the [datasets appendix](datasets.qmd); the same panel returns in the tree-based chapters later in the book. The target is annualized one-step-ahead real GDP growth, and the predictors are five lagged macro and financial variables: lagged GDP growth, inflation, term spread, log VIX (the Cboe Volatility Index), and the unemployment rate.[^eval-dist-vintage]
-
-[^eval-dist-vintage]: This is a pedagogical final-vintage FRED-QD example. A full real-time evaluation would need to account for data revisions and publication lags.
+The tools introduced in this chapter — LogS, CRPS, and PIT histograms — are most informative when applied to competing density forecasts on the same data. We use the FRED-QD (Federal Reserve Economic Data, Quarterly Database) macroeconomic panel documented in the [datasets appendix](datasets.qmd); the same panel returns in the tree-based chapters later in the book. The target is annualized one-step-ahead real GDP growth, and the predictors are five lagged macro and financial variables: lagged GDP growth, inflation, term spread, log VIX (the Cboe Volatility Index), and the unemployment rate. This is a pedagogical final-vintage-data example, not a fully real-time evaluation: a real-time design would also need to reconstruct data revisions and publication lags at every forecast origin.
 
 Readers who have not yet worked through the [random forests chapter](random_forests.qmd#sec-random-forests) only need the following idea for this application: a regression forest is a non-parametric ensemble method which combines multiple predictions into one. We use the following notions in this section:
 
 - A **mean forest** predicts the conditional mean of the target variable given the predictors.
 - A **variance forest** predicts the conditional variance of the target variable given the predictors.
 
-We compare three density forecasts, all Gaussian. The **first-order autoregressive (AR(1)) baseline** sets the point forecast to a least-squares AR(1) in lagged GDP growth and the variance to the expanding in-sample residual variance — a quantity that stays roughly constant once enough data are available. The **heteroskedastic random forest (in-sample)** — we abbreviate random forest as RF below — uses two forests: a mean forest that predicts the conditional mean from all five predictors, and a variance forest that regresses the squared *in-sample* residuals of the first forest on the same predictors. This two-model construction is analogous to specifying a mean equation and a variance equation separately as, for example, done in generalized autoregressive conditional heteroskedasticity (GARCH) models. The **heteroskedastic random forest (OOB)** uses the same architecture but feeds the variance forest squared *out-of-bag* (OOB) residuals from the mean forest instead.[^hrf-note] We deliberately include both heteroskedastic variants because the two differ only in one design choice — how the residuals fed to the variance forest are produced — and that single choice will turn out to determine whether the model beats or loses to the AR(1) baseline.
+We compare three density forecasts, all Gaussian. The **first-order autoregressive (AR(1)) baseline** sets the point forecast to a least-squares AR(1) in lagged GDP growth and the variance to the expanding in-sample residual variance, estimated by dividing the residual sum of squares by $n-2$ for the fitted intercept and slope — a quantity that stays roughly constant once enough data are available. The **heteroskedastic random forest (in-sample)** — we abbreviate random forest as RF below — uses two forests: a mean forest that predicts the conditional mean from all five predictors, and a variance forest that regresses the squared *in-sample* residuals of the first forest on the same predictors. This two-model construction is analogous to specifying a mean equation and a variance equation separately as, for example, done in generalized autoregressive conditional heteroskedasticity (GARCH) models. The **heteroskedastic random forest (OOB)** uses the same architecture but feeds the variance forest squared *out-of-bag* (OOB) residuals from the mean forest instead.[^hrf-note] We deliberately include both heteroskedastic variants because the two differ only in one design choice — how the residuals fed to the variance forest are produced — and that single choice will turn out to determine whether the model beats or loses to the AR(1) baseline.
 
-[^hrf-note]: All forests are re-estimated at each forecast origin using only data available at that point, so there is no look-ahead. The in-sample variant trains the variance forest on $\hat\varepsilon_t^2 = (y_t - \hat\mu_t)^2$, where $\hat\mu_t$ comes from the mean forest fit on the same training window. Because random forests fit the training data closely, these in-sample residuals understate the true conditional variance and the variance forest predicts overconfident scales. The OOB variant replaces $\hat\mu_t$ with the out-of-bag prediction from the mean forest — for each training observation, the average prediction across only those trees that did not see it during bootstrap [@Breiman2001RandomForests], a device treated fully in the [random forests chapter](random_forests.qmd). OOB residuals are not affected by same-sample overfitting and therefore give the variance forest a more realistic conditional-scale target than in-sample residuals (in dependent macro data they are not honest real-time forecast errors, but they are still substantially less overfit). The `np.clip(..., 1e-6, None)` guard keeps the predicted variance strictly positive, which prevents `LogS` from blowing up at near-zero leaf averages.
+[^hrf-note]: Within this final-vintage design, all forests are re-estimated on the expanding window ending at the forecast origin, so no later-dated rows enter estimation. The in-sample variance forest uses squared residuals $\hat\varepsilon_s^2=(y_s-\hat\mu_s)^2$, where the mean forest used observation $s$ during fitting. These same-sample residuals can therefore be mechanically too small, which can train the variance forest toward overly narrow Gaussian forecasts. The out-of-bag variant instead uses, for each training observation, the average prediction from trees whose bootstrap samples excluded that observation [@Breiman2001RandomForests]. This removes direct reuse of the observation in its own mean prediction and reduces that particular channel of overfitting. It does not turn the residual into a real-time forecast error: an early training observation can still be predicted by trees fitted on later-dated observations within the current training window, and temporal dependence remains. The `np.clip(..., 1e-6, None)` guard imposes a strictly positive lower bound on the predicted variance, preventing zero-scale Gaussian forecasts and numerically extreme `LogS` values.
 
 All three models are evaluated on the last 25% of the sample, a test window we will reuse in the tree-based chapters. One indexing convention in the code below deserves a sentence: each row of the assembled dataset pairs the predictors observed at forecast origin $t$ with the outcome realized in the following quarter, so the variable `y_next` in row $t$ holds $y_{t+1}$.
 
@@ -592,7 +594,8 @@ for t in range(split, len(macro)):
     ar_X = macro.iloc[:t][["gdp_lag1"]].values
     ar_model = LinearRegression().fit(ar_X, y_tr)
     mu_ar  = ar_model.predict([[macro.iloc[t]["gdp_lag1"]]])[0]
-    sig_ar = float(np.std(y_tr - ar_model.predict(ar_X), ddof=1))
+    ar_resid = y_tr - ar_model.predict(ar_X)
+    sig_ar = float(np.sqrt(np.sum(ar_resid ** 2) / (len(ar_resid) - 2)))
 
     # Heteroskedastic RF (in-sample residuals): mean forest + variance forest
     rf_mean = RandomForestRegressor(n_estimators=400, max_features="sqrt", random_state=42)

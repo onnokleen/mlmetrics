@@ -71,7 +71,7 @@ $$\boldsymbol{\theta}^{(t)} = \boldsymbol{\theta}^{(t-1)} - \eta \frac{1}{N} \su
 
 :::{.callout-note}
 -   **Pros**: The gradient is the exact training-set gradient, giving a smooth, deterministic path; see the convergence callout below for the conditions under which this path actually converges.
--   **Cons**: Computationally expensive and memory-intensive on large datasets; infeasible to load millions of samples into memory at once.
+-   **Cons**: Each parameter update requires processing the entire training sample, which makes updates computationally intensive, especially on large datasets.
 :::
 
 **Stochastic Gradient Descent (SGD)**
@@ -83,9 +83,11 @@ $$ \nabla_{\boldsymbol \theta} L(\boldsymbol{\theta}^{(t-1)}) \approx \nabla_{\b
 Using only one data point per update instead of all $i = 1, \dots, N$ is a coarse approximation to the full gradient.
 
 :::{.callout-note}
--   **Pros**: Fast per update and requires little memory; the noisy updates can also help the model escape shallow local minima.
--   **Cons**: The path to the minimum is noisy and erratic; with a *constant* step size the iterates do not converge to a fixed point but bounce around the minimum. For convex objectives, convergence to the minimizer is recovered with a diminishing step-size schedule satisfying the Robbins–Monro conditions $\sum_t \eta_t = \infty$ and $\sum_t \eta_t^2 < \infty$ [@RobbinsMonro1951].
+-   **Pros**: Fast per update and requires little memory; the noisy updates can sometimes move through shallow basins that trap a deterministic path, although they do not guarantee escape from local minima.
+-   **Cons**: The path to the minimum is noisy and erratic; with a *constant* step size the iterates generally keep fluctuating rather than converging to a fixed point.[^sgd-convergence]
 :::
+
+[^sgd-convergence]: Under standard stochastic-approximation assumptions — including conditionally unbiased or suitably controlled gradients, bounded conditional second moments, and appropriate regularity and convexity or stability conditions — diminishing step sizes satisfying the Robbins–Monro conditions $\sum_t \eta_t = \infty$ and $\sum_t \eta_t^2 < \infty$ can yield convergence [@RobbinsMonro1951]. The exact mode and rate of convergence depend on the assumptions imposed on the objective and gradient noise.
 
 :::{.callout-note title="What Do Convergence Guarantees Actually Say?"}
 Convergence statements for gradient methods always carry conditions, and it is worth fixing them once. Consider deterministic batch gradient descent on a differentiable objective $L$ that is bounded below and has a Lipschitz-continuous gradient with constant $C$, using a fixed step size $0<\eta\leq 1/C$. If $L$ is also convex and attains its minimum at $\boldsymbol\theta^\star$, the objective gap $L(\boldsymbol\theta^{(t)})-L(\boldsymbol\theta^\star)$ decreases at rate $O(1/t)$. Without convexity, the same smoothness, lower-bound, and step-size conditions imply only that the gradient norm tends to zero, $\|\nabla L(\boldsymbol\theta^{(t)})\|\to 0$; any finite limit point of the iterates is therefore stationary and may be a saddle or local maximum rather than a local minimum. These deterministic guarantees do not automatically carry over to stochastic or mini-batch gradients, whose convergence requires additional assumptions on gradient noise and the step-size schedule [@GoodfellowBengioCourville2016, chap. 8]. A step size that is too large can diverge even on a quadratic objective; Exercise 4.1 derives the exact stability threshold.
@@ -172,13 +174,13 @@ In all of the following algorithms, we choose a learning rate $\eta > 0$ and a s
 
 **Momentum**
 
-The momentum idea traces to @Polyak1964, who introduced the "heavy ball" method to accelerate iterative optimization, and @Nesterov1983, whose accelerated-gradient variant achieves a provably better convergence rate on convex objectives. Momentum accelerates SGD in directions of large gradient updates. It does so by adding a fraction of the previous update vector to the current gradient, creating a "velocity" term $\boldsymbol u_t$ that accumulates past gradients. (We reserve $\boldsymbol v_t$ for the squared-gradient averages of RMSprop and Adam below.)
+The momentum idea traces to @Polyak1964, who introduced the "heavy ball" method to accelerate iterative optimization, and @Nesterov1983, whose accelerated-gradient variant achieves a provably better convergence rate on convex objectives. Momentum builds movement in directions whose gradients remain persistent and dampens oscillation in directions whose gradient signs alternate. It does so by adding a fraction of the previous update vector to the current gradient, creating a "velocity" term $\boldsymbol u_t$ that accumulates past gradients. (We reserve $\boldsymbol v_t$ for the squared-gradient averages of RMSprop and Adam below.)
 
 $$ \boldsymbol u_t = \delta \boldsymbol u_{t-1} + (1 - \delta) \boldsymbol g_t $$
 $$ \boldsymbol \theta^{(t)} = \boldsymbol \theta^{(t-1)} - \eta \boldsymbol u_t $$
 with $\boldsymbol u_0 = \mathbf 0$. (Note the timing: $\boldsymbol g_t$ is evaluated at $\boldsymbol \theta^{(t-1)}$, and the $t$th update produces $\boldsymbol \theta^{(t)}$ — the same convention as for the algorithms below.)
 
-Here, $\delta \in [0,1)$ is the momentum coefficient, and the velocity $u_t$ accumulates a weighted average of past gradients. This creates a "ball rolling downhill" effect that helps overcome small local minima and accelerates convergence in consistent directions.
+Here, $\delta \in [0,1)$ is the momentum coefficient, and the velocity $u_t$ accumulates a weighted average of past gradients. This creates a "ball rolling downhill" effect that accelerates movement in directions with persistent gradients and can carry the iterate through a shallow basin, but it does not guarantee escape from a local minimum.
 
 **AdaGrad (Adaptive Gradient)**
 
@@ -204,15 +206,15 @@ $$
 where $\odot$ denotes the element-wise (Hadamard) product,
 and update each coordinate by
 $$
-\boldsymbol{\theta}^{(t)} = \boldsymbol{\theta}^{(t-1)} - \eta \, \frac{\boldsymbol g_t}{\sqrt{\boldsymbol G_t + \varepsilon}},
+\boldsymbol{\theta}^{(t)} = \boldsymbol{\theta}^{(t-1)} - \eta \, \frac{\boldsymbol g_t}{\sqrt{\boldsymbol G_t} + \varepsilon},
 $$
 where the division and square root are elementwise. For illustration, the one-dimensional case reads
-$$ \theta^{(t)} = \theta^{(t - 1)} - \frac{\eta}{\sqrt{G_{t} + \varepsilon}}\, g_{t}, \qquad G_{t} = \sum_{\tau=1}^{t} g_{\tau}^2.$$
+$$ \theta^{(t)} = \theta^{(t - 1)} - \frac{\eta}{\sqrt{G_{t}} + \varepsilon}\, g_{t}, \qquad G_{t} = \sum_{\tau=1}^{t} g_{\tau}^2.$$
 The small constant $\varepsilon > 0$ is a smoothing term that prevents division by zero. Throughout this book, *AdaGrad* refers to the diagonal version unless stated otherwise.
 
 :::{.callout-note}
 -   **Pros**: Excellent for sparse data — as in text applications, where some predictors appear infrequently.
--   **Cons**: The denominator $\sqrt{\boldsymbol G_t + \varepsilon}$ grows monotonically. This causes the effective learning rate to eventually become infinitesimally small, effectively stopping the training process.
+-   **Cons**: The denominator $\sqrt{\boldsymbol G_t}+\varepsilon$ grows monotonically. This causes the effective learning rate to eventually become infinitesimally small, effectively stopping the training process.
 :::
 
 **RMSprop (Root Mean Square Propagation)**
@@ -276,11 +278,11 @@ L(\theta_1,\theta_2)=1+0.1\,\theta_1^2+\theta_2^2,
 $$
 which is — up to the harmless constant — the ill-conditioned quadratic family of Exercise 4.1 with Hessian eigenvalues $0.2$ and $2$, but with the two coordinates interchanged: here the flat direction is $\theta_1$ and the steep one is $\theta_2$, whereas Exercise 4.1 places the larger eigenvalue $\lambda_{\max}$ on $\theta_1$.
 
-The algorithms stop after at most 100 iterations, with stopping criterion $L(\theta_1,\theta_2)<1.01$ (close to the global minimum value of 1). Most optimizers use a learning rate of 0.3; the momentum panel uses 0.5 because the convex-combination velocity $u_t = \delta u_{t-1} + (1-\delta)g_t$ already shrinks the effective step by roughly $1-\delta$. The SGD path is illustrated by adding mini-batch-style noise to the gradient update, since there is no actual dataset behind the contour. 
+The algorithms stop after at most 100 iterations, with stopping criterion $L(\theta_1,\theta_2)<1.01$ (close to the global minimum value of 1). Most optimizers use a learning rate of 0.3; the momentum panel uses 0.5 because the convex-combination velocity $u_t = \delta u_{t-1} + (1-\delta)g_t$ already shrinks the effective step by roughly $1-\delta$. Because there is no empirical loss or dataset behind the contour, the noisy-gradient panel adds artificial Gaussian noise to the exact gradient. It illustrates stochastic-gradient-like variability but is not literal SGD generated by sampling observations or mini-batches.
 
 ```{python}
 #| label: fig-optimizers
-#| fig-cap: "Paths of six optimizers on the ill-conditioned quadratic $L(\\theta_1,\\theta_2)=1+0.1\\,\\theta_1^2+\\theta_2^2$. In each panel the red line traces the parameter path from the common starting point (green dot) to the final iterate (red dot); the black star marks the global optimum at the origin, gray contour lines show loss levels, and the panel title reports the number of steps taken."
+#| fig-cap: "Paths of six update rules on the ill-conditioned quadratic $L(\\theta_1,\\theta_2)=1+0.1\\,\\theta_1^2+\\theta_2^2$. In each panel the red line traces the parameter path from the common starting point (green dot) to the final iterate (red dot); the black star marks the global optimum at the origin, gray contour lines show loss levels, and the panel title reports the number of steps taken. The noisy-gradient panel adds artificial Gaussian noise to the exact gradient rather than sampling observations from an empirical loss."
 #| code-fold: true
 import numpy as np
 import matplotlib.pyplot as plt
@@ -314,22 +316,19 @@ def run_batch_gd(x0, y0, lr=0.3, n_steps=100):
             break
     return np.array(path)
 
-def run_sgd(x0, y0, lr=0.3, n_steps=100):
-    """Realistic SGD - simulate mini-batch variance"""
+def run_noisy_gd(x0, y0, lr=0.3, n_steps=100):
+    """Gradient descent with artificial gradient noise."""
     path = [(x0, y0)]
     x, y = x0, y0
     
-    # Generate synthetic dataset that creates natural variance
-    np.random.seed(123)  # Different seed for data generation
-    data_variance = 0.3  # Controls how much mini-batches differ
+    np.random.seed(123)
+    noise_scale = 0.3
     
     for step in range(n_steps):
-        # Each mini-batch has slightly different gradient estimate
         gx_base, gy_base = df(x, y)
         
-        # Add realistic mini-batch variance (not just random noise)
-        gx_noise = np.random.normal(0, data_variance * abs(gx_base * 1))
-        gy_noise = np.random.normal(0, data_variance * abs(gy_base * 1))
+        gx_noise = np.random.normal(0, noise_scale * abs(gx_base))
+        gy_noise = np.random.normal(0, noise_scale * abs(gy_base))
         
         gx = gx_base + gx_noise
         gy = gy_base + gy_noise
@@ -459,7 +458,7 @@ def run_adam(x0, y0, lr=0.3, beta1=0.9, beta2=0.999, eps=1e-8, n_steps=100):
 # Run all optimizers from the same starting point
 start_x, start_y = -10, 5
 path_batch = run_batch_gd(start_x, start_y)
-path_sgd = run_sgd(start_x, start_y)
+path_noisy = run_noisy_gd(start_x, start_y)
 path_momentum = run_momentum(start_x, start_y)
 path_adagrad = run_adagrad(start_x, start_y)
 path_rmsprop = run_rmsprop(start_x, start_y)
@@ -471,7 +470,7 @@ axes = axes.flatten()
 
 paths_and_titles = [
     (path_batch, 'Batch Gradient Descent'),
-    (path_sgd, 'Stochastic Gradient Descent'),
+    (path_noisy, 'Noisy Gradient Descent'),
     (path_momentum, 'Momentum'),
     (path_adagrad, 'AdaGrad'),
     (path_rmsprop, 'RMSprop'),
@@ -531,12 +530,12 @@ In such landscapes, Adam's adaptive scaling and momentum can make early training
 
 We can make the minimization problem more challenging by having multiple local minima and one global minimum. Of course, depending on the hyperparameters chosen, all algorithms may find the global minimum. The goal is to find an optimizer that is largely robust to different choices of hyperparameters.
 
-One disclosure is needed to read the figure honestly: the raw-gradient methods use much smaller learning rates (0.01 for batch gradient descent and SGD, 0.001 for momentum) than the adaptive methods (0.3 for AdaGrad, RMSprop, and Adam). This is deliberate rather than an unfair handicap — adaptive methods normalize the gradient scale, so they tolerate, and need, a much larger nominal step size, while plain gradient descent diverges on this surface at 0.3. But it means the panels compare algorithm designs *at workable tunings*, not the algorithms at a common learning rate.
+Two disclosures are needed to read the figure honestly. First, as in the quadratic comparison, the noisy-gradient panel adds artificial Gaussian noise to the exact gradient and is not literal SGD from sampled observations. Second, the raw-gradient methods use much smaller learning rates (0.01 for batch and noisy gradient descent, 0.001 for momentum) than the adaptive methods (0.3 for AdaGrad, RMSprop, and Adam). This is deliberate rather than an unfair handicap — adaptive methods normalize the gradient scale, so they tolerate, and need, a much larger nominal step size, while plain gradient descent diverges on this surface at 0.3. The panels therefore compare algorithm designs *at workable tunings*, not the algorithms at a common learning rate.
 
 
 ```{python}
 #| label: fig-optimizers-nonconvex
-#| fig-cap: "Comparison of optimization algorithms on a non-convex loss landscape with multiple local minima. In each panel the red line traces the path from the common start (green dot) to the final iterate (red dot); the black star marks the global minimum and gray contours show loss levels. Learning rates differ by design: 0.01 for batch gradient descent and SGD, 0.001 for momentum, and 0.3 for the adaptive methods (AdaGrad, RMSprop, Adam), whose gradient normalization requires a larger nominal step size."
+#| fig-cap: "Comparison of optimization algorithms on a non-convex loss landscape with multiple local minima. In each panel the red line traces the path from the common start (green dot) to the final iterate (red dot); the black star marks the global minimum and gray contours show loss levels. The noisy-gradient panel adds artificial Gaussian noise to the exact gradient rather than sampling observations from an empirical loss. Learning rates differ by design: 0.01 for batch and noisy gradient descent, 0.001 for momentum, and 0.3 for the adaptive methods (AdaGrad, RMSprop, Adam), whose gradient normalization requires a larger nominal step size."
 #| code-fold: true
 import numpy as np
 import matplotlib.pyplot as plt
@@ -655,10 +654,10 @@ def run_optimizer_nonconvex(optimizer_func, x0, y0, **kwargs):
             if f_nonconvex(x, y) < 1 or np.isnan(x) or np.isnan(y):
                 break
                 
-    elif 'sgd' in optimizer_func.__name__:
+    elif 'noisy_gd' in optimizer_func.__name__:
         lr = kwargs.get('lr', 0.3)
         n_steps = kwargs.get('n_steps', 200)
-        np.random.seed(456)  # Different seed for SGD noise
+        np.random.seed(456)
         data_variance = 0.2
         
         for _ in range(n_steps):
@@ -694,7 +693,7 @@ def run_optimizer_nonconvex(optimizer_func, x0, y0, **kwargs):
 
 # Define dummy functions for the wrapper
 def run_batch_gd_nc(): pass
-def run_sgd_nc(): pass
+def run_noisy_gd_nc(): pass
 def run_momentum_nc(): pass
 def run_adagrad_nc(): pass
 def run_rmsprop_nc(): pass
@@ -704,7 +703,7 @@ def run_adam_nc(): pass
 start_x_nc, start_y_nc = -4, 3  # Start far from any minimum
 
 path_batch_nc = run_optimizer_nonconvex(run_batch_gd_nc, start_x_nc, start_y_nc, lr=0.01)
-path_sgd_nc = run_optimizer_nonconvex(run_sgd_nc, start_x_nc, start_y_nc, lr=0.01)
+path_noisy_nc = run_optimizer_nonconvex(run_noisy_gd_nc, start_x_nc, start_y_nc, lr=0.01)
 path_momentum_nc = run_optimizer_nonconvex(run_momentum_nc, start_x_nc, start_y_nc, lr=0.001, beta=0.9)
 path_adagrad_nc = run_optimizer_nonconvex(run_adagrad_nc, start_x_nc, start_y_nc, lr=0.3)
 path_rmsprop_nc = run_optimizer_nonconvex(run_rmsprop_nc, start_x_nc, start_y_nc, lr=0.3)
@@ -716,15 +715,15 @@ axes = axes.flatten()
 
 paths_and_titles_nc = [
     (path_batch_nc, 'Batch Gradient Descent'),
-    (path_sgd_nc, 'Stochastic Gradient Descent'),
+    (path_noisy_nc, 'Noisy Gradient Descent'),
     (path_momentum_nc, 'Momentum'),
     (path_adagrad_nc, 'AdaGrad'),
     (path_rmsprop_nc, 'RMSprop'),
     (path_adam_nc, 'Adam')
 ]
 
-# Known global minima of Himmelblau's function
-global_minima = [(3.584428, -1.848126)]
+# Numerical global minimum of the modified objective plotted above
+global_minima = [(3.584728, -1.849960)]
 
 for i, (path, title) in enumerate(paths_and_titles_nc):
     ax = axes[i]
