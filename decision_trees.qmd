@@ -9,19 +9,19 @@ number-offset: [9, 0]
 
 Decision trees are nonparametric estimators that approximate an unknown conditional mean or conditional event probability by repeatedly splitting the predictor space and assigning a constant prediction within each resulting region. The classical reference is the Classification and Regression Trees (CART) monograph of @BreimanFriedmanOlshenStone1984. For econometricians, trees are useful when thresholds, interactions, and regime changes matter but are hard to specify in advance. A tree can learn rules such as "if the output gap is negative and credit spreads are high, predict lower gross domestic product (GDP) growth" without the researcher having to write down all interactions beforehand.
 
-Single trees are interpretable, but that interpretability comes with three weaknesses: trees are discontinuous, unstable, and unable to extrapolate outside the support of the training data. These motivate the move to random forests and boosting in the next chapters.
+Single trees are interpretable, but that interpretability comes with three weaknesses: trees are discontinuous, unstable, and unable to extrapolate outside the support of the training data. These weaknesses motivate the next chapters: random forests average many randomized trees to stabilize predictions, while boosting builds trees sequentially to correct the current model's errors.
 
 ## Roadmap
 
 1. We start with regression trees and show how they approximate the conditional mean by partitioning the predictor space into leaves.
 2. We then explain recursive binary splitting, the greedy algorithm used to construct a tree.
-3. Next we turn to classification trees, impurity measures, and the interpretation of leaf predictions as event probabilities.
-4. We then discuss overfitting, stopping rules, and cost-complexity pruning.
+3. Next we turn to classification trees, measures of within-node class mixing called impurity, and the interpretation of leaf predictions as event probabilities.
+4. We then discuss overfitting, stopping rules, and cost-complexity pruning, which collapses weak branches under a penalty for tree size.
 5. Finally, we summarize when trees are useful for econometric work and where they fail.
 
 ## Regression Trees {#sec-dt-regression}
 
-Suppose we observe a training sample $\{(x_i, y_i)\}_{i=1}^N$ with $x_i \in \mathbb{R}^p$ and scalar response $y_i$. A regression tree with $J$ leaves predicts
+We begin with conditional-mean prediction because it makes the mechanics of a tree especially transparent. Suppose we observe a training sample $\{(x_i, y_i)\}_{i=1}^N$ with $x_i \in \mathbb{R}^p$ and scalar response $y_i$. A regression tree with $J$ leaves predicts
 
 $$
 \hat f(x) = \sum_{j=1}^J \hat w_j \mathbf{1}\{x \in R_j\},
@@ -59,7 +59,7 @@ Once the partition is chosen, the fitted value in each leaf is the sample mean o
 
 A regression tree is a data-driven threshold model. Each split creates a regime such as `output_gap <= 0.5` or `credit_spread > 1.8`, and the fitted value in that regime is a local average. In that sense, trees behave like automatically selected interacted dummy regressions with unknown thresholds.
 
-There is a closer classical relative. A *regressogram* — the oldest nonparametric regression estimator — partitions the predictor space into fixed bins chosen in advance and reports the sample mean of $y$ within each bin. Equation (10.1) is exactly that estimator: a weighted sum of bin indicators with the leaf means as coefficients. The single difference, and the entire contribution of the tree algorithm, is that the bins are not fixed in advance but *chosen adaptively from the data*, with both the splitting variable and the threshold selected to reduce within-bin heterogeneity. That difference is what buys the tree its ability to find thresholds the researcher did not specify, and it is also the source of every statistical complication in this chapter: because the partition is estimated, leaf means are not simple averages over pre-specified cells, and standard errors computed as if the bins were fixed would be wrong.
+There is a closer classical relative. A *regressogram*---the oldest nonparametric regression estimator---partitions the predictor space into fixed bins chosen in advance and reports the sample mean of $y$ within each bin. Equation (10.1) is exactly that estimator: a weighted sum of bin indicators with the leaf means as coefficients. The tree's contribution is that the bins are *chosen adaptively from the data*: both the splitting variable and threshold are selected to reduce within-bin heterogeneity. This chapter focuses on prediction and does not develop statistical inference for adaptively chosen tree partitions. For an inference-oriented treatment using honest sample splitting, see @WagerAthey2018.
 :::
 
 **Recursive Binary Splitting**
@@ -74,7 +74,7 @@ $$
 
 where $\bar y_{R_j}$ is the sample mean within region $R_j$.
 
-Unlike a neural network, this objective is not optimized by differentiating a smooth parameter vector. The regions $R_j$ change discretely when a split threshold moves past an observation, and the indicator $1(x \in R_j)$ is not differentiable. Trees are therefore **grown** by searching over candidate splits rather than trained by gradient descent.
+Unlike a neural network, this objective is not optimized by differentiating a smooth parameter vector. The regions $R_j$ change discretely when a split threshold moves past an observation, and the indicator $\mathbf{1}\{x \in R_j\}$ is not differentiable. Trees are therefore **grown** by searching over candidate splits rather than trained by gradient descent.
 
 A global search over all possible partitions is computationally infeasible. Decision trees therefore restrict attention to binary, axis-aligned splits. We use the term **node** for any subset of the training data reached by a sequence of splits: an *internal node* is split further into two child nodes, whereas a *terminal node*, also called a *leaf*, is never split again and corresponds to one of the final regions $R_j$ where prediction occurs. At a given node containing observations $I_m$, the algorithm considers splits of the form
 
@@ -107,10 +107,10 @@ where $\bar y_m^L$ and $\bar y_m^R$ are the sample means of $y_i$ over the left 
 :::{.callout-note}
 ## Why only midpoints matter
 
-For a continuous predictor, candidate cutoffs only need to be checked at midpoints between consecutive ordered sample values. Between two adjacent observations, the membership of the left and right child nodes does not change, so the objective is constant.
+For a continuous predictor, candidate cutoffs only need to be checked at midpoints between consecutive **distinct** ordered values observed in the current node. Between two adjacent distinct values, the membership of the left and right child nodes does not change, so the objective is constant. A cutoff is skipped if either child would violate a stated minimum-observation or other admissibility constraint.
 :::
 
-After the best split is chosen, the same procedure is applied within each child node. The recursion needs a termination rule, and the default conventions are worth stating: a node is not split further when it is *pure* (all $y_i$ in the node are equal, so no split can reduce the criterion), when it contains fewer observations than a minimum node size, or when no candidate split reduces the criterion. The pre-pruning controls discussed later in this chapter (maximum depth, minimum leaf size) tighten these base rules. This top-down greedy algorithm is called **recursive binary splitting**. It is computationally feasible, but each split is only myopically optimal given the splits already made — the resulting tree need not minimize the sum of squared errors among all trees with the same number of leaves.
+After the best split is chosen, the same procedure is applied within each child node. The recursion stops when no admissible split exists or when the best impurity decrease falls below a chosen threshold, such as `min_impurity_decrease`. The scikit-learn default sets that threshold to zero and accepts a zero-decrease split. This convention can matter for a pure interaction: a first split may have no immediate gain yet reveal profitable child splits at the next depth. Maximum depth and minimum leaf size provide additional pre-pruning controls. This top-down greedy algorithm is called **recursive binary splitting**. It is computationally feasible, but each split is only myopically optimal given the splits already made; the resulting tree need not minimize RSS among all trees with the same number of leaves.
 
 @fig-regression-tree-step shows what the resulting estimator looks like in the simplest one-predictor case.
 
@@ -201,7 +201,7 @@ This geometry makes trees easy to interpret, but it also reveals a limitation: a
 
 :::{.callout-note title="Question for Reflection"}
 
-Based on the tree geometry above, when is a tree split more credible than a smooth marginal effect, and when is the step-function approximation a limitation?
+Based on the tree geometry above, when is a discontinuous threshold more substantively plausible than a smooth conditional-mean relationship, and when is the step-function approximation a limitation?
 :::
 
 :::{.callout-tip collapse="true" title="Suggested Answer"}
@@ -286,7 +286,7 @@ plt.tight_layout()
 plt.show()
 ```
 
-One could also use misclassification error, $\min\{\hat p, 1-\hat p\}$, but it is flatter around the center and therefore less sensitive to changes in node composition. For that reason, entropy or Gini are more common for tree growing; misclassification error is more commonly used for pruning the grown tree, where exact ranking is less critical.
+One could also use misclassification error, $\min\{\hat p, 1-\hat p\}$, but it is flatter around the center and therefore less sensitive to changes in node composition. For that reason, entropy and Gini impurity are commonly used for growing trees, while misclassification error can be used to assess a grown classification tree [@BreimanFriedmanOlshenStone1984].
 
 :::{.callout-note}
 ## Entropy vs Gini
@@ -311,12 +311,12 @@ The decision threshold matters in economics and finance because missed recession
 
 ## Tree Size, Overfitting, and Pruning {#sec-dt-pruning}
 
-A fully grown tree can drive training error arbitrarily low by creating many tiny leaves; that flexibility is dangerous because the resulting estimator has low bias but high variance.
+A sufficiently deep tree can often interpolate the training sample by creating singleton or outcome-homogeneous leaves. Zero training error is not guaranteed, however: observations with identical predictor vectors but different outcomes cannot be separated by axis-aligned splits, and minimum-leaf-size or other split constraints may also prevent isolation. Even when interpolation is possible, the flexibility is dangerous because the resulting estimator typically has low bias but high variance.
 
 :::{.callout-important}
 ## Bias-Variance View
 
-Fix a forecast point $x_0$ and suppose a new observation at that point is generated as
+First consider the standard independent and identically distributed (i.i.d.) fresh-draw setup. Fix a forecast point $x_0$ and suppose a new observation at that point is generated as
 $$
 Y_0 = f(x_0) + \varepsilon_0,
 \qquad
@@ -329,12 +329,12 @@ $$
 \mathbb{E}\left[(Y_0-\hat f(x_0))^2\right]
 =
 \underbrace{\operatorname{Var}\left(\hat f(x_0)\right)}_{\text{estimation variance}}
-+\underbrace{\operatorname{Bias}\left(\hat f(x_0)\right)^2}_{\text{approximation error}}
++\underbrace{\operatorname{Bias}\left(\hat f(x_0)\right)^2}_{\text{squared bias}}
 +\underbrace{\sigma^2}_{\text{irreducible}}.
 $$
-The independence assumption is what removes the cross-term between $\varepsilon_0$ and $\hat f(x_0)$; it holds because $Y_0$ is a genuinely new observation, which is precisely the assumption that in-sample evaluation violates.
+The independence assumption removes the cross-term between $\varepsilon_0$ and $\hat f(x_0)$; it is part of the i.i.d. fresh-draw setup, not a consequence of an observation occurring later in time. For dependent data, a forecast decomposition instead conditions on the information set $\mathcal{F}_t$ and requires the future innovation to be conditionally orthogonal to the fitted forecast, for example $\mathbb{E}[\varepsilon_{t+1}\mid\mathcal{F}_t]=0$ when $\hat f_t$ is $\mathcal{F}_t$-measurable.
 
-Deep trees can reduce approximation bias because they create many small regions, but they are highly sensitive to the training sample. In the terminology of the decomposition, unrestricted trees often have low bias but high variance.
+Approximation limitations of the tree function class are one source of squared bias. Pruning, other regularization choices, and finite-sample features of the fitting procedure can create additional bias. Deep trees can reduce bias by creating many small regions, but they are highly sensitive to the training sample. In the terminology of the decomposition, unrestricted trees often have low bias but high variance.
 :::
 
 There are two common ways to control complexity.
@@ -360,7 +360,7 @@ C_\alpha(T)
 \sum_{i=1}^N (y_i - \hat f_T(x_i))^2 + \alpha |T|,
 $$
 
-where $|T|$ is the number of leaves in tree $T$ and $\alpha \geq 0$ is a tuning parameter. The minimization runs over a specific, finite domain: the **subtrees of the grown tree $T_0$** obtained by collapsing internal nodes (replacing a whole branch by a single leaf), not over all conceivable trees — which is what makes the search feasible at all. A classical result of @BreimanFriedmanOlshenStone1984 makes it efficient: as $\alpha$ increases from zero, the minimizing subtrees form a finite *nested* sequence $T_0 \supseteq T_1 \supseteq \cdots \supseteq \{\text{root}\}$, obtained by successively collapsing the "weakest link" — the internal node whose branch contributes least fit improvement per leaf. One therefore computes the entire sequence once and only has to choose $\alpha$, which should be tuned with the time-aware validation schemes discussed in the warning below.
+where $|T|$ is the number of leaves in tree $T$ and $\alpha \geq 0$ is a tuning parameter. The minimization runs over a specific, finite domain: the **subtrees of the grown tree $T_0$** obtained by collapsing internal nodes, not over all conceivable trees. Restricting the search to these subtrees makes it feasible. A classical result of @BreimanFriedmanOlshenStone1984 makes the calculation efficient: as $\alpha$ increases from zero, the minimizing subtrees form a finite *nested* sequence $T_0 \supseteq T_1 \supseteq \cdots \supseteq \{\text{root}\}$, obtained by successively collapsing the "weakest link"---the internal node whose branch contributes least fit improvement per leaf. One therefore computes the entire sequence once and only has to choose $\alpha$, which should be tuned with the time-aware validation schemes discussed in the warning below.
 
 Larger $\alpha$ penalizes bigger trees more heavily, so the selected subtree becomes smaller. This is directly analogous to complexity penalization in econometrics: we do not accept an extra parameter, or here an extra leaf, unless it reduces the in-sample fit criterion enough to justify the added flexibility.
 
@@ -372,12 +372,12 @@ For macroeconomic or financial time series, tree depth and pruning parameters mu
 
 **Why Single Trees Are Unstable**
 
-A single split near the top of the tree changes the sample available to all later splits. As a result, small perturbations in the training data can generate a different sequence of splits and therefore a different fitted function. This high variance is the main reason single trees are rarely used as the final predictive model.
+A single split near the top of the tree changes the sample available to all later splits. As a result, small perturbations in the training data can generate a different sequence of splits and therefore a different fitted function. In predictive applications judged by held-out loss, this instability is one reason ensembles often outperform a single unrestricted tree.
 
 :::{.callout-note}
 ## Link to the Next Chapters
 
-Random forests attack the variance problem by averaging many trees. Boosting attacks bias by adding trees sequentially to correct earlier mistakes. Both methods keep the partitioning logic of trees while improving predictive performance.
+Random forests are designed primarily to stabilize high-variance trees through averaging, whereas boosting often emphasizes sequential bias reduction by correcting the current fit. Both methods can change both bias and variance, and both keep the partitioning logic of trees while improving predictive performance.
 :::
 
 ## Trees for Econometric Data: Strengths and Limits {#sec-dt-strengths-limits}
@@ -393,30 +393,30 @@ Small trees are also attractive when communication matters, because the fitted r
 
 But trees also have sharp limitations.
 
-**Strengths**
+**Strengths of decision trees**
 
 - They automatically discover interactions and threshold effects.
 - They require little preprocessing and are not sensitive to variable scaling.
 - They can handle many predictors without manually writing basis expansions or interaction terms.
 - Small trees can be interpreted as explicit decision rules.
 
-**Limitations**
+**Limitations of decision trees**
 
 - They produce discontinuous predictions.
 - They cannot extrapolate trends outside the support of the training data.
 - They are unstable: small sample changes can produce different trees.
-- A single tree is usually not competitive with modern ensemble methods in pure predictive accuracy.
+- On many held-out prediction tasks, a single unrestricted tree is less accurate than a tuned tree ensemble because averaging or sequential fitting can reduce its instability.
 - Split variables and thresholds are chosen adaptively for prediction, so they should not be given a causal interpretation.
 
 For time-series econometrics, the extrapolation issue is especially important. If GDP growth, inflation, or asset volatility moves outside the historical range seen during training, a tree can only return the constant prediction from the outermost leaf. That is often too rigid for forecasting.
 
-@fig-dt-fredqd gives a concrete illustration using the quarterly Federal Reserve Economic Data collection (FRED-QD). The target is annualized GDP growth in quarter $t+1$, while the predictors are macro and financial variables dated quarter $t$.[^dt-fredqd-final-vintage] In this fit, a depth-3 regression tree splits first on inflation, separating the 174 quarters with inflation below 9.57% from the 14 high-inflation quarters. Within the low-inflation branch, the tree splits on lagged GDP growth and then on the term spread — the gap between long- and short-maturity yields, a well-known leading indicator of business cycle turning points [@EstrellaMishkin1998]. The high-inflation branch splits instead on the log volatility index (VIX), an option-implied measure of stock-market volatility. Two features of the fitted tree are worth noting. First, the same variable can be reused at different depths and with different thresholds — inflation splits at 9.57 near the root and again at 11.02 further down — because each split is chosen conditionally on the region reached so far. Second, the piecewise-constant structure is visible in the leaf values: regardless of how far predictors move during the test period, the tree can only return one of eight constants, and the most extreme of them is $-8.33$. This is a direct manifestation of the extrapolation limitation.
+@fig-dt-fredqd gives a concrete illustration using the quarterly [Federal Reserve Economic Data collection (FRED-QD)](datasets.qmd#fred-qd) [@McCrackenNg2020FREDQD]. The target is annualized GDP growth in quarter $t+1$, while the predictors are macro and financial variables dated quarter $t$.[^dt-fredqd-final-vintage] In this fit, a depth-3 regression tree splits first on inflation, separating the 174 quarters with inflation below 9.57% from the 14 high-inflation quarters. Within the low-inflation branch, the tree splits on lagged GDP growth and then on the term spread---the gap between long- and short-maturity yields, a well-known leading indicator of business cycle turning points [@EstrellaMishkin1998]. The high-inflation branch splits instead on the log volatility index (VIX), an option-implied measure of stock-market volatility. Two features of the fitted tree are worth noting. First, the same variable can be reused at different depths and with different thresholds: inflation splits at 9.57 near the root and again at 11.02 further down because each split is chosen conditionally on the region reached so far. Second, the piecewise-constant structure is visible in the leaf values. Regardless of how far predictors move during the test period, the tree can return only one of eight constants, the most extreme of which is $-8.33$. This is a direct manifestation of the extrapolation limitation.
 
 [^dt-fredqd-final-vintage]: This is a pedagogical final-vintage FRED-QD example. A full real-time GDP forecasting evaluation would also need to account for release calendars and data revisions.
 
 ```{python}
 #| label: fig-dt-fredqd
-#| fig-cap: "Depth-3 regression tree fit to one-step-ahead GDP growth (annualized log-difference of GDPC1) using five FRED-QD predictors. Each internal node shows the split variable and threshold; leaf nodes show the mean predicted value in percentage points annualized (value) and the number of training observations (samples). Colors indicate the leaf prediction: darker shading corresponds to higher predicted growth. The tree is trained on the first 75% of available quarters."
+#| fig-cap: "Depth-3 regression tree fit to one-step-ahead GDP growth (annualized log-difference of GDPC1) using five FRED-QD predictors. Each internal node shows the split variable and threshold; leaf nodes show the mean prediction (`value`), measured in annualized percentage points, and the number of training observations (`samples`). Colors indicate the leaf prediction: darker shading corresponds to higher predicted growth. The tree is trained on the first 75% of available quarters."
 #| echo: true
 
 import numpy as np
@@ -464,6 +464,8 @@ plt.tight_layout()
 plt.show()
 ```
 
+The eight displayed leaf constants make the extrapolation limit concrete: new observations can be routed to a different leaf, but the tree cannot continue a trend beyond the fitted leaf values.
+
 ## Summary
 
 :::{.callout-important}
@@ -500,22 +502,23 @@ Consider the following training sample with one predictor $x$ and response $y$:
 | 3 | 3 | 2.5 |
 | 4 | 4 | 5.0 |
 
-1. Compute the root-node mean and the root-node sum of squared errors.
-2. Evaluate the candidate one-split regression trees with cutoffs $s \in \{1.5, 2.5, 3.5\}$. For each split, compute the leaf means and the total sum of squared errors. Which split is chosen by recursive binary splitting?
+1. Compute the root-node mean and the root-node residual sum of squares (RSS).
+2. Evaluate the candidate one-split regression trees with cutoffs $s \in \{1.5, 2.5, 3.5\}$. For each split, compute the leaf means and total RSS. Which split is chosen by recursive binary splitting?
 3. Consider the cost-complexity objective
    $$
    C_\alpha(T) = \sum_{i=1}^4 (y_i - \hat f_T(x_i))^2 + \alpha |T|,
    $$
-   where $|T|$ is the number of leaves. For which values of $\alpha$ is the one-split tree from Part 2 preferred to the stump with no split (the no-split tree consisting of a single root leaf that predicts the full-sample mean)?
+   where $|T|$ is the number of leaves and $\alpha\geq0$. For which values of $\alpha$ is the one-split tree from Part 2 preferred to the root-only tree (the no-split tree consisting of a single root leaf that predicts the full-sample mean)?
 4. Give the tree's prediction at $x=2.7$ and at $x=5$. What limitation of regression trees does this illustrate for forecasting trending macroeconomic variables?
+5. Now suppose the observations are quarterly and $\alpha$ must be selected before forecasting the final year. Explain why randomly shuffling quarters into validation folds can leak future information. Describe a valid expanding-window comparison of two candidate values, $\alpha_1$ and $\alpha_2$, and state which observations may be used to fit each forecast.
 
-*Exam level: suitable as-is. Parts 1-3 test the mechanics of tree fitting and pruning, while Part 4 checks understanding of extrapolation.*
+*Exam level. Parts 1--3 test tree fitting and pruning, Part 4 checks extrapolation, and Part 5 tests honest time-series tuning.*
 :::
 
 ::: {.callout-warning collapse="true"}
 ## Hint for Part 3
 
-The stump has one leaf. The split tree has two leaves. Write the two penalized criteria explicitly and compare them.
+The root-only tree has one leaf. The split tree has two leaves. Write the two penalized criteria explicitly and compare them.
 :::
 
 ::: {.callout-tip collapse="true"}
@@ -529,7 +532,7 @@ $$
 \bar y = \frac{2 + 3 + 2.5 + 5}{4} = 3.125.
 $$
 
-So the stump sum of squared errors (SSE) is
+So the root-only tree's RSS is
 
 $$
 (2 - 3.125)^2 + (3 - 3.125)^2 + (2.5 - 3.125)^2 + (5 - 3.125)^2
@@ -546,7 +549,7 @@ For $s=1.5$:
 Hence
 
 $$
-\text{SSE}(1.5) = 0 + (3-3.5)^2 + (2.5-3.5)^2 + (5-3.5)^2 = 3.5.
+\text{RSS}(1.5) = 0 + (3-3.5)^2 + (2.5-3.5)^2 + (5-3.5)^2 = 3.5.
 $$
 
 For $s=2.5$:
@@ -557,7 +560,7 @@ For $s=2.5$:
 Hence
 
 $$
-\text{SSE}(2.5) = (2-2.5)^2 + (3-2.5)^2 + (2.5-3.75)^2 + (5-3.75)^2 = 3.625.
+\text{RSS}(2.5) = (2-2.5)^2 + (3-2.5)^2 + (2.5-3.75)^2 + (5-3.75)^2 = 3.625.
 $$
 
 For $s=3.5$:
@@ -568,20 +571,20 @@ For $s=3.5$:
 Hence
 
 $$
-\text{SSE}(3.5) = (2-2.5)^2 + (3-2.5)^2 + (2.5-2.5)^2 + (5-5)^2 = 0.5.
+\text{RSS}(3.5) = (2-2.5)^2 + (3-2.5)^2 + (2.5-2.5)^2 + (5-5)^2 = 0.5.
 $$
 
 Therefore the best one-split tree uses the cutoff $s=3.5$.
 
 **Part 3: Cost-complexity comparison**
 
-The stump has one leaf, so its criterion is
+The root-only tree has one leaf, so its criterion is
 
 $$
-C_\alpha(\text{stump}) = 5.1875 + \alpha.
+C_\alpha(\text{root only}) = 5.1875 + \alpha.
 $$
 
-The one-split tree has two leaves and SSE $0.5$, so
+The one-split tree has two leaves and RSS $0.5$, so
 
 $$
 C_\alpha(\text{split}) = 0.5 + 2\alpha.
@@ -595,7 +598,7 @@ $$
 \alpha < 4.6875.
 $$
 
-So the split tree is chosen for $\alpha < 4.6875$, the stump is chosen for $\alpha > 4.6875$, and the two are tied at $\alpha = 4.6875$.
+Under the maintained domain $\alpha\geq0$, the split tree is chosen for $0\leq\alpha < 4.6875$, the root-only tree is chosen for $\alpha > 4.6875$, and the two are tied at $\alpha = 4.6875$.
 
 **Part 4: Predictions and extrapolation**
 
@@ -618,6 +621,12 @@ $$
 $$
 
 The constant outer-leaf prediction illustrates the extrapolation problem: once $x$ is above the largest cutoff, the tree cannot continue an upward trend. The tree simply returns the same value regardless of how far $x$ moves beyond the training range.
+
+**Part 5: Time-aware tuning**
+
+Random folds can train a tree on quarters that occur after a validation quarter. The resulting error no longer measures a forecast based only on the information available at that origin and can make either candidate $\alpha$ look artificially accurate.
+
+An expanding-window comparison chooses several validation origins $t_1<\cdots<t_K$ before the final test year. At each $t_k$, fit one tree with $\alpha_1$ and one with $\alpha_2$ using only observations dated at or before $t_k$, then score their forecasts for $t_k+1$. Average the validation losses across origins and choose the candidate with the lower loss. Neither the outcome at $t_k+1$ nor any later observation may enter the fit that produces the forecast for $t_k+1$.
 :::
 
 ::: {.callout-note}
@@ -643,9 +652,10 @@ Use natural logarithms throughout, with $\log 2 \approx 0.693$, $\log 3 \approx 
    $$
    \hat p > \frac{C_{FP}}{C_{FP}+C_{FN}}.
    $$
-   Evaluate the threshold for $C_{FN}=4$ and $C_{FP}=1$. Then apply it to the leaves of *both* candidate splits from Parts 2 and 3, and report which leaves change their predicted class relative to the $0.5$ rule. Explain why a leaf changes in one split but not the other, and what this says about when the choice of threshold actually matters.
+   Evaluate the threshold for $C_{FN}=4$ and $C_{FP}=1$.
+5. Apply the cost-sensitive threshold from Part 4 to the leaves of *both* candidate splits from Parts 2 and 3. Report which leaves change their predicted class relative to the $0.5$ rule. Explain why a leaf changes in one split but not the other, and state the general interval of leaf probabilities for which lowering the threshold changes the decision.
 
-*Exam level: the required logarithms are supplied, so all four parts are calculator-free. Parts 1-3 are the impurity mechanics, and Part 4 adds the cost-sensitive threshold derivation together with its effect on the fitted classifier.*
+*Exam level: the required logarithms are supplied, so all five parts are calculator-free. Parts 1--3 test the mechanics of impurity calculations, Part 4 derives the cost-sensitive threshold, and Part 5 applies it to the fitted leaves.*
 :::
 
 ::: {.callout-warning collapse="true"}
@@ -796,7 +806,9 @@ $$
 \frac{1}{1+4} = 0.2.
 $$
 
-So with asymmetric losses, a bank should classify a firm as default whenever the estimated default probability exceeds $0.2$, not $0.5$.
+So with asymmetric losses, a bank should predict default for a firm whenever the estimated default probability exceeds $0.2$, not $0.5$.
+
+**Part 5: Applying the threshold**
 
 Applying the two thresholds to the leaves of both candidate splits:
 

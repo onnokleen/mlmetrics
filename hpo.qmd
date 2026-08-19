@@ -7,11 +7,11 @@ number-offset: [13, 0]
 
 ## Overview
 
-Hyperparameter optimization (HPO) is the problem of choosing settings that control how a model is estimated rather than parameters learned directly from the loss function. Examples include the penalty strength in ridge or lasso, tree depth and minimum leaf size, the number of trees in a forest, the learning rate in boosting, or the batch size and network width in a neural network.
+Hyperparameter optimization (HPO) is the problem of choosing settings that control how a model is estimated. Unlike fitted parameters, these settings are not obtained directly by minimizing the model's training loss. Examples include the penalty strength in ridge or lasso, tree depth and minimum leaf size, the number of trees in a forest, the learning rate in boosting, or the batch size and network width in a neural network.
 
 For econometricians, HPO matters for two reasons. First, predictive performance can change materially across plausible settings. Second, the act of searching itself creates a statistical problem: if we try many specifications and keep the one with the best validation score, we are optimizing a noisy estimate of out-of-sample performance. Without a disciplined workflow, the selected model can look much better in validation than it will look in truly new data.
 
-This chapter extends the basic validation ideas from the [Cross Validation chapter](cross_validation.qmd), especially the discussions of [Honest Workflow: Validation vs Test Set](cross_validation.qmd#sec-cv-honest-workflow), [Leakage Inside Cross-Validation](cross_validation.qmd#sec-cv-leakage), [K-Fold Cross-Validation](cross_validation.qmd#sec-cv-kfold), and [Time Series Cross-Validation](cross_validation.qmd#sec-cv-time-series). The goal here is not to repeat that chapter in full, but to show how those ideas change once hyperparameters themselves become the optimization target.
+This chapter extends the basic validation ideas from the [Cross Validation chapter](cross_validation.qmd), especially the discussions of [Reliable Workflow: Validation vs Test Set](cross_validation.qmd#sec-cv-reliable-workflow), [Leakage Inside Cross-Validation](cross_validation.qmd#sec-cv-leakage), [K-Fold Cross-Validation](cross_validation.qmd#sec-cv-kfold), and [Time Series Cross-Validation](cross_validation.qmd#sec-cv-time-series). The goal here is not to repeat that chapter in full, but to show how those ideas change once hyperparameters themselves become the optimization target.
 
 :::{.callout-note title="Definition: Parameters vs Hyperparameters"}
 
@@ -22,19 +22,19 @@ This chapter extends the basic validation ideas from the [Cross Validation chapt
 
 ## Roadmap
 
-1. We begin with why honest HPO is statistically harder than fitting one fixed model.
+1. We begin with why reliable HPO is statistically harder than fitting one fixed model.
 2. We then discuss how dependent data, overlapping targets, and preprocessing choices complicate HPO in econometric applications.
 3. Next we formalize HPO as the optimization of a noisy validation objective over a search space.
-4. We compare baseline search methods, Bayesian optimization, and multi-fidelity methods such as Hyperband.
+4. We compare baseline search methods, Bayesian optimization, and multi-fidelity methods, which compare configurations using cheap partial training runs before committing the full budget. Hyperband is the main example.
 5. Finally, we summarize a practical workflow for choosing and validating tuning strategies in econometric work.
 
-## Why Honest HPO Is Hard
+## Why Reliable HPO Is Hard
 
 Suppose the true generalization error of a configuration $\lambda$ is $c(\lambda)$. We do not observe $c(\lambda)$ directly. We observe a noisy estimate from a validation split, cross-validation scheme, or rolling forecast exercise. If we evaluate many configurations and pick the one with the lowest estimated error, the winner is selected partly because of genuine quality and partly because of favorable noise in the estimate.
 
-The clean separation between training, validation, and test data from [Honest Workflow: Validation vs Test Set](cross_validation.qmd#sec-cv-honest-workflow) therefore becomes even more important in HPO. Training data estimate model parameters. Validation data compare hyperparameter settings. Test data remain untouched until the search procedure is finished.
+The clean separation between training, validation, and test data from [Reliable Workflow: Validation vs Test Set](cross_validation.qmd#sec-cv-reliable-workflow) therefore becomes even more important in HPO. Training data estimate model parameters. Validation data compare hyperparameter settings. Test data remain untouched until the search procedure is finished.
 
-The danger is easy to miss. Re-using the same validation design for one or two candidate settings is often harmless. Re-using it for dozens or hundreds of settings turns the validation score into an optimization target. The minimum validation score across many trials is then usually optimistic. This is the hyperparameter version of specification search [@CawleyTalbot2010; @VarmaSimon2006].
+The danger is easy to miss. Even a small comparison can favor a configuration whose validation noise happened to be favorable; a larger search creates more opportunities for this to occur. Once the same validation design is used to compare settings, its score becomes an optimization target. The minimum validation score across many trials is then usually optimistic. This is the hyperparameter version of specification search [@CawleyTalbot2010; @VarmaSimon2006].
 
 :::{.callout-note title="Selection Bias from Search"}
 
@@ -127,15 +127,15 @@ plt.tight_layout()
 plt.show()
 ```
 
-Nested resampling is the clean benchmark when we want an honest assessment of the entire tuning procedure.
+Nested resampling is the clean benchmark when we want a reliable assessment of the entire tuning procedure.
 
 - The **inner loop** tunes hyperparameters.
 - The **outer loop** estimates the out-of-sample performance of the tuned procedure.
 - The outer validation blocks must remain untouched by the inner search.
 
-In iid settings, the inner and outer loops can use the k-fold design reviewed in [K-Fold Cross-Validation](cross_validation.qmd#sec-cv-kfold). In dependent-data settings, the same logic applies but the folds must be time-aware. The important point is conceptual: the object being evaluated is not one model, but the whole pipeline "fit, tune, select, refit."
+When observations can reasonably be treated as independent and identically distributed (i.i.d.), the inner and outer loops can use the $K$-fold design reviewed in [K-Fold Cross-Validation](cross_validation.qmd#sec-cv-kfold). In dependent-data settings, the same logic applies but the folds must be time-aware. The important point is conceptual: the object being evaluated is not one model, but the whole pipeline "fit, tune, select, refit."
 
-@fig-hpo-nested-time-series gives a time-series version of this logic. The outer split determines where honest evaluation occurs. Inside the outer training window, the researcher runs a second, time-aware tuning exercise. Only after the inner loop selects hyperparameters is the model refit on the full outer training sample and evaluated once on the untouched outer validation block.
+@fig-hpo-nested-time-series gives a time-series version of this logic. The outer split determines where reliable evaluation occurs. Inside the outer training window, the researcher runs a second, time-aware tuning exercise. Only after the inner loop selects hyperparameters is the model refit on the full outer training sample and evaluated once on the untouched outer validation block.
 
 ```{python}
 #| label: fig-hpo-nested-time-series
@@ -175,7 +175,7 @@ ax.annotate(
     fontsize=10,
 )
 ax.annotate(
-    "Final honest evaluation",
+    "Final reliable evaluation",
     xy=(84, 3.56),
     xytext=(79, 0.95),
     arrowprops={"arrowstyle": "->", "color": "0.25"},
@@ -196,12 +196,12 @@ That changes the statistical interpretation:
 
 1. A good validation score for one fixed configuration is not the same as a good validation score after a large search.
 2. The more configurations we try, the more opportunity there is to overfit the validation design.
-3. Honest evaluation must assess the tuning procedure itself, not only the final chosen hyperparameters.
+3. Reliable evaluation must assess the tuning procedure itself, not only the final chosen hyperparameters.
 :::
 
 ## HPO with Dependent and Economic Data
 
-The earlier [Time Series Cross-Validation](cross_validation.qmd#sec-cv-time-series) discussion already showed why random k-fold is invalid when temporal order matters. In HPO the same issue is amplified, because an invalid validation scheme does not just distort one model estimate. It can systematically select the wrong hyperparameters.
+The earlier [Time Series Cross-Validation](cross_validation.qmd#sec-cv-time-series) discussion already showed why random $K$-fold cross-validation is invalid when temporal order matters. In HPO the same issue is amplified, because an invalid validation scheme does not just distort one model estimate. It can systematically select the wrong hyperparameters.
 
 **Time-aware validation.** In forecasting problems, expanding-window validation is appropriate when the researcher would realistically re-estimate the model as the sample grows. Rolling-window validation is appropriate when old data may become stale because of structural change or evolving institutions. The choice is part of the research design, not a mere software option.
 
@@ -211,16 +211,16 @@ The earlier [Time Series Cross-Validation](cross_validation.qmd#sec-cv-time-seri
 
 **Preprocessing inside folds.** The warning in [Leakage Inside Cross-Validation](cross_validation.qmd#sec-cv-leakage) becomes stricter in HPO. Scaling, winsorization thresholds estimated from the data, imputation, feature selection, principal components, lag selection, and target transformations chosen adaptively must all be learned inside each training fold. Otherwise the tuning criterion itself is contaminated.
 
-**Nested time-series tuning.** If we need an honest final assessment, the outer loop should use a time-aware split and the inner loop should tune hyperparameters using only the history available inside that outer training window. The resulting outer-loop average estimates the performance of the *full tuning rule*: given a training history, run the inner search, choose hyperparameters, refit the model, and forecast the next validation block. This is computationally expensive, but it is the right benchmark when the research claim depends on credible out-of-sample performance.
+**Nested time-series tuning.** If we need a reliable final assessment, the outer loop should use a time-aware split and the inner loop should tune hyperparameters using only the history available inside that outer training window. The resulting outer-loop average estimates the performance of the *full tuning rule*: given a training history, run the inner search, choose hyperparameters, refit the model, and forecast the next validation block. This is computationally expensive, but it is the right benchmark when the research claim depends on credible out-of-sample performance.
 
 :::{.callout-note title="Question for Reflection"}
 
-Why is it not enough to say "I never touched the test set" if the hyperparameters were tuned using a random k-fold scheme on time-series data?
+Why is it not enough to say "I never touched the test set" if the hyperparameters were tuned using random $K$-fold cross-validation on time-series data?
 :::
 
 :::{.callout-tip collapse="true" title="Suggested Answer"}
 
-Because the problem is not only test-set contamination. A random k-fold scheme can already leak future information into the validation score, so the search is optimized against an invalid target. Even if the final test set is untouched, the chosen hyperparameters may have been selected by exploiting temporal dependence or overlapping information that would not be available in real forecasting use.
+Because the problem is not only test-set contamination. Random $K$-fold cross-validation can already leak future information into the validation score, so the search is optimized against an invalid target. Even if the final test set is untouched, the chosen hyperparameters may have been selected by exploiting temporal dependence or overlapping information that would not be available in real forecasting use.
 :::
 
 ## HPO as an Optimization Problem
@@ -248,9 +248,9 @@ A practical HPO problem therefore has four ingredients:
 3. a **search algorithm** for proposing new $\lambda$
 4. a **compute budget** limiting how many evaluations we can afford
 
-If the preferred performance measure is larger-is-better, such as an $R^2$ or utility proxy, we can either maximize that score directly or minimize its negative. The statistical issues are the same.
+If the preferred performance measure is larger-is-better, such as $R^2$ or a utility proxy, we can either maximize that score directly or minimize its negative. The statistical issues are the same.
 
-**Search-space design matters.** A search space that is too narrow cannot recover good configurations. A search space that is too wide wastes budget on implausible values. In econometric applications the best default is usually a theory-informed box: plausible lag lengths, sensible regularization ranges, and model sizes that fit the available sample size.
+**Search-space design matters.** A search space that is too narrow cannot recover good configurations. A search space that is too wide wastes budget on implausible values. In econometric applications, a useful starting point is a theory-informed box: plausible lag lengths, sensible regularization ranges, and model sizes that fit the available sample size.
 
 :::{.callout-tip title="Practical Search-Space Conventions"}
 
@@ -317,7 +317,7 @@ plt.tight_layout()
 plt.show()
 ```
 
-**When baseline methods are enough.** If model evaluations are cheap, the search space is modest, and parallel compute is available, random search is often enough. It is easy to parallelize, robust to noise, and honest about uncertainty: it does not pretend to have learned a precise surrogate relationship from a small number of noisy evaluations.
+**When baseline methods are enough.** If model evaluations are cheap, the search space is modest, and parallel compute is available, random search is often a sensible stopping point. Its trials are easy to parallelize, and its proposals do not depend on fitting a potentially unstable surrogate to a small collection of noisy evaluations.
 
 ## Bayesian Optimization
 
@@ -331,7 +331,7 @@ $$
 
 the surrogate produces a posterior mean $m_t(\lambda)$ and posterior standard deviation $s_t(\lambda)$. The mean summarizes what the algorithm expects at a candidate point, while the standard deviation summarizes uncertainty. Acquisition rules then translate $(m_t, s_t)$ into a search priority. Consistent with the noisy validation scores emphasized throughout this chapter, we adopt the noisy-observation convention: the GP treats each validation score as $\hat c_j = c(\lambda_j) + \varepsilon_j$, with an explicit observation-noise term, rather than as a noiseless evaluation of $c$.
 
-A common acquisition rule is expected improvement. If $c_{\min,t}$ is the best loss seen so far, the expected improvement at $\lambda$ is
+A common acquisition rule is expected improvement. For a chosen incumbent loss $c_{\min,t}$, the expected improvement at $\lambda$ is
 
 $$
 \operatorname{EI}_t(\lambda)
@@ -339,13 +339,13 @@ $$
 \mathbb{E}\left[\max\{c_{\min,t} - C(\lambda), 0\} \mid \mathcal{D}_t\right],
 $$
 
-where $C(\lambda)$ denotes the surrogate's random prediction of the loss at $\lambda$, i.e. the random variable with $C(\lambda)\mid \mathcal{D}_t \sim \mathcal{N}(m_t(\lambda), s_t(\lambda)^2)$, and the incumbent $c_{\min,t}$ is the best value seen so far.
+where $C(\lambda)$ denotes the surrogate's random prediction of the latent risk at $\lambda$, with $C(\lambda)\mid \mathcal{D}_t \sim \mathcal{N}(m_t(\lambda), s_t(\lambda)^2)$.
 
-Defining that incumbent requires a choice, and it is exactly the one this chapter opened with. The conventional definition $c_{\min,t} = \min_{1 \le j \le t} \hat c_j$ uses the smallest *observed* validation loss — which, by the selection-bias argument above, is optimistically biased whenever the scores are noisy. Expected improvement is then measured against a target that is too low, which makes the acquisition conservative: improvements look harder to achieve than they are, and the search under-explores. The standard remedy under noisy observations is the plug-in incumbent
+Defining the incumbent is straightforward only for noiseless evaluations. The classical choice $c_{\min,t} = \min_{1 \le j \le t} \hat c_j$ uses the smallest observed validation loss. With noisy validation, however, that minimum tends to select a favorable noise realization. Treating it as the latent benchmark can therefore distort acquisition values and candidate rankings; the direction of the ranking change need not be the same for every candidate. One practical plug-in choice is
 $$
 c_{\min,t} = \min_{1 \le j \le t} m_t(\lambda_j),
 $$
-the smallest *surrogate posterior mean* at the evaluated points, which uses the GP's smoothing to filter observation noise out of the benchmark. We keep the observed-minimum form below because it is what the classical closed form and most implementations use, but the distinction is worth carrying: with noisy validation scores, the incumbent is an estimate too.
+the smallest surrogate posterior mean at the evaluated points. This filters some observation noise but is still a plug-in heuristic, not exact noisy expected improvement. A fully Bayesian noisy acquisition instead averages over uncertainty about latent function values. We use the observed-minimum version below to derive the classical closed form; in an empirical implementation, the acquisition rule and its noise convention must be stated explicitly.
 
 Points with low predicted loss and points with high uncertainty can both have high expected improvement. That is the exploration-versus-exploitation tradeoff in one formula [@JonesSchonlauWelch1998; @SnoekLarochelleAdams2012].
 
@@ -443,7 +443,7 @@ GP BO is most attractive when each evaluation is expensive and the search dimens
 - noisy validation scores can make the surrogate unstable
 - the algorithm is more sequential than plain random search
 
-**Tree-structured Parzen estimator (TPE).** TPE is often used as a more practical Bayesian-optimization (BO) alternative. Instead of modeling the loss as a function of $\lambda$ directly, TPE splits past trials into a good set and a bad set using a loss threshold $y^\ast$. Let $y$ denote the observed validation loss of a trial. The threshold $y^\ast$ is chosen as the $\gamma$-quantile of the observed losses, so that a fraction $\gamma$ of past trials fall into the good set. TPE then fits two densities:
+**Tree-structured Parzen estimator (TPE).** TPE is often used as a practical Bayesian-optimization alternative. Instead of modeling the loss as a function of $\lambda$ directly, TPE splits past trials into a good set and a bad set using a loss threshold $y^\ast$. Let $y$ denote the observed validation loss of a trial. In an idealized continuous setting without ties, $y^\ast$ can be chosen as the $\gamma$-quantile so that a fraction $\gamma$ of past trials falls into the good set. With a finite archive and tied losses, an implementation also needs a deterministic rank or tie-breaking rule. TPE then fits two regularized densities:
 
 $$
 \ell(\lambda) = p(\lambda \mid y \le y^\ast),
@@ -451,7 +451,7 @@ $$
 g(\lambda) = p(\lambda \mid y > y^\ast).
 $$
 
-The search idea is simple: propose candidates that look likely under the good-trial density and unlikely under the bad-trial density. In practice this means favoring large values of
+The search idea is simple: propose candidates that look likely under the good-trial density and unlikely under the bad-trial density. Where both fitted densities are positive, this means favoring large values of
 
 $$
 \frac{\ell(\lambda)}{g(\lambda)}.
@@ -467,44 +467,44 @@ TPE is appealing because it handles mixed and conditional search spaces more eas
 One practical TPE workflow can be summarized as follows.
 
 1. Evaluate an initial set of randomly sampled hyperparameter configurations.
-2. Split the evaluated archive into a good set and a bad set using a quantile threshold $\gamma$ on the observed validation loss, i.e. set the threshold $y^\ast$ equal to the $\gamma$-quantile of the observed losses.
-3. Fit the densities $\ell(\lambda)=p(\lambda\mid y \le y^\ast)$ and $g(\lambda)=p(\lambda\mid y > y^\ast)$.
+2. Split the evaluated archive into a good set and a bad set using a $\gamma$-quantile threshold on the observed validation losses, with an explicit rule for ties.
+3. Fit regularized densities $\ell(\lambda)=p(\lambda\mid y \le y^\ast)$ and $g(\lambda)=p(\lambda\mid y > y^\ast)$ so that candidate ratios remain well-defined.
 4. Sample candidate configurations from the good density and score them by the ratio $\ell(\lambda)/g(\lambda)$.
 5. Evaluate the highest-scoring candidate, update the archive, and repeat until the budget is exhausted.
 
 The tuning parameter $\gamma$ controls how selective the "good" set is. Smaller $\gamma$ focuses more aggressively on the currently best-performing trials.
 :::
 
-![One-dimensional illustration of TPE: the algorithm prefers candidate values that look likely under the good-trial density and unlikely under the bad-trial density.](figures/tpe_comparison.png){#fig-tpe-comparison fig-align="center" width="85%"}
-
 @fig-tpe-comparison shows this density-ratio logic directly. The good-trial density $\ell(\lambda)$ is concentrated near values that have worked well before, while the bad-trial density $g(\lambda)$ penalizes values associated with poor trials. The candidate chosen next is the one where the ratio is most favorable.
+
+![One-dimensional illustration of TPE: the algorithm prefers candidate values that look likely under the good-trial density and unlikely under the bad-trial density.](figures/tpe_comparison.png){#fig-tpe-comparison fig-align="center" width="85%"}
 
 **GP BO versus TPE.** Both are sequential model-based search methods. GP BO is conceptually cleaner when the search space is low-dimensional and mostly continuous; TPE is more robust in automatic machine learning (AutoML) settings with mixed types, wide ranges, or tree-structured conditional choices. The statistical point is the same: both use past evaluations to search more intelligently than random sampling.
 
 :::{.callout-note title="Question for Reflection"}
 
-Consider two settings: (A) four continuous hyperparameters, 25 trials allowed, each validation run takes 2 hours; (B) twelve mixed hyperparameters (continuous, integer, categorical), 500 trials allowed, each run takes 10 seconds. In which setting is Bayesian optimization likely to outperform random search, and what changes in the other setting that undercuts the BO advantage?
+Consider two settings. In (A), there are four continuous hyperparameters, 25 trials are allowed, each validation run takes 2 hours, and the validation objective is moderately noisy but reasonably smooth. In (B), there are twelve mixed and conditional hyperparameters, 500 trials are allowed, each run takes 10 seconds, and there is no strong reason to expect a smooth low-dimensional objective. In which setting is Gaussian-process Bayesian optimization more likely to improve on random search, and why is random search more defensible in the other?
 :::
 
 :::{.callout-tip collapse="true" title="Suggested Answer"}
 
-BO is likely to help in setting A. With only 25 expensive trials in a 4-dimensional continuous space, the surrogate model can learn meaningful structure from a small number of evaluations and steer the search toward promising regions. In setting B, the budget is large enough that random search covers the space densely, the mixed and high-dimensional search space makes it harder for a surrogate to fit well, and the low per-trial cost means that the overhead of fitting and optimizing the surrogate at each step is not justified by the savings from smarter proposals.
+Gaussian-process BO is more likely to help in setting A. Each avoided evaluation saves substantial time, and the modest continuous space plus assumed smoothness gives the surrogate a plausible structure to learn. In setting B, 500 draws do not densely cover a twelve-dimensional space, but they do provide broad, easily parallelized exploration at low cost. Mixed and conditional coordinates make a standard GP surrogate harder to specify, and its sequential overhead is harder to justify when each trial takes only seconds. A specialized surrogate such as TPE could still exploit the conditional structure, so this comparison is about standard GP BO rather than all model-based search.
 :::
 
 ## Multi-Fidelity Search
 
 When each model can be evaluated at different resource levels, full-budget tuning may be wasteful. The resource might be training epochs, sample size, number of boosting rounds, or another quantity that lets us obtain a cheap but noisy preview of eventual performance.
 
-**Successive halving.** Start with many configurations at a small budget $r$. Rank them by validation performance. Keep only the top fraction, typically $1/\eta$, and increase their budget to $\eta r$. Repeat until only a small set of configurations is left at high budget.
+**Successive halving.** Start with many configurations at a small resource level $r$. Rank them by validation performance. Keep only the top fraction, typically $1/\eta$, and evaluate the survivors at total resource $\eta r$. Repeat until only a small set of configurations is left at a high resource level.
 
 This logic can save large amounts of computation because poorly performing configurations are discarded early. The key assumption is that early, cheap performance is informative about later, expensive performance.
 
 :::{.callout-note}
 ## Successive Halving Algorithm
 
-Let $p^{[0]}$ denote the initial number of configurations, let $r^{[0]}$ denote the initial resource per configuration, and let $\eta > 1$ be the elimination rate.
+Let $p^{[0]}$ denote the initial number of configurations, let $r^{[0]}$ denote the initial resource level per configuration, let $\eta > 1$ be the elimination rate, and let $T_{\mathrm{SH}}$ be the terminal round index.
 
-1. For rounds $t = 0,1,\ldots,J$, fit the current $p^{[t]}$ configurations using budget $r^{[t]}$, where $J$ is the terminal round index at which the procedure stops.
+1. For rounds $t = 0,1,\ldots,T_{\mathrm{SH}}$, evaluate the current $p^{[t]}$ configurations at total resource level $r^{[t]}$.
 2. Rank configurations by validation performance and keep only the top fraction $1/\eta$.
 3. Update the candidate count and resource level as
    $$
@@ -512,13 +512,11 @@ Let $p^{[0]}$ denote the initial number of configurations, let $r^{[0]}$ denote 
    \qquad
    r^{[t+1]} = \eta r^{[t]}.
    $$
-4. Stop when only a small set of candidates remains or when the total budget
-   $$
-   \sum_{t=0}^{J} p^{[t]} r^{[t]}
-   $$
-   reaches the allowed computational limit.
+4. Stop when only a small set of candidates remains or when the allowed computational budget is exhausted.
 
 Successive halving is efficient because it trades breadth for depth: many configurations get a cheap initial test, while only promising ones receive expensive training.
+
+The resource accounting depends on implementation. If every rung trains a fresh model from the beginning, round $t$ costs $p^{[t]}r^{[t]}$. If promoted configurations resume from saved checkpoints, round 0 costs $p^{[0]}r^{[0]}$ and later rounds add only $p^{[t]}(r^{[t]}-r^{[t-1]})$. We keep these two conventions separate below.
 :::
 
 **Hyperband.** Successive halving depends on the initial tradeoff between number of configurations and initial budget. Hyperband addresses this by running several halving brackets with different starting points. Some brackets try many configurations very cheaply. Others start with fewer configurations but give each one more initial resources. This hedges against the risk of choosing the wrong early-stopping aggressiveness [@LiJamiesonDeSalvoRostamizadehTalwalkar2018].
@@ -526,32 +524,32 @@ Successive halving is efficient because it trades breadth for depth: many config
 :::{.callout-note}
 ## Hyperband as a Family of Brackets
 
-Let $R$ denote the maximum resource per configuration and let $\eta > 1$ be the elimination rate. Define
+Let $R_{\max}$ denote the maximum resource per configuration and let $\eta > 1$ be the elimination rate. Define
 
 $$
-s_{\max} = \left\lfloor \log_{\eta}(R) \right\rfloor,
+s_{\max} = \left\lfloor \log_{\eta}(R_{\max}) \right\rfloor,
 \qquad
-B = (s_{\max}+1)R.
+B = (s_{\max}+1)R_{\max}.
 $$
 
-Here $B$ is the resource budget allocated to *each* bracket, measured in the same units as $R$ — so a bracket spends roughly what it would cost to train $s_{\max}+1$ configurations to the full budget. Since Hyperband runs $s_{\max}+1$ brackets, one full sweep costs approximately $(s_{\max}+1)B$ in total.
+Here $B$ is the nominal resource budget allocated to each bracket, measured in the same units as $R_{\max}$. Under the from-scratch accounting used in the standard bracket formulas, a bracket spends roughly what it would cost to train $s_{\max}+1$ configurations to the full resource level. Since Hyperband runs $s_{\max}+1$ brackets, one full sweep has nominal cost approximately $(s_{\max}+1)B$.
 
-Hyperband then runs several successive-halving brackets indexed by $s=s_{\max},\ldots,0$. The bracket index $s$ is distinct from the terminal round index $J$ in the successive-halving box above. A common parameterization is
+Hyperband then runs several successive-halving brackets indexed by $s=s_{\max},\ldots,0$. The bracket index $s$ is distinct from the within-bracket round index $t$. A common parameterization is
 
 $$
-n_s = \left\lceil \frac{B}{R}\frac{\eta^s}{s+1} \right\rceil,
+n_s = \left\lceil \frac{B}{R_{\max}}\frac{\eta^s}{s+1} \right\rceil,
 \qquad
-r_s = R\eta^{-s},
+r_s = R_{\max}\eta^{-s},
 $$
 
 where bracket $s$ starts with $n_s$ configurations at resource level $r_s$. Large-$s$ brackets explore many configurations cheaply, while small-$s$ brackets explore fewer configurations more deeply from the start.
 :::
 
-@fig-hyperband-brackets shows how these brackets differ for $R=27$ and $\eta=3$, so that $s_{\max}=3$ and $B=108$. The wide bracket starts with many configurations and a very small budget, while the deep bracket starts with fewer configurations but allocates more resources immediately. The two features worth checking against the formula are that the starting counts $n_s$ fall as $s$ decreases (27, 12, 6, 4) while the initial resource levels $r_s$ rise (1, 3, 9, 27), and that the resulting total spend is roughly equal across brackets. That near-equality is deliberate: it is what allows Hyperband to hedge across breadth-versus-depth tradeoffs without committing more compute than a single successive-halving run of comparable size.
+@fig-hyperband-brackets shows how these brackets differ for $R_{\max}=27$ and $\eta=3$, so that $s_{\max}=3$ and $B=108$. The wide bracket starts with many configurations and a very small resource level, while the deep bracket starts with fewer configurations but allocates more resources immediately. The two features worth checking against the formula are that the starting counts $n_s$ fall as $s$ decreases (27, 12, 6, 4) while the initial resource levels $r_s$ rise (1, 3, 9, 27), and that the nominal from-scratch spend is roughly equal across brackets. This near-equality lets Hyperband hedge across breadth-versus-depth tradeoffs under a common accounting convention.
 
 ```{python}
 #| label: fig-hyperband-brackets
-#| fig-cap: "Three of the four Hyperband brackets for $R=27$ and $\\eta=3$, which give $s_{\\max}=3$ and $B=108$. Each rounded box reports the number of surviving configurations at a stage and the budget allocated to each one. Starting counts follow the formula above: $n_3=27$, $n_2=12$, $n_1=6$ (the omitted bracket $s=0$ evaluates $n_0=4$ configurations at the full budget 27 with no elimination). Moving from left to right within a bracket, configurations are eliminated at rate $\\eta$ and the budget per survivor is multiplied by $\\eta$. Bracket $s$ runs $s+1$ stages, so the wide bracket starts broad and cheap while the deep bracket starts narrow and expensive. Total spend per bracket is roughly constant by construction: 108, 99, and 108 configuration-epochs respectively."
+#| fig-cap: "Three of the four Hyperband brackets for $R_{\\max}=27$ and $\\eta=3$, which give $s_{\\max}=3$ and $B=108$. Each rounded box reports the number of surviving configurations at a stage and the total resource level reached by each one. Starting counts follow the formula above: $n_3=27$, $n_2=12$, and $n_1=6$ (the omitted bracket $s=0$ evaluates $n_0=4$ configurations at the full level 27 with no elimination). Moving from left to right within a bracket, configurations are eliminated at rate $\\eta$ and the resource level per survivor is multiplied by $\\eta$. Under from-scratch accounting, nominal bracket costs are 108, 99, and 108 resource units; checkpoint continuation uses less incremental computation."
 #| echo: true
 
 import matplotlib.pyplot as plt
@@ -624,7 +622,7 @@ plt.show()
 The tuning method should match the statistical design, not just the software defaults.
 
 1. **Choose the evaluation metric first.** Decide whether the target is mean squared forecast error, log score, continuous ranked probability score (CRPS), classification loss, or another application-specific measure. Hyperparameters should be selected against the criterion that actually matters.
-2. **Choose a validation design that respects the information set.** For independent and identically distributed (i.i.d.) data, $K$-fold cross-validation may be adequate. For dependent data, use expanding windows, rolling windows, or purged time-aware splits as appropriate.
+2. **Choose a validation design that respects the information set.** For i.i.d. data, $K$-fold cross-validation may be adequate. For dependent data, use expanding windows, rolling windows, or purged time-aware splits as appropriate.
 3. **Define a defensible search space.** Use theory, prior empirical knowledge, and sample-size limits to avoid absurd configurations.
 4. **Start with a baseline.** Random search is a strong default because it is simple, parallel, and robust.
 5. **Escalate only when the budget justifies it.** Use BO when evaluations are expensive enough that learning from past trials matters. Use Hyperband when partial-resource evaluations are genuinely informative.
@@ -633,22 +631,22 @@ The tuning method should match the statistical design, not just the software def
 
 Packages such as Optuna make these search strategies convenient to run, especially random search, TPE, and pruning-based workflows. The statistical issues do not disappear just because the interface is convenient. Good tooling cannot rescue an invalid validation design.
 
-**Method comparison**
+**Method comparison.** The entries below are qualitative guidelines, not universal rankings. Here, *sample efficiency* means how effectively a method uses a limited number of validation evaluations; it does not refer to the statistical sample size [@BergstraBengio2012; @JonesSchonlauWelch1998; @BergstraBardenetBengioKegl2011; @LiJamiesonDeSalvoRostamizadehTalwalkar2018].
 
 | Method | Sample efficiency | Parallelism | Needs informative partial feedback | Best use setting |
 |---|---|---|---|---|
-| Grid search | Low once dimension grows | High | No | Very small search spaces with a few interpretable settings |
-| Random search | Moderate and often surprisingly strong | Very high | No | Strong baseline when evaluations are cheap or parallel compute is available |
-| GP Bayesian optimization | High when trials are expensive and dimension is modest | Limited to moderate | No | Small-to-medium continuous search spaces with tight budgets |
-| TPE | High in mixed or conditional spaces | Limited to moderate | No | Practical BO-style search when hyperparameters are heterogeneous |
-| Hyperband | High when early performance predicts final performance | High | Yes | Expensive training jobs where bad configurations can be pruned early |
+| Grid search | Falls quickly as the Cartesian grid grows | Easy | No | Very small spaces with a few interpretable settings |
+| Random search | Does not exploit earlier trials, but covers distinct combinations | Easy | No | Cheap evaluations or abundant parallel compute |
+| GP Bayesian optimization | Can exploit smooth structure in a modest continuous space | Usually sequential; batching is possible | No | Expensive evaluations and a tight trial budget |
+| TPE | Uses earlier trials in mixed or conditional spaces | Some parallelism is possible | No | Heterogeneous or conditional hyperparameters |
+| Hyperband | Avoids many full-resource evaluations when early rankings are informative | Easy within rungs | Yes | Expensive training jobs with informative partial learning curves |
 
 ## Summary
 
 :::{.callout-important}
 ## Key Takeaways
 1. Hyperparameter optimization searches over model settings using a noisy estimate of out-of-sample performance, so the search procedure itself can overfit.
-2. Honest HPO requires a clean separation between training, validation, and test data, and nested resampling is the benchmark when the entire tuning procedure must be evaluated credibly.
+2. Reliable HPO requires a clean separation between training, validation, and test data, and nested resampling is the benchmark when the entire tuning procedure must be evaluated credibly.
 3. In econometric applications, time order, overlapping targets, preprocessing leakage, and regime change are central design issues rather than technical afterthoughts.
 4. Random search is a strong baseline, Bayesian optimization uses past evaluations to guide future trials, and Hyperband uses cheap partial evaluations to save computation.
 5. The best HPO method depends on the evaluation design, search-space structure, and compute budget, not on a universal ranking of algorithms.
@@ -667,16 +665,17 @@ Packages such as Optuna make these search strategies convenient to run, especial
 ## Exercises
 
 :::{.callout-note}
-## Exercise 14.1: Honest Hyperparameter Tuning for Time-Series Forecasts
+## Exercise 14.1: Reliable Hyperparameter Tuning for Time-Series Forecasts
 
 You are tuning a gradient boosting model to forecast monthly industrial production growth. Candidate predictors include lags of the target, survey indicators, and financial variables. The researcher evaluates 12 hyperparameter configurations using the same expanding-window validation design and then keeps the configuration with the lowest average validation mean squared forecast error.
 
-1. Let $R$ denote the common true out-of-sample loss of all 12 configurations, and let $\hat{R}_k = R + \varepsilon_k$, $k=1,\dots,12$, where the $\varepsilon_k$ are independent and identically distributed (i.i.d.) mean-zero noise terms that are non-degenerate, so that $\Pr(\varepsilon_1 \neq \varepsilon_2) > 0$. First show, using the identity $\min(a,b)=\frac{a+b-|a-b|}{2}$, that for two configurations we have $\mathbb{E}[\min(\hat{R}_1,\hat{R}_2)] < R$. Then explain why this implies $\mathbb{E}[\min_k \hat{R}_k] < R$ for 12 configurations, and interpret the result for the reported validation loss of the selected configuration.
-2. Suppose the research claim is that "tuned gradient boosting improves forecasting performance relative to a benchmark autoregression." Describe a nested time-series evaluation design that can assess this claim honestly.
+1. Let $c_0$ denote the common true out-of-sample loss of all 12 configurations, and let $\hat c_a = c_0 + \varepsilon_a$, $a=1,\dots,12$, where the $\varepsilon_a$ are i.i.d. mean-zero noise terms that are non-degenerate, so that $\Pr(\varepsilon_1 \neq \varepsilon_2) > 0$. First show, using the identity $\min(u,v)=\{u+v-|u-v|\}/2$, that for two configurations $\mathbb{E}[\min(\hat c_1,\hat c_2)] < c_0$. Then explain why this implies $\mathbb{E}[\min_{1\le a\le12} \hat c_a] < c_0$, and interpret the result for the reported validation loss of the selected configuration.
+2. Suppose the research claim is that "tuned gradient boosting improves forecasting performance relative to a benchmark autoregression." Describe a nested time-series evaluation design that can assess this claim reliably.
 3. In one application, an expanding-window search selects a relatively deep tree with many boosting rounds, while a rolling-window search selects a shallower and more heavily regularized configuration. Give an econometric reason why these two validation schemes can favor different hyperparameters, and explain when the rolling-window choice would be more credible.
 4. Suppose the target is now 12-month-ahead cumulative output growth, so adjacent observations have overlapping outcome windows. Explain why this creates an additional leakage problem during tuning and how purging or an embargo around the validation block can help.
+5. The pipeline standardizes predictors and imputes missing values. State exactly where these transformations must be fitted in the nested design, and give one diagnostic that would reveal preprocessing leakage.
 
-*Exam-level. Part 1 is a short derivation that carries the whole selection-bias point; Parts 2 and 3 compare validation designs; Part 4 is the econometric-diagnostic part on overlapping forecast targets.*
+*Exam-level. Part 1 is a short derivation that carries the selection-bias point; Parts 2 and 3 compare validation designs; Parts 4 and 5 diagnose target overlap and preprocessing leakage.*
 :::
 
 :::{.callout-warning collapse="true"}
@@ -696,17 +695,21 @@ Think about structural change and whether older observations are still informati
 
 **Part 1: Selection bias from tuning**
 
-For two configurations, using the identity $\min(\hat{R}_1,\hat{R}_2)=\frac{\hat{R}_1+\hat{R}_2-|\hat{R}_1-\hat{R}_2|}{2}$ and substituting $\hat{R}_k=R+\varepsilon_k$,
+For two configurations, use the identity $\min(\hat c_1,\hat c_2)=\{\hat c_1+\hat c_2-|\hat c_1-\hat c_2|\}/2$ and substitute $\hat c_a=c_0+\varepsilon_a$:
 $$
-\min(\hat{R}_1,\hat{R}_2)=R+\frac{\varepsilon_1+\varepsilon_2-|\varepsilon_1-\varepsilon_2|}{2}.
+\min(\hat c_1,\hat c_2)=c_0+\frac{\varepsilon_1+\varepsilon_2-|\varepsilon_1-\varepsilon_2|}{2}.
 $$
-Taking expectations and using $\mathbb{E}[\varepsilon_k]=0$,
+Taking expectations and using $\mathbb{E}[\varepsilon_a]=0$,
 $$
-\mathbb{E}\big[\min(\hat{R}_1,\hat{R}_2)\big]=R-\tfrac{1}{2}\mathbb{E}\big[|\varepsilon_1-\varepsilon_2|\big]<R,
+\mathbb{E}\big[\min(\hat c_1,\hat c_2)\big]=c_0-\tfrac{1}{2}\mathbb{E}\big[|\varepsilon_1-\varepsilon_2|\big]<c_0,
 $$
-since non-degeneracy gives $|\varepsilon_1-\varepsilon_2|>0$ with positive probability, so its expectation is strictly positive. (Without that assumption the noise could be identically zero and the inequality would hold only weakly.) The same logic extends by induction: for any $K\ge 2$, $\mathbb{E}[\min_k \hat{R}_k]\le \mathbb{E}[\min(\hat{R}_1,\hat{R}_2)]<R$, because adding candidates can only lower the minimum further.
+since non-degeneracy makes $|\varepsilon_1-\varepsilon_2|$ positive with positive probability. Adding candidates can only lower the minimum, so
+$$
+\mathbb{E}\left[\min_{1\le a\le12}\hat c_a\right]
+\le \mathbb{E}[\min(\hat c_1,\hat c_2)]<c_0.
+$$
 
-This means the reported validation loss of the selected configuration is optimistically biased. The chosen configuration is selected partly because it is genuinely good and partly because its realized validation noise happened to be favorable. This is the HPO analogue of specification search in econometrics.
+This means the reported validation loss of the selected configuration is optimistically biased. In this exercise all configurations have the same true risk, so the winner is *not* genuinely better; it wins only because its realized validation noise is favorable. With unequal true risks, both genuine quality and favorable noise can affect which configuration wins.
 
 **Part 2: Nested time-series evaluation**
 
@@ -719,7 +722,7 @@ Use an outer time-series split to evaluate the final tuned procedure and an inne
 5. Evaluate once on the outer validation block.
 6. Repeat across outer forecast origins and compare the resulting outer-loop losses to the benchmark autoregression.
 
-The outer-loop losses estimate the out-of-sample performance of the full tuning-and-refit procedure rather than the in-sample winner of one search.
+The outer-loop losses estimate the out-of-sample performance of the full tuning-and-refit procedure rather than the winner of one inner search. For formal uncertainty statements about a mean loss difference, one must also account for serial dependence and any overlap among outer validation losses, for example with a suitable heteroskedasticity-and-autocorrelation-consistent procedure under its maintained conditions.
 
 **Part 3: Why window choice can change the selected hyperparameters**
 
@@ -728,6 +731,10 @@ Expanding windows give heavy weight to older observations because the training s
 **Part 4: Overlapping targets and purging**
 
 With a 12-month-ahead cumulative-growth target, adjacent observations can share some of the same future outcomes. Then a training observation near the validation boundary may contain target information built from months that also enter the validation target. This creates leakage even if the split respects calendar order. Purging or imposing an embargo removes training observations whose outcome windows overlap with the validation block, so the inner-loop validation score better matches the information structure of a genuine forecast exercise.
+
+**Part 5: Fold-local preprocessing**
+
+For every inner split, fit the standardization constants and imputation rule using only that split's training observations, then apply the fitted transformations to its validation observations. After selecting hyperparameters, refit these transformations on the full outer training window before evaluating the outer validation block. At no point may an outer validation observation help determine a mean, standard deviation, or imputation value. A useful diagnostic is to perturb or remove the outer validation outcomes and predictors and verify that all fitted preprocessing objects and inner-loop selections remain unchanged.
 :::
 
 :::{.callout-note}
@@ -744,8 +751,8 @@ Suppose you are tuning a forecasting model with four hyperparameters: `learning_
    \operatorname{EI}(\lambda) = (c_{\min}-m)\Phi(z) + s\,\phi(z),
    \qquad z=\frac{c_{\min}-m}{s}.
    $$
-   Then read off which term rewards a low predicted loss and which rewards uncertainty, and state what happens to $\operatorname{EI}$ as $s\downarrow 0$ with $m>c_{\min}$ held fixed.
-2. In a Gaussian-process BO scheme, the current best observed validation loss is $c_{\min}=0.45$. The surrogate model predicts:
+2. In the closed form from Part 1, identify the term that rewards a low predicted loss and the term that rewards uncertainty. What happens to $\operatorname{EI}$ as $s\downarrow 0$ with $m>c_{\min}$ held fixed?
+3. In a Gaussian-process BO scheme, the current best observed validation loss is $c_{\min}=0.45$. The surrogate model predicts:
    - Configuration A: posterior mean $m_A=0.42$, posterior standard deviation $s_A=0.01$.
    - Configuration B: posterior mean $m_B=0.47$, posterior standard deviation $s_B=0.10$.
 
@@ -756,7 +763,7 @@ Suppose you are tuning a forecasting model with four hyperparameters: `learning_
    z=\frac{c_{\min}-m}{s},
    $$
    where $\Phi$ and $\phi$ are the standard normal CDF and PDF. Using $\Phi(3)\approx 0.999$, $\phi(3)\approx 0.004$, $\Phi(-0.2)\approx 0.421$, and $\phi(-0.2)\approx 0.391$, compute $\mathrm{EI}$ for both configurations and explain which one the acquisition function prefers.
-3. **Show why TPE ranks candidates by the density ratio.** TPE models the trials as $p(\lambda \mid y) = \ell(\lambda)$ if $y \le y^\ast$ and $g(\lambda)$ if $y > y^\ast$, with $\Pr(y \le y^\ast) = \gamma$. Using $p(\lambda) = \gamma\,\ell(\lambda) + (1-\gamma)\,g(\lambda)$ and the definition
+4. **Show why TPE ranks candidates by the density ratio.** TPE models the trials as $p(\lambda \mid y) = \ell(\lambda)$ if $y \le y^\ast$ and $g(\lambda)$ if $y > y^\ast$, with $\Pr(y \le y^\ast) = \gamma$. Assume $0<\gamma<1$, positive fitted densities at the candidate, and a continuous loss distribution with no mass at $y^\ast$. Using $p(\lambda) = \gamma\,\ell(\lambda) + (1-\gamma)\,g(\lambda)$ and the definition
    $$
    \operatorname{EI}(\lambda) = \int_{-\infty}^{y^\ast} (y^\ast - y)\, p(y \mid \lambda)\, dy,
    $$
@@ -764,12 +771,12 @@ Suppose you are tuning a forecasting model with four hyperparameters: `learning_
    $$
    \operatorname{EI}(\lambda)
    =
-   \frac{K}{\gamma + (1-\gamma)\,g(\lambda)/\ell(\lambda)}
+   \frac{A}{\gamma + (1-\gamma)\,g(\lambda)/\ell(\lambda)}
    $$
-   for a constant $K$ that does not depend on $\lambda$. Conclude that maximizing $\operatorname{EI}$ is equivalent to maximizing $\ell(\lambda)/g(\lambda)$. Then apply the result: for candidates with ratios $\ell/g$ equal to $1.2$, $2.8$, and $0.9$, which does TPE evaluate next?
-4. Give two conditions under which Bayesian optimization is likely to outperform plain random search, and one condition under which random search may still be preferable.
+   for a positive constant $A$ that does not depend on $\lambda$. Conclude that maximizing $\operatorname{EI}$ is equivalent to maximizing $\ell(\lambda)/g(\lambda)$. Then apply the result: for candidates with ratios $\ell/g$ equal to $1.2$, $2.8$, and $0.9$, which candidate does TPE evaluate next?
+5. Give two conditions under which Bayesian optimization is likely to outperform plain random search, and one condition under which random search may still be preferable.
 
-*Exam-level. Parts 1 and 3 are the derivations — the Gaussian closed form and the TPE density-ratio criterion — Part 2 is the numerical comparison and supplies the normal-table values it needs, and Part 4 closes with the design conditions.*
+*Exam-level. Parts 1 and 4 derive the Gaussian closed form and TPE density-ratio criterion. Parts 2 and 3 interpret and apply the Gaussian result, and Part 5 closes with the design conditions.*
 :::
 
 :::{.callout-warning collapse="true"}
@@ -779,7 +786,7 @@ Standardize first: write $C = m + sZ$ so the expectation becomes an integral aga
 :::
 
 :::{.callout-warning collapse="true"}
-## Hint for Part 3
+## Hint for Part 4
 
 Over the whole region of integration $y \le y^\ast$, the conditional density $p(\lambda\mid y)$ equals $\ell(\lambda)$ and does not depend on $y$ — so it factors out of the integral, leaving something that does not involve $\lambda$ at all.
 :::
@@ -811,11 +818,13 @@ $$
 $$
 using $sz = c_{\min}-m$ in the last step.
 
-The first term, $(c_{\min}-m)\Phi(z)$, is the exploitation term: it is large when the predicted loss $m$ sits well below the incumbent, weighted by the probability of improving. The second term, $s\phi(z)$, is the exploration term: it is proportional to the posterior standard deviation and rewards uncertainty regardless of the sign of $c_{\min}-m$.
+**Part 2: Exploitation, exploration, and the zero-uncertainty limit**
 
-As $s \downarrow 0$ with $m > c_{\min}$ fixed, we have $z \to -\infty$, and both $\Phi(z)$ and $\phi(z)$ go to zero — the second faster than any polynomial — so $\operatorname{EI} \to 0$. A point the surrogate is *certain* is worse than the incumbent has no expected improvement at all, which is exactly the behavior an acquisition rule should have.
+The first term, $(c_{\min}-m)\Phi(z)$, is the exploitation term: it is large when the predicted loss $m$ sits below the incumbent, weighted by the probability of improving. The second term, $s\phi(z)$, is the exploration term: it reflects posterior uncertainty.
 
-**Part 2: EI computation and exploration**
+As $s \downarrow 0$ with $m > c_{\min}$ fixed, we have $z \to -\infty$, so $\operatorname{EI} \to 0$. A point the surrogate is certain is worse than the incumbent has no expected improvement.
+
+**Part 3: EI computation and exploration**
 
 For Configuration A: $z_A=(0.45-0.42)/0.01=3$, so
 $$
@@ -827,7 +836,7 @@ $$
 $$
 Configuration B has slightly higher EI despite a worse posterior mean. The high posterior uncertainty creates enough probability of beating $c_{\min}$ that the exploration payoff outweighs A's lower point prediction. This is why expected improvement naturally balances exploitation and exploration.
 
-**Part 3: The TPE density-ratio criterion**
+**Part 4: The TPE density-ratio criterion**
 
 Apply Bayes' rule inside the integral. Since $p(y\mid\lambda) = p(\lambda\mid y)p(y)/p(\lambda)$ and $p(\lambda\mid y) = \ell(\lambda)$ throughout the region $y \le y^\ast$,
 $$
@@ -835,21 +844,21 @@ $$
 =
 \frac{1}{p(\lambda)}\int_{-\infty}^{y^\ast}(y^\ast-y)\,\ell(\lambda)\,p(y)\,dy
 =
-\frac{\ell(\lambda)}{p(\lambda)}\underbrace{\int_{-\infty}^{y^\ast}(y^\ast-y)\,p(y)\,dy}_{=:\,K},
+\frac{\ell(\lambda)}{p(\lambda)}\underbrace{\int_{-\infty}^{y^\ast}(y^\ast-y)\,p(y)\,dy}_{=:\,A},
 $$
-where $K$ depends only on $y^\ast$ and the marginal distribution of the losses — not on $\lambda$. Substituting the mixture $p(\lambda) = \gamma\ell(\lambda) + (1-\gamma)g(\lambda)$ and dividing numerator and denominator by $\ell(\lambda)$,
+where $A>0$ depends only on $y^\ast$ and the marginal distribution of the losses, not on $\lambda$. Substituting the mixture $p(\lambda) = \gamma\ell(\lambda) + (1-\gamma)g(\lambda)$ and dividing numerator and denominator by the positive $\ell(\lambda)$,
 $$
 \operatorname{EI}(\lambda)
 =
-\frac{K\,\ell(\lambda)}{\gamma\ell(\lambda)+(1-\gamma)g(\lambda)}
+\frac{A\,\ell(\lambda)}{\gamma\ell(\lambda)+(1-\gamma)g(\lambda)}
 =
-\frac{K}{\gamma + (1-\gamma)\,g(\lambda)/\ell(\lambda)} .
+\frac{A}{\gamma + (1-\gamma)\,g(\lambda)/\ell(\lambda)} .
 $$
-Because $K>0$ and $\gamma \in (0,1)$, the right-hand side is a strictly increasing function of $\ell(\lambda)/g(\lambda)$: the ratio enters only through $g/\ell$ in the denominator. Maximizing expected improvement is therefore *equivalent* to maximizing the density ratio, which is why TPE never needs to model the loss surface itself — it only has to rank candidates by how much more likely they are under the good-trial density than the bad-trial density.
+Because $A>0$ and $\gamma \in (0,1)$, the right-hand side is strictly increasing in $\ell(\lambda)/g(\lambda)$. Maximizing expected improvement is therefore equivalent to maximizing the density ratio under the stated idealized assumptions.
 
-Applying this to the three candidates: the ratios are $1.2$, $2.8$, and $0.9$, so TPE evaluates the second one next. It looks relatively likely under the density fitted to historically good trials and relatively unlikely under the bad-trial density, so the algorithm concentrates scarce validation budget where past evidence is most promising.
+Applying this to the three candidates: the ratios are $1.2$, $2.8$, and $0.9$, so TPE evaluates the second candidate next. It is relatively most likely under the density fitted to good trials compared with the density fitted to bad trials.
 
-**Part 4: When BO should or should not beat random search**
+**Part 5: When BO should or should not beat random search**
 
 Bayesian optimization is likely to outperform random search when:
 
@@ -862,15 +871,21 @@ Random search may still be preferable when the search space is very high-dimensi
 :::{.callout-note}
 ## Exercise 14.3: Hyperband Under Noisy Learning Curves
 
-A neural network is trained to predict firm default probabilities from panel data. Training one configuration to completion takes 9 hours, which in this setup corresponds to 81 epochs. You consider Hyperband with elimination rate $\eta = 3$.
+A neural network is trained to predict firm default probabilities from panel data. Training one configuration to completion takes 9 hours, which in this setup corresponds to 81 epochs. You consider Hyperband with elimination rate $\eta = 3$. Promoted configurations resume from saved checkpoints rather than restarting from epoch 1.
 
-1. Suppose one successive-halving bracket starts with 27 configurations trained for 3 epochs each. How many configurations remain after each elimination round, and what budget does each surviving configuration receive if the budget is multiplied by $\eta$ at each stage?
-2. Compute the total cost of this successive-halving bracket in configuration-epochs (sum of configurations $\times$ epochs at each round). Compare this with the cost of evaluating 27 configurations at the full 81-epoch budget. By what factor does successive halving reduce the total compute?
-3. **Generalize the cost calculation.** Consider a successive-halving bracket that starts with $p^{[0]}$ configurations at budget $r^{[0]}$ and runs $J+1$ rounds, with the exact recursions $p^{[t]} = p^{[0]}\eta^{-t}$ and $r^{[t]} = r^{[0]}\eta^{t}$ (ignore rounding). Show that the cost of every round is the same, and hence that the bracket's total cost is $(J+1)\,p^{[0]}r^{[0]}$. Explain how this result accounts for the near-equal total spend across the Hyperband brackets shown in @fig-hyperband-brackets, and what it implies about the breadth-versus-depth tradeoff: what does a bracket give up when it starts with more configurations at the same total cost?
-4. Suppose validation loss is very noisy in the first few epochs and some good models learn slowly. What specific risk does this create for Hyperband?
-5. Compare Hyperband, random search, and Bayesian optimization for this problem. Under what condition would Hyperband clearly have the advantage?
+1. Suppose one successive-halving bracket starts with 27 configurations trained to 3 epochs each. How many configurations remain after each elimination round, and what total epoch level does each survivor reach when that level is multiplied by $\eta$ at each stage?
+2. Using checkpoint continuation, compute the incremental cost of the bracket in configuration-epochs. Compare it with the cost of training all 27 configurations to 81 epochs. By what factor does successive halving reduce compute?
+3. **Recover the standard nominal accounting.** Suppose $p^{[t]} = p^{[0]}\eta^{-t}$ and $r^{[t]} = r^{[0]}\eta^t$ for $t=0,\ldots,T_{\mathrm{SH}}$, ignoring rounding. Show that the from-scratch equivalent $p^{[t]}r^{[t]}$ is the same at every rung and sums to $(T_{\mathrm{SH}}+1)p^{[0]}r^{[0]}$. Explain how this convention produces the near-equal nominal bracket costs in @fig-hyperband-brackets.
+4. **Account for checkpoint continuation.** Show that actual incremental compute is
+   $$
+   p^{[0]}r^{[0]}+\sum_{t=1}^{T_{\mathrm{SH}}}p^{[t]}\bigl(r^{[t]}-r^{[t-1]}\bigr)
+   =p^{[0]}r^{[0]}\left[1+T_{\mathrm{SH}}\left(1-\frac{1}{\eta}\right)\right].
+   $$
+   Verify that this formula matches your answer to Part 2. What does a bracket give up when it starts with more configurations under a fixed nominal budget?
+5. Suppose validation loss is very noisy in the first few epochs and some good models learn slowly. What specific risk does this create for Hyperband?
+6. Compare Hyperband, random search, and Bayesian optimization for this problem. Under what condition would Hyperband clearly have the advantage?
 
-*Exam-level. Parts 1 and 2 are calculator-free arithmetic on the successive-halving schedule, Part 3 turns that arithmetic into the general constant-cost-per-round result that motivates Hyperband's bracket design, and Parts 4 and 5 test whether students see when cheap early evaluations mislead.*
+*Exam-level. Parts 1 and 2 are arithmetic on a successive-halving schedule. Parts 3 and 4 separate nominal from-scratch accounting from checkpoint continuation. Parts 5 and 6 ask when cheap early evaluations help or mislead.*
 :::
 
 :::{.callout-tip collapse="true"}
@@ -880,9 +895,9 @@ A neural network is trained to predict firm default probabilities from panel dat
 
 Start with 27 configurations at 3 epochs.
 
-1. After the first round, keep $27/3 = 9$ configurations and raise their budget to $3 \times 3 = 9$ epochs.
-2. After the second round, keep $9/3 = 3$ configurations and raise their budget to $9 \times 3 = 27$ epochs.
-3. After the third round, keep $3/3 = 1$ configuration and raise its budget to $27 \times 3 = 81$ epochs.
+1. After the first round, keep $27/3 = 9$ configurations and train them to $3 \times 3 = 9$ total epochs.
+2. After the second round, keep $9/3 = 3$ configurations and train them to $9 \times 3 = 27$ total epochs.
+3. After the third round, keep $3/3 = 1$ configuration and train it to $27 \times 3 = 81$ total epochs.
 
 So the sequence is:
 
@@ -891,17 +906,18 @@ So the sequence is:
 - 3 configurations at 27 epochs
 - 1 configuration at 81 epochs
 
-**Part 2: Budget comparison**
+**Part 2: Incremental cost with checkpoints**
 
-The total cost of the successive-halving bracket is
+The first rung costs $27\times3$ configuration-epochs. Promoted configurations then need only the additional epochs required to reach the next total level. Thus the cost is
 $$
-27\times 3 + 9\times 9 + 3\times 27 + 1\times 81 = 81+81+81+81 = 324 \text{ configuration-epochs}.
+27\times3+9\times(9-3)+3\times(27-9)+1\times(81-27)
+=81+54+54+54=243.
 $$
-Full random search with 27 configurations costs $27\times 81=2{,}187$ configuration-epochs. The ratio is $2{,}187/324 \approx 6.75$, so successive halving reduces the total compute by roughly a factor of 7 while still evaluating 27 initial candidates. The saving comes from discarding weak configurations early rather than training all of them to completion.
+Training all 27 configurations to 81 epochs costs $27\times81=2{,}187$ configuration-epochs. Because $2{,}187/243=9$, successive halving uses one ninth as much compute under checkpoint continuation.
 
-**Part 3: Constant cost per round**
+**Part 3: Standard nominal accounting**
 
-The cost of round $t$ is the number of surviving configurations times the budget each receives:
+The from-scratch equivalent at rung $t$ is
 $$
 p^{[t]} r^{[t]}
 =
@@ -909,21 +925,32 @@ p^{[t]} r^{[t]}
 =
 p^{[0]}r^{[0]},
 $$
-because the factors $\eta^{-t}$ and $\eta^{t}$ cancel exactly. The elimination rate and the budget-inflation rate are the same $\eta$, so every round spends the same amount: what is saved by discarding configurations is spent again on the survivors. Summing over the $J+1$ rounds,
+because the factors $\eta^{-t}$ and $\eta^{t}$ cancel. Summing this nominal quantity over the $T_{\mathrm{SH}}+1$ rungs gives
 $$
-\sum_{t=0}^{J} p^{[t]}r^{[t]} = (J+1)\,p^{[0]}r^{[0]} .
+\sum_{t=0}^{T_{\mathrm{SH}}} p^{[t]}r^{[t]} = (T_{\mathrm{SH}}+1)\,p^{[0]}r^{[0]} .
 $$
-The Part 2 numbers are the special case $p^{[0]}=27$, $r^{[0]}=3$, $J=3$: four rounds of $81$ each, totaling $324$.
+For the numerical bracket, this convention counts four rungs of 81 each, totaling 324. Hyperband uses the same convention: bracket $s$ begins with $n_s$ configurations at $r_s=R_{\max}\eta^{-s}$, and $n_s=\lceil(B/R_{\max})\eta^s/(s+1)\rceil$ makes $(s+1)n_sr_s\approx B$. This is why @fig-hyperband-brackets reports near-equal nominal bracket costs.
 
-This is exactly why the Hyperband brackets in @fig-hyperband-brackets cost about the same. Bracket $s$ runs $s+1$ rounds starting from $n_s$ configurations at resource $r_s = R\eta^{-s}$, and the parameterization $n_s = \lceil (B/R)\eta^s/(s+1)\rceil$ is chosen precisely so that $(s+1)n_sr_s \approx B$ for every $s$ — the $\eta^s$ in $n_s$ cancels the $\eta^{-s}$ in $r_s$, and the division by $s+1$ offsets the number of rounds.
+**Part 4: Checkpoint-continuation accounting**
+
+For $t\ge1$,
+$$
+p^{[t]}\bigl(r^{[t]}-r^{[t-1]}\bigr)
+=p^{[0]}r^{[0]}\left(1-\frac{1}{\eta}\right).
+$$
+Adding the initial rung produces
+$$
+p^{[0]}r^{[0]}\left[1+T_{\mathrm{SH}}\left(1-\frac{1}{\eta}\right)\right].
+$$
+Here $p^{[0]}r^{[0]}=81$, $T_{\mathrm{SH}}=3$, and $\eta=3$, so the result is $81[1+3(2/3)]=243$, as in Part 2.
 
 The tradeoff this exposes is that a bracket buys breadth only by paying in depth. At a fixed budget $B$, starting with more configurations forces each to begin at a proportionally smaller resource level, so the initial ranking on which the first elimination is based comes from noisier, shorter runs. A wide bracket screens many candidates on weak evidence; a deep bracket screens few candidates on strong evidence. Hyperband does not resolve this tradeoff — it hedges across it by running brackets at several points along the spectrum.
 
-**Part 4: Risk from noisy early curves**
+**Part 5: Risk from noisy early curves**
 
 If early validation loss is noisy or some good models improve only later, Hyperband may eliminate them before they have a chance to reveal their true quality. The algorithm then saves computation at the cost of selecting the wrong configurations. Note that this risk is most acute in exactly the wide brackets identified in Part 3, where the first elimination is based on the shortest runs.
 
-**Part 5: Comparison across methods**
+**Part 6: Comparison across methods**
 
 Random search is simple and highly parallel, but it wastes budget because every configuration receives the full 9-hour run. Bayesian optimization can be more sample-efficient than random search, but unless it is combined with pruning it still spends a full evaluation on each chosen configuration. Hyperband has the clearest advantage when partial training performance is informative about eventual full-budget performance, because then early stopping removes bad configurations cheaply without discarding many genuinely good ones.
 :::

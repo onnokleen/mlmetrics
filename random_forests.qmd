@@ -14,7 +14,7 @@ For econometricians, random forests are attractive when prediction is the goal a
 ## Roadmap
 
 1. We begin with bagging and show why averaging unstable trees can reduce variance substantially.
-2. We then explain the additional random-feature step that turns bagging into a random forest.
+2. We then explain random feature selection, which turns bagging into a random forest by limiting the candidate predictors at each split.
 3. Next we study bootstrap sampling, out-of-bag evaluation, and the forest-as-weights interpretation.
 4. We then discuss the main hyperparameters and the bias-variance trade-offs they control.
 5. Finally, we summarize where random forests fit well in econometric work and where caution is needed.
@@ -34,60 +34,161 @@ Bagging stands for **bootstrap aggregating**:
 - draw a bootstrap sample from the training data (with replacement, of the same size $N$ as the training sample)
 - grow a tree on that sample
 - repeat many times
-- average the resulting predictions in regression, or average probabilities / vote in classification
+- average the resulting predictions in regression, or average class probabilities or use majority voting in classification
 
 A related variant, often called **subagging** [@BuhlmannYu2002], instead draws subsamples of size $s<N$, usually without replacement (we write $s$ rather than $L$, which denotes a terminal leaf below). Both approaches create many perturbed training sets; the random forest then applies equal weights $1/B$ to the resulting tree predictions.
 
-The idea only works well when the base learner is unstable. Deep trees are exactly such learners: small changes in the sample can alter the early splits and therefore the whole fitted function. This high variance is a weakness for a single tree but an opportunity for averaging.
+The idea works best when the individual model being averaged is unstable. Deep trees have exactly this property: small sample changes can alter early splits and therefore the whole fitted function. This high variance is a weakness for a single tree but an opportunity for averaging.
 
 :::{.callout-important}
 ## Variance of an Averaged Forest
 
-Suppose the trees at a fixed point $x$ satisfy
+The variance calculation must distinguish two sources of randomness. Let $D$ denote the random training sample and let $\Theta_b$ collect the independently generated bootstrap and feature-selection variables for tree $b$. At a fixed prediction point $x$, write
 
 $$
-\operatorname{Var}[\hat T_b(x)] = \sigma^2(x),
+T_b(x)=T(D,\Theta_b;x).
+$$
+
+Conditional on $D$, independent randomizations produce independent and identically distributed tree predictions. Define their conditional mean and variance by
+
+$$
+m(D,x)=\mathbb{E}_{\Theta}[T(D,\Theta;x)\mid D],
 \qquad
-\text{Corr}(\hat T_b(x), \hat T_{b'}(x)) = \rho(x)
-\quad \text{for } b \neq b',
+v(D,x)=\operatorname{Var}_{\Theta}(T(D,\Theta;x)\mid D).
 $$
 
-with $0 \le \rho(x) \le 1$. Both moments are taken over the randomness that distinguishes the trees — the bootstrap resample and the feature subsampling — with the training sample held fixed, so $\sigma^2(x)$ and $\rho(x)$ describe how much individual trees disagree at $x$ for the data actually observed. (Nonnegativity is the relevant case here — trees grown on resamples of the same data are positively correlated — and it is also what keeps the equicorrelated structure admissible for arbitrarily large $B$: a common correlation is compatible with a valid correlation matrix only if $\rho \ge -1/(B-1)$, so no fixed negative value survives the limit $B \to \infty$.)
+For two distinct trees, the law of total covariance gives
 
-Then the variance of the forest average is
+$$
+\begin{aligned}
+\operatorname{Cov}(T_b(x),T_{b'}(x))
+&=
+\mathbb{E}_D\!\left[\operatorname{Cov}(T_b(x),T_{b'}(x)\mid D)\right] \\
+&\quad+
+\operatorname{Cov}_D\!\left(\mathbb{E}[T_b(x)\mid D],
+\mathbb{E}[T_{b'}(x)\mid D]\right) \\
+&=
+0+\operatorname{Cov}_D(m(D,x),m(D,x)) \\
+&=
+\operatorname{Var}_D(m(D,x)),
+\qquad b\neq b'.
+\end{aligned}
+$$
+
+The second equality uses conditional independence and $\mathbb{E}[T_b(x)\mid D]=m(D,x)$. The covariance can nevertheless remain nonzero unconditionally because both trees use the same training sample. For a single tree, the law of total variance similarly gives
+
+$$
+\begin{aligned}
+\operatorname{Var}(T_b(x))
+&=
+\operatorname{Var}_D\!\left(\mathbb{E}[T_b(x)\mid D]\right)
++
+\mathbb{E}_D\!\left[\operatorname{Var}(T_b(x)\mid D)\right] \\
+&=
+\operatorname{Var}_D(m(D,x))
++
+\mathbb{E}_D[v(D,x)].
+\end{aligned}
+$$
+
+Now consider the $B$-tree average $\hat f_B(x)=B^{-1}\sum_{b=1}^B T_b(x)$. Its conditional mean is
+
+$$
+\begin{aligned}
+\mathbb{E}[\hat f_B(x)\mid D]
+&=
+\frac{1}{B}\sum_{b=1}^B \mathbb{E}[T_b(x)\mid D] \\
+&=
+m(D,x).
+\end{aligned}
+$$
+
+Conditional independence also implies
+
+$$
+\begin{aligned}
+\operatorname{Var}(\hat f_B(x)\mid D)
+&=
+\frac{1}{B^2}\sum_{b=1}^B \operatorname{Var}(T_b(x)\mid D) \\
+&=
+\frac{v(D,x)}{B}.
+\end{aligned}
+$$
+
+Applying the law of total variance to the forest average therefore gives
+
+$$
+\begin{aligned}
+\operatorname{Var}[\hat f_B(x)]
+&=
+\operatorname{Var}_D\!\left(\mathbb{E}[\hat f_B(x)\mid D]\right)
++
+\mathbb{E}_D\!\left[\operatorname{Var}(\hat f_B(x)\mid D)\right] \\
+&=
+\underbrace{\operatorname{Var}_D(m(D,x))}_{\text{training-sample component}}
++
+\underbrace{\frac{1}{B}\mathbb{E}_D[v(D,x)]}_{\text{finite-forest Monte Carlo component}}.
+\end{aligned}
+$$
+
+Increasing $B$ removes only the Monte Carlo component. The training-sample component remains because every tree depends on the same dataset. This decomposition also yields an equicorrelation representation, but its correlation must be interpreted **unconditionally**, over repeated training samples and tree randomizations. If $\sigma^2(x)=\operatorname{Var}(T_b(x))>0$, then
+
+$$
+\rho(x)
+=
+\frac{\operatorname{Cov}(T_b(x),T_{b'}(x))}{\sigma^2(x)}
+=
+\frac{\operatorname{Var}_D(m(D,x))}{\operatorname{Var}(T_b(x))},
+\qquad b\neq b',
+$$
+
+so $\rho(x)\geq 0$ and
+
+$$
+\operatorname{Var}_D(m(D,x))=\rho(x)\sigma^2(x).
+$$
+
+Combining this identity with the single-tree variance decomposition gives
+
+$$
+\begin{aligned}
+\mathbb{E}_D[v(D,x)]
+&=
+\sigma^2(x)-\operatorname{Var}_D(m(D,x)) \\
+&=
+\sigma^2(x)[1-\rho(x)].
+\end{aligned}
+$$
+
+Substituting both components into the forest variance decomposition yields
 
 $$
 \operatorname{Var}[\hat f_B(x)]
 =
-\sigma^2(x)\left[\rho(x) + \frac{1-\rho(x)}{B}\right].
+\sigma^2(x)\left[\rho(x)+\frac{1-\rho(x)}{B}\right].
 $$
 
-The variance formula shows two things:
-
-1. Averaging many trees reduces variance.
-2. The correlation $\rho(x)$ between trees sets a lower bound on how much variance reduction is possible.
-
-A successful forest needs many trees *and* trees that are sufficiently different from one another.
+Thus the nonvanishing term in the equicorrelation formula is shared training-sample variability, not positive conditional covariance among independently randomized trees with $D$ fixed. In plain language, growing more trees averages away randomness in how the trees are constructed; it does not average away sensitivity to which training sample happened to be observed.
 :::
 
 **Why Bagging Alone Is Not Enough**
 
-If some predictors are very strong, then many bootstrap trees will keep splitting on the same variables near the root. That makes the trees highly correlated. Bagging alone therefore leaves too much common variation across trees.
+If some predictors are very strong, many bootstrap trees keep splitting on the same variables near the root and can produce very similar fitted rules. At a fixed $x$, tightly concentrated tree predictions correspond to a small conditional variance $v(D,x)$, so averaging then changes the prediction little relative to using a single randomized tree: $\hat f_B(x)$ is already close to $m(D,x)$. Any instability of $m(D,x)$ across training samples remains because averaging does not remove the training-sample component $\operatorname{Var}_D(m(D,x))$.
 
 Random forests address this directly. At each split, instead of considering all $p$ predictors, the algorithm draws a random subset of size $m$ and searches only within that subset. The best split among those $m$ predictors is used.
 
-Random feature selection does two things at once:
+**Random feature selection**, also called feature subsampling, does two things at once:
 
-- it lowers the correlation across trees by forcing them to try different split variables
+- it diversifies the fitted rules by forcing trees to try different split variables
 - it may slightly weaken each individual tree because the globally best predictor is not always available
 
-Random forests work because this correlation reduction usually dominates the loss in individual tree strength.
+This additional randomization changes both parts of the variance decomposition. It can reduce $\operatorname{Var}_D(m(D,x))$ by making the conditional mean rule less sensitive to dominant predictors, while increasing $\mathbb{E}_D[v(D,x)]$ because tree predictions are more dispersed conditional on the data. The second effect enters the forest variance only through the Monte Carlo term $\mathbb{E}_D[v(D,x)]/B$, so it is harmless once $B$ is large---its practical meaning is that a strongly randomized forest needs more trees. Neither direction is guaranteed, and random feature selection can also change bias, which no amount of averaging removes. The actual performance of the forest depends on the relative magnitudes of these effects and must be assessed empirically.
 
-The bias-variance trade-off is therefore explicit. Deep individual trees have low bias but high variance. Averaging many randomized trees lowers variance, while random feature selection and bootstrap perturbations can slightly increase bias because each tree is deliberately denied the strongest split it could use. Forests work well when the regression function contains nonlinearities and interactions that trees can capture and when variance reduction dominates this modest bias increase. They tend to underperform when the true signal is close to linear, when extrapolation is needed, or when the sample is too small for many flexible trees to be estimated reliably.
+The bias-variance trade-off is therefore explicit. Deep individual trees have low bias but high variance. Averaging many randomized trees lowers variance, while random feature selection and bootstrap perturbations can slightly increase bias because each tree is deliberately denied the strongest split it could use. Forests work well when the regression function contains nonlinearities and interactions that trees can capture and when variance reduction dominates this modest bias increase. They can underperform a well-specified simpler model when the true signal is close to linear, when extrapolation is needed, or when the sample is too small for flexible trees to be estimated reliably.
 
 ## The Random-Forest Predictor {#sec-rf-predictor}
 
-For regression, the random-forest predictor is
+The variance argument above applies to numerical tree predictions. We now separate the two output types used in practice. For regression, the random-forest predictor is
 
 $$
 \hat f_B(x) = \frac{1}{B}\sum_{b=1}^B \hat T_b(x).
@@ -110,7 +211,7 @@ Random forests are commonly applied to:
 
 ## Forest Weights and Distributional Outlook {#sec-rf-weights}
 
-A random forest can also be viewed as a data-adaptive local averaging estimator. Let $L_b(x)$ denote the terminal leaf containing the forecast point $x$ in tree $b$, and let $N_b(x)$ be the number of training observations in that leaf. The regression prediction can be written as
+A random forest can also be viewed as a data-adaptive local averaging estimator. First consider trees grown by subsampling without replacement. Let $L_b(x)$ denote the terminal leaf containing the forecast point $x$ in tree $b$, and let $N_b(x)$ be the number of sampled observations in that leaf. The regression prediction can be written as
 $$
 \hat f_B(x)
 =
@@ -119,12 +220,17 @@ $$
 w_i(x)
 =
 \frac{1}{B}\sum_{b=1}^B
-\frac{1\{x_i \in L_b(x)\}}{N_b(x)}.
+\frac{\mathbf{1}\{x_i \in L_b(x)\}}{N_b(x)}.
 $$
 
-One bookkeeping convention hides behind this display. When trees are grown on bootstrap samples with replacement, observation $i$ can appear in tree $b$'s in-bag sample with a multiplicity $m_{ib} \in \{0,1,2,\dots\}$, and the leaf value tree $b$ actually stores is the mean over its bootstrap draws, *counting duplicates*. The display is exact as written when trees are grown by subsampling without replacement (every $m_{ib} \in \{0,1\}$); under bootstrap sampling it is exact once the indicator is weighted by the multiplicity, $w_i(x) = \frac{1}{B}\sum_{b} m_{ib}\,1\{x_i \in L_b(x)\}/N_b(x)$ with $N_b(x)$ counting bootstrap draws in the leaf, and a close approximation otherwise. The interpretation as a data-adaptive weighting scheme is unaffected either way.
+With bootstrap sampling, observation $i$ can appear in tree $b$'s in-bag sample with multiplicity $m_{ib}\in\{0,1,2,\ldots\}$. Because the stored leaf mean counts duplicate draws, the exact weight is
+$$
+w_i(x)=\frac{1}{B}\sum_{b=1}^B
+\frac{m_{ib}\,\mathbf{1}\{x_i\in L_b(x)\}}{N_b(x)},
+$$
+where $N_b(x)$ now counts bootstrap draws in the leaf. In either sampling design, the weights are nonnegative and sum to one.
 
-The weight $w_i(x)$ is large when observation $i$ often lands in the same terminal leaf as the forecast point. This is the forest analogue of a kernel estimator: the forest defines the neighborhood through its tree partitions rather than through a fixed distance metric.
+The weight $w_i(x)$ is large when observation $i$ often lands in the same terminal leaf as the forecast point. The construction resembles a fixed-distance local weighting estimator, but the forest learns its neighborhoods through tree partitions instead of prescribing them with a distance formula.
 
 This weighting view is also the bridge to more advanced forests. *Quantile regression forests* keep more than the leaf mean and use the same neighborhood weights to estimate a conditional distribution [@Meinshausen2006QRF]. Local-linear forests go in a different direction: they retain the forest neighborhood but fit a local linear model rather than a constant inside the neighborhood. The [quantile regression forest section](adv_tree_based_methods.qmd#sec-adv-qrf) develops the distributional version.
 
@@ -132,7 +238,7 @@ This weighting view is also the bridge to more advanced forests. *Quantile regre
 
 ```{python}
 #| label: fig-tree-vs-forest
-#| fig-cap: "The same training observations (gray points) with a single deep-tree fit (red line, left panel) and a 300-tree random-forest fit (blue line, right panel)."
+#| fig-cap: "Simulated outcomes $y=\\sin(1.4x)+0.25x+\\varepsilon$ (gray points), a single deep-tree fit (red line, left panel), and a 300-tree random-forest fit (blue line, right panel). Both models use the same 180 training observations."
 #| echo: true
 
 import numpy as np
@@ -234,7 +340,7 @@ Standard OOB error is closest to validating randomly held-out firm-time rows, so
 
 ```{python}
 #| label: fig-oob-convergence
-#| fig-cap: "Out-of-bag (OOB) mean squared error (blue) and independent-test mean squared error (orange) against the number of trees, for a forest fit to simulated data with independent observations. Both curves fall steeply over the first few dozen trees and then flatten. The close agreement between them depends on that independence: OOB tracks test error here precisely because a randomly chosen holdout carries no information about the retained observations, which is what fails for dependent time-series data (see the warning below)."
+#| fig-cap: "Out-of-bag (OOB) mean squared error (blue) and independent-test mean squared error (orange) against the number of trees for a forest fit to simulated independent observations. The grid begins at 25 trees, when every training observation has at least one OOB prediction in this seeded simulation."
 #| echo: true
 #| warning: false
 
@@ -260,7 +366,7 @@ def signal(X):
 y_train = signal(X_train) + rng.normal(scale=0.5, size=n_train)
 y_test = signal(X_test) + rng.normal(scale=0.5, size=n_test)
 
-trees_grid = [10, 25, 50, 100, 200, 400]
+trees_grid = [25, 50, 100, 200, 400]
 oob_mse = []
 test_mse = []
 
@@ -289,7 +395,7 @@ plt.tight_layout()
 plt.show()
 ```
 
-The pattern is stabilization rather than monotone improvement. Once enough trees have been added, the forest average has converged for practical purposes, and additional trees only increase computation time.
+The OOB MSE falls most at the smaller tree counts, whereas the independent-test MSE is comparatively flat. Both curves stabilize as the finite-forest Monte Carlo component becomes small; further trees then mainly increase computation.
 
 ## Hyperparameters and Trade-Offs {#sec-rf-hyperparameters}
 
@@ -307,7 +413,7 @@ The number of trees $B$ mainly controls Monte Carlo error in the forest average.
 
 This hyperparameter is often called `max_features` or `mtry`.
 
-- Smaller `max_features` reduces correlation across trees and tends to lower variance.
+- Smaller `max_features` diversifies the fitted trees and can lower training-sample variability. It also makes individual trees noisier conditional on the data, a Monte Carlo cost that averaging removes at rate $1/B$ and that therefore mainly requires more trees. As discussed above, it can also increase bias: when informative predictors are unavailable at useful splits, trees must substitute weaker splits that may systematically miss part of the signal. Increasing $B$ estimates the average of this randomized fitting rule more precisely; it does not correct bias in that average rule.
 - Larger `max_features` makes each tree stronger but more similar to the others.
 - If one predictor is much stronger than the others, reducing `max_features` can materially improve the ensemble by forcing other variables into the split search.
 
@@ -322,7 +428,7 @@ Random forests typically use deep trees, but the leaf size still matters.
 
 **Monotonicity Constraints in Some Implementations**
 
-Monotonicity constraints are not part of the classical random-forest theory developed in this chapter, but some modern implementations allow them. The idea: if economic reasoning implies that a predictor should move the fitted outcome only upward or only downward, the ensemble can be restricted to respect that sign pattern. (The same device reappears for gradient boosting in a [later chapter](gradient_boosting.qmd).) This can make a forest more credible when the unrestricted fit shows local reversals that are hard to defend economically.
+Monotonicity constraints are not part of the classical random-forest theory developed in this chapter, but some modern implementations allow them. The idea is straightforward: if economic reasoning implies that a predictor should move the fitted outcome only upward or only downward, the ensemble can be restricted to respect that sign pattern. (The same device reappears for gradient boosting in a [later chapter](gradient_boosting.qmd).) This can make a forest more credible when the unrestricted fit shows local reversals that are hard to defend economically.
 
 Mechanically, the constraint is enforced inside each tree by rejecting any candidate split on the constrained feature that would produce children violating the sign pattern. Tree-growing algorithms additionally propagate bounds through the tree so that splits on *other* features cannot eventually create leaves that break the global monotonicity. Since every tree in the forest respects the constraint, the averaged prediction does too.
 
@@ -347,9 +453,9 @@ The same warning applies as elsewhere: a monotonicity restriction is a predictiv
 The forest design has two levers:
 
 1. Make each tree strong.
-2. Make the trees less correlated.
+2. Diversify the fitted rules so that averaging removes more of their sampling instability.
 
-The best tuning balances those two goals rather than maximizing either one in isolation.
+The best tuning balances those two goals rather than maximizing either one in isolation. Changing `max_features` can affect bias, training-sample variability, and finite-forest Monte Carlo variability at the same time.
 
 ## Econometric Interpretation and Limits {#sec-rf-econometric}
 
@@ -367,16 +473,18 @@ A variable that appears important for a forest is not necessarily a causal drive
 
 **Standard OOB Evaluation Can Fail for Dependent Data**
 
-In macroeconomic and financial forecasting, two distinct problems are easy to run together, and it is worth separating them.
+In macroeconomic and financial forecasting, three distinct questions are easy to run together.
 
-The first is on the *resampling* side. Drawing observations independently, as the bootstrap does, destroys the serial dependence in the data: each tree is grown on a scrambled sample whose temporal structure no longer resembles the process being modeled. The remedy is a dependence-aware resampling scheme — a block bootstrap or block subsampling, which draws contiguous stretches of time rather than individual dates and so preserves short-run dependence within each block.
+The first concerns **algorithmic randomization**. Row bootstrap samples diversify the fitted trees; in that role they are part of the learning algorithm, not automatically an approximation to the sampling distribution of an estimator. Whether row sampling, subsampling, or contiguous-block sampling improves prediction depends on the data-generating process, feature construction, and forecast target.
 
-The second is on the *evaluation* side, and it is the more serious one for forecasting. An observation at date $t$ is out-of-bag for whichever trees did not draw it — but those trees were trained on observations from both before *and after* $t$. The OOB prediction for date $t$ therefore uses future information, which no real-time forecaster had. Block resampling does not fix this, because the problem is not how the training sample was drawn but that the evaluation ignores the arrow of time. Only a time-ordered scheme does: rolling or expanding validation windows that replicate the actual information set at each forecast origin.
+The second concerns **dependence-aware estimation and inference**. If block resampling is meant to preserve a time-series sampling law, its validity requires a named scheme, assumptions on dependence, an appropriate block-length sequence or selector, and a result for the estimator and target at hand. A generic block bootstrap is therefore a design option, not an automatic remedy.
+
+The third concerns **evaluation**, and it is decisive for real-time forecasting. An observation at date $t$ is OOB for trees that did not draw it, but those trees can still be trained on dates after $t$. Its OOB prediction can therefore use information unavailable at the forecast origin. Changing the resampling scheme does not by itself fix an evaluation that ignores the arrow of time. The direction of the distortion is not guaranteed. With a structural break halfway through the sample, post-break observations can contaminate a pre-break OOB prediction and make the assessment pessimistic. At an early post-break origin, later observations from the new regime can make it optimistic. Rolling or expanding validation windows instead reproduce the actual information set at each origin [@RobertsEtAl2017CV].
 
 :::{.callout-warning}
 ## Econometric Warning
 
-For forecasting problems with serial dependence, publication lags, and real-time data revisions, standard random-forest OOB error is not an honest real-time performance measure. Use rolling or expanding validation windows that replicate the actual information set at the forecast origin.
+For forecasting problems with serial dependence, publication lags, and real-time data revisions, standard random-forest OOB error is not a valid real-time performance measure. Use rolling or expanding validation windows that replicate the actual information set at the forecast origin.
 :::
 
 **Variable Importance: Useful but Imperfect**
@@ -386,23 +494,23 @@ Forests are often accompanied by variable-importance measures. The two most comm
 - **Impurity-based importance**: sum the reduction in the split criterion, such as residual sum of squares (RSS) or Gini impurity (both defined in the [chapter on decision trees](decision_trees.qmd)), attributed to each predictor across all trees.
 - **Permutation importance**: shuffle one predictor in an out-of-bag or validation sample, recompute predictive performance, and use the resulting deterioration as the importance measure.
 
-Both measures can be useful screening devices, but they have limitations:
+Both measures can be useful screening devices, but they have limitations [@Strobl2007]:
 
-- impurity-based importance can favor variables with many possible split points [@Strobl2007]
+- impurity-based importance can favor variables with many possible split points
 - importance does not measure causal effect size
 - correlated predictors can split the signal across variables and make each one look less important than it truly is
 
-Permutation importance is often more informative than raw impurity reductions, but even then the interpretation remains predictive rather than structural. It asks how much worse this fitted forest predicts when one column is broken, not what causal effect the variable has.
+Permutation importance answers a different predictive perturbation question from impurity reduction: how much worse this fitted forest predicts when one column is broken. It does not identify the variable's causal effect or its unique information contribution.
 
 Two cautions matter especially for the dependent, correlated data of this book. First, permuting a column row by row destroys the predictor's temporal ordering along with its relationship to the target, so in a time-series setting the deterioration mixes the loss of the variable's signal with the destruction of its serial structure. Permuting contiguous blocks can serve as a sensitivity check because it preserves dependence within each block, but it still breaks dependence across block boundaries and its result depends on the chosen block length. Block permutation therefore reduces rather than eliminates the serial-structure problem; it does not isolate a clean signal contribution. Second, when predictors are correlated, row-wise permutation evaluates the forest at feature combinations that never occur in the data — a permuted term spread paired with an unpermuted unemployment rate may describe a macroeconomic state that has never existed. The resulting number measures how much the fitted function relies on that column once its joint relationship with the others is broken, which is not the same as how much predictive information the variable carries.
 
-@fig-rf-fredqd illustrates the variance-reduction argument directly on macroeconomic data from the quarterly Federal Reserve Economic Data collection (FRED-QD). The target is annualized gross domestic product (GDP) growth in quarter $t+1$, while the predictors are dated quarter $t$.[^rf-fredqd-final-vintage] The top panel shows test-period predictions from a single unrestricted decision tree; the bottom panel shows predictions from a 500-tree random forest trained on the same predictors. The single-tree forecast is erratic: it jumps between a small set of leaf constants, swinging by several percentage points from one quarter to the next. The forest average is visibly smoother, which is the variance-reduction argument made concrete — averaging over 500 randomized, less-correlated trees damps the jumpiness that a single tree inherits from its particular partition. Note what the figure does *not* show. Because these are test-period forecasts, the plot cannot by itself demonstrate that the single tree overfit its training sample; it shows the symptom (unstable predictions out of sample), not the fit inside the training window. Nor can a single realized path identify statistical bias, which is an average over repeated samples. What the figure does show unambiguously is that both models fail at the pandemic extremes: neither comes close to the roughly $-33$ and $+30$ percent annualized quarters of 2020, and the smoother forest is, if anything, flatter there. A tree ensemble averages over leaf constants estimated from historical data, so it cannot produce a forecast outside the range those constants span.
+@fig-rf-fredqd illustrates the stabilization argument directly using the quarterly [Federal Reserve Economic Data collection (FRED-QD)](datasets.qmd#fred-qd) [@McCrackenNg2020FREDQD]. The target is annualized gross domestic product (GDP) growth in quarter $t+1$, while the predictors are dated quarter $t$.[^rf-fredqd-final-vintage] The top panel shows test-period predictions from a single unrestricted decision tree; the bottom panel shows predictions from a 500-tree random forest trained on the same predictors. The single-tree forecast jumps between a small set of leaf constants. Averaging 500 step-function predictions produces a less jumpy forest path. The plot cannot by itself demonstrate in-sample overfitting or identify statistical bias and variance, which are repeated-sample concepts. It does show that neither model approaches the annualized GDP-growth rates of roughly $-33\%$ and $+30\%$ observed in 2020; the forest is especially flat at those extremes. A tree ensemble averages leaf constants estimated from historical data and therefore cannot forecast outside the range those constants span.
 
 [^rf-fredqd-final-vintage]: This is a pedagogical final-vintage FRED-QD example. A full real-time GDP forecasting evaluation would also need to account for release calendars and data revisions.
 
 ```{python}
 #| label: fig-rf-fredqd
-#| fig-cap: "Out-of-sample one-step-ahead GDP growth forecasts (test period, last 25% of FRED-QD sample) from a single deep decision tree (top) and a 500-tree random forest (bottom), each trained on five lagged FRED-QD predictors. Gray line is realized GDP growth (annualized log-difference of GDPC1). The forest produces a smoother prediction path by averaging out the high variance of individual trees."
+#| fig-cap: "Out-of-sample one-step-ahead GDP growth forecasts over the last 25% of the FRED-QD sample from a single deep decision tree (top) and a 500-tree random forest (bottom), each trained on five lagged predictors. The gray line is realized GDP growth, measured as the annualized log-difference of GDPC1."
 #| echo: true
 
 import numpy as np
@@ -472,8 +580,8 @@ plt.show()
 ## Key Takeaways
 
 1. A random forest averages many randomized trees and primarily improves on a single tree by reducing variance.
-2. The variance reduction depends not only on the number of trees, but also on how correlated the individual trees are.
-3. Random feature selection is crucial because it decorrelates trees that would otherwise keep splitting on the same dominant predictors.
+2. Forest variance has a training-sample component that remains as the number of trees grows and a finite-forest Monte Carlo component that decreases at rate $1/B$.
+3. Random feature selection diversifies fitted trees that would otherwise keep splitting on the same dominant predictors, but its net effect on bias and variance must be validated.
 4. Out-of-bag predictions provide an internal validation device under i.i.d. sampling, but they are not automatically reliable for dependent time-series data.
 5. Random forests are effective nonlinear prediction tools for tabular data, but they remain local averaging estimators and should not be interpreted causally.
 :::
@@ -481,7 +589,7 @@ plt.show()
 :::{.callout-warning}
 ## Common Pitfalls
 
-- Thinking that more trees always fix a poorly tuned forest. If the trees are highly correlated, averaging has limited payoff.
+- Thinking that more trees remove all uncertainty. Increasing $B$ removes finite-forest Monte Carlo variability, not training-sample variability or bias.
 - Treating OOB error as automatically valid for time-series forecasting.
 - Reading variable importance as a causal ranking.
 - Expecting a forest to extrapolate outside the support of the training data.
@@ -493,19 +601,19 @@ plt.show()
 ::: {.callout-note}
 ## Exercise 11.1: Variance Reduction in a Random Forest
 
-Fix a point $x_0$. Suppose the prediction of tree $b$ at $x_0$ is $T_b$, with
+Fix a point $x_0$. Let $D$ be a random training sample and let tree $b$ use an independent randomization $\Theta_b$, so $T_b=T(D,\Theta_b;x_0)$. All moments in this exercise are **unconditional**, over repeated draws of both $D$ and the tree randomizations. Suppose
 
 $$
-\mathbb{E}[T_b] = \mu, \qquad \operatorname{Var}[T_b] = \sigma^2,
+\mathbb{E}[T_b] = \mu, \qquad \operatorname{Var}[T_b] = \sigma^2>0,
 $$
 
 and for all $b \neq b'$,
 
 $$
-\text{Corr}(T_b,T_{b'}) = \rho, \qquad 0 \le \rho \le 1.
+\operatorname{Corr}(T_b,T_{b'}) = \rho, \qquad 0 \le \rho \le 1.
 $$
 
-(The restriction $\rho \ge 0$ matters in Part 4: a common correlation is compatible with a valid correlation matrix only if $\rho \ge -1/(B-1)$, so a fixed negative $\rho$ cannot be sustained as $B$ grows.)
+Conditional on $D$, the independent randomizations make different tree predictions independent. The unconditional correlation $\rho$ arises because all trees depend on the same random training sample. Under this construction, nonnegativity is automatic because $\rho\sigma^2=\operatorname{Var}_D(m(D,x_0))\geq 0$.
 
 Define the forest predictor as
 
@@ -519,20 +627,21 @@ $$
    \operatorname{Var}[\bar T_B] = \sigma^2\left[\rho + \frac{1-\rho}{B}\right].
    $$
 3. Let $\sigma^2 = 9$, $\rho = 0.2$, and $B=100$. Compute the variance of a single tree and the variance of the forest. By what percentage is variance reduced?
-4. What is the limit of $\operatorname{Var}[\bar T_B]$ as $B \to \infty$? Explain why this makes `max_features` important in practice.
-5. **How many trees are enough?** Using Parts 2 and 4, show that
+4. What is the limit of $\operatorname{Var}[\bar T_B]$ as $B \to \infty$? Relate this limit to the training-sample component $\operatorname{Var}_D(m(D,x_0))$ from the chapter and explain why increasing $B$ cannot remove it. Then explain why the effect of changing `max_features` is an empirical bias-variance trade-off rather than a guaranteed reduction in one fixed correlation parameter.
+5. **How many trees are enough?** For $\rho>0$, use Parts 2 and 4 to show that
    $$
    \frac{\operatorname{Var}[\bar T_B]}{\operatorname{Var}[\bar T_\infty]} = 1 + \frac{1-\rho}{\rho B},
    $$
-   so that the excess variance from using finitely many trees depends on $\rho$ and $B$ but not on $\sigma^2$. Find the smallest $B$ for which this excess is at most 5% when $\rho = 0.2$, and repeat for $\rho = 0.05$. Explain the direction of the comparison: does a forest whose trees are *less* correlated need more or fewer trees, and why is that the opposite of what the variance floor in Part 4 might suggest?
+   so that the relative excess variance from using finitely many trees depends on $\rho$ and $B$ but not on $\sigma^2$. Find the smallest $B$ for which this excess is at most 5% when $\rho = 0.2$, and repeat for $\rho = 0.05$.
+6. Holding $\sigma^2$ and bias fixed, explain why the lower-$\rho$ case needs more trees to approach its own variance limit even though that limit is lower. Relate this result to a forest using more aggressive random feature selection. Finally, treat the boundary $\rho=0$ separately: state $\operatorname{Var}(\bar T_B)$ and explain why relative distance from the zero limiting variance is not defined.
 
-*Exam level. Parts 1-2 are the variance derivation, Part 3 applies it numerically, Part 4 draws the asymptotic implication for `max_features`, and Part 5 converts the same formula into the practical question of how many trees to grow.*
+*Exam level: suitable as-is. Parts 1--2 derive forest variance, Part 3 applies it, Part 4 separates the two variance components, Part 5 determines the tree count, and Part 6 interprets the result and its boundary case.*
 :::
 
 ::: {.callout-warning collapse="true"}
 ## Hint for Part 2
 
-Expand the variance of the average into own-variance and covariance terms, and count how many of each there are. Use $\text{Cov}(T_b,T_{b'}) = \rho\sigma^2$ for $b \neq b'$.
+Expand the variance of the average into own-variance and covariance terms, and count how many of each there are. Use $\operatorname{Cov}(T_b,T_{b'}) = \rho\sigma^2$ for $b \neq b'$.
 :::
 
 ::: {.callout-warning collapse="true"}
@@ -572,7 +681,7 @@ $$
 \left(
 \sum_{b=1}^B \operatorname{Var}[T_b]
 +
-\sum_{b \neq b'} \text{Cov}(T_b,T_{b'})
+\sum_{b \neq b'} \operatorname{Cov}(T_b,T_{b'})
 \right).
 $$
 
@@ -639,7 +748,7 @@ $$
 \operatorname{Var}[\bar T_B] \to \sigma^2 \rho.
 $$
 
-So averaging can eliminate the idiosyncratic part of tree variance, but not the common correlated part. This is why `max_features` matters: by forcing different trees to consider different candidate predictors at each split, it lowers $\rho$ and therefore lowers the asymptotic variance floor of the forest.
+Under the decomposition in the chapter, $\sigma^2\rho=\operatorname{Var}_D(m(D,x_0))$. Averaging can eliminate finite-forest Monte Carlo variability, but not the training-sample variability of the infinite-forest predictor. Changing `max_features` can alter this training-sample component by changing the fitted rule, but it can also change individual-tree variability and bias. Its net effect is therefore a tuning question, not a guaranteed consequence of lowering a fixed conditional tree correlation.
 
 **Part 5: How many trees are enough**
 
@@ -665,7 +774,15 @@ $$
 
 For $\rho = 0.2$ this is $B \ge 20(0.8)/0.2 = 80$ trees; for $\rho = 0.05$ it is $B \ge 20(0.95)/0.05 = 380$.
 
-The comparison runs in the direction that first looks wrong: the *less* correlated forest, which is the better forest, needs almost five times as many trees. There is no contradiction, because the two statements are about different quantities. Lowering $\rho$ lowers the variance floor $\sigma^2\rho$ — the forest one is converging to is better. But it simultaneously raises the ratio $(1-\rho)/\rho$ that governs how fast the average approaches that floor, because a larger share of each tree's variance is now idiosyncratic and must be averaged away. Decorrelating the trees improves the destination and slows the journey. In practice this is why aggressive `max_features` settings should be paired with more trees, and why a disappointing forest with few trees may be under-averaged rather than badly specified.
+**Part 6: Interpretation and the zero-correlation boundary**
+
+Holding $\sigma^2$ and bias fixed, the lower-$\rho$ case needs almost five times as many trees to come within 5% of its own limit. There is no contradiction: lowering $\rho$ lowers the variance floor $\sigma^2\rho$, but raises the ratio $(1-\rho)/\rho$ that governs relative distance from that floor because more of the single-tree variance must be averaged away. Within this stylized model, more aggressive random feature selection represented by the lower $\rho$ should therefore be paired with more trees. In an actual tuning exercise, changing `max_features` can change $\sigma^2$, $\rho$, and bias together, so validation must judge the complete predictor.
+
+At $\rho=0$,
+$$
+\operatorname{Var}(\bar T_B)=\frac{\sigma^2}{B}\longrightarrow0.
+$$
+The finite-$B$ variance is well defined and converges to zero, but its ratio to the zero limiting variance is not. An absolute tolerance, rather than a relative percentage above the limit, is needed at this boundary.
 :::
 
 ::: {.callout-note}
@@ -675,14 +792,16 @@ Suppose a random forest is trained on a sample of size $N$, and each tree uses a
 
 1. Show that the probability a fixed observation $i$ is not selected in one bootstrap sample is
    $$
-   \left(1-\frac{1}{N}\right)^N,
+   q_N=\left(1-\frac{1}{N}\right)^N,
    $$
-   and conclude that this converges to $e^{-1}$ as $N \to \infty$. For a forest with $B=500$ trees, approximately how many trees leave observation $i$ out-of-bag?
-2. The OOB prediction for observation $i$ averages only over the trees that left it out of bag, whereas the forest's own prediction averages over all $B$. Using the variance formula of Exercise 11.1 with common tree variance $\sigma^2$ and correlation $\rho$, write down the variance of each of the two averages, and show that the *Monte Carlo* component — the part that vanishes as the number of averaged trees grows — is larger by a factor of exactly $e$ for the OOB prediction. Evaluate both variances for $\sigma^2=9$, $\rho=0.2$, and $B=500$, and state what this implies about using OOB error to compare two forests that differ only slightly.
-3. Explain why OOB prediction can serve as an internal validation device under i.i.d. sampling.
-4. You are forecasting quarterly inflation with a long macroeconomic time series. Explain why standard OOB error is not a fully honest evaluation method in this setting, and suggest a more appropriate validation design.
+   and conclude that $q_N\to e^{-1}$ as $N \to \infty$. If $K_i$ is the number of trees whose bootstrap samples omit observation $i$, show that $K_i\sim\operatorname{Binomial}(B,q_N)$ and find $\mathbb{E}[K_i]$. For $B=500$ and large $N$, approximately how many trees enter the OOB prediction?
+2. To isolate finite-forest Monte Carlo variability, condition on the training sample $D$ and on $K_i=k>0$. Suppose the OOB-eligible tree predictions are conditionally independent with common variance $v_i$. Compare the variance of their $k$-tree average with a hypothetical $B$-tree average made from $B$ independent draws from this same OOB-eligible tree distribution.
+3. Replace $K_i$ by its expectation $Bq_N$ and show that the approximate variance ratio from Part 2 is $1/q_N\to e$. For $v_i=9$ and $B=500$, compare $9/184$ with the same-distribution benchmark $9/500$. Explain why the factor $e$ is not an exact finite-$N$, finite-$B$ identity, referring to both the randomness of $K_i$ and the event $K_i=0$. Why is this hypothetical benchmark not necessarily the Monte Carlo variance of the usual full forest?
+4. Explain why OOB prediction can serve as an internal validation device under i.i.d. sampling.
+5. You are forecasting quarterly inflation with a long macroeconomic time series. Explain why standard OOB error is not a valid real-time evaluation method in this setting, why the direction of its distortion is not guaranteed, and suggest a more appropriate validation design.
+6. Two highly correlated predictors contain nearly the same signal. A forest assigns each a small individual permutation importance. Explain why this result does not establish that either variable is uninformative, and propose one grouped perturbation that better measures their joint predictive role.
 
-*Exam level. Part 1 is the bootstrap-inclusion derivation, Part 2 connects it quantitatively to the variance decomposition of Exercise 11.1, Part 3 clarifies the OOB logic, and Part 4 tests the key econometric caveat about dependent data.*
+*Exam level: suitable as-is. Part 1 derives the OOB count, Parts 2--3 analyze its Monte Carlo consequence, Part 4 explains the i.i.d. validation logic, Part 5 addresses real-time dependence, and Part 6 tests an importance diagnostic.*
 :::
 
 ::: {.callout-warning collapse="true"}
@@ -692,9 +811,15 @@ In one draw, the chance of not selecting observation $i$ is $1-1/N$. The bootstr
 :::
 
 ::: {.callout-warning collapse="true"}
-## Hint for Part 4
+## Hint for Parts 2--3
 
-Ask whether a bootstrap resample respects time order, publication lags, and real-time information sets.
+Conditional on $K_i=k>0$, the variance of an average of $k$ independent eligible tree predictions is $v_i/k$. For the exact unconditional calculation, ask whether $\mathbb{E}[1/K_i\mid K_i>0]$ equals $1/\mathbb{E}[K_i]$.
+:::
+
+::: {.callout-warning collapse="true"}
+## Hint for Part 5
+
+Ask whether a bootstrap resample respects time order, publication lags, and real-time information sets. To determine why the sign is ambiguous, place a structural break halfway through the sample and consider pre-break and early post-break forecast origins separately.
 :::
 
 ::: {.callout-tip collapse="true"}
@@ -711,7 +836,7 @@ $$
 Because the bootstrap sample contains $N$ draws with replacement, the probability that $i$ is never selected is
 
 $$
-\left(1-\frac{1}{N}\right)^N.
+q_N=\left(1-\frac{1}{N}\right)^N.
 $$
 
 Using the standard limit,
@@ -721,43 +846,77 @@ $$
 \qquad \text{as } N \to \infty.
 $$
 
-So roughly 36.8% of trees leave any given observation out. With $B=500$ trees, the expected number for which observation $i$ is out-of-bag is
+The omission indicators are independent across independently randomized trees, so
 
 $$
-500 \times e^{-1} \approx 500 \times 0.368 \approx 184 .
+K_i\sim\operatorname{Binomial}(B,q_N),
+\qquad
+\mathbb{E}[K_i]=Bq_N.
+$$
+
+Thus roughly 36.8% of trees leave any given observation out in a large sample. With $B=500$ trees, the expected number entering the OOB prediction is approximately
+
+$$
+500 \times e^{-1} \approx 500 \times 0.368 \approx 184.
 $$
 
 **Part 2: The OOB prediction averages fewer trees**
 
-Write $B_{\text{oob}} \approx B/e$ for the number of trees entering the OOB prediction. Applying the Exercise 11.1 formula to each average,
+Conditional on $K_i=k>0$, independence of the eligible randomized-tree draws gives
 
 $$
-\operatorname{Var}\big[\text{forest}\big] = \sigma^2\left[\rho + \frac{1-\rho}{B}\right],
+\operatorname{Var}_{\Theta}(\text{$k$-tree average}\mid K_i=k)
+=\frac{v_i}{k},
 \qquad
-\operatorname{Var}\big[\text{OOB}\big] = \sigma^2\left[\rho + \frac{1-\rho}{B/e}\right].
+\operatorname{Var}_{\Theta}(\text{same-distribution $B$-tree average})
+=\frac{v_i}{B}.
 $$
 
-Both share the irreducible term $\sigma^2\rho$, which does not shrink with the number of trees. The Monte Carlo components are $\sigma^2(1-\rho)/B$ and $\sigma^2(1-\rho)e/B$, so their ratio is
+The second quantity is a hypothetical benchmark made from the same exclusion-conditional tree distribution, not the usual full forest.
+
+**Part 3: Approximation and finite-sample caveats**
+
+Replacing the random count $K_i$ by its expectation $Bq_N$ gives the approximation
 
 $$
-\frac{\sigma^2(1-\rho)e/B}{\sigma^2(1-\rho)/B} = e \approx 2.72,
+\frac{v_i/(Bq_N)}{v_i/B}
+=\frac{1}{q_N}
+\longrightarrow e\approx 2.72.
 $$
 
-independently of $\sigma^2$, $\rho$, and $B$ — the factor is exactly the reciprocal of the inclusion probability derived in Part 1.
+For $v_i=9$ and $B=500$, the large-sample approximation gives
 
-Numerically, with $\sigma^2=9$, $\rho=0.2$, and $B=500$: the Monte Carlo component is $9(0.8)/500 = 0.0144$ for the forest and $9(0.8)/184 = 0.0391$ for the OOB prediction, giving total variances of $1.814$ and $1.839$ respectively.
+$$
+\frac{9}{184}\approx 0.0489
+\qquad\text{and}\qquad
+\frac{9}{500}=0.0180.
+$$
 
-The implication is a caution about resolution rather than about bias. OOB error is a noisier statistic than the forest's own predictions, because each OOB prediction is an average over roughly a third as many trees. When comparing two forests whose true performance differs only slightly — say two values of `max_features` — part of any observed OOB gap is this extra Monte Carlo noise, and the remedy is to grow more trees rather than to trust the ranking.
+The approximate OOB Monte Carlo variance is therefore about $2.72$ times the same-distribution $B$-tree benchmark.
 
-**Part 3: Why OOB works under i.i.d. sampling**
+The factor $e$ is therefore a useful large-$N$, large-$B$ approximation, not an exact identity. Even after conditioning on an OOB prediction being available, the exact calculation involves
+
+$$
+\mathbb{E}\!\left[\frac{1}{K_i}\,\middle|\,K_i>0\right],
+$$
+
+which is not $1/\mathbb{E}[K_i]$, and $K_i=0$ occurs with probability $(1-q_N)^B$. The usual full forest includes trees trained on observation $i$. Inclusion can change both the conditional mean and variance of a tree prediction, so $v_i/B$ need not describe its Monte Carlo variance. The calculation is best read as a controlled comparison within the OOB-eligible tree distribution: using only $K_i$ eligible draws creates more simulation noise than using $B$ draws from that same distribution.
+
+**Part 4: Why OOB works under i.i.d. sampling**
 
 For observation $i$, the OOB prediction averages only trees that were not trained on $i$. That makes the prediction approximately out-of-sample for that observation. Repeating this over all observations yields a validation-style error estimate without creating a separate holdout set.
 
-**Part 4: Why OOB can fail in macroeconomic forecasting**
+**Part 5: Why OOB can fail in macroeconomic forecasting**
 
-In a macroeconomic time series, standard bootstrap resampling does not preserve temporal ordering, dependence, publication delays, or real-time data vintages. A tree used in the OOB prediction for date $t$ may still have been trained on observations from dates after $t$, which would not have been available in real time. This makes standard OOB error optimistic.
+In a macroeconomic time series, standard bootstrap resampling does not preserve temporal ordering, dependence, publication delays, or real-time data vintages. A tree used in the OOB prediction for date $t$ may still have been trained on observations from dates after $t$, which would not have been available in real time. This contaminates the forecast-origin information set, so standard OOB error does not estimate the intended real-time risk.
 
-A more appropriate design is rolling or expanding-window validation, where each training set only uses information available up to the forecast origin and the validation set lies strictly in the future.
+To see why the distortion can have either sign, suppose a structural break occurs halfway through the sample. For a pre-break date, OOB trees trained partly on post-break observations may predict worse than a valid real-time forest trained on the homogeneous pre-break history, making the OOB assessment pessimistic. For an early post-break date, OOB trees may use later observations from the new regime that were unavailable at the forecast origin, often making the assessment optimistic.
+
+A more appropriate design uses validation based on rolling or expanding windows, where each training set contains only information available up to the forecast origin and the validation observation lies strictly in the future.
+
+**Part 6: Correlated predictors and importance**
+
+When the predictors contain nearly the same signal, either can substitute for the other after one column is permuted. Their individual permutation importances can therefore be small even though the pair is strongly predictive. One diagnostic is to permute the two columns jointly in the validation sample and recompute the loss. The resulting deterioration measures how much the fitted forest relies on breaking their joint contribution, although it remains a predictive perturbation measure rather than a causal effect.
 :::
 
 ## References

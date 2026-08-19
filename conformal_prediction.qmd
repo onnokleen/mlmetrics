@@ -7,7 +7,7 @@ number-offset: [14, 0]
 
 ## Overview
 
-Earlier chapters studied predictive uncertainty by modeling a conditional distribution directly, for example through likelihood-based neural networks, quantile methods, or distributional forests. Conformal prediction takes a different route. It starts from any predictive model, uses nonconformity scores computed on held-out or out-of-fold data as the calibration object, and constructs prediction sets with a finite-sample marginal coverage guarantee under exchangeability [@VovkGammermanShafer2005; @LeiGsellRinaldoTibshiraniWasserman2018].
+Earlier chapters studied predictive uncertainty by modeling or evaluating conditional distributions, for example through likelihood-based neural networks, quantile methods, distributional forests, and proper scoring rules. Conformal prediction takes a different route. It starts from any predictive model and computes a **nonconformity score**, a number that is larger when an observation fits the model poorly, on held-out or out-of-fold data. It then uses those scores to construct prediction sets with a finite-sample marginal coverage guarantee under exchangeability [@VovkGammermanShafer2005; @LeiGsellRinaldoTibshiraniWasserman2018].
 
 For econometricians, this is useful because point forecasts alone are often not enough. A central bank may want an inflation fan chart, a risk manager may want a forecast interval for portfolio returns, and a macro forecaster may want uncertainty bands around gross domestic product (GDP) growth projections. In all of those settings, the question is not only "What is the predicted mean?" but also "How wide should a well-calibrated prediction band be?"
 
@@ -25,9 +25,9 @@ The guarantee has limits. It is a marginal guarantee, not a full conditional one
 2. We then develop split conformal prediction in its general score-based form and specialize it to regression intervals.
 3. Next we define exchangeability, state the finite-sample coverage result, and sketch the rank argument behind it.
 4. We then study what basic split conformal does and does not guarantee, including the distinction between marginal and conditional coverage.
-5. After that we cover adaptive scores and conformalized quantile regression.
+5. After that we cover adaptive scores, which let interval width vary with predictors, and conformalized quantile regression (CQR), which calibrates an initially asymmetric quantile band.
 6. We apply split conformal prediction to quarterly U.S. gross domestic product growth and interpret overall and high-volatility coverage diagnostics.
-7. We then study data-efficient variants such as cross-validation+ (CV+) and jackknife+, followed by conformal prediction for time series.
+7. We then study data-efficient variants: jackknife+ uses leave-one-out predictions, while cross-validation+ (CV+) replaces them with omitted-fold predictions. We then turn to conformal prediction for time series.
 8. We close with a practical workflow for econometric applications, a summary, and exercises.
 
 ## Why Conformal Prediction
@@ -49,7 +49,7 @@ m = 0.6 * np.sin(2 * np.pi * x) + 0.3 * x
 e1 = rng.normal(0.0, 0.18, size=x.size)
 e2 = rng.normal(0.0, 0.07 + 0.28 * x, size=x.size)
 mix = rng.uniform(size=x.size) < 0.75
-e3 = np.where(mix, rng.normal(-0.08, 0.11, size=x.size), rng.normal(0.34, 0.18, size=x.size))
+e3 = np.where(mix, rng.normal(-0.08, 0.11, size=x.size), rng.normal(0.24, 0.18, size=x.size))
 
 y1 = m + e1
 y2 = m + e2
@@ -72,7 +72,7 @@ plt.tight_layout()
 plt.show()
 ```
 
-This chapter therefore fits naturally after the earlier chapters on [Evaluating Predictive Distributions](evaluating_distributions.qmd), [Distribution Modeling with Neural Networks](distributions_via_nns.qmd), and [Advanced Tree-Based Methods](adv_tree_based_methods.qmd). Those chapters model a conditional distribution directly. Conformal prediction instead calibrates a prediction set around a fitted model.
+This chapter therefore fits naturally after [Evaluating Predictive Distributions](evaluating_distributions.qmd), which develops tools for assessing distribution forecasts, and the chapters on [Distribution Modeling with Neural Networks](distributions_via_nns.qmd) and [Advanced Tree-Based Methods](adv_tree_based_methods.qmd), which construct conditional-distribution models. Conformal prediction instead calibrates a prediction set around a fitted model.
 
 Formally, the object of interest is a prediction set $C(x)$ such that for a new observation $(X_{N+1},Y_{N+1})$,
 
@@ -278,20 +278,31 @@ In conformal prediction, the objects being permuted are usually the pairs $Z_i=(
 
 :::{.callout-note title="Theorem: Split Conformal Coverage"}
 
-Suppose an exchangeable sample has been split into a training part $D_{\text{train}}$, a calibration part $(X_i,Y_i)$ for $i=1,\dots,N_{\text{cal}}$, and one future point $(X_{N_{\text{cal}}+1},Y_{N_{\text{cal}}+1})$. Suppose the score function $S(\cdot,\cdot;D_{\text{train}})$ is fully determined by $D_{\text{train}}$ and then kept fixed when evaluating calibration and future points. Define
+Suppose an exchangeable sample has been split into a training part $D_{\text{train}}$, a calibration part $(X_i,Y_i)$ for $i=1,\dots,N_{\text{cal}}$, and one future point $(X_{N_{\text{cal}}+1},Y_{N_{\text{cal}}+1})$. The split indices must be fixed in advance or selected independently of the observation values. Suppose the score function $S(\cdot,\cdot;D_{\text{train}})$ is fully determined by $D_{\text{train}}$ and then kept fixed. Define the calibration scores
 
 $$
-R_i=S(X_i,Y_i;D_{\text{train}}),
+R_i^{\mathrm{cal}}=S(X_i,Y_i;D_{\text{train}}),
 \qquad
-i=1,\dots,N_{\text{cal}},N_{\text{cal}}+1,
+i=1,\dots,N_{\text{cal}},
 $$
 
-and set
+and let $R_{(1)}^{\mathrm{cal}}\le\cdots\le R_{(N_{\text{cal}})}^{\mathrm{cal}}$ be their order statistics. Set
 
 $$
 k=\left\lceil (1-\alpha)(N_{\text{cal}}+1)\right\rceil,
 \qquad
-\hat q = R_{(k)}.
+\hat q =
+\begin{cases}
+R_{(k)}^{\mathrm{cal}}, & k\le N_{\text{cal}},\\
++\infty, & k=N_{\text{cal}}+1.
+\end{cases}
+$$
+
+Define the future score separately as
+
+$$
+R_{\mathrm{new}}
+=S(X_{N_{\text{cal}}+1},Y_{N_{\text{cal}}+1};D_{\text{train}}).
 $$
 
 Then the split conformal set
@@ -306,7 +317,7 @@ $$
 \Pr\{Y_{N_{\text{cal}}+1}\in C(X_{N_{\text{cal}}+1})\}\ge 1-\alpha.
 $$
 
-If the scores are almost surely distinct, then
+If the calibration and future scores are almost surely distinct, then
 
 $$
 \Pr\{Y_{N_{\text{cal}}+1}\in C(X_{N_{\text{cal}}+1})\}
@@ -323,34 +334,36 @@ $$
 <
 1-\alpha+\frac{1}{N_{\text{cal}}+1}.
 $$
+
+This is the standard finite-sample split-conformal result [@VovkGammermanShafer2005; @LeiGsellRinaldoTibshiraniWasserman2018].
 :::
 
 The proof is a rank argument, but it is worth spelling out because the entire finite-sample result comes from it. Once the training subset has been chosen and the score function has been fitted on that subset, the training data are no longer random objects inside the proof. What remains random are the calibration points and the future point, and those still enter symmetrically. Conditional on the realized training data, the scores
 
 $$
-R_1,\dots,R_{N_{\text{cal}}},R_{N_{\text{cal}}+1}
+R_1^{\mathrm{cal}},\dots,R_{N_{\text{cal}}}^{\mathrm{cal}},R_{\mathrm{new}}
 $$
 
-are exchangeable. If ties are absent, the rank of the future score $R_{N_{\text{cal}}+1}$ among these $N_{\text{cal}}+1$ values is uniformly distributed on $\{1,\dots,N_{\text{cal}}+1\}$. Writing
+are exchangeable. If ties are absent, the rank of $R_{\mathrm{new}}$ among these $N_{\text{cal}}+1$ values is uniformly distributed on $\{1,\dots,N_{\text{cal}}+1\}$. Writing
 
 $$
-\operatorname{rank}(R_{N_{\text{cal}}+1})
+\operatorname{rank}(R_{\mathrm{new}})
 =
-1+\sum_{i=1}^{N_{\text{cal}}}1\{R_i<R_{N_{\text{cal}}+1}\},
+1+\sum_{i=1}^{N_{\text{cal}}}\mathbf{1}\{R_i^{\mathrm{cal}}<R_{\mathrm{new}}\},
 $$
 
 coverage occurs when
 
 $$
-R_{N_{\text{cal}}+1}\le R_{(k)},
+R_{\mathrm{new}}\le \hat q,
 $$
 
-which is equivalent to the event that the future score has rank at most $k$. Therefore
+which is equivalent to the event that the future score has rank at most $k$ when $k\le N_{\text{cal}}$; under the $+\infty$ convention, the event is automatic when $k=N_{\text{cal}}+1$. Therefore
 
 $$
 \Pr\{Y_{N_{\text{cal}}+1}\in C(X_{N_{\text{cal}}+1})\}
 =
-\Pr\{\operatorname{rank}(R_{N_{\text{cal}}+1})\le k\}
+\Pr\{\operatorname{rank}(R_{\mathrm{new}})\le k\}
 =
 \frac{k}{N_{\text{cal}}+1}
 \ge
@@ -391,12 +404,12 @@ $$
 
 **Two procedures, two coverage statements.** It is worth separating the unmodified procedure from the randomized one, because they are not the same algorithm.
 
-1. *Unmodified split conformal* (the procedure used in practice): the prediction set uses the order-statistic threshold $R_{(k)}$ defined from the calibration scores as written. When ties among scores have positive probability, the resulting marginal coverage is at least $1-\alpha$ but may strictly exceed it; the exchangeability argument delivers the lower bound but not equality.
+1. *Unmodified split conformal* (the procedure used in practice): the prediction set uses the calibration-only threshold $\hat q$ defined above. When ties among scores have positive probability, the resulting marginal coverage is at least $1-\alpha$ but may strictly exceed it; the exchangeability argument delivers the lower bound but not equality.
 2. *Randomized split conformal* (a theoretical device): attach independent $U_i\sim\mathrm{Uniform}(0,1)$ variables to the scores and order the pairs $(R_i,U_i)$ lexicographically. The auxiliary variable breaks only ties in $R_i$; it never reverses two unequal scores. For this modified randomized procedure, the future pair has a uniform strict rank on $\{1,\dots,N_{\text{cal}}+1\}$, and the coverage probability equals exactly $\lceil(1-\alpha)(N_{\text{cal}}+1)\rceil/(N_{\text{cal}}+1)$.
 
-The unmodified procedure in (1) inherits the coverage lower bound from (2) because the event $R_{N_{\text{cal}}+1}\le R_{(k)}$ contains the corresponding randomized-rank event. This is the core reason conformal prediction is finite-sample and distribution-free: the proof uses only exchangeability and ranks, not a parametric error law.
+The unmodified procedure in (1) inherits the coverage lower bound from (2) because the event $R_{\mathrm{new}}\le\hat q$ contains the corresponding randomized-rank event. This is the core reason conformal prediction is finite-sample and distribution-free: the proof uses only exchangeability and ranks, not a parametric error law.
 
-One useful mathematical consequence is that validity is separated from efficiency. If the score function is badly chosen, intervals can be unnecessarily wide, but marginal coverage still holds. Better base models and better scores mainly improve **length**, not **validity**.
+One useful mathematical consequence is that validity is separated from efficiency. If the score function is badly chosen, intervals can be unnecessarily wide, but marginal coverage still holds. Better base models and better scores mainly improve interval length rather than validity.
 
 :::{.callout-note title="Question for Reflection"}
 
@@ -426,7 +439,7 @@ This distinction matters for econometrics because uncertainty often differs shar
 
 The gap is not an artifact of a clumsy method; it is fundamental. Distribution-free *exact* conditional coverage is impossible for any procedure producing nontrivial intervals: a method that guaranteed conditional coverage at every $x$, under every distribution, would be forced to produce intervals of infinite expected length at non-atomic covariate values [@Vovk2012ConditionalValidity; @LeiWasserman2014; @FoygelBarberCandesRamdasTibshirani2021Limits]. Better nonconformity scores — the normalized and quantile-based scores introduced later in this chapter — improve *approximate* conditional behavior, but no choice of score can turn the marginal guarantee into a conditional one.
 
-This is not just a verbal warning. For constant-width intervals, the failure of exact conditional coverage under heteroskedasticity can be shown directly.
+The marginal–conditional distinction is not merely verbal. For constant-width intervals, the failure of exact conditional coverage under heteroskedasticity can be shown directly.
 
 :::{.callout-note title="Proposition: Constant-Width Coverage Cannot Be Conditionally Exact Under Heteroskedasticity"}
 
@@ -519,7 +532,7 @@ plt.tight_layout()
 plt.show()
 ```
 
-This is one reason the [Evaluating Predictive Distributions](evaluating_distributions.qmd) chapter remains relevant. Coverage is not the whole story. Interval width, sharpness, and subgroup behavior still matter. Conformal prediction gives a strong calibration guarantee, but it does not exempt us from checking whether the intervals are informative and where they may fail.
+The need to assess interval width, sharpness, and subgroup behavior is one reason the [Evaluating Predictive Distributions](evaluating_distributions.qmd) chapter remains relevant. Coverage is not the whole story. Conformal prediction gives a strong calibration guarantee, but it does not exempt us from checking whether the intervals are informative and where they may fail.
 
 The other main limitation is data efficiency. In split conformal, the calibration observations are not used to fit the predictive model. If data are scarce, the base model can become worse and the resulting intervals can widen.
 
@@ -600,7 +613,7 @@ C(x)=
 [\hat q_{\mathrm{low}}(x)-\hat q_{\mathrm{cal}},\hat q_{\mathrm{high}}(x)+\hat q_{\mathrm{cal}}].
 $$
 
-This looks simple, but it is conceptually different from basic split conformal. The width already varies with $x$ before calibration, because the lower and upper quantile models can respond differently to heteroskedasticity and asymmetry.
+This interval is conceptually different from the basic absolute-residual split-conformal interval. Its width already varies with $x$ before calibration, because the lower and upper quantile models can respond differently to heteroskedasticity and asymmetry.
 
 The logic is visualized in @fig-cqr-recalibration. The dashed band is the raw quantile-regression interval. The solid band is the conformalized version after applying the calibration correction $\hat q_{\mathrm{cal}}$ to the lower and upper sides. In the figure the adjustment widens the band because $\hat q_{\mathrm{cal}}>0$. More generally, the conformal step can either widen or shrink the initial band depending on the calibration scores.
 
@@ -638,19 +651,19 @@ plt.show()
 
 :::{.callout-note title="Question for Reflection"}
 
-When would conformalized quantile regression be preferable to symmetric split conformal intervals?
+Holding the marginal coverage target fixed, when can conformalized quantile regression produce a more efficient or appropriately shaped interval than symmetric absolute-residual split conformal?
 :::
 
 :::{.callout-tip collapse="true" title="Suggested Answer"}
 
-CQR is preferable when uncertainty is clearly heteroskedastic or asymmetric, so a constant-width symmetric band would be implausible. By starting from lower and upper quantile models, CQR can adapt interval width and skewness across the predictor space before conformal calibration corrects the overall coverage.
+CQR can be more efficient when uncertainty is clearly heteroskedastic or asymmetric, so a constant-width symmetric band would be implausible. By starting from lower and upper quantile models, CQR can adapt interval width and asymmetry across the predictor space before conformal calibration corrects overall marginal coverage.
 :::
 
 ## Real Data Example: Quarterly GDP Growth with FRED-QD
 
-The chapter is easier to interpret once we see the methods on real macroeconomic data. We therefore use the quarterly U.S. macro panel in `data/fred_qd_current.csv`, the repository copy of the Federal Reserve Economic Data Quarterly Database (FRED-QD) release used in these notes. The target is next-quarter annualized real GDP growth, constructed from `GDPC1`. The predictors are current-quarter macro and financial indicators: GDP growth, consumer price index (CPI) inflation, the unemployment rate, the federal funds rate, the term spread, and a log volatility proxy based on `VIXCLSx`.
+The chapter is easier to interpret once we see the methods on real macroeconomic data. We therefore analyze the quarterly U.S. macro panel in `data/fred_qd_current.csv`, the repository copy of the Federal Reserve Economic Data Quarterly Database (FRED-QD) release underlying these notes [@McCrackenNg2020FREDQD]. The [Data Appendix](datasets.qmd#fred-qd) documents the file and variables. The target is next-quarter annualized real GDP growth, constructed from `GDPC1`. The predictors are current-quarter macro and financial indicators: GDP growth, consumer price index (CPI) inflation, the unemployment rate, the federal funds rate, the term spread, and the log of the Cboe Volatility Index (VIX), recorded as `VIXCLSx`.
 
-This is a chronological **pseudo-out-of-sample illustration**, not a literal application of the split-conformal theorem and not a genuine real-time forecast evaluation. Quarterly macro data are time ordered and are not exchangeable. Moreover, the repository file is a single current-vintage panel: the code respects observation dates but does not reconstruct the data releases and revisions that were actually available at each historical forecast origin. The point is practical: it shows how to adapt the chapter's logic to a time-ordered design, and it shows again why overall coverage can differ from subgroup coverage.
+This is a chronological **pseudo-out-of-sample illustration**, not a literal application of the split-conformal theorem and not a genuine real-time forecast evaluation. Quarterly macro data are time ordered and are not exchangeable. Moreover, the repository file is a single current-vintage panel: the code respects row dates but reconstructs neither historical revisions nor release delays. Current-quarter macro values are treated as if they were known at the end of their reference quarter, which is generally false in real time. A genuine forecast exercise would use historical vintages or lag each predictor to its actual release date. The point here is practical: to show how the chapter's calibration logic can be organized chronologically and why overall coverage can differ from subgroup coverage.
 
 To keep the empirical section transparent, we use only one method here: a split conformal interval around a random-forest point forecast. The sample is divided chronologically:
 
@@ -658,11 +671,11 @@ To keep the empirical section transparent, we use only one method here: a split 
 2. calibration sample from 2000Q1 through 2011Q4
 3. test sample from 2012Q1 onward
 
-One data-handling detail matters for the code below: this FRED-QD file dates each quarter by the first day of its final month, so 1999Q4 appears as `1999-12-01`. The cutoffs are placed after those month-start dates, which ensures every quarter lands in exactly one of the three subsamples.
+One data-handling detail matters for the code below: this FRED-QD file dates each quarter by the first day of its final month, so 1999Q4 appears as `1999-12-01`. In each row dated $t$, the predictors refer to quarter $t$ and `y_next` is GDP growth in quarter $t+1$. The displayed split dates therefore label predictor/reference quarters, which the plot calls pseudo-forecast origins, while each realized target occurs one quarter later. The cutoffs are placed after the month-start dates so every row lands in exactly one subsample.
 
 ```{python}
 #| label: tbl-conformal-fredqd
-#| tbl-cap: "Split conformal results for one-quarter-ahead U.S. real GDP growth. The base predictor is a random forest fit on data through 1999Q4, calibrated on 2000Q1-2011Q4 absolute residuals at $\\alpha=0.10$, and evaluated from 2012Q1 onward. Coverage, width, and mean absolute error (MAE) are computed on the test sample; the high-VIX rows restrict to the top quintile of test quarters by lagged log VIX. Growth rates and interval widths are in annualized percentage points."
+#| tbl-cap: "Split conformal results for one-quarter-ahead U.S. real GDP growth. The row dates label predictor/reference quarters: the base predictor is fit through 1999Q4, calibrated on rows from 2000Q1 through 2011Q4 at $\\alpha=0.10$, and evaluated on rows from 2012Q1 onward. Coverage, width, and mean absolute error (MAE) are computed on the test sample; the high-VIX rows are restricted to the top quintile by current-row log VIX. Growth rates and interval widths are in annualized percentage points."
 #| echo: true
 
 import numpy as np
@@ -690,14 +703,14 @@ macro = pd.DataFrame(
     {
         "date": fred_qd["sasdate"],
         "y_next": gdp_growth.shift(-1),
-        "gdp_growth_lag1": gdp_growth,
-        "gdp_growth_lag2": gdp_growth.shift(1),
-        "inflation_lag1": inflation,
-        "inflation_lag2": inflation.shift(1),
-        "unrate_lag1": fred_qd["UNRATE"],
-        "fedfunds_lag1": fred_qd["FEDFUNDS"],
-        "term_spread_lag1": term_spread,
-        "vix_lag1": log_vix,
+        "gdp_growth_current": gdp_growth,
+        "gdp_growth_lag1": gdp_growth.shift(1),
+        "inflation_current": inflation,
+        "inflation_lag1": inflation.shift(1),
+        "unrate_current": fred_qd["UNRATE"],
+        "fedfunds_current": fred_qd["FEDFUNDS"],
+        "term_spread_current": term_spread,
+        "vix_current": log_vix,
     }
 ).dropna().reset_index(drop=True)
 
@@ -731,8 +744,8 @@ test["upper"] = test["pred"] + qhat
 test["covered"] = (test["y_next"] >= test["lower"]) & (test["y_next"] <= test["upper"])
 test["width"] = test["upper"] - test["lower"]
 
-vix_cutoff = test["vix_lag1"].quantile(0.80)
-test["high_vix"] = test["vix_lag1"] > vix_cutoff
+vix_cutoff = test["vix_current"].quantile(0.80)
+test["high_vix"] = test["vix_current"] > vix_cutoff
 
 summary = pd.DataFrame(
     {
@@ -768,9 +781,9 @@ display(summary.round(3))
 
 The results are collected in @tbl-conformal-fredqd. This split produces 150 training quarters, 48 calibration quarters, and 53 test quarters. Overall test coverage is about 94%, above the nominal 90% target. Under i.i.d. sampling and distinct scores, finite-sample discreteness alone would imply expected coverage $45/49\approx91.8\%$, because $k=\lceil0.9\times49\rceil=45$. The gap to 94% can easily arise from a short evaluation window: as a rough i.i.d. benchmark, the binomial standard error of a coverage estimate near 0.9 with 53 observations is about 4 percentage points. Across i.i.d. continuous calibration samples, the conditional coverage associated with the $k$-th order statistic is Beta$(k,N_{\text{cal}}+1-k)$ distributed, here also with a standard deviation of about 4 percentage points. These calculations are benchmarks, not valid time-series standard errors. Quarterly macro data are dependent and nonexchangeable, so the split-conformal theorem does not apply to this exercise; the reported coverage is descriptive. The average interval width is about 13.5 annualized growth points, and the point-forecast MAE is about 3.16 points.
 
-The subgroup comparison is suggestive, but it must be read with more care than the overall figure. If we classify the top quintile of test quarters by current-quarter VIX as high-volatility quarters, coverage in that subgroup falls to about 82%. The quintile cutoff is estimated from the full test sample, so this is an ex post diagnostic, not a grouping rule available to a real-time forecaster. The direction is what the theory predicts, since a constant-width band should undercover where dispersion is largest. The evidence, however, is thin. That subgroup contains only 11 quarters and exactly two misses, so the binomial standard error attached to the 82% figure is roughly 12 percentage points, and the gap to the 90% target is well under one standard error.
+The subgroup comparison is suggestive, but it must be read with more care than the overall figure. If we classify test rows in the top quintile of current-row VIX as high-volatility cases, coverage in that subgroup falls to about 82%. The quintile cutoff is estimated from the full test sample, so this is an ex post diagnostic, not a grouping rule available to a real-time forecaster. A constant-width band can undercover where dispersion is largest, but the evidence here is thin. The subgroup contains only 11 rows and exactly two misses, so the binomial standard error attached to the 82% figure is roughly 12 percentage points, and the gap to the 90% target is well under one standard error.
 
-The composition of those two misses matters even more than their count. Both are 2020Q1 and 2020Q2, the COVID collapse and rebound, with realized annualized growth of $-32.8$% and $+29.9$%. Excluding calendar 2020 entirely, the high-VIX subgroup covers seven quarters out of seven. No band calibrated on 2000-2011 residuals could have contained a $-33$% quarter, so what this subgroup mainly records is an unprecedented outlier rather than systematic conditional undercoverage.
+The composition of those two misses matters even more than their count. They occur at rows dated 2020Q1 and 2020Q2, whose targets are the 2020Q2 COVID collapse and 2020Q3 rebound, with realized annualized growth of $-32.8$% and $+29.9$%. If rows whose predictor/reference quarter lies in calendar 2020 are excluded, the remaining high-VIX subgroup contains seven cases and covers all seven. The historically estimated residual quantile used by this fitted constant-width band was far too small to contain the $-32.8$% realization. These two misses therefore mainly record an unprecedented shock rather than persuasive evidence of systematic conditional undercoverage.
 
 The right conclusion is therefore methodological rather than empirical. The marginal-versus-conditional distinction is genuine, and it is established above by the proposition and by @fig-marginal-vs-conditional-coverage, where the sample is large enough for the pattern to be visible. A 53-quarter evaluation window with an 11-quarter subgroup is simply too short to demonstrate it convincingly. That limitation is itself worth absorbing: subgroup coverage diagnostics are appealing in principle, but in quarterly macroeconomic samples the subgroups are usually far too small to distinguish a real conditional-coverage failure from a couple of unusual quarters.
 
@@ -778,7 +791,7 @@ The right conclusion is therefore methodological rather than empirical. The marg
 
 ```{python}
 #| label: fig-conformal-fredqd-example
-#| fig-cap: "Chronological current-vintage illustration using quarterly U.S. macro data from FRED-QD. The left panel shows the test-period one-quarter-ahead GDP-growth forecasts from the random-forest point predictor together with the split-conformal interval based on calibration residuals from 2000Q1-2011Q4. Black dots are realized next-quarter annualized GDP growth rates, and red markers indicate misses where the realization falls outside the conformal interval. The right panel compares empirical coverage over the full 2012 onward test sample with coverage in the highest-VIX quintile of test quarters. The dashed horizontal line marks the nominal 90% target; the exercise does not reconstruct real-time data vintages."
+#| fig-cap: "Chronological current-vintage illustration using quarterly U.S. macro data from FRED-QD. Row dates on the horizontal axis label predictor/reference quarters, and each outcome is next-quarter annualized GDP growth. The left panel shows random-forest point forecasts and split-conformal intervals calibrated on rows dated 2000Q1-2011Q4; red markers indicate misses. The right panel compares empirical coverage over all test rows dated from 2012 onward with coverage in the highest-VIX quintile. The dashed line marks the nominal 90% target. Release delays and real-time data vintages are not reconstructed."
 #| echo: true
 
 plot_df = test.copy().reset_index(drop=True)
@@ -924,7 +937,7 @@ L_{(1)}(x)\le \cdots \le L_{(N)}(x),
 U_{(1)}(x)\le \cdots \le U_{(N)}(x).
 $$
 
-The jackknife+ interval is then obtained by taking an empirical lower quantile of the $L_i(x)$ values and an empirical upper quantile of the $U_i(x)$ values. Throughout the chapter, "empirical $(1-\alpha)$-quantile" of a sample of size $m$ means the conformal order statistic $R_{(\lceil (1-\alpha)(m+1)\rceil)}$ on that sample, with the finite-sample $\lceil\cdot\rceil/(m+1)$ correction, rather than the plain sample quantile; the lower side uses the matching $\lfloor \alpha(m+1)\rfloor$ index. Concretely,
+The jackknife+ interval is obtained by taking a lower order statistic of the $L_i(x)$ values and an upper order statistic of the $U_i(x)$ values. For a generic ordered sample $Z_{(1)}\le\cdots\le Z_{(m)}$, extend the notation by setting $Z_{(0)}=-\infty$ and $Z_{(m+1)}=+\infty$. The jackknife+ lower endpoint uses index $\lfloor\alpha(m+1)\rfloor$, and its upper endpoint uses index $\lceil(1-\alpha)(m+1)\rceil$. These extended-real conventions keep the finite-sample correction defined even when the requested coverage is too high for a finite endpoint at the available sample size. Concretely,
 
 $$
 C_{J+}(x)
@@ -932,10 +945,10 @@ C_{J+}(x)
 \left[
 L_{(\lfloor \alpha(N+1)\rfloor)}(x),\;
 U_{(\lceil (1-\alpha)(N+1)\rceil)}(x)
-\right],
+\right].
 $$
 
-with the convention that $L_{(0)}(x)=-\infty$ if $\lfloor \alpha(N+1)\rfloor=0$.
+Thus $L_{(0)}(x)=-\infty$ and $U_{(N+1)}(x)=+\infty$ whenever the corresponding boundary index occurs.
 
 :::{.callout-tip title="Example: Jackknife+ by Hand"}
 
@@ -997,21 +1010,21 @@ The construction is the key lesson. Each omitted-observation fit produces its ow
 
 CV+ is now easy to interpret: it uses the same idea as jackknife+, but with omitted folds instead of omitted single observations.
 
-Let the sample be partitioned into folds $I_1,\dots,I_K$. For each fold $k$, fit a model $\hat \mu^{(-k)}$ on all observations not in $I_k$. For any observation $i\in I_k$, define the out-of-fold residual
+Let the sample be partitioned into folds $I_1,\dots,I_K$. For each fold $b$, fit a model $\hat \mu^{(-b)}$ on all observations not in $I_b$. For any observation $i\in I_b$, define the out-of-fold residual
 
 $$
-R_i = |Y_i-\hat \mu^{(-k)}(X_i)|.
+R_i = |Y_i-\hat \mu^{(-b)}(X_i)|.
 $$
 
 Every observation now receives a score computed from a model that did not train on it. For a new predictor value $x$, define the lower and upper candidate bounds
 
 $$
-L_i(x)=\hat \mu^{(-k(i))}(x)-R_i,
+L_i(x)=\hat \mu^{(-b(i))}(x)-R_i,
 \qquad
-U_i(x)=\hat \mu^{(-k(i))}(x)+R_i,
+U_i(x)=\hat \mu^{(-b(i))}(x)+R_i,
 $$
 
-where $k(i)$ is the fold containing observation $i$. Sort these candidate bounds as
+where $b(i)$ is the fold containing observation $i$. Sort these candidate bounds as
 
 $$
 L_{(1)}(x)\le \cdots \le L_{(N)}(x),
@@ -1019,7 +1032,7 @@ L_{(1)}(x)\le \cdots \le L_{(N)}(x),
 U_{(1)}(x)\le \cdots \le U_{(N)}(x).
 $$
 
-A formal CV+ interval is then obtained by taking an empirical lower quantile of the $L_i(x)$ values and an empirical upper quantile of the $U_i(x)$ values:
+Using the same extended-order-statistic convention, the displayed CV+ construction is
 
 $$
 C_{CV+}(x)
@@ -1027,10 +1040,10 @@ C_{CV+}(x)
 \left[
 L_{(\lfloor \alpha(N+1)\rfloor)}(x),\;
 U_{(\lceil (1-\alpha)(N+1)\rceil)}(x)
-\right],
+\right].
 $$
 
-with the convention that $L_{(0)}(x)=-\infty$ if $\lfloor \alpha(N+1)\rfloor=0$. Jackknife+ is the leave-one-out special case obtained by setting $K=N$.
+Here too, $L_{(0)}(x)=-\infty$ and $U_{(N+1)}(x)=+\infty$. Jackknife+ is the leave-one-out special case obtained by setting $K=N$.
 
 So the operational difference is not conceptual but computational:
 
@@ -1038,7 +1051,7 @@ So the operational difference is not conceptual but computational:
 2. CV+ omits one fold at a time
 3. both methods propagate out-of-sample residuals into lower and upper candidate bounds at the new point
 
-These methods often tighten intervals because the base models use more data than in a single split while the residuals remain out-of-sample. Jackknife+ in particular comes with a finite-sample marginal coverage result under exchangeability — but its level must be quoted carefully. For any fitting algorithm that is *symmetric* in the training observations (invariant to permuting them), @BarberCandesRamdasTibshirani2021 prove coverage of at least $1-2\alpha$. Note the $2\alpha$: although the interval is indexed to target $1-\alpha$, the worst-case finite-sample guarantee is the weaker $1-2\alpha$; empirical coverage is typically close to the nominal $1-\alpha$, but that is an empirical regularity, not the content of the theorem. CV+ follows the same construction logic with $K$-fold refits and carries a worst-case guarantee of the same $1-2\alpha$ type (up to a small additional term), but the chapter should not be read as claiming that every CV+ variant automatically inherits exactly the same theorem in exactly the same form [@BarberCandesRamdasTibshirani2021]. The practical tradeoff is computational cost. In econometric forecasting settings with expensive rolling validation, that cost can be substantial.
+Because jackknife+ and CV+ train each base model on more observations than a single split does, they can produce shorter intervals when the fitting algorithm is stable and the additional training data improve prediction. Shorter intervals are not guaranteed. Jackknife+ does have a finite-sample marginal coverage result under exchangeability: for a fitting algorithm that is *symmetric* in the training observations, @BarberCandesRamdasTibshirani2021 prove coverage of at least $1-2\alpha$. Although the interval is indexed to target $1-\alpha$, its general worst-case guarantee is therefore weaker. CV+ has a related finite-sample theorem, but its exact correction depends on the fold construction, fold sizes, $N$, and $K$. Rather than importing those additional conditions here, we use CV+ as a construction and refer to @BarberCandesRamdasTibshirani2021 for the precise result. The practical tradeoff is computational cost, which can be substantial in econometric forecasting settings with expensive rolling validation.
 
 ## Conformal Prediction for Time Series
 
@@ -1053,21 +1066,21 @@ $$
 
 then the vector $(Y_1,Y_2,Y_3)$ does not generally have the same distribution as $(Y_1,Y_3,Y_2)$, because the covariance between adjacent observations is $\rho \sigma_Y^2$ while the covariance at lag two is $\rho^2 \sigma_Y^2$. Permuting the entries changes the covariance structure. So the rank argument from split conformal no longer applies automatically.
 
-In practice, the right design is closer to the logic of [Time Series Cross-Validation](cross_validation.qmd#sec-cv-time-series). Forecasts should be generated using only information available up to the forecast origin, and calibration residuals should come from past out-of-sample forecast errors rather than random reshuffling.
+In practice, the right design is closer to the logic of [Time Series Cross-Validation](cross_validation.qmd#sec-cv-time-series). Let $\mathcal F_t$ denote the information available when the forecast is issued at origin $t$, and let $Z_t$ be an $\mathcal F_t$-measurable predictor vector used to forecast $Y_{t+1}$. Forecasts should use only $\mathcal F_t$, and calibration residuals should come from past out-of-sample forecast errors rather than random reshuffling. Known-ahead future covariates can be included in $Z_t$ only when their values are genuinely available at origin $t$.
 
 A simple rolling conformal workflow is:
 
-1. At each forecast origin $t$, fit the forecasting model using data up to time $t$.
+1. At each forecast origin $t$, fit the forecasting model $\hat\mu_t$ using only $\mathcal F_t$.
 2. Store recent out-of-sample absolute residuals
    $$
-   R_s = |Y_s-\hat \mu_{s-1}(X_s)|,
+   R_s = |Y_{s+1}-\hat \mu_s(Z_s)|,
    $$
-   where each $\hat \mu_{s-1}$ is trained only on information available before time $s$.
-3. Form the interval for $t+1$ as
+   for past origins $s<t$, using only residuals whose outcomes have already been observed.
+3. Form the interval for $Y_{t+1}$ as
    $$
-   C_t(X_{t+1})
+   C_t(Z_t)
    =
-   [\hat \mu_t(X_{t+1})-\hat q_t,\hat \mu_t(X_{t+1})+\hat q_t],
+   [\hat \mu_t(Z_t)-\hat q_t,\hat \mu_t(Z_t)+\hat q_t],
    $$
    where $\hat q_t$ is the empirical $(1-\alpha)$-quantile of a recent residual window.
 
@@ -1077,7 +1090,7 @@ A formal treatment of conformal prediction under distribution shift is given by 
 $$
 \operatorname{err}_t
 =
-1\{Y_t\notin C_t^{1-\alpha_t}\},
+\mathbf{1}\{Y_t\notin C_t^{1-\alpha_t}\},
 $$
 and choose a step size $\gamma>0$. ACI updates
 $$
@@ -1101,7 +1114,7 @@ This result is about the average error frequency over a long horizon. It does no
 
 A complementary route beyond exchangeability is to replace the unweighted calibration quantile by a weighted one that emphasizes observations judged more relevant to the current test point or forecast origin. Such methods can reduce coverage degradation under distribution drift, but their guarantees depend on the weighting construction; they do not restore the ordinary exchangeable-rank theorem merely by assigning larger weights to recent observations [@BarberCandesRamdasTibshirani2023Beyond].
 
-Ensemble batch prediction intervals (EnbPI) take this idea further by combining ensemble forecasts with time-ordered residual calibration [@XuXie2021PMLR]. The spirit is similar to CV+:
+A separate time-series approach, ensemble batch prediction intervals (EnbPI), combines ensemble forecasts with time-ordered residual calibration [@XuXie2021PMLR]. Its operational spirit is similar to CV+:
 
 - fit many bootstrap-style models on past data
 - aggregate their predictions
@@ -1155,13 +1168,13 @@ Because the problem is not only data reuse. A random calibration split can mix f
 
 For applied work, the right conformal design depends on the data structure and the research goal.
 
-**If the data are approximately exchangeable and sample size is adequate.** Basic split conformal is often a strong default. It is easy to explain, easy to compute, and its finite-sample guarantee is transparent.
+**If the data are approximately exchangeable and the sample size is adequate.** Basic split conformal is often a strong default. It is easy to explain, easy to compute, and its finite-sample guarantee is transparent.
 
 **If uncertainty clearly varies with covariates.** Use an adaptive score or CQR rather than constant-width intervals. The guarantee is still marginal, but the intervals can become much sharper in quiet regions and more cautious in volatile ones.
 
-**If data are scarce and model fitting is expensive but feasible multiple times.** Consider CV+ or jackknife+. The extra computation may be worthwhile if split conformal wastes too much training information.
+**If data are scarce and fitting the model is expensive but still feasible to repeat.** Consider CV+ or jackknife+. The extra computation may be worthwhile if split conformal wastes too much training information.
 
-**If the data are time ordered.** Do not use standard split conformal mechanically. Use a forecasting design that respects time order, calibration on past out-of-sample errors, and, when appropriate, time-series conformal methods such as EnbPI.
+**If the data are time ordered.** Do not use standard split conformal mechanically. Use a forecasting design that respects time order and calibrates on past out-of-sample errors; when appropriate, use a time-series conformal method such as EnbPI.
 
 **Evaluate more than raw coverage.** Coverage should be checked together with interval width and stability across relevant subgroups or regimes. A method that attains 95% coverage by giving nearly uselessly wide intervals may satisfy the theorem and still fail the applied forecasting task.
 
@@ -1175,7 +1188,7 @@ This chapter therefore complements rather than replaces [Evaluating Predictive D
 1. Conformal prediction calibrates prediction sets around a fitted model rather than estimating a full predictive distribution directly.
 2. Under exchangeability and a clean train/calibration separation, split conformal prediction delivers a finite-sample marginal coverage guarantee.
 3. The guarantee comes from a rank argument and does not require the underlying forecasting model to be correctly specified.
-4. Basic split conformal intervals are constant-width and guarantee only marginal, not conditional, coverage.
+4. Basic absolute-residual split-conformal intervals have constant width, and split conformal generally guarantees marginal rather than conditional coverage.
 5. Adaptive scores and conformalized quantile regression improve interval shape and heteroskedastic adaptation without changing the basic calibration logic.
 6. CV+ and jackknife+ improve data efficiency by using out-of-fold residuals instead of one train/calibration split.
 7. In time series, naive conformal prediction loses its usual guarantee because exchangeability fails, so calibration must respect forecast origins and temporal dependence.
@@ -1185,7 +1198,7 @@ This chapter therefore complements rather than replaces [Evaluating Predictive D
 ## Common Pitfalls
 
 - Confusing marginal coverage with conditional or subgroup coverage.
-- Thinking conformal prediction validates a poor model rather than only recalibrating its prediction set.
+- Thinking that conformal prediction validates a poor base model; it only calibrates the resulting prediction set.
 - Using the calibration sample during model fitting or hyperparameter tuning.
 - Treating constant-width split conformal intervals as adequate when heteroskedasticity is central.
 - Applying i.i.d. conformal methods directly to time-series data with serial dependence or regime change.
@@ -1195,9 +1208,9 @@ This chapter therefore complements rather than replaces [Evaluating Predictive D
 ## Exercises
 
 ::: {.callout-note}
-## Exercise 15.1: Split Conformal Coverage and Regime-Specific Coverage
+## Exercise 15.1: Split Conformal Coverage and Adaptive Updating
 
-You use split conformal prediction with target miscoverage rate $\alpha=0.1$ to forecast quarterly GDP growth. The calibration sample has $N_{\text{cal}}=19$ observations. After fitting a point predictor $\hat \mu$ on the training sample, you compute the absolute residual scores on the calibration sample. Their sorted values are
+You use split conformal prediction with a target miscoverage rate of $\alpha=0.1$ to forecast quarterly GDP growth. The calibration sample has $N_{\text{cal}}=19$ observations. After fitting a point predictor $\hat \mu$ on the training sample, you compute the absolute residual scores on the calibration sample. Their sorted values are
 
 $$
 \{0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0,1.1,1.2,1.3,1.4,1.5,1.6,1.7,1.8,1.9\}.
@@ -1207,30 +1220,38 @@ $$
    $$
    k=\left\lceil (1-\alpha)(N_{\text{cal}}+1)\right\rceil
    $$
-   and the conformal quantile $\hat q$.
-2. If $\hat \mu(x_{\text{new}})=5.0$, compute the 90% split conformal prediction interval for a new point $x_{\text{new}}$.
-3. Assume the calibration scores and future score are almost surely distinct. Using the uniform-rank argument, compute the exact coverage probability of this split conformal rule and the numerical gap between this exact coverage and the nominal target $1-\alpha$.
-4. In a later evaluation exercise, the overall empirical coverage is close to 90%, but coverage is only 75% during recession quarters and 95% during expansion quarters. Explain why this does not contradict the split conformal theorem, and name one modification from the chapter that would be a natural next step.
+   and the conformal quantile $\hat q$. If $\hat \mu(x_{\text{new}})=5.0$, compute the 90% split conformal prediction interval.
+2. Assume the calibration and future scores are almost surely distinct. Starting from the uniform rank on $\{1,\ldots,N_{\text{cal}}+1\}$, derive
+   $$
+   \Pr\{Y_{N_{\text{cal}}+1}\in C(X_{N_{\text{cal}}+1})\}
+   =\frac{\lceil(1-\alpha)(N_{\text{cal}}+1)\rceil}{N_{\text{cal}}+1}
+   $$
+   and show that this probability lies in $[1-\alpha,\,1-\alpha+1/(N_{\text{cal}}+1))$. Evaluate it first for $N_{\text{cal}}=19$ and then for $N_{\text{cal}}=18$. Which case has strict ceiling-induced overcoverage?
+3. Adaptive conformal inference uses
+   $$
+   \alpha_{t+1}=\alpha_t+\gamma(\alpha-\operatorname{err}_t).
+   $$
+   Starting from $\alpha_1=0.10$ with $\gamma=0.05$, compute $\alpha_2,\ldots,\alpha_6$ for the error sequence $(0,1,0,0,1)$.
+4. Verify numerically that the sequence in Part 3 satisfies
+   $$
+   \frac{1}{5}\sum_{t=1}^5\operatorname{err}_t-\alpha
+   =\frac{\alpha_1-\alpha_6}{5\gamma}.
+   $$
+   Explain why this identity does not by itself imply conditional coverage or informative interval widths.
 
-*Exam level. Parts 1-3 combine conformal mechanics with the finite-sample rank argument, and Part 4 tests whether students understand the difference between marginal and regime-specific coverage.*
+*Exam level. Part 1 checks the construction, Part 2 requires the finite-sample rank and discreteness derivation, and Parts 3-4 apply and interpret adaptive conformal inference.*
 :::
 
 ::: {.callout-warning collapse="true"}
-## Hint for Part 3
+## Hint for Part 2
 
-If ranks are uniform on $\{1,\dots,N_{\text{cal}}+1\}$ and coverage occurs when the future score has rank at most $k$, then the coverage probability is $k/(N_{\text{cal}}+1)$.
-:::
-
-::: {.callout-warning collapse="true"}
-## Hint for Part 4
-
-The theorem is about marginal coverage over the full distribution, not exact coverage inside every subgroup or regime.
+Count how many of the $N_{\text{cal}}+1$ possible ranks produce coverage, then apply the two defining inequalities for the ceiling function.
 :::
 
 ::: {.callout-tip collapse="true"}
 ## Solution
 
-**Part 1: Quantile index**
+**Part 1: Quantile index and interval**
 
 Here
 
@@ -1246,8 +1267,6 @@ $$
 \hat q = 1.8.
 $$
 
-**Part 2: Prediction interval**
-
 The split conformal interval is
 
 $$
@@ -1262,37 +1281,49 @@ $$
 [5.0-1.8,\; 5.0+1.8]=[3.2,\; 6.8].
 $$
 
-**Part 3: Exact coverage under distinct ranks**
+**Part 2: Exact coverage and finite-sample discreteness**
 
-If the scores are distinct, the rank of the future score among the 20 scores is uniform on $\{1,\dots,20\}$. Coverage occurs when the future score has rank at most $k=18$. Therefore
-
+With distinct scores, the future score has a uniform rank on $\{1,\ldots,N_{\text{cal}}+1\}$. Exactly $k$ of these ranks produce coverage, so
 $$
-\Pr\{Y_{N+1}\in C(X_{N+1})\}
-=
-\frac{18}{20}
-=
-0.9.
+\Pr\{Y_{N_{\text{cal}}+1}\in C(X_{N_{\text{cal}}+1})\}
+=\frac{k}{N_{\text{cal}}+1}
+=\frac{\lceil(1-\alpha)(N_{\text{cal}}+1)\rceil}{N_{\text{cal}}+1}.
 $$
-
-So the exact coverage is 90%, which equals the target $1-\alpha=0.9$ in this case. The numerical gap between exact and nominal coverage is therefore
-
+For any real $u$, $u\le\lceil u\rceil<u+1$. Taking $u=(1-\alpha)(N_{\text{cal}}+1)$ and dividing by $N_{\text{cal}}+1$ gives
 $$
-0.9-0.9=0.
+1-\alpha
+\le\frac{k}{N_{\text{cal}}+1}
+<1-\alpha+\frac{1}{N_{\text{cal}}+1}.
 $$
 
-In general the ceiling rule can create slight overcoverage, but in this particular example it hits the nominal target exactly.
+For $N_{\text{cal}}=19$, $k=18$ and coverage is $18/20=0.9$, so the gap is zero. For $N_{\text{cal}}=18$, $k=\lceil0.9\times19\rceil=18$ and coverage is $18/19\approx0.947$, about 4.7 percentage points above nominal. The second case has strict ceiling-induced overcoverage.
 
-**Part 4: Regime-specific undercoverage**
+**Part 3: Adaptive updates**
 
-This does not contradict the split conformal theorem because the theorem guarantees marginal coverage over the full distribution of future observations, not exact coverage within every subgroup or regime. Recession quarters may have higher forecast uncertainty than expansion quarters, so a constant-width interval can undercover in recessions and overcover in expansions while still averaging out to roughly 90% overall coverage.
+Apply the update sequentially:
+$$
+\begin{aligned}
+\alpha_2&=0.10+0.05(0.10-0)=0.105,\\
+\alpha_3&=0.105+0.05(0.10-1)=0.060,\\
+\alpha_4&=0.060+0.05(0.10-0)=0.065,\\
+\alpha_5&=0.065+0.05(0.10-0)=0.070,\\
+\alpha_6&=0.070+0.05(0.10-1)=0.025.
+\end{aligned}
+$$
 
-A natural next step from the chapter is to use an adaptive conformal score or conformalized quantile regression, because both allow interval width to adjust with covariates or state-dependent uncertainty rather than staying constant across all quarters.
+**Part 4: Telescoping identity and its scope**
+
+The average error is $2/5=0.4$, so the left-hand side is $0.4-0.1=0.3$. The right-hand side is
+$$
+\frac{0.10-0.025}{5\times0.05}=\frac{0.075}{0.25}=0.3.
+$$
+The identity controls a time average through the endpoint difference in working levels. It does not condition on the current covariates or regime, so it does not imply conditional coverage. Nor does it constrain interval width: a sequence of nearly empty and nearly universal sets could satisfy the same average-error identity while being operationally useless.
 :::
 
 ::: {.callout-note}
 ## Exercise 15.2: Conformalized Quantile Regression and Calibration Direction
 
-You use conformalized quantile regression with target coverage 80%, so $\alpha=0.2$, to build downside-risk intervals for firm-level returns. The initial models target the conventional 10th and 90th conditional quantiles. The calibration sample has four observations, and the lower-quantile prediction, upper-quantile prediction, and realized outcome are:
+You use conformalized quantile regression with a target coverage of 80%, so $\alpha=0.2$, to build downside-risk intervals for firm-level returns. The initial models target the conventional 10th and 90th conditional quantiles. The calibration sample has four observations, and the lower-quantile prediction, upper-quantile prediction, and realized outcome are:
 
 | Observation | $\hat q_{\mathrm{low}}(x_i)$ | $\hat q_{\mathrm{high}}(x_i)$ | $y_i$ |
 |---|---:|---:|---:|
@@ -1337,12 +1368,6 @@ The score is positive when the realized value lies outside the initial quantile 
 ## Hint for Part 4
 
 The inequality $\max(a,b)\le c$ is equivalent to imposing both $a\le c$ and $b\le c$.
-:::
-
-::: {.callout-warning collapse="true"}
-## Hint for Part 6
-
-Again distinguish marginal coverage from subgroup or conditional coverage. Then ask whether a more adaptive interval construction is needed.
 :::
 
 ::: {.callout-tip collapse="true"}
@@ -1403,7 +1428,7 @@ $$
 \max(\hat q_{\mathrm{low}}(x)-y,\; y-\hat q_{\mathrm{high}}(x))\le \hat q_{\mathrm{cal}}.
 $$
 
-This is equivalent to requiring both
+The maximum inequality is equivalent to requiring both
 
 $$
 \hat q_{\mathrm{low}}(x)-y\le \hat q_{\mathrm{cal}}
@@ -1485,7 +1510,11 @@ $$
    [m-\max_i R_i,\;m+\max_i R_i].
    $$
 3. Explain why jackknife+ is more data-efficient than split conformal.
-4. In a small cross-sectional macro dataset where model fitting is cheap but the sample size is limited, when would jackknife+ be more attractive than split conformal?
+4. Choose a method for each application and justify the choice.
+   - Application A has $N=80$ observations, each model refit takes 2 seconds, and holding out 20 observations materially worsens point predictions.
+   - Application B has $N=5{,}000$ observations, each model refit takes 30 minutes, a 20% calibration split barely changes point accuracy, and the total fitting budget is 4 hours.
+
+   Compare split conformal with jackknife+ in terms of training information and computation. Do not claim that either method is universally superior.
 
 *Exam level. Parts 1-2 require students to work through the jackknife+ construction formally, and Parts 3-4 test whether they understand the efficiency-computation tradeoff in an applied setting.*
 :::
@@ -1493,13 +1522,7 @@ $$
 ::: {.callout-warning collapse="true"}
 ## Hint for Part 2
 
-If all leave-one-out predictions equal $m$, then the candidate bounds become $m-R_i$ and $m+R_i$. With $N=5$ and $\alpha=0.2$, the lower index is 1 and the upper index is 5.
-:::
-
-::: {.callout-warning collapse="true"}
-## Hint for Part 4
-
-Think about the tradeoff between holding back a dedicated calibration sample and fitting many models on almost the full sample.
+If all leave-one-out predictions equal $m$, ask how sorting $m-R_i$ reverses the ordering of the residuals, while sorting $m+R_i$ preserves it.
 :::
 
 ::: {.callout-tip collapse="true"}
@@ -1587,9 +1610,11 @@ $$
 
 Split conformal permanently reserves a calibration sample and does not use those observations to fit the base model. Jackknife+ instead fits many leave-one-out models, so every observation contributes to model fitting in almost every refit and also contributes one out-of-sample residual. That is why it often uses scarce data more efficiently.
 
-**Part 4: When jackknife+ is attractive**
+**Part 4: Choosing under data and compute constraints**
 
-Jackknife+ is especially attractive when sample size is limited, because sacrificing a dedicated calibration block could noticeably weaken the fitted model. If model fitting is cheap enough that many leave-one-out refits are feasible, the extra computation is worth paying to avoid throwing away training information.
+Application A favors jackknife+. With only 80 observations, the 20-observation calibration block would materially weaken the split-conformal base model, while 80 leave-one-out fits take only about 160 seconds. Jackknife+ lets each fitted model use 79 observations and gives every observation an out-of-sample residual.
+
+Application B favors split conformal. A jackknife+ implementation would require 5,000 refits, far beyond the 4-hour budget, whereas holding out 1,000 observations has little effect on point accuracy. One split fit is therefore computationally feasible and sacrifices little predictive quality. The comparison depends on both the value of additional training observations and the cost of repeated fitting.
 :::
 
 ::: {.callout-note}
@@ -1624,7 +1649,7 @@ For a stationary AR(1), $\operatorname{Cov}(Y_t,Y_{t+h})=\rho^{|h|}\operatorname
 ::: {.callout-warning collapse="true"}
 ## Hint for Part 3
 
-The calibration residuals should be genuine past forecast errors computed with only past information. A very short window is noisy; a very long window may mix together different regimes.
+Draw a timeline and mark the information available when each forecast is issued. Use it to decide which realized forecast errors may enter the calibration window.
 :::
 
 ::: {.callout-warning collapse="true"}
@@ -1656,7 +1681,7 @@ $$
 \operatorname{Cov}(Y_1,Y_3)=\rho^2 \operatorname{Var}(Y_t).
 $$
 
-These are equal only in special cases such as $\rho=0$. For generic $\rho \neq 0$, the covariance structure changes under permutation, so the joint distribution is not invariant to permutation. Hence the process is not exchangeable.
+These two covariances are equal only in special cases such as $\rho=0$. For generic $\rho \neq 0$, the covariance structure changes under permutation, so the joint distribution is not invariant to permutation. Hence the process is not exchangeable.
 
 **Part 2: Why naive split conformal breaks**
 

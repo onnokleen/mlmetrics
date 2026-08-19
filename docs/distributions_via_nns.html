@@ -429,7 +429,7 @@ window.Quarto = {
 <h1 data-number="9"><span class="header-section-number">9</span> Distributional Neural Networks</h1>
 <section id="overview" class="level2" data-number="9.1">
 <h2 data-number="9.1" class="anchored" data-anchor-id="overview"><span class="header-section-number">9.1</span> Overview</h2>
-<p>In many economic and financial applications, the signal-to-noise ratio is low, and decisions depend on the entire forecast distribution, not just a single point estimate. A central bank may care about downside inflation risk, a financial economist may care about the left tail of returns, and a risk manager may care about the probability of a large loss. A neural network (NN) trained with mean squared error (MSE) can be useful for estimating a conditional mean, <span class="math inline">\mathbb{E}[y \mid x]</span>, but it does not by itself provide a calibrated predictive distribution.</p>
+<p>In many economic and financial applications, the signal-to-noise ratio is low, and decisions depend on the entire <strong>predictive distribution</strong> (also called a distribution forecast), not just a single point estimate. A central bank may care about downside inflation risk, a financial economist may care about the left tail of returns, and a risk manager may care about the probability of a large loss. A neural network (NN) trained with mean squared error (MSE) can be useful for estimating a conditional mean, <span class="math inline">\mathbb{E}[y \mid x]</span>, but it does not by itself provide a calibrated predictive distribution.</p>
 <p>Distributional neural networks address this by reframing the prediction problem. Instead of predicting a single number, the network predicts the parameters of a full conditional distribution. This connects the neural-network chapters back to the earlier chapters on information theory and evaluating predictive distributions: likelihood-based training corresponds to the log score, and alternative proper scoring rules such as the continuous ranked probability score (CRPS) can also be used when we want different sensitivity to tails or outliers. The broader literature on probabilistic forecasting and its evaluation is reviewed in <span class="citation" data-cites="GneitingKatzfuss2014">Gneiting and Katzfuss (<a href="#ref-GneitingKatzfuss2014" role="doc-biblioref">2014</a>)</span>.</p>
 </section>
 <section id="roadmap" class="level2" data-number="9.2">
@@ -471,7 +471,8 @@ Information-theoretic interpretation
 </div>
 </div>
 <div class="callout-body-container callout-body">
-<p>This NLL objective is the cross-entropy loss we encountered in the <a href="./information_theory.html#sec-mle-kl-divergence">MLE-as-KL discussion</a> — recall that maximum likelihood estimation (MLE) minimizes sample cross-entropy. At the population level, expected conditional NLL and the expected conditional KL divergence from the true conditional distribution to the model’s differ only by a term that does not involve the parameters, so minimizing one minimizes the other; the sample NLL estimates this population objective. (The empirical-distribution phrasing of the KL connection applies literally to discrete outcomes only, as the information-theory chapter explains.) Two roles must be kept apart. The NLL <em>score</em> evaluates the entire stated density — probability mass in the wrong place costs log-density everywhere, including in the tails — while the model <em>family</em> determines which aspects the network can actually adjust. A Gaussian network can move only its conditional mean and variance; under misspecification it converges to the KL-closest Gaussian, not to the true density. Penalizing every aspect of misspecification therefore only helps if the family is rich enough to respond — the motivation for the Student-<span class="math inline">t</span> and mixture extensions later in the chapter.</p>
+<p>This NLL objective is the cross-entropy loss encountered in the <a href="./information_theory.html#sec-mle-kl-divergence">likelihood and KL-divergence discussion</a>: maximum likelihood estimation (MLE) minimizes sample cross-entropy. At the population level, expected conditional NLL differs from the expected conditional Kullback–Leibler (KL) divergence from the true conditional distribution to the model by a term that does not depend on the model parameters. Provided the relevant expectations are finite, both criteria therefore have the same population minimizer: the KL projection of the true conditional distribution onto the represented model family. Convergence of the empirical estimator to that target additionally requires identification within the density family, dependence-appropriate control of model complexity, a uniform law of large numbers, and sufficiently accurate optimization.</p>
+<p>The score and the model family play different roles. A <em>realized</em> LogS is local: it evaluates only the density assigned to the outcome that occurred. Its <em>expected</em> value is strictly proper and is uniquely minimized by the true density when that density belongs to the admissible class and the expectations are finite. A Gaussian network can adjust only its represented conditional mean and variance functions, so its population target under misspecification is the closest represented Gaussian in KL divergence. Student-<span class="math inline">t</span> and mixture outputs enlarge the family of distributions to which the expected score can respond.</p>
 </div>
 </div>
 <p>The same logic can be stated in the language of proper scoring rules. The negative log-likelihood corresponds to the logarithmic score (LogS): after observing <span class="math inline">y_i</span>, the model is rewarded for assigning high density to the realized outcome. Minimizing average NLL is therefore the training analogue of minimizing the out-of-sample log score; see the discussion of LogS and CRPS in the <a href="./evaluating_distributions.html">Evaluating Predictive Distributions chapter</a>.</p>
@@ -486,7 +487,7 @@ Question for Reflection
 </div>
 </div>
 <div class="callout-body-container callout-body">
-<p>You fit a Gaussian distributional network by maximum likelihood for daily stock returns. The in-sample log-likelihood is high, but the realized probability integral transform (PIT) histogram, computed as in the <a href="./evaluating_distributions.html">predictive-distribution chapter</a>, is U-shaped. What does the U-shape establish by itself? Name two model failures that are both compatible with it, and propose one additional diagnostic that would separate them.</p>
+<p>You fit a Gaussian distributional network by maximum likelihood for daily stock returns. The in-sample log-likelihood is high, but the realized probability integral transform (PIT) histogram, computed as in the <a href="./evaluating_distributions.html">predictive-distribution chapter</a>, is U-shaped. What does the U-shape suggest, and why does it not establish that conclusion by itself? Name two model failures that are both compatible with it, and propose one additional diagnostic that helps separate them.</p>
 </div>
 </div>
 <div class="callout callout-style-default callout-tip callout-titled" title="Suggested Answer">
@@ -501,17 +502,17 @@ Suggested Answer
 </div>
 <div id="callout-3" class="callout-3-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
-<p>The U-shape establishes <em>underdispersion</em>: realizations fall into the tails of the predictive distribution more often than the forecast expects. By itself it does not identify the cause — mean misspecification would push PIT mass to one side, but two distinct failures both produce symmetric tail excess: a variance head that systematically underestimates conditional dispersion, and a distributional family whose tails are too light for the data (daily returns are heavier-tailed than any Gaussian, however well the variance is scaled). To separate them, examine the standardized residuals <span class="math inline">(y_{t+1} - \hat{\mu}_t)/\hat{\sigma}_t</span>: if their sample variance is well above one, the variance head underestimates dispersion across the board; if their variance is close to one but their tails remain too heavy relative to the standard normal — excess kurtosis, PIT mass concentrated in the extreme bins — the family is the binding constraint, and the Student-<span class="math inline">t</span> or mixture-density outputs discussed later in the chapter are the natural fix.</p>
+<p>A U-shaped PIT histogram is descriptive evidence consistent with underdispersion or tail misspecification: realizations appear in the predictive tails more often than the forecast expects. It is not proof, because a finite and serially dependent PIT sample can produce an irregular histogram through sampling variation. Two compatible model failures are a variance head that systematically understates conditional dispersion and a Gaussian family whose tails are too light. The standardized residuals <span class="math inline">(y_{t+1} - \hat{\mu}_t)/\hat{\sigma}_t</span> help separate them: a variance well above one supports broad scale underestimation, while a variance near one together with excess tail mass points toward shape misspecification. This diagnostic is not conclusive on its own, because state-dependent scale errors can average out; formal uniformity and conditional-calibration checks that account for serial dependence provide a stronger assessment. The Student-<span class="math inline">t</span> extension and the mixture density networks introduced later in the chapter provide natural robustness checks when the diagnostics point toward shape misspecification.</p>
 </div>
 </div>
 </div>
-<p>For dependent data, likelihood-based training does not require an independence assumption. In a time-series setting, we would usually maximize a <strong>conditional</strong> log-likelihood of the form </p>
+<p>For dependent data, likelihood-based training does not by itself require an independence assumption. A correctly specified full conditional likelihood can be written as </p>
 <div class="display-math-block">
 <p><span class="math display">
 \sum_{t=1}^{T} \log p_\phi(y_t \mid \mathcal{F}_{t-1}),
 </span></p>
 </div>
-<p> where <span class="math inline">\mathcal{F}_{t-1}</span> is the information set available at the forecast origin. Equivalently, for one-step-ahead notation one can write <span class="math inline">\sum_{t=0}^{T-1}\log p_\phi(y_{t+1}\mid\mathcal{F}_t)</span>. The sum remains the correct criterion when the conditional distribution is specified relative to the appropriate filtration. In practice one further gap remains: a network conditions on a finite feature vector rather than on all of <span class="math inline">\mathcal{F}_{t-1}</span>. Its criterion is still an ordinary conditional likelihood — but for the distribution of <span class="math inline">y_{t+1}</span> given <span class="math inline">\mathbf{x}_t</span>, a coarser target that coincides with the full-information conditional distribution only if the chosen features carry all the predictive content of the past.</p>
+<p> where <span class="math inline">\mathcal{F}_{t-1}</span> is the information set available at the forecast origin. Equivalently, in one-step-ahead notation, the chain-rule likelihood is <span class="math inline">\sum_{t=0}^{T-1}\log p_\phi(y_{t+1}\mid\mathcal{F}_t)</span>. If the feature vector <span class="math inline">\mathbf{x}_t</span> is sufficient for the relevant past information, then <span class="math inline">p(y_{t+1}\mid\mathcal{F}_t)=p(y_{t+1}\mid\mathbf{x}_t)</span> and the network criterion is the full conditional likelihood. Otherwise, the same sum is better viewed as a conditional log-score, or quasi-likelihood, for the coarser distribution of <span class="math inline">y_{t+1}</span> given <span class="math inline">\mathbf{x}_t</span>. Remaining serial dependence then matters for laws of large numbers, inference, and forecast evaluation even though it need not invalidate the forecasting target.</p>
 <div class="callout callout-style-default callout-note callout-titled">
 <div class="callout-header d-flex align-content-center">
 <div class="callout-icon-container">
@@ -532,13 +533,13 @@ Link to Predictive-Distribution Evaluation
 <div class="display-math-block">
 <p><span class="math display">
 y_{t+1}\,|\,\mathbf{x}_t \sim \mathcal{N}\big(\mu_t, \sigma_t^2\big),\quad
-\mu_t = f_{\phi_\mu}(\mathbf{x}_t),\ \ \sigma_t^2 = g_{\phi_\sigma}(\mathbf{x}_t)&gt;0
+\mu_t = f_{\phi_\mu}(\mathbf{x}_t),\ \ \sigma_t^2 = g_{\phi_\sigma}(\mathbf{x}_t)&gt;0.
 </span></p>
 </div>
 <p> The subscript <span class="math inline">t</span> on <span class="math inline">\mu_t</span> and <span class="math inline">\sigma_t^2</span> records the forecast origin: both are functions of <span class="math inline">\mathbf{x}_t</span> and describe the distribution of <span class="math inline">y_{t+1}</span>, consistent with the two-index convention <span class="math inline">\hat{y}_{t+1\mid t}</span> used elsewhere in the book. The per-time-step negative log-likelihood loss is, up to an additive constant, </p>
 <div class="display-math-block">
 <p><span class="math display">
-\ell_t(\phi_\mu,\phi_\sigma)= \frac{1}{2}\log g_{\phi_\sigma}(\mathbf{x}_t) + \frac{(y_{t+1}-f_{\phi_\mu}(\mathbf{x}_t))^2}{2\,g_{\phi_\sigma}(\mathbf{x}_t)},
+\ell_{t+1}(\phi_\mu,\phi_\sigma)= \frac{1}{2}\log g_{\phi_\sigma}(\mathbf{x}_t) + \frac{(y_{t+1}-f_{\phi_\mu}(\mathbf{x}_t))^2}{2\,g_{\phi_\sigma}(\mathbf{x}_t)},
 </span></p>
 </div>
 <p> the form analyzed in Exercise 9.1. Econometricians have met this objective before: it is exactly the Gaussian quasi-likelihood of a generalized autoregressive conditional heteroskedasticity (GARCH) model, with the parametric variance recursion replaced by the network map <span class="math inline">g_{\phi_\sigma}(\mathbf{x}_t)</span>. The quasi-maximum-likelihood theory of <span class="citation" data-cites="BollerslevWooldridge1992">Bollerslev and Wooldridge (<a href="#ref-BollerslevWooldridge1992" role="doc-biblioref">1992</a>)</span> also explains why this objective is a sensible target even when the true conditional distribution is not Gaussian: the criterion identifies the conditional mean and the conditional variance as long as those two moments are correctly specified.</p>
@@ -551,7 +552,7 @@ y_{t+1}\,|\,\mathbf{x}_t \sim \mathcal{N}\big(\mu_t, \sigma_t^2\big),\quad
 <div id="fig-hnn" class="quarto-float quarto-figure quarto-figure-center anchored" data-fig-align="center">
 <figure class="quarto-float quarto-float-fig figure">
 <div aria-describedby="fig-hnn-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-<img src="figures/hemispheres.png" class="img-fluid quarto-figure quarto-figure-center figure-img" width="558">
+<img src="figures/hemispheres.png" class="img-fluid quarto-figure quarto-figure-center figure-img" width="874">
 </div>
 <figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-hnn-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
 Figure&nbsp;9.1: Architecture of a Hemisphere Neural Network. The input vector <span class="math inline">\mathbf{x}_t</span> (left) passes through a shared common core of <span class="math inline">L_c</span> layers, after which the network splits into two dedicated hemispheres: a mean hemisphere of <span class="math inline">L_m</span> layers ending in a linear head that outputs <span class="math inline">\mu_t = f_{\phi_\mu}(\mathbf{x}_t)</span> (top), and a variance hemisphere of <span class="math inline">L_v</span> layers ending in a softplus head that outputs <span class="math inline">\sigma_t^2 = g_{\phi_\sigma}(\mathbf{x}_t) &gt; 0</span> (bottom). Arrows show the flow of computation.
@@ -560,17 +561,17 @@ Figure&nbsp;9.1: Architecture of a Hemisphere Neural Network. The input vector <
 </div>
 </div>
 </div>
-<p>This structure allows the model to learn both <strong>reactive volatility</strong> (where variance spikes <em>after</em> shocks, like in GARCH) and <strong>proactive volatility</strong> (where variance rises <em>before</em> shocks, based on leading indicators in <span class="math inline">\mathbf{x}_t</span>). The econometric intuition is that some variables may move the conditional mean, some may move conditional uncertainty, and some may affect both.</p>
-<p><strong>Stabilizing Joint MLE in Practice</strong></p>
+<p>When <span class="math inline">\mathbf{x}_t</span> contains relevant lagged shocks or variance measures, the network can learn reactive volatility in which variance rises after shocks, as in GARCH-type dynamics. With genuine leading indicators known at the forecast origin, it can instead learn proactive volatility in which predicted variance rises before the realization. The econometric intuition is that some variables may move the conditional mean, some may move conditional uncertainty, and some may affect both.</p>
+<p><strong>Stabilizing joint MLE in practice.</strong></p>
 <p>The HNN framework introduces three key ingredients to discipline the unstable MLE procedure:</p>
 <ol type="1">
-<li><p><strong>Volatility-Emphasis Constraint</strong>: By the law of total variance, </p>
+<li><p><strong>Volatility-emphasis constraint.</strong> If <span class="math inline">y_{t+1}</span> has a finite second moment, the population law of total variance gives </p>
 <div class="display-math-block">
 <p><span class="math display">
 \operatorname{Var}(y_{t+1}) = \mathbb{E}\bigl[\operatorname{Var}(y_{t+1}\mid \mathbf{x}_t)\bigr] + \operatorname{Var}\bigl(\mathbb{E}[y_{t+1}\mid \mathbf{x}_t]\bigr),
 </span></p>
 </div>
-<p> so the average conditional variance is strictly less than the unconditional variance whenever the conditional mean varies with the predictors. The HNN constraint anchors the empirical average of conditional variances to a fraction of the unconditional variance: </p>
+<p> Thus, the expected conditional variance is strictly less than the unconditional variance whenever the conditional mean varies with the predictors. Under stationarity and ergodicity, time averages can estimate these population moments. In finite samples, HNN uses the corresponding empirical relation as a regularization device: </p>
 <div class="display-math-block">
 <p><span class="math display">
 \frac{1}{T}\sum_t g_{\phi_\sigma}(\mathbf{x}_t) \approx \kappa\cdot \operatorname{Var}(y_{t+1}),
@@ -578,37 +579,42 @@ Figure&nbsp;9.1: Architecture of a Hemisphere Neural Network. The input vector <
 </span></p>
 </div>
 <p> The multiplier <span class="math inline">\kappa</span> is calibrated from <em>out-of-bag</em> residuals of a non-distributional baseline — residuals computed for each observation from fits whose training draws exclude it, the device used in the <a href="./evaluating_distributions.html#sec-eval-dist-empirical">empirical application of the predictive-distribution chapter</a> and treated fully in the <a href="./random_forests.html">random forests chapter</a>. The constraint regularizes the variance hemisphere away from zero and prevents it from absorbing predictable variation that should be explained by the mean hemisphere.</p></li>
-<li><p><strong>Blocked Subsampling (Time-Aware Bagging)</strong>: The model is trained many times on different, non-overlapping time blocks (“bags”) — a time-series adaptation of <em>bagging</em>, short for bootstrap aggregation: averaging models fit on resampled subsets of the data, introduced properly in the <a href="./random_forests.html">random forests chapter</a>. The final predictions for <span class="math inline">\mu_t</span> and <span class="math inline">\sigma_t^2</span> are formed by averaging the predictions from models where time <span class="math inline">t</span> was held out-of-bag. This stabilizes the predictions and makes them robust to initialization.</p></li>
-<li><p><strong>Blocked Out-of-Bag Recalibration</strong>: After estimation, the level of the fitted variance path is recalibrated against out-of-bag squared forecast errors — errors from fits that did not see the corresponding observations — so that the predicted uncertainty is disciplined by genuine prediction errors rather than by in-sample residuals <span class="citation" data-cites="GouletCoulombeFrenetteKlieber2026">(<a href="#ref-GouletCoulombeFrenetteKlieber2026" role="doc-biblioref">Goulet Coulombe, Frenette, and Klieber 2026</a>)</span>. This recalibration is a step of its own, distinct from the subsampling in ingredient 2 that generates the out-of-bag predictions.</p></li>
+<li><p><strong>Blocked subsampling (time-aware bagging).</strong> The model is trained many times on different time blocks (“bags”)—a time-series adaptation of <em>bagging</em>, short for bootstrap aggregation, introduced properly in the <a href="./random_forests.html">random forests chapter</a>. Predictions for <span class="math inline">\mu_t</span> and <span class="math inline">\sigma_t^2</span> are averaged only across fits for which time <span class="math inline">t</span> was held out of the training sample. Averaging reduces variation across training samples and network initializations.</p></li>
+<li><p><strong>Blocked out-of-bag recalibration.</strong> After estimation, the level of the fitted variance path is recalibrated against out-of-bag squared forecast errors—errors from fits that did not see the corresponding observations—so that predicted uncertainty is disciplined by prediction errors rather than by in-sample residuals <span class="citation" data-cites="GouletCoulombeFrenetteKlieber2026">(<a href="#ref-GouletCoulombeFrenetteKlieber2026" role="doc-biblioref">Goulet Coulombe, Frenette, and Klieber 2026</a>)</span>. This recalibration is distinct from the subsampling in ingredient 2 that generates the out-of-bag predictions.</p></li>
 </ol>
-<p><strong>Practical Design Choices and Extensions</strong></p>
-<ul>
-<li><strong>Hyperparameters</strong>: A typical HNN might use 2 hidden layers for the core and 2 for each hemisphere, with rectified linear unit (ReLU) activations, Adam optimization, and dropout.</li>
-<li><strong>Beyond Gaussian</strong>: The hemisphere approach can be extended to other distributions (e.g., Student-t) by adding a third hemisphere for the degrees of freedom parameter, <span class="math inline">\nu</span>. A Student-<span class="math inline">t</span> density is well defined for <span class="math inline">\nu &gt; 0</span>, but its mean is finite only for <span class="math inline">\nu &gt; 1</span> and its variance only for <span class="math inline">\nu &gt; 2</span> — so a degrees-of-freedom head that should preserve the mean and variance hemispheres’ interpretation must enforce <span class="math inline">\nu &gt; 2</span>, for instance via <span class="math inline">\nu = 2 + \zeta(z)</span> with the softplus <span class="math inline">\zeta</span>, rather than mere positivity.</li>
-<li><strong>Temporal Dynamics</strong>: To capture GARCH-like effects more directly, lagged outcomes or squared residuals can be included as features in <span class="math inline">\mathbf{x}_t</span>. For more complex sequences, the common core could be a long short-term memory (LSTM) network.</li>
-</ul>
+<p>Together, these three ingredients provide the stabilization: dedicated output heads alone do not prevent joint-likelihood degeneracy.</p>
+<p><strong>Beyond Gaussian outputs.</strong> The hemisphere approach can be extended to a location-scale Student-<span class="math inline">t</span> output by adding a third hemisphere for the degrees-of-freedom parameter, <span class="math inline">\nu</span>. Write <span class="math inline">Y=\mu+sZ</span> with <span class="math inline">Z\sim t_\nu</span>. The density is defined for <span class="math inline">\nu&gt;0</span>, its mean is finite only for <span class="math inline">\nu&gt;1</span>, and its variance is finite only for <span class="math inline">\nu&gt;2</span>. Requiring <span class="math inline">\nu&gt;2</span>, for instance through <span class="math inline">\nu=2+\zeta(z)</span>, guarantees finite variance, but <span class="math inline">s^2</span> is not that variance: </p>
+<div class="display-math-block">
+<p><span class="math display">
+\operatorname{Var}(Y\mid X)=s^2\frac{\nu}{\nu-2}.
+</span></p>
+</div>
+<p> If an existing head <span class="math inline">v(X)</span> is meant to retain the interpretation of a conditional variance, the Student-<span class="math inline">t</span> scale must satisfy <span class="math inline">s^2(X)=v(X)(\nu-2)/\nu</span>.</p>
+<p><strong>Temporal dynamics.</strong> Lagged outcomes, innovations, or squared residuals can enter <span class="math inline">\mathbf{x}_t</span> to capture GARCH-type effects directly. For more complex sequences, the common core could be a long short-term memory (LSTM) network.</p>
 </section>
 <section id="sec-mdn" class="level2" data-number="9.6">
 <h2 data-number="9.6" class="anchored" data-anchor-id="sec-mdn"><span class="header-section-number">9.6</span> Handling Complex Distributions: Mixture Density Networks (MDNs)</h2>
-<p>For distributions that are skewed, fat-tailed, or multi-modal, a single parametric form is too restrictive. <strong>Mixture Density Networks (MDNs)</strong> proposed by <span class="citation" data-cites="Bishop1994MDN">Bishop (<a href="#ref-Bishop1994MDN" role="doc-biblioref">1994</a>)</span> address this by modeling the conditional distribution as a mixture of simpler ones, like Gaussians: </p>
+<p>For distributions that are skewed, multimodal, or heavier-tailed over empirically relevant ranges than a single Gaussian, one parametric component can be too restrictive. <strong>Mixture Density Networks (MDNs)</strong>, proposed by <span class="citation" data-cites="Bishop1994MDN">Bishop (<a href="#ref-Bishop1994MDN" role="doc-biblioref">1994</a>)</span>, address this by modeling the conditional distribution as a mixture of simpler ones, such as Gaussians: </p>
 <div class="display-math-block">
 <p><span class="math display">
-p(y \mid \mathbf{x})=\sum_{k=1}^K \pi_k(\mathbf{x})\,\mathcal{N}\!\big(y;\,\mu_k(\mathbf{x}),\,\sigma_k^2(\mathbf{x})\big)
+p(y \mid \mathbf{x})=\sum_{k=1}^K \pi_k(\mathbf{x})\,\mathcal{N}\!\big(y;\,\mu_k(\mathbf{x}),\,\sigma_k^2(\mathbf{x})\big).
 </span></p>
 </div>
+<p>A finite Gaussian mixture can be substantially more leptokurtic than one Gaussian over the range relevant for an application, but its asymptotic tails remain Gaussian and are dominated by the component with the largest variance. It is therefore not fat-tailed in the strict power-law sense.</p>
 <p>The network has three output heads to predict the parameters for all <span class="math inline">K</span> components:</p>
 <ul>
 <li><strong>Mixing Weights <span class="math inline">\pi_k(\mathbf{x})</span></strong>: A <code>softmax</code> layer over the <span class="math inline">K</span> components, <span class="math inline">\pi_k(\mathbf{x})=\exp(a_k(\mathbf{x}))/\sum_{j=1}^K \exp(a_j(\mathbf{x}))</span>, so <span class="math inline">\pi_k&gt;0</span> and <span class="math inline">\sum_{k=1}^K\pi_k=1</span>, where <span class="math inline">k = 1, \ldots, K</span> indexes the mixture components and <span class="math inline">K</span> is their number. This ensures the weights are positive and sum to 1.</li>
 <li><strong>Means <span class="math inline">\mu_k(\mathbf{x})</span></strong>: A linear layer.</li>
 <li><strong>Standard Deviations <span class="math inline">\sigma_k(\mathbf{x})</span></strong>: A <code>softplus</code> layer ensures positivity.</li>
 </ul>
-<p>MDNs are particularly useful for modeling phenomena with distinct underlying states or regimes, which can lead to multi-modal distributions. Examples include:</p>
+<p>MDNs are particularly useful for modeling phenomena whose predictive distributions are multimodal. Examples include:</p>
 <ul>
-<li>Multi-modal inflation distributions (e.g., a low-inflation vs.&nbsp;a high-inflation regime).</li>
-<li>Asset returns with regime switching behavior.</li>
+<li>Multimodal inflation distributions (e.g., a low-inflation versus a high-inflation regime).</li>
+<li>Asset returns with regime-switching behavior.</li>
 <li>Labor market dynamics that might feature multiple equilibria.</li>
 </ul>
-<p>MDNs are difficult to train. Components can collapse, with one component dominating, and the likelihood can blow up when any <span class="math inline">\sigma_k</span> approaches zero — the single-Gaussian version of this degeneracy is analyzed in Exercise 9.1. Standard remedies are careful initialization, regularization of the mixing weights, and a positive floor on <span class="math inline">\sigma_k</span>. A different route to flexible distributional output, which we do not pursue here, is quantile regression with networks: output heads trained to minimize the pinball (quantile) loss at several quantile levels — at the cost that the estimated quantiles can cross each other, a problem that parametric density heads avoid by construction.</p>
+<p>MDN training has two transparent difficulties <span class="citation" data-cites="Bishop1994MDN">(<a href="#ref-Bishop1994MDN" role="doc-biblioref">Bishop 1994</a>)</span>. First, component labels are not identified and a subset of components can receive almost all the weight. Second, the likelihood is unbounded if a sufficiently flexible component centers on an observation while its scale approaches zero and its mixing weight does not vanish quickly enough. Careful initialization, penalties on extreme mixing weights, and a positive scale floor are possible safeguards, although the latter two change the criterion or parameter space.</p>
+<p>A different route to flexible distributional output is to train separate network heads with the pinball loss at several quantile levels. Unless the architecture or loss imposes an ordering restriction, those estimated quantiles can cross. A parametric density head avoids crossing because all quantiles come from one cumulative distribution function.</p>
 <div class="callout callout-style-default callout-important callout-titled">
 <div class="callout-header d-flex align-content-center">
 <div class="callout-icon-container">
@@ -625,9 +631,9 @@ Econometric Interpretation
 </section>
 <section id="sec-distnn-empirical" class="level2" data-number="9.7">
 <h2 data-number="9.7" class="anchored" data-anchor-id="sec-distnn-empirical"><span class="header-section-number">9.7</span> Empirical Application: Distributional Network for SPY Realized Variance</h2>
-<p>The realized-volatility illustration of the <a href="./nn_example.html">previous chapter</a> — daily realized variance for SPY, the S&amp;P 500 exchange-traded fund — produced point forecasts of <span class="math inline">\log RV_{t+1}</span> and evaluated them with squared and absolute losses. To turn that exercise into a density forecast and evaluate it with the proper scoring rules of the <a href="./evaluating_distributions.html">predictive-distribution chapter</a>, we need a conditional variance as well. We compare two Gaussian density forecasts on the same SPY data, the same log-transformed heterogeneous autoregressive (HAR) features, and the same final 20% test block — this chapter merges the previous chapter’s training and validation blocks into a single estimation sample, for reasons the protocol notes below explain.<a href="#fn1" class="footnote-ref" id="fnref1" role="doc-noteref"><sup>1</sup></a></p>
-<p>The <strong>HAR-OLS Gaussian baseline</strong> — the HAR components fit by ordinary least squares (OLS) — sets the conditional mean to the linear HAR-OLS fit in log space — that is, a regression of <span class="math inline">\log RV_{t+1}</span> on <span class="math inline">\log RV_t</span>, <span class="math inline">\log\big(\tfrac{1}{5}\sum_{j=0}^{4} RV_{t-j}\big)</span>, and <span class="math inline">\log\big(\tfrac{1}{21}\sum_{j=0}^{20} RV_{t-j}\big)</span>. The conditional variance is the in-sample residual variance from the same fit — computed with the maximum-likelihood convention, dividing the sum of squared residuals by the number of observations — and stays constant over the test block. This baseline is homoskedastic in log-RV space.</p>
-<p>The <strong>Gaussian distributional HAR-FNN</strong> — a feed-forward neural network (FNN) on the HAR inputs — uses the same three log-HAR inputs but routes them through a single hidden layer with 32 softplus units, followed by two output heads: a linear mean head <span class="math inline">\mu_\phi(\mathbf{x}_t)</span> and a linear log-variance head <span class="math inline">v_\phi(\mathbf{x}_t)</span>, with predictive variance <span class="math inline">\sigma_\phi^2(\mathbf{x}_t)=\max\{\exp(v_\phi(\mathbf{x}_t)),c\}</span> for a small floor <span class="math inline">c</span>. We write <span class="math inline">v_\phi</span> for this scalar head to keep it distinct from the full parameter vector <span class="math inline">\boldsymbol{\eta}_\phi</span> of <a href="#sec-point-to-distnn" class="quarto-xref">Section&nbsp;9.3</a> — here <span class="math inline">\boldsymbol{\eta}_\phi(\mathbf{x}_t) = (\mu_\phi(\mathbf{x}_t), v_\phi(\mathbf{x}_t))</span>. Positivity is parameterized through the log-variance, <span class="math inline">\sigma^2(\mathbf{x})=\exp(v_\phi(\mathbf{x}))</span> (an alternative to the softplus head above); both guarantee <span class="math inline">\sigma^2&gt;0</span>. The two heads share the hidden representation, in the spirit of the HNN common core in <a href="#sec-hnn" class="quarto-xref">Section&nbsp;9.5</a> but without the volatility-emphasis constraint or blocked subsampling. The model is trained by minimizing the Gaussian negative log likelihood, which by the discussion in <a href="#sec-distnn-training-scores" class="quarto-xref">Section&nbsp;9.4</a> is the neural-network analogue of minimizing the average log score on the training block. Both forecasts are then evaluated on the held-out test block using LogS, CRPS, and PIT, exactly as in the <a href="./evaluating_distributions.html#sec-eval-dist-empirical">empirical application of the predictive-distribution chapter</a>.</p>
+<p>The realized-variance illustration of the <a href="./nn_example.html">previous chapter</a> produced point forecasts of daily <span class="math inline">\log RV_{t+1}</span> for SPY, the S&amp;P 500 exchange-traded fund, and evaluated them with squared and absolute losses. A Gaussian predictive distribution also requires a conditional variance. We therefore compare two such distributions using the same SPY data, log-transformed heterogeneous autoregressive (HAR) features, and final 20% test block. Because all hyperparameters are fixed in advance, this chapter combines the previous chapter’s training and validation blocks into one estimation sample.<a href="#fn1" class="footnote-ref" id="fnref1" role="doc-noteref"><sup>1</sup></a></p>
+<p>The <strong>HAR-OLS Gaussian baseline</strong> fits the HAR components by ordinary least squares (OLS) and uses the resulting linear conditional mean. Specifically, it regresses <span class="math inline">\log RV_{t+1}</span> on <span class="math inline">\log RV_t</span>, <span class="math inline">\log\big(\tfrac{1}{5}\sum_{j=0}^{4} RV_{t-j}\big)</span>, and <span class="math inline">\log\big(\tfrac{1}{21}\sum_{j=0}^{20} RV_{t-j}\big)</span>. Its conditional variance is the in-sample residual variance from the same fit, computed with the maximum-likelihood convention by dividing the sum of squared residuals by the number of observations. The variance stays constant over the test block, so the baseline is homoskedastic in log-<span class="math inline">RV</span> space.</p>
+<p>The <strong>Gaussian distributional HAR-FNN</strong> is a feed-forward neural network (FNN) using the same three log-HAR inputs. One hidden layer with 32 softplus units feeds a linear mean head <span class="math inline">\mu_\phi(\mathbf{x}_t)</span> and an unconstrained variance pre-activation <span class="math inline">a_\phi(\mathbf{x}_t)</span>. The predictive variance is <span class="math inline">\sigma_\phi^2(\mathbf{x}_t)=c+\operatorname{softplus}(a_\phi(\mathbf{x}_t))</span> for a small floor <span class="math inline">c&gt;0</span>. This smooth parameterization avoids the zero-gradient region created by hard clipping with <span class="math inline">\max\{\exp(a),c\}</span>. We write <span class="math inline">a_\phi</span> for this scalar head to distinguish it from the full parameter vector <span class="math inline">\boldsymbol{\eta}_\phi</span> of <a href="#sec-point-to-distnn" class="quarto-xref">Section&nbsp;9.3</a>; here <span class="math inline">\boldsymbol{\eta}_\phi(\mathbf{x}_t) = (\mu_\phi(\mathbf{x}_t), a_\phi(\mathbf{x}_t))</span>. The heads share the hidden representation, in the spirit of the HNN common core in <a href="#sec-hnn" class="quarto-xref">Section&nbsp;9.5</a>, but the model does not use the volatility-emphasis constraint, blocked subsampling, or out-of-bag recalibration. It minimizes Gaussian negative log-likelihood and is evaluated with LogS, CRPS, and the probability integral transform (PIT) on the held-out test block, as in the <a href="./evaluating_distributions.html#sec-eval-dist-empirical">empirical application of the predictive-distribution chapter</a>.</p>
 <div class="cell">
 <details class="code-fold">
 <summary>Show the code</summary>
@@ -689,20 +695,20 @@ Econometric Interpretation
 <span id="cb1-56"><a href="#cb1-56" aria-hidden="true" tabindex="-1"></a>ys_trva <span class="op">=</span> (y_trva <span class="op">-</span> y_center) <span class="op">/</span> y_scale</span>
 <span id="cb1-57"><a href="#cb1-57" aria-hidden="true" tabindex="-1"></a>Xs_te <span class="op">=</span> (X_te <span class="op">-</span> x_center) <span class="op">/</span> x_scale</span>
 <span id="cb1-58"><a href="#cb1-58" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-59"><a href="#cb1-59" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"forecast origins: </span><span class="sc">{</span>n<span class="sc">}</span><span class="ss">, train+valid: </span><span class="sc">{</span>split_valid<span class="sc">}</span><span class="ss">, test: </span><span class="sc">{</span>n <span class="op">-</span> split_valid<span class="sc">}</span><span class="ss">"</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<span id="cb1-59"><a href="#cb1-59" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"forecast origins: </span><span class="sc">{</span>n<span class="sc">}</span><span class="ss">, train+validation: </span><span class="sc">{</span>split_valid<span class="sc">}</span><span class="ss">, test: </span><span class="sc">{</span>n <span class="op">-</span> split_valid<span class="sc">}</span><span class="ss">"</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </details>
 <div class="cell-output cell-output-stdout">
-<pre><code>forecast origins: 2429, train+valid: 1943, test: 486</code></pre>
+<pre><code>forecast origins: 2494, train+validation: 1995, test: 499</code></pre>
 </div>
 <details class="code-fold">
 <summary>Show the code</summary>
 <div class="sourceCode cell-code" id="cb3"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"test window: </span><span class="sc">{</span>dates_te<span class="sc">.</span>iloc[<span class="dv">0</span>]<span class="sc">.</span>date()<span class="sc">}</span><span class="ss"> to </span><span class="sc">{</span>dates_te<span class="sc">.</span>iloc[<span class="op">-</span><span class="dv">1</span>]<span class="sc">.</span>date()<span class="sc">}</span><span class="ss">"</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </details>
 <div class="cell-output cell-output-stdout">
-<pre><code>test window: 2022-10-25 to 2024-12-31</code></pre>
+<pre><code>test window: 2023-01-06 to 2024-12-31</code></pre>
 </div>
 </div>
-<p>The <code>make_log_har</code> helper builds the same three HAR averages used in the <a href="./nn_example.html">chapter 8 illustration</a> but applies <span class="math inline">\log(\cdot)</span> before standardization, so the linear baseline is a log-log HAR regression and the FNN inputs are on the same scale. We standardize features and the target on the train+validation block, which avoids leaking test-block information into the scaling constants.</p>
+<p>The <code>make_log_har</code> helper builds the same three HAR averages used in the <a href="./nn_example.html">chapter 8 illustration</a> but applies <span class="math inline">\log(\cdot)</span> before standardization, so the linear baseline is a log-log HAR regression and the FNN inputs are on the same scale. We standardize features and the target on the train-plus-validation block, which avoids leaking test-block information into the scaling constants.</p>
 <p>The Gaussian baseline is just OLS plus an in-sample residual variance.</p>
 <div class="cell">
 <details class="code-fold">
@@ -714,8 +720,8 @@ Econometric Interpretation
 <span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>sigma_ols_te <span class="op">=</span> np.full_like(mu_ols_te, sigma_ols)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </details>
 </div>
-<p>The distributional HAR-FNN has two heads on top of a shared hidden layer. The custom loss implements the per-observation Gaussian NLL of <a href="#sec-distnn-training-scores" class="quarto-xref">Section&nbsp;9.4</a>, with a variance floor that prevents the log-variance head from producing a degenerate density when residuals are near zero (the pathology analyzed in Exercise 9.1).</p>
-<p>Two protocol notes relative to the previous chapter’s workflow. First, we deliberately fix all hyperparameters <em>a priori</em> — 32 hidden units, learning rate <span class="math inline">10^{-3}</span>, 200 epochs, batch size 32 — with no data-driven tuning step: none of these values was chosen by looking at forecast performance, on the test block or anywhere else. That is why no separate validation block is carved out and the estimation sample is simply the first 80% of the forecast origins (the variable names <code>X_trva</code>/<code>Xs_trva</code> echo the previous chapter’s train-plus-validation block, which this design merges into one). Second, this is also why standardizing on the full 80% block is innocuous here: the <a href="./nn_example.html">chapter 8</a> warning against scaling beyond the training block bites when a tuning step needs a protected validation set — with nothing tuned, there is no such set to protect, and the test block still never enters the scaling constants. The price of the fixed-hyperparameter design is that the network’s performance below should be read as that of a reasonable default configuration, not a tuned one.</p>
+<p>The distributional HAR-FNN has two heads on top of a shared hidden layer. The custom loss implements the per-observation Gaussian NLL of <a href="#sec-hnn" class="quarto-xref">Section&nbsp;9.5</a>, with a smooth positive variance parameterization that prevents a degenerate density when residuals are near zero (the pathology analyzed in Exercise 9.1). Exercise 9.1 derives the optimum under a hard inequality constraint; the implementation uses a smooth map because applying a hard maximum to a network output would give zero derivative whenever the floor binds.</p>
+<p>Two protocol notes distinguish this workflow from the previous chapter’s. First, we fix all hyperparameters <em>a priori</em>—32 hidden units, learning rate <span class="math inline">10^{-3}</span>, 200 epochs, and batch size 32—without a data-driven tuning step. We therefore use the first 80% of forecast origins as one estimation sample; the variable names <code>X_trva</code> and <code>Xs_trva</code> record that this block combines the earlier training and validation samples. Second, standardizing on this full block is appropriate because no validation sample needs to remain protected, while the test block still never enters the scaling constants. The <a href="./nn_example.html">chapter 8</a> warning about scaling beyond the training block applies when validation data guide model selection. The results below describe one fixed configuration and one seeded training run, not a stable architecture ranking; repeated seeds or resamples would be needed to quantify optimization variability.</p>
 <div class="cell">
 <details class="code-fold">
 <summary>Show the code</summary>
@@ -725,14 +731,14 @@ Econometric Interpretation
 <span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a>    inputs <span class="op">=</span> keras.Input(shape<span class="op">=</span>(<span class="dv">3</span>,))</span>
 <span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a>    h <span class="op">=</span> layers.Dense(n_neurons, activation<span class="op">=</span><span class="st">"softplus"</span>)(inputs)</span>
 <span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a>    mu_head <span class="op">=</span> layers.Dense(<span class="dv">1</span>)(h)</span>
-<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a>    log_var_head <span class="op">=</span> layers.Dense(<span class="dv">1</span>)(h)</span>
-<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a>    outputs <span class="op">=</span> layers.Concatenate()([mu_head, log_var_head])</span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a>    raw_var_head <span class="op">=</span> layers.Dense(<span class="dv">1</span>)(h)</span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a>    outputs <span class="op">=</span> layers.Concatenate()([mu_head, raw_var_head])</span>
 <span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a>    model <span class="op">=</span> keras.Model(inputs, outputs, name<span class="op">=</span><span class="st">"DistHARFNN"</span>)</span>
 <span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb6-11"><a href="#cb6-11" aria-hidden="true" tabindex="-1"></a>    <span class="kw">def</span> gaussian_nll(y_true, y_pred):</span>
 <span id="cb6-12"><a href="#cb6-12" aria-hidden="true" tabindex="-1"></a>        mu <span class="op">=</span> y_pred[..., <span class="dv">0</span>:<span class="dv">1</span>]</span>
-<span id="cb6-13"><a href="#cb6-13" aria-hidden="true" tabindex="-1"></a>        log_var <span class="op">=</span> y_pred[..., <span class="dv">1</span>:<span class="dv">2</span>]</span>
-<span id="cb6-14"><a href="#cb6-14" aria-hidden="true" tabindex="-1"></a>        var <span class="op">=</span> ops.maximum(ops.exp(log_var), VAR_FLOOR)</span>
+<span id="cb6-13"><a href="#cb6-13" aria-hidden="true" tabindex="-1"></a>        raw_var <span class="op">=</span> y_pred[..., <span class="dv">1</span>:<span class="dv">2</span>]</span>
+<span id="cb6-14"><a href="#cb6-14" aria-hidden="true" tabindex="-1"></a>        var <span class="op">=</span> VAR_FLOOR <span class="op">+</span> ops.softplus(raw_var)</span>
 <span id="cb6-15"><a href="#cb6-15" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> <span class="fl">0.5</span> <span class="op">*</span> (ops.log(<span class="fl">2.0</span> <span class="op">*</span> np.pi <span class="op">*</span> var) <span class="op">+</span> ops.square(y_true <span class="op">-</span> mu) <span class="op">/</span> var)</span>
 <span id="cb6-16"><a href="#cb6-16" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb6-17"><a href="#cb6-17" aria-hidden="true" tabindex="-1"></a>    model.<span class="bu">compile</span>(loss<span class="op">=</span>gaussian_nll, optimizer<span class="op">=</span>keras.optimizers.Adam(learning_rate))</span>
@@ -745,19 +751,26 @@ Econometric Interpretation
 <span id="cb6-24"><a href="#cb6-24" aria-hidden="true" tabindex="-1"></a>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </details>
 <div class="cell-output cell-output-stdout">
-<pre><code>&lt;keras.src.callbacks.history.History object at 0x3072e4440&gt;</code></pre>
+<pre><code>&lt;keras.src.callbacks.history.History object at 0x3130e8440&gt;</code></pre>
 </div>
 <details class="code-fold">
 <summary>Show the code</summary>
 <div class="sourceCode cell-code" id="cb8"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a>pred_std <span class="op">=</span> dist_model.predict(Xs_te, verbose<span class="op">=</span><span class="dv">0</span>)</span>
-<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>mu_std, log_var_std <span class="op">=</span> pred_std[:, <span class="dv">0</span>], pred_std[:, <span class="dv">1</span>]</span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>mu_std, raw_var_std <span class="op">=</span> pred_std[:, <span class="dv">0</span>], pred_std[:, <span class="dv">1</span>]</span>
 <span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a>mu_dist_te <span class="op">=</span> mu_std <span class="op">*</span> y_scale <span class="op">+</span> y_center</span>
-<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a>var_dist_te <span class="op">=</span> np.maximum(np.exp(log_var_std), VAR_FLOOR) <span class="op">*</span> (y_scale <span class="op">**</span> <span class="dv">2</span>)</span>
+<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a>var_dist_te <span class="op">=</span> (VAR_FLOOR <span class="op">+</span> np.logaddexp(<span class="fl">0.0</span>, raw_var_std)) <span class="op">*</span> (y_scale <span class="op">**</span> <span class="dv">2</span>)</span>
 <span id="cb8-6"><a href="#cb8-6" aria-hidden="true" tabindex="-1"></a>sigma_dist_te <span class="op">=</span> np.sqrt(var_dist_te)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </details>
 </div>
-<p>Because the network is trained on the standardized target <span class="math inline">\tilde y_t = (y_t-\bar y)/s_y</span>, the head <span class="math inline">v_\phi</span> predicts the log of the conditional variance of <span class="math inline">\tilde y</span>. Linear standardization is variance-equivariant: <span class="math inline">\operatorname{Var}(y\mid \mathbf{x}) = s_y^2 \cdot \operatorname{Var}(\tilde y\mid \mathbf{x})</span>, so the back-transformed predictive variance is <span class="math inline">\max\{\exp(v_\phi(\mathbf{x}_t)), c\} \cdot s_y^2</span>, exactly as implemented in the code — the floor <span class="math inline">c</span> binds only when the pre-floor log-variance output is very small. This identity is specific to linear scaling of the target. If the target itself were log-transformed (as with <span class="math inline">z_t=\log RV_t</span> in the <a href="./nn_example.html">previous chapter</a>), the Gaussian predictive density in <span class="math inline">z</span> would transform to a <em>lognormal</em> density in <span class="math inline">RV</span> by the change-of-variables formula, and extracting the level-scale conditional mean from it would use the lognormal moment identity <span class="math inline">\mathbb{E}[RV] = \exp(\mu + \sigma^2/2)</span> — a step our application never needs, because it stays on the log-<span class="math inline">RV</span> scale throughout. <span class="citation" data-cites="Kleen2024">Kleen (<a href="#ref-Kleen2024" role="doc-biblioref">2024</a>)</span> shows that under LogS, CRPS, the quadratic score, and the pseudo-spherical score, model <em>rankings</em> are invariant under linear rescaling of the data. Two models trained on the standardized target can therefore be compared on the standardized scale without back-transformation. The transformation matters only for comparisons against forecasts produced on the unstandardized scale, where absolute score values enter.</p>
+<p>Because the network is trained on <span class="math inline">\tilde y_{t+1}=(y_{t+1}-\bar y)/s_y</span> paired with <span class="math inline">\mathbf{x}_t</span>, the map <span class="math inline">c+\operatorname{softplus}(a_\phi(\mathbf{x}_t))</span> represents the conditional variance of <span class="math inline">\tilde y_{t+1}</span> given <span class="math inline">\mathbf{x}_t</span>. Linear standardization is variance-equivariant: </p>
+<div class="display-math-block">
+<p><span class="math display">
+\operatorname{Var}(y_{t+1}\mid \mathbf{x}_t)
+=s_y^2\operatorname{Var}(\tilde y_{t+1}\mid \mathbf{x}_t).
+</span></p>
+</div>
+<p> Thus, the back-transformed predictive variance is <span class="math inline">[c+\operatorname{softplus}(a_\phi(\mathbf{x}_t))]s_y^2</span>, exactly as implemented. This identity is specific to linear scaling. If the target were instead modeled on the log scale, a Gaussian predictive density for <span class="math inline">\log RV</span> would imply a lognormal density for <span class="math inline">RV</span> through a change of variables, and its level-scale mean would be <span class="math inline">\mathbb{E}[RV]=\exp(\mu+\sigma^2/2)</span>. The present application stays on the log-<span class="math inline">RV</span> scale throughout. Under the scores considered here, consistent linear rescaling preserves model rankings <span class="citation" data-cites="Kleen2024">(<a href="#ref-Kleen2024" role="doc-biblioref">Kleen 2024</a>)</span>, although absolute numerical score levels generally change. Forecasts and outcomes must therefore be placed on one common scale before their scores are compared.</p>
 <div class="cell">
 <details class="code-fold">
 <summary>Show the code</summary>
@@ -779,10 +792,11 @@ Econometric Interpretation
 </details>
 <div class="cell-output cell-output-stdout">
 <pre><code>                    model  mean_LogS  mean_CRPS
-0        HAR-OLS Gaussian     0.9091     0.3335
-1  Distributional HAR-FNN     0.9259     0.3351</code></pre>
+0        HAR-OLS Gaussian     0.8767     0.3218
+1  Distributional HAR-FNN     0.8966     0.3246</code></pre>
 </div>
 </div>
+<p><a href="#fig-distnn-empirical-bands" class="quarto-xref">Figure&nbsp;9.2</a> places the two test-block forecasts on a common scale. Compare the constant-width baseline band in the top panel with the feature-dependent band below it.</p>
 <div class="cell">
 <details class="code-fold">
 <summary>Show the code</summary>
@@ -821,7 +835,7 @@ Figure&nbsp;9.2: Realized <span class="math inline">\log RV_{t+1}</span> on the 
 </div>
 </div>
 </div>
-<p>The two predictive bands give the first part of the story directly. The HAR-OLS Gaussian band is a parallel pair of lines: a single training-block residual variance is replayed at every test-block date, so the forecast distribution is just a translated copy of the same bell curve. The distributional HAR-FNN band tightens in quiet stretches where the HAR averages are small and widens in stress periods — the predictive standard deviation varies by roughly a factor of 1.6 across the test block, while the baseline holds it constant. The variance head produces an economically plausible, feature-dependent scale; whether that scale is <em>accurate</em> is precisely what the score and calibration diagnostics below must judge.</p>
+<p>The two predictive bands give the first part of the story directly. The HAR-OLS Gaussian band is a parallel pair of lines: a single training-block residual variance is replayed at every test-block date, so the forecast distribution is just a translated copy of the same bell curve. The distributional HAR-FNN band tightens in quiet stretches where the HAR averages are small and widens in stress periods — the predictive standard deviation varies by roughly a factor of 1.5 across the test block, while the baseline holds it constant. The variance head therefore produces a feature-dependent scale; whether that variation improves the density forecast is precisely what the score and calibration diagnostics below must judge.</p>
 <div class="cell">
 <details class="code-fold">
 <summary>Show the code</summary>
@@ -873,9 +887,9 @@ Figure&nbsp;9.3: Average LogS (first panel) and average CRPS (second panel) on t
 </div>
 </div>
 </div>
-<p>The averages and PITs in <a href="#fig-distnn-empirical-summary" class="quarto-xref">Figure&nbsp;9.3</a> give the second part: scoring rules and calibration diagnostics do not point to the same winner. Despite the visible time variation in the predictive variance, the distributional HAR-FNN does not beat the homoskedastic baseline on either LogS or CRPS — the two scores are within rounding of each other, with the distributional model marginally worse. As in the <a href="./nn_example.html">previous chapter</a>, we do not test these differences formally; a Diebold–Mariano-type comparison of the score differentials with heteroskedasticity- and autocorrelation-consistent (HAC) standard errors would be the instrument for that. The PIT histograms are also broadly similar: both are roughly flat and close to uniform — consistent with the log-HAR residuals being approximately homoskedastic in this period — with the distributional FNN reducing the mild edge mass at the price of a slightly bumpier interior.</p>
-<p>This is the empirical counterpart to the joint-training concern in <a href="#sec-hnn" class="quarto-xref">Section&nbsp;9.5</a>. The log-HAR residuals on this sample are close to homoskedastic, so a constant-variance forecast is already a strong baseline. Adding a flexible variance head with a shared hidden core, but no further discipline, does not reliably translate the learned conditional scale into a better density forecast: the joint maximum-likelihood objective lets the mean and variance heads trade off against each other in ways that need not improve out-of-sample log score. The Hemisphere Neural Network architecture introduces the volatility-emphasis constraint and blocked subsampling precisely to overcome this difficulty, so applying HNN here would be a natural next step.</p>
-<p>The methodological lesson is that no single diagnostic suffices. A practitioner who reads only the score table might conclude that the variance head has learned nothing — in fact, it has learned a sensible conditional scale. A practitioner who reads only the predictive band might conclude that the distributional model is clearly better — in fact, the score and PIT diagnostics show no improvement. Only the combination of <a href="#fig-distnn-empirical-bands" class="quarto-xref">Figure&nbsp;9.2</a> and <a href="#fig-distnn-empirical-summary" class="quarto-xref">Figure&nbsp;9.3</a> reveals both what the model does and what it achieves on the proper scoring rules that motivate distributional forecasting.</p>
+<p>The averages and PITs in <a href="#fig-distnn-empirical-summary" class="quarto-xref">Figure&nbsp;9.3</a> give the second part: the time-varying variance does not improve either the scores or the PIT diagnostic. The HAR-OLS Gaussian baseline has the lower average LogS (0.8767 against 0.8966) and the lower average CRPS (0.3218 against 0.3246). As in the <a href="./nn_example.html">previous chapter</a>, we do not test these differences formally; a Diebold–Mariano-type comparison of the score differentials with heteroskedasticity- and autocorrelation-consistent (HAC) standard errors would be the appropriate formal comparison. The PIT histograms are centrally concentrated rather than flat: both forecasts produce too few observations in the outer bins and too many near the middle, descriptive evidence consistent with predictive distributions that are too wide. The central concentration is more pronounced for the distributional HAR-FNN. Because the PITs are finite and serially dependent, the histograms are diagnostics rather than formal calibration tests.</p>
+<p>This comparison ranks two complete forecasting procedures; it does not isolate the effect of adding a variance head. The procedures differ in their mean specification, variance specification, and optimization problem. Their score and PIT differences could therefore reflect the nonlinear mean, feature-dependent variance, joint optimization, or interactions among them. A sharper diagnostic comparison would hold the fitted mean fixed and vary only the variance estimator—for example, a constant or two-step variance against a jointly trained variance head. Applying the full HNN stabilization procedure would be a natural next experiment, but the present comparison cannot attribute its result to any single ingredient.</p>
+<p>The methodological lesson is that no single diagnostic suffices. A practitioner who reads only the predictive bands might conclude that the distributional model is better because its uncertainty changes over time. The score comparison and PIT histograms show why that conclusion would be premature: in this test block, the extra variation in the predicted scale coincides with worse average scores and more pronounced overdispersion. Together, <a href="#fig-distnn-empirical-bands" class="quarto-xref">Figure&nbsp;9.2</a> and <a href="#fig-distnn-empirical-summary" class="quarto-xref">Figure&nbsp;9.3</a> distinguish what the variance head changes from whether that change improves the density forecast.</p>
 </section>
 <section id="summary" class="level2" data-number="9.8">
 <h2 data-number="9.8" class="anchored" data-anchor-id="summary"><span class="header-section-number">9.8</span> Summary</h2>
@@ -894,8 +908,8 @@ Key Takeaways
 <li>Negative log-likelihood training is the neural-network version of log-score minimization and links directly to cross-entropy and KL divergence.</li>
 <li>Other proper scoring rules, such as CRPS, can be used when they better match the desired forecast-evaluation criterion and are differentiable for the chosen model.</li>
 <li>Jointly estimating conditional means and variances can be unstable in overparameterized networks because the mean and variance heads can substitute for each other.</li>
-<li>Hemisphere Neural Networks stabilize Gaussian distributional learning by separating mean and variance heads after a shared representation.</li>
-<li>Mixture Density Networks allow richer shapes such as skewness, fat tails, and multiple modes, but introduce additional training and interpretation challenges.</li>
+<li>Hemisphere Neural Networks combine dedicated heads and a shared representation with a volatility-emphasis constraint, blocked subsampling, and blocked out-of-bag recalibration; head separation alone is not the stabilizer.</li>
+<li>Mixture Density Networks allow richer shapes such as skewness, multiple modes, and heavier finite-range tails than a single Gaussian, but introduce additional training and interpretation challenges.</li>
 </ol>
 </div>
 </div>
@@ -911,7 +925,7 @@ Common Pitfalls
 <div class="callout-body-container callout-body">
 <ul>
 <li>Treating a distributional network as calibrated merely because it outputs a density.</li>
-<li>Forgetting that variance or scale outputs must be constrained to be positive, for example with a softplus transformation or a variance floor.</li>
+<li>Forgetting that variance or scale outputs must be constrained to be positive, or using a hard floor that creates a zero-gradient region when it binds.</li>
 <li>Interpreting mixture components as economic regimes without additional identifying restrictions.</li>
 <li>Optimizing in-sample log-likelihood while ignoring out-of-sample calibration, PIT behavior, CRPS, or tail performance.</li>
 <li>Using a very flexible distributional architecture in a small macroeconomic sample without strong validation or regularization.</li>
@@ -934,18 +948,19 @@ Exercise 9.1: Why Joint Gaussian NLL Training Can Be Ill-Posed
 <p>Consider a Gaussian distributional model for one-step-ahead forecasting. Maximizing the likelihood is equivalent to maximizing the log-likelihood, which in turn is equivalent to minimizing the negative log-likelihood. We therefore work with the per-observation Gaussian negative log-likelihood, up to an additive constant, </p>
 <div class="display-math-block">
 <p><span class="math display">
-\ell(e_t,\sigma_t^2)=\frac{1}{2}\log(\sigma_t^2)+\frac{e_t^2}{2\sigma_t^2},
-\qquad e_t=y_{t+1}-\mu_t,\qquad \sigma_t^2&gt;0.
+\ell_{t+1}(e_{t+1},\sigma_t^2)=\frac{1}{2}\log(\sigma_t^2)+\frac{e_{t+1}^2}{2\sigma_t^2},
+\qquad e_{t+1}=y_{t+1}-\mu_t,\qquad \sigma_t^2&gt;0.
 </span></p>
 </div>
 <ol type="1">
-<li>For fixed <span class="math inline">e_t \neq 0</span>, derive the value of <span class="math inline">\sigma_t^2</span> that minimizes <span class="math inline">\ell(e_t,\sigma_t^2)</span>. Verify that this critical point is a minimum.</li>
-<li>Show that if <span class="math inline">e_t=0</span>, then the infimum of <span class="math inline">\ell(e_t,\sigma_t^2)</span> over <span class="math inline">\sigma_t^2&gt;0</span> equals <span class="math inline">-\infty</span> and is not attained at any finite variance value. Conclude that if an overparameterized mean network interpolates the training sample exactly, so that <span class="math inline">e_t=0</span> for all <span class="math inline">t=1,\dots,T</span>, and the variance head can choose each <span class="math inline">\sigma_t^2</span> freely, the sample Gaussian NLL has no finite minimizer.</li>
+<li>For fixed <span class="math inline">e_{t+1} \neq 0</span>, derive the value of <span class="math inline">\sigma_t^2</span> that minimizes <span class="math inline">\ell_{t+1}(e_{t+1},\sigma_t^2)</span>. Verify that this critical point is a minimum.</li>
+<li>Show that if <span class="math inline">e_{t+1}=0</span>, then the infimum of <span class="math inline">\ell_{t+1}(e_{t+1},\sigma_t^2)</span> over <span class="math inline">\sigma_t^2&gt;0</span> equals <span class="math inline">-\infty</span> and is not attained at any finite variance value. Conclude that if an overparameterized mean network interpolates the training sample exactly, so that <span class="math inline">e_{t+1}=0</span> for all <span class="math inline">t=1,\dots,T</span>, and the variance head can choose each <span class="math inline">\sigma_t^2</span> freely, the sample Gaussian NLL has no finite minimizer.</li>
 <li>Suppose instead that the model imposes a variance floor <span class="math inline">\sigma_t^2 \ge c</span> for some constant <span class="math inline">c&gt;0</span>. Solve the constrained minimization problem for one observation and show that the optimal variance is <span class="math display">
-\sigma_t^{2\ast}=\max\{e_t^2,c\}.
+\sigma_t^{2\ast}=\max\{e_{t+1}^2,c\}.
 </span> Explain briefly why this removes the pathology from Part 2, but does not by itself guarantee good out-of-sample calibration.</li>
+<li>Assume <span class="math inline">y_{t+1}</span> and <span class="math inline">\mathbb{E}[y_{t+1}\mid\mathbf{x}_t]</span> have finite second moments and that the process is stationary and ergodic. Use the law of total variance to show that <span class="math inline">\mathbb{E}[\operatorname{Var}(y_{t+1}\mid\mathbf{x}_t)]\leq\operatorname{Var}(y_{t+1})</span>, with strict inequality when the conditional mean is nonconstant. Then state the in-sample average squared residual when a flexible mean interpolates every training outcome, explain why those residuals cannot calibrate the variance scale, and explain why blocked out-of-bag forecast errors are preferable when overlapping time-series windows share observations.</li>
 </ol>
-<p><em>Exam level. Parts 2-3 are meant to test whether students understand the instability behind joint mean-variance training rather than just the Gaussian likelihood formula itself.</em></p>
+<p><em>Exam level. Parts 2–4 test whether students understand the instability behind joint mean-variance training and the motivation for out-of-bag calibration rather than only the Gaussian likelihood formula.</em></p>
 </div>
 </div>
 <div class="callout callout-style-default callout-warning callout-titled">
@@ -954,34 +969,18 @@ Exercise 9.1: Why Joint Gaussian NLL Training Can Be Ill-Posed
 <i class="callout-icon"></i>
 </div>
 <div class="callout-title-container flex-fill">
-Hint for Part 2
-</div>
-<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
-</div>
-<div id="callout-9" class="callout-9-contents callout-collapse collapse">
-<div class="callout-body-container callout-body">
-<p>Substitute <span class="math inline">e_t=0</span> into the objective and ask what happens as <span class="math inline">\sigma_t^2 \downarrow 0</span>. For the sample statement, write the sample NLL as a sum of the one-observation objectives.</p>
-</div>
-</div>
-</div>
-<div class="callout callout-style-default callout-warning callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-10-contents" aria-controls="callout-10" aria-expanded="false" aria-label="Toggle callout">
-<div class="callout-icon-container">
-<i class="callout-icon"></i>
-</div>
-<div class="callout-title-container flex-fill">
 Hint for Part 3
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-10" class="callout-10-contents callout-collapse collapse">
+<div id="callout-9" class="callout-9-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p>First solve the unconstrained problem from Part 1. Then check whether that solution satisfies the inequality constraint <span class="math inline">\sigma_t^2 \ge c</span>.</p>
 </div>
 </div>
 </div>
 <div class="callout callout-style-default callout-tip callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-11-contents" aria-controls="callout-11" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-10-contents" aria-controls="callout-10" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -990,44 +989,44 @@ Solution
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-11" class="callout-11-contents callout-collapse collapse">
+<div id="callout-10" class="callout-10-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p><strong>Part 1</strong></p>
 <p>Differentiate with respect to <span class="math inline">\sigma_t^2</span>: </p>
 <div class="display-math-block">
 <p><span class="math display">
-\frac{\partial \ell}{\partial \sigma_t^2}
-= \frac{1}{2\sigma_t^2}-\frac{e_t^2}{2(\sigma_t^2)^2}.
+\frac{\partial \ell_{t+1}}{\partial \sigma_t^2}
+= \frac{1}{2\sigma_t^2}-\frac{e_{t+1}^2}{2(\sigma_t^2)^2}.
 </span></p>
 </div>
 <p> Setting this equal to zero gives </p>
 <div class="display-math-block">
 <p><span class="math display">
-\frac{1}{2\sigma_t^2}=\frac{e_t^2}{2(\sigma_t^2)^2}
+\frac{1}{2\sigma_t^2}=\frac{e_{t+1}^2}{2(\sigma_t^2)^2}
 \quad\Longrightarrow\quad
-\sigma_t^2=e_t^2.
+\sigma_t^2=e_{t+1}^2.
 </span></p>
 </div>
 <p> To verify that this is a minimum, compute the second derivative: </p>
 <div class="display-math-block">
 <p><span class="math display">
-\frac{\partial^2 \ell}{\partial (\sigma_t^2)^2}
-= -\frac{1}{2(\sigma_t^2)^2}+\frac{e_t^2}{(\sigma_t^2)^3}.
+\frac{\partial^2 \ell_{t+1}}{\partial (\sigma_t^2)^2}
+= -\frac{1}{2(\sigma_t^2)^2}+\frac{e_{t+1}^2}{(\sigma_t^2)^3}.
 </span></p>
 </div>
-<p> Evaluating at <span class="math inline">\sigma_t^2=e_t^2</span> yields </p>
+<p> Evaluating at <span class="math inline">\sigma_t^2=e_{t+1}^2</span> yields </p>
 <div class="display-math-block">
 <p><span class="math display">
-\frac{\partial^2 \ell}{\partial (\sigma_t^2)^2}\Big|_{\sigma_t^2=e_t^2}
-= \frac{1}{2e_t^4}&gt;0.
+\frac{\partial^2 \ell_{t+1}}{\partial (\sigma_t^2)^2}\Big|_{\sigma_t^2=e_{t+1}^2}
+= \frac{1}{2e_{t+1}^4}&gt;0.
 </span></p>
 </div>
-<p> Hence the minimizer for fixed <span class="math inline">e_t\neq 0</span> is <span class="math inline">\sigma_t^2=e_t^2</span>.</p>
+<p> Hence the minimizer for fixed <span class="math inline">e_{t+1}\neq 0</span> is <span class="math inline">\sigma_t^2=e_{t+1}^2</span>.</p>
 <p><strong>Part 2</strong></p>
-<p>If <span class="math inline">e_t=0</span>, then </p>
+<p>If <span class="math inline">e_{t+1}=0</span>, then </p>
 <div class="display-math-block">
 <p><span class="math display">
-\ell(0,\sigma_t^2)=\frac{1}{2}\log(\sigma_t^2).
+\ell_{t+1}(0,\sigma_t^2)=\frac{1}{2}\log(\sigma_t^2).
 </span></p>
 </div>
 <p> As <span class="math inline">\sigma_t^2 \downarrow 0</span>, </p>
@@ -1037,26 +1036,43 @@ Solution
 </span></p>
 </div>
 <p> Therefore the infimum of the objective is <span class="math inline">-\infty</span>. However, no finite positive value of <span class="math inline">\sigma_t^2</span> attains this infimum, so the problem has no minimizer.</p>
-<p>For the sample statement: if the mean network interpolates the training sample exactly, then <span class="math inline">e_t=0</span> for all <span class="math inline">t</span>. The sample objective is </p>
+<p>For the sample statement, if the mean network interpolates the training sample exactly, then <span class="math inline">e_{t+1}=0</span> for all <span class="math inline">t</span>. The sample objective is </p>
 <div class="display-math-block">
 <p><span class="math display">
-\sum_{t=1}^{T}\ell(0,\sigma_t^2)=\frac{1}{2}\sum_{t=1}^{T}\log(\sigma_t^2).
+\sum_{t=1}^{T}\ell_{t+1}(0,\sigma_t^2)=\frac{1}{2}\sum_{t=1}^{T}\log(\sigma_t^2).
 </span></p>
 </div>
 <p> By sending each <span class="math inline">\sigma_t^2</span> arbitrarily close to zero, this sum can be made arbitrarily negative. Hence the training Gaussian NLL has no finite minimizer. This is the basic ill-posedness behind unstable joint training of very flexible mean and variance networks.</p>
 <p><strong>Part 3</strong></p>
-<p>From Part 1, the unconstrained minimizer is <span class="math inline">\sigma_t^2=e_t^2</span>. Under the constraint <span class="math inline">\sigma_t^2\ge c</span>, there are two cases:</p>
+<p>From Part 1, the unconstrained minimizer is <span class="math inline">\sigma_t^2=e_{t+1}^2</span>. Under the constraint <span class="math inline">\sigma_t^2\ge c</span>, there are two cases:</p>
 <ul>
-<li>If <span class="math inline">e_t^2\ge c</span>, the unconstrained optimum is feasible, so <span class="math inline">\sigma_t^{2\ast}=e_t^2</span>.</li>
-<li>If <span class="math inline">e_t^2&lt;c</span>, the unconstrained optimum violates the constraint, so the constrained optimum lies at the boundary, <span class="math inline">\sigma_t^{2\ast}=c</span>.</li>
+<li>If <span class="math inline">e_{t+1}^2\ge c</span>, the unconstrained optimum is feasible, so <span class="math inline">\sigma_t^{2\ast}=e_{t+1}^2</span>.</li>
+<li>If <span class="math inline">e_{t+1}^2&lt;c</span>, the unconstrained optimum violates the constraint, so the constrained optimum lies at the boundary, <span class="math inline">\sigma_t^{2\ast}=c</span>.</li>
 </ul>
 <p>Therefore </p>
 <div class="display-math-block">
 <p><span class="math display">
-\sigma_t^{2\ast}=\max\{e_t^2,c\}.
+\sigma_t^{2\ast}=\max\{e_{t+1}^2,c\}.
 </span></p>
 </div>
-<p>This removes the pathology from Part 2 because even if <span class="math inline">e_t=0</span>, the smallest admissible variance is now <span class="math inline">c</span>, so the objective cannot be driven to <span class="math inline">-\infty</span> by shrinking the variance to zero. But this does not guarantee good out-of-sample calibration: a variance floor prevents a mathematical degeneracy, yet the learned variance process can still be badly misspecified for future data.</p>
+<p>The positive variance floor removes the pathology from Part 2 because even if <span class="math inline">e_{t+1}=0</span>, the smallest admissible variance is now <span class="math inline">c</span>, so the objective cannot be driven to <span class="math inline">-\infty</span> by shrinking the variance to zero. But this does not guarantee good out-of-sample calibration: a variance floor prevents a mathematical degeneracy, yet the learned variance process can still be badly misspecified for future data.</p>
+<p><strong>Part 4</strong></p>
+<p>The law of total variance gives </p>
+<div class="display-math-block">
+<p><span class="math display">
+\operatorname{Var}(y_{t+1})
+=\mathbb{E}\!\left[\operatorname{Var}(y_{t+1}\mid\mathbf{x}_t)\right]
++\operatorname{Var}\!\left(\mathbb{E}[y_{t+1}\mid\mathbf{x}_t]\right).
+</span></p>
+</div>
+<p> The second term is nonnegative, which proves the weak inequality. It is positive when the conditional mean is nonconstant, giving strict inequality. Stationarity and ergodicity justify estimating these population moments with time averages.</p>
+<p>If the fitted mean interpolates every training outcome, then <span class="math inline">e_{t+1}=0</span> for every training origin and </p>
+<div class="display-math-block">
+<p><span class="math display">
+\frac{1}{T}\sum_{t=1}^{T}e_{t+1}^2=0.
+</span></p>
+</div>
+<p> These in-sample residuals contain no information about the variance of genuine forecast errors and therefore cannot calibrate <span class="math inline">\kappa</span> or the overall variance scale. An out-of-bag error at time <span class="math inline">t+1</span> comes from a fit that did not train on that target. Holding out contiguous blocks also reduces the direct information sharing created when adjacent, overlapping windows contain many of the same observations. Blocked out-of-bag errors are therefore more credible proxies for time-series forecast errors than either interpolating residuals or randomly held-out individual dates.</p>
 </div>
 </div>
 </div>
@@ -1100,7 +1116,7 @@ f_G(m_t\mid \mathbf{x}_t).
 </div>
 </div>
 <div class="callout callout-style-default callout-warning callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-13-contents" aria-controls="callout-13" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-12-contents" aria-controls="callout-12" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -1109,30 +1125,14 @@ Hint for Part 1
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-13" class="callout-13-contents callout-collapse collapse">
+<div id="callout-12" class="callout-12-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p>Use the symmetry of the mixture. For the variance, compute <span class="math inline">\mathbb{E}[y_{t+1}^2\mid \mathbf{x}_t]</span> first.</p>
 </div>
 </div>
 </div>
-<div class="callout callout-style-default callout-warning callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-14-contents" aria-controls="callout-14" aria-expanded="false" aria-label="Toggle callout">
-<div class="callout-icon-container">
-<i class="callout-icon"></i>
-</div>
-<div class="callout-title-container flex-fill">
-Hint for Part 3
-</div>
-<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
-</div>
-<div id="callout-14" class="callout-14-contents callout-collapse collapse">
-<div class="callout-body-container callout-body">
-<p>For the mixture density, plug <span class="math inline">y=m_t</span> into both Gaussian components. For the Gaussian forecast, plug <span class="math inline">y=m_t</span> into the density with variance <span class="math inline">m_t^2+s^2</span> and then, holding <span class="math inline">s</span> fixed, study the limit as <span class="math inline">m_t \to \infty</span>.</p>
-</div>
-</div>
-</div>
 <div class="callout callout-style-default callout-tip callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-15-contents" aria-controls="callout-15" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-13-contents" aria-controls="callout-13" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -1141,7 +1141,7 @@ Solution
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-15" class="callout-15-contents callout-collapse collapse">
+<div id="callout-13" class="callout-13-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p><strong>Part 1</strong></p>
 <p>By symmetry, </p>
@@ -1173,7 +1173,7 @@ Solution
 <p>Under squared-error loss, the optimal point forecast is the conditional mean. Since both forecast distributions have conditional mean zero, the MSE-optimal point forecast is </p>
 <div class="display-math-block">
 <p><span class="math display">
-\hat{y}_{t+1}=0.
+\hat{y}_{t+1\mid t}=0.
 </span></p>
 </div>
 <p> Therefore an MSE comparison cannot distinguish the two forecast distributions: both imply exactly the same optimal point forecast, even though one forecast is bimodal and the other is unimodal.</p>
@@ -1214,7 +1214,7 @@ f_G(m_t\mid \mathbf{x}_t)
 \sim \frac{e^{-1/2}}{\sqrt{2\pi}\,m_t}\to 0.
 </span></p>
 </div>
-<p> So when the realization lands near one of the two modes and the modes are well separated, the mixture forecast assigns much higher density to the realized value. Therefore the mixture forecast gets a much better LogS, even though MSE cannot distinguish it from the moment-matched Gaussian.</p>
+<p> So when the realization lands near one of the two modes and the modes are well separated, the mixture forecast assigns much higher density to the realized value. Therefore the mixture forecast achieves a substantially lower (better) LogS, even though MSE cannot distinguish it from the moment-matched Gaussian.</p>
 <p><strong>Part 4</strong></p>
 <p>If we swap the component labels, the predictive density becomes </p>
 <div class="display-math-block">
@@ -1256,7 +1256,7 @@ Kleen, Onno. 2024. <span>“Scaling and Measurement Error Sensitivity of Scoring
 <div id="quarto-appendix" class="default"><section id="footnotes" class="footnotes footnotes-end-of-document" role="doc-endnotes"><h2 class="anchored quarto-appendix-heading">Footnotes</h2>
 
 <ol>
-<li id="fn1"><p>The data file <code>data/taq_spy/SPY_daily_measures.csv</code> is documented in <a href="./datasets.html#sec-spy-taq-realized">the dataset appendix</a>. The pipeline below uses 22 trading days as the maximum lag through the monthly HAR average and forecasts <span class="math inline">\log RV_{t+1}</span>.<a href="#fnref1" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
+<li id="fn1"><p>The data file <code>data/taq_spy/SPY_daily_measures.csv</code> covers 2015-01-02 through 2024-12-31 and is documented in <a href="./datasets.html#sec-spy-taq-realized">the dataset appendix</a>. The longest HAR component averages 21 trading days. The pipeline nevertheless begins forecasting only after 22 lagged observations so that its forecast origins and final 20% test block match those in the previous chapter.<a href="#fnref1" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
 </ol>
 </section></div></main> <!-- /main -->
 <script id="quarto-html-after-body" type="application/javascript">

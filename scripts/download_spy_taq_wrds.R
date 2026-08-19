@@ -326,6 +326,18 @@ for (dd in dates) {
   )
 
   if (!is.null(result)) {
+    # A failed query returns an all-NA row. Never let it overwrite a row that
+    # already holds computed measures (e.g. from an earlier run): a transient
+    # network drop during an --overwrite run must not erase good data.
+    if (all(is.na(result$rv)) && nrow(daily_measures) > 0) {
+      existing_ok <- daily_measures[
+        as.Date(date) == result$date & symbol == result$symbol & !is.na(rv)
+      ]
+      if (nrow(existing_ok) > 0) {
+        message(dd, ": query failed; keeping the existing row with computed measures.")
+        next
+      }
+    }
     daily_measures <- rbindlist(list(daily_measures, result), fill = TRUE)
     setorder(daily_measures, date)
     daily_measures <- unique(daily_measures, by = c("date", "symbol"), fromLast = TRUE)

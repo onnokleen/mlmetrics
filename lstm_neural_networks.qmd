@@ -9,9 +9,9 @@ number-offset: [6, 0]
 
 The [previous chapter](recurrent_neural_networks.qmd) showed the central weakness of a plain recurrent neural network (RNN): the hidden state is recursively updated, but the gradients used for learning can vanish as they are propagated backward through many time steps. Long Short-Term Memory (LSTM) networks were designed to address precisely this problem.
 
-LSTMs add a dedicated **cell state** $C_t$ that acts as a stable memory path through time, controlled by **gates** — small neural-network components that decide what information to retain, what new information to add, and what part of the internal memory to expose as the hidden state.
+LSTMs add a dedicated **cell state** $C_t$, a memory path through time whose attenuation the network itself controls through **gates** — small neural-network components that decide what information to retain, what new information to add, and what part of the internal memory to expose as the hidden state.
 
-For econometricians, LSTMs are useful when the relevant predictive state may evolve over time and depend on information from more than only the most recent observations. Examples include asset pricing with time-varying macroeconomic states, macroeconomic forecasting with long predictor histories, and volatility or risk forecasting with persistent regimes.
+For econometricians, LSTMs are useful when the relevant predictive state may evolve over time and depend on more than the most recent observations. Examples include asset pricing with time-varying macroeconomic states, macroeconomic forecasting with long predictor histories, and volatility or risk forecasting with persistent regimes.
 
 For optional visual intuition, [this blog post](https://colah.github.io/posts/2015-08-Understanding-LSTMs/) gives a detailed informal discussion of LSTMs.
 
@@ -26,7 +26,7 @@ For optional visual intuition, [this blog post](https://colah.github.io/posts/20
 
 ## LSTM Architecture and Notation
 
-LSTM networks, introduced by @HochreiterSchmidhuber1997, extend plain RNNs by adding a gating mechanism that controls long-term information flow; the forget gate, central to the modern form of the cell, was added later by @GersSchmidhuberCummins2000. The notation below lists the several quantities the LSTM tracks at each time step.
+LSTM networks, introduced by @HochreiterSchmidhuber1997, extend plain RNNs by adding a gating mechanism that controls long-term information flow; the forget gate, central to the modern form of the cell, was added later by @GersSchmidhuberCummins2000. The notation below lists the quantities that the LSTM tracks at each time step.
 
 At each time step $t$, an LSTM cell maintains the following quantities, where $H$ is the number of hidden units and $p$ the input dimension. To keep the gate equations light, we drop the boldface used for vectors in the [RNN chapter](recurrent_neural_networks.qmd): $x_t$, $h_t$, $C_t$, and the gates below are all vectors of the stated dimensions, and the weight matrices $W_f, W_i, W_c, W_o$ are likewise set without boldface.
 
@@ -36,7 +36,7 @@ At each time step $t$, an LSTM cell maintains the following quantities, where $H
 
 The LSTM uses three gates and the candidate values (all in $\mathbb{R}^H$):
 
-- **Forget gate**: $f_t$, controls what information to retain from or discard from the previous cell state
+- **Forget gate**: $f_t$, controls which information from the previous cell state to retain or discard
 - **Input gate**: $i_t$, controls what new information to store in the cell state
 - **Candidate values**: $\tilde{C}_t$, new candidate information that could be added to the cell state
 - **Output gate**: $o_t$, controls what parts of the cell state to output as the hidden state
@@ -56,7 +56,7 @@ h_t &= o_t \odot \tanh(C_t) \quad \text{(hidden state)}
 \end{aligned}
 $$
 
-Each gate and the candidate values are computed using their own weight matrices and bias vectors. 
+Each gate and the candidate values are computed using their own weight matrices and bias vectors.
 Since the input to each is the concatenation $[h_{t-1}, x_t] \in \mathbb{R}^{H+p}$, the dimensions are:
 
 - $W_f, W_i, W_c, W_o \in \mathbb{R}^{H \times (H+p)}$: weight matrices
@@ -66,7 +66,7 @@ Equivalently, partitioning each weight matrix into its state and input blocks �
 
 **The Gating Mechanism**
 
-A "gate" is a mechanism to selectively let information pass. In LSTMs, this is achieved by combining a sigmoid activation function with element-wise multiplication. The sigmoid function squashes any input to a value between 0 and 1. This output vector then acts as a gate keeper:
+A "gate" is a mechanism to selectively let information pass. In LSTMs, this is achieved by combining a sigmoid activation function with element-wise multiplication. The sigmoid function squashes any input to a value between 0 and 1. This output vector then acts as a gatekeeper:
 
 -   A gate value close to **0** means "let almost nothing through" (a nearly closed gate).
 -   A gate value close to **1** means "let almost everything through" (a nearly open gate).
@@ -115,75 +115,43 @@ knitr::include_graphics(paths)
 
 ## Gradient Flow in LSTMs
 
-LSTMs address the vanishing-gradient problem of plain RNNs through the design of the cell state and its update rule.
-
-**The Cell State as a Gradient Highway**
-
-The LSTM introduces a separate cell state $C_t$ that follows the update rule:
+LSTMs address the vanishing-gradient problem of plain RNNs through the design of the cell state. Its update rule is
 $$
 C_t = f_t \odot C_{t-1} + i_t \odot \tilde{C}_t
 $$
 
-The cell-state update $C_t = f_t \odot C_{t-1} + i_t \odot \tilde C_t$ has an **additive** structure: when the forget gate $f_t$ is close to 1, the coordinatewise derivative $\partial C_{t,j}/\partial C_{t-1,j} = f_{t,j}$ — computed holding the gates and candidate fixed, as formalized just below — is also close to 1, so gradient signal propagates with little attenuation. This is the structural contrast with a plain RNN, where the corresponding partial derivative is the *product* of a weight-matrix factor and an activation derivative.
+The update has an additive structure. The old state enters through $f_t\odot C_{t-1}$, while new information enters through $i_t\odot\tilde C_t$. To isolate the direct cell-state path, hold the gates $f_t,i_t,o_t$ and the candidate $\tilde C_t$ fixed. Because the update acts elementwise, its Jacobian is
 
-To isolate the cell-state gradient path, fix the gate variables $f_t,i_t,o_t$ and the candidate $\tilde C_t$ as constants. Because the update acts elementwise, the Jacobian of $C_t$ with respect to $C_{t-1}$ is the diagonal matrix
 $$
 \frac{\partial C_t}{\partial C_{t-1}}\bigg|_{\text{gates fixed}} = \operatorname{diag}(f_t),
 $$
-so the recursion decouples coordinate by coordinate: for hidden coordinate $j$,
+so for coordinate $j$,
 $$
 \frac{\partial C_{t,j}}{\partial C_{t-1,j}}\bigg|_{\text{gates fixed}} = f_{t,j},
 $$
-and chaining this over $T-t$ steps yields the cell-state path
+and chaining over $T-t$ steps gives
 $$
 \frac{\partial C_{T,j}}{\partial C_{t,j}}\bigg|_{\text{gates fixed}} = \prod_{k=t+1}^T f_{k,j}.
 $$
 
-In a full backward pass, the gates themselves depend on $h_{k-1} = o_{k-1} \odot \tanh(C_{k-1})$, so there is an additional indirect dependence through the gate-computing networks. We return to this in the *Scope of the result* note below; for the qualitative gradient-highway picture, holding the gates fixed is sufficient.
-
-**Key Differences from Plain RNNs**
-
-The gradient flow in LSTMs differs from plain RNNs in three ways:
-
-1. **Additive Highway**: The cell state update has an explicit additive path ($C_t = f_t \odot C_{t-1} + i_t \odot \tilde{C}_t$) that bypasses the tanh nonlinearity. In a plain RNN, all information is compressed through a single tanh ($h_t = \tanh(W_{hh} h_{t-1} + W_{xh} x_t + b_h)$), so gradients must pass through the activation's derivative at every step. The LSTM's cell state can carry a gradient signal backward with no activation derivative in the path when $f_t \approx 1$.
-
-2. **Controlled Forgetting**: The forget gate $f_t \in (0,1)$ controls how much of the previous cell state to retain. The interval is open because the sigmoid approaches its bounds without attaining them, so $f_t = 1$ is unreachable and the cell-state path always decays to some degree. What changes relative to the plain RNN is that the network controls the rate: when $f_t$ is close to 1, the per-step attenuation is slight.
-
-3. **Gate-Controlled Rather Than Norm-Controlled**: Along the cell-state path with the gates held fixed, the attenuation factor is a product of forget-gate values rather than a product of recurrent weight matrices, so it does not depend on $\|W_{hh}\|$. This is a statement about that one path: the forget gates are themselves outputs of $\sigma(W_f\cdot[h_{t-1},x_t]+b_f)$ and therefore do depend on the weights, and the full parameter gradient additionally flows through the gate-producing networks. See the *Scope of the result* note below.
-
-**Comparison of Gradient Expressions**
-
+The structural contrast with a plain RNN is visible by placing the two paths side by side:
 $$
 \begin{aligned}
-\text{Plain RNN:} \quad &\frac{\partial h_T}{\partial h_t} = \prod_{k=t+1}^T \frac{\partial h_k}{\partial h_{k-1}} = \prod_{k=t+1}^T \text{diag}\!\bigl(\tanh'(W_{hh} h_{k-1} + W_{xh} x_k + b_h)\bigr)\, W_{hh} \\
+\text{Plain RNN:} \quad &\frac{\partial h_T}{\partial h_t} = \prod_{k=t+1}^T \frac{\partial h_k}{\partial h_{k-1}} = \prod_{k=t+1}^T \operatorname{diag}\!\bigl(\tanh'(W_{hh} h_{k-1} + W_{xh} x_k + b_h)\bigr)\, W_{hh} \\
 \text{LSTM (cell-state path, gates fixed, coordinate } j\text{):} \quad &\frac{\partial C_{T,j}}{\partial C_{t,j}} = \prod_{k=t+1}^T f_{k,j}
 \end{aligned}
 $$
 
-In plain RNNs, each factor involves the weight matrix $W_{hh}$ and the derivative of the activation function, leading to exponential decay or explosion. In LSTMs, the cell-state-path factors are simply the forget-gate values, which the network can learn to set close to 1 when long-run information should be preserved.
-
-**Selective Memory Through Adaptive Gating**
-
-The forget gate $f_t = \sigma(W_f \cdot [h_{t-1}, x_t] + b_f)$ provides **adaptive memory control**:
-
-1. **Selective Forgetting**: When the network determines that previous information is no longer relevant, it can set $f_t \approx 0$ to "forget" the cell state.
-
-2. **Long-term Retention**: When information should be preserved, the network can set $f_t \approx 1$, allowing gradients to flow backward with minimal attenuation.
-
-3. **Context-Dependent Decisions**: The forget gate's dependence on both $h_{t-1}$ and $x_t$ allows the network to make context-aware decisions about what to remember or forget.
-
-**The Gradient Highway Effect**
-
-When the forget gate learns to stay close to 1 in the coordinates that carry important long-term dependencies:
+Every plain-RNN factor contains both a recurrent transformation and an activation derivative. The direct LSTM cell-state path instead bypasses $\tanh$, and its attenuation is controlled by the input-dependent forget gate $f_t=\sigma(W_f\cdot[h_{t-1},x_t]+b_f)$ rather than by $\|W_{hh}\|$ — a statement about this one path only, since the gates are themselves functions of $W_f$ and the full parameter gradient still depends on the weights through them. A value near zero removes old information; a value near one retains it; and different coordinates can operate at different rates. If the relevant forget gates remain close to one, then
 $$
 \frac{\partial C_{T,j}}{\partial C_{t,j}} = \prod_{k=t+1}^T f_{k,j} \approx 1^{T-t} = 1
 $$
 
-This means gradients can flow backward through many time steps without significant attenuation, enabling the learning of long-term dependencies. The decay is never switched off entirely: each finite-horizon product lies strictly below one, it shrinks geometrically when the gates stay uniformly below some $\bar{f} < 1$, and at rate $f_j^{\,T-t}$ when the gate is constant — but the network chooses the rate. That is the substantive contrast with the plain RNN, where the decay rate is set by $W_{hh}$ together with the activation derivatives along the trajectory — quantities that simultaneously have to serve every other function of the recursion.
+The near-unit forget-gate product means that gradients can travel many steps with little attenuation. The decay is never switched off entirely: each finite-horizon product lies strictly below one; it shrinks geometrically when the gates stay uniformly below some $\bar{f}<1$ and, when the gate is constant, decays at rate $f_j^{\,T-t}$. The LSTM can therefore learn the rate of retention separately by coordinate and context. In a plain RNN, the same recurrent transformation helps determine both the state dynamics and the gradient path, while every step also contributes an activation derivative.
 
 Unlike plain RNNs, where gradient flow is shaped by repeated multiplication with the recurrent weight matrix, LSTMs *learn* when to let gradients flow through the forget gates. This learned control is the mechanism by which an LSTM can *learn* long-run dependence more reliably — recall from [Exercise 6.1](recurrent_neural_networks.qmd#rnn-exercise-6-1) that the plain RNN's problem is one of training signal, not of what the architecture can represent.
 
-**Scope of the result.** The expression $\partial C_{T,j}/\partial C_{t,j} = \prod_k f_{k,j}$ describes only the cell-state path. Parameter gradients also flow through the hidden state $h_t = o_t \odot \tanh(C_t)$ and through the gate-producing networks themselves, where they involve products of sigmoid and tanh derivatives that can attenuate just as in a plain RNN. The cell state acts as a gradient highway for *one component* of the backward pass; it does not eliminate all multiplicative factors and therefore does not formally resolve the vanishing-gradient problem. It creates a route on which attenuation can be much slower, but whether a fitted LSTM learns useful long-run dependence remains an empirical question to be judged by validation at deployment-relevant horizons.
+The gates-fixed expression describes only the direct cell-state path. In a full backward pass, the gates themselves depend on $h_{k-1}=o_{k-1}\odot\tanh(C_{k-1})$. Parameter gradients therefore also travel through the hidden state and gate-producing networks, where products of sigmoid and tanh derivatives can attenuate as in a plain RNN. The cell state supplies a low-attenuation route for one component of the backward pass; it does not eliminate all vanishing gradients. Whether a fitted LSTM learns useful long-run dependence remains an empirical question to be judged by validation at deployment-relevant horizons.
 
 ## LSTM vs. Plain RNN
 
@@ -219,7 +187,7 @@ The high-retention coordinate attenuates information more slowly, while the low-
 
 ## Training an LSTM
 
-Nothing in the estimation toolkit changes when moving from a plain RNN to an LSTM. Training minimizes a loss $L$ over windows cut from the series, gradients are computed by backpropagation through time through the unrolled cell, and the fixed-window and truncated-backpropagation choices of the [previous chapter](recurrent_neural_networks.qmd#sec-rnn-windows) apply unchanged — including the caveat that dependence beyond the window length cannot be learned. What changes is what flows through the backward pass: alongside the hidden-state path, the cell-state path contributes the gate-controlled products analyzed above.
+The core estimation framework remains the same when moving from a plain RNN to an LSTM. Training minimizes a loss $L$ over windows cut from the series, gradients are computed on the unrolled cell by backpropagation through time, and the fixed-window and truncated-backpropagation choices of the [previous chapter](recurrent_neural_networks.qmd#sec-rnn-windows) still apply. Under fixed-window training — the scheme used in the [empirical chapter](nn_example.qmd) — both the hidden state and the cell state are reset to $h_0=0$ and $C_0=0$ at the start of every window, so the forward state horizon and the backward gradient horizon both end at the window boundary. Under the state-carrying variant of truncated backpropagation (called *stateful* training in Keras), the final $h$ and $C$ of one segment are passed to the next contiguous segment while the gradient is detached at the boundary, so the forward state can carry information from before the current segment even though the gradient does not reach back that far. What changes relative to a plain RNN, under either scheme, is what flows through the backward pass: alongside the hidden-state path, the cell-state path contributes the gate-controlled products analyzed above.
 
 Two practical differences deserve mention. First, the parameter count roughly quadruples relative to a plain RNN cell of the same width ($4H(H+p)+4H$ against $H(H+p)+H$, as in the table above), so overfitting concerns and validation discipline bite correspondingly harder in the small samples typical of macroeconomic applications. Second, gradient clipping remains standard practice: the cell state tames the vanishing problem along one path, but gradients can still explode through the gate-producing networks, and the clipping safeguard from the [RNN training discussion](recurrent_neural_networks.qmd#sec-rnn-training) carries over unchanged. In Keras, finally, the switch is one line — an `LSTM` layer in place of a `SimpleRNN` layer — as the [empirical chapter](nn_example.qmd) shows in its volatility application.
 
@@ -227,13 +195,17 @@ Two practical differences deserve mention. First, the parameter count roughly qu
 
 To see how LSTMs are used in current econometric research, consider two closely related lines of work in empirical asset pricing: the return-prediction approach of @GuKellyXiu2020 and the no-arbitrage approach of @ChenPelgerZhu2024, which embeds an LSTM at its core.
 
-**Two research objectives.** Both papers ask whether neural networks can improve on linear specifications of the relation between firm characteristics, macroeconomic information, and stock returns, but they target different objects. @GuKellyXiu2020 predict returns, whereas @ChenPelgerZhu2024 estimate a no-arbitrage **stochastic discount factor (SDF)**, the pricing kernel implied by the absence of arbitrage. A linear characteristic model specifies $\mathbb{E}[r_{i,t+1}] = \beta_0 + \sum_k \beta_k \cdot \text{characteristic}_{i,t,k}$ in advance. A neural network instead estimates a flexible function $\mathbb{E}[r_{i,t+1}] = f(\text{characteristics}_{i,t})$, allowing nonlinearities and interactions that would otherwise have to be chosen manually. The two papers differ in whether that flexibility is disciplined by a prediction loss or by asset-pricing moment restrictions.
+**Two research objectives.** Both papers ask whether neural networks can improve on linear specifications of the relation between firm characteristics, macroeconomic information, and stock returns, but they target different objects. @GuKellyXiu2020 predict returns, whereas @ChenPelgerZhu2024 estimate a no-arbitrage **stochastic discount factor (SDF)**, the pricing kernel implied by the absence of arbitrage. Let $\mathcal{I}_{i,t}$ denote the macroeconomic and firm-specific predictors available for stock $i$ at time $t$, and define the conditional-mean target
+$$
+m_{i,t}=\mathbb{E}[r_{i,t+1}\mid\mathcal{I}_{i,t}].
+$$
+A linear characteristic model restricts this target to $m_{i,t}=\beta_0+\sum_{k=1}^{K}\beta_k\,\text{characteristic}_{i,t,k}$, whereas a neural network uses a flexible function $m_{i,t}=f_\theta(\mathcal{I}_{i,t})$. The latter permits nonlinearities and interactions that would otherwise have to be chosen manually. The two papers differ in whether that flexibility is disciplined by a prediction loss or by asset-pricing moment restrictions.
 
 **Return prediction with a feed-forward network.** @GuKellyXiu2020 frame the task as a large-scale supervised prediction problem: a panel regression with a flexible functional form.
 
 -   **Inputs ($\mathbf{x}_{i,t}$):** In the paper's baseline, 94 firm-specific characteristics for stock $i$ at time $t$ (e.g., size, value, momentum, profitability), which are further interacted with eight aggregate time-series predictors and combined with industry indicators — over 900 baseline signals in total. The illustration below uses the 94 characteristics alone.
 -   **Target ($y_{i,t+1}$):** The realized excess return of stock $i$ in the next month.
--   **Objective:** Train a neural network $f_\theta$ to minimize the mean squared error (MSE) between predicted and realized returns over a large dataset of all US stocks from 1957 to 2016.
+-   **Objective:** Train a neural network $f_\theta$ to minimize the mean squared error (MSE) between predicted and realized returns over a large dataset of all U.S. stocks from 1957 to 2016.
     $$ \min_\theta \frac{1}{N \cdot T} \sum_{i,t} (r_{i,t+1} - f_\theta(\mathbf{x}_{i,t}))^2 $$
     The display is schematic: the U.S. stock panel is unbalanced, so the actual average runs over the observed stock-month pairs rather than all $N \cdot T$ combinations.
 
@@ -257,14 +229,14 @@ graph LR
 
 The depth of the network allows it to learn a **hierarchy of features**. For example, the first layer might learn to combine basic accounting ratios into a value signal, and a deeper layer could then learn to model the interaction between this value signal and momentum signals.
 
-**From prediction to a no-arbitrage objective.** @ChenPelgerZhu2024 take a deliberately different route. Rather than forecasting returns, they estimate the SDF $M_{t+1}$ directly, and they replace the MSE objective with the no-arbitrage moment conditions that define the SDF:
+**From prediction to a no-arbitrage objective.** @ChenPelgerZhu2024 take a deliberately different route. Rather than forecasting returns, they estimate $M_{t+1}$ directly, and they replace the MSE objective with Euler-equation restrictions that characterize admissible SDFs:
 $$
 \mathbb{E}\big[M_{t+1}\, R^e_{i,t+1}\, g(I_t, I_{i,t})\big] = 0
 \quad \text{for all conditioning functions } g,
 $$
-where $R^e_{i,t+1}$ is the excess return on stock $i$, $I_t$ and $I_{i,t}$ collect the macroeconomic and firm-specific information available at time $t$, and $g(\cdot)$ plays the role of the test assets, or instruments. In generalized method of moments (GMM), parameters are chosen to make sample analogues of model-implied moment restrictions as close to zero as possible. Conditional GMM allows those restrictions to be multiplied by functions of the information available at time $t$; here, $g$ creates those functions. Their data are 46 firm characteristics together with 178 macroeconomic time series, for US stocks from 1967 to 2016. The estimation principle is therefore conditional GMM, not least-squares prediction. The authors argue that this distinction carries real weight: in their comparisons, machine-learning models trained on a pure prediction objective can perform *worse* than linear models that impose no-arbitrage.
+where $R^e_{i,t+1}$ is the excess return on stock $i$, $I_t$ and $I_{i,t}$ collect the macroeconomic and firm-specific information available at time $t$, and $g(\cdot)$ provides test assets, or instruments. In generalized method of moments (GMM), parameters are chosen to make sample analogues of model-implied moment restrictions as close to zero as possible. Conditional GMM allows those restrictions to be multiplied by functions of information available at time $t$; here, $g$ creates those functions. Their data are 46 firm characteristics together with 178 macroeconomic time series, for U.S. stocks from 1967 to 2016. The estimation principle is therefore conditional GMM, not least-squares prediction. The authors argue that this distinction carries real weight: in their comparisons, machine-learning models trained on a pure prediction objective can perform *worse* than linear models that impose no-arbitrage.
 
-**A recurrent macro state.** Asset-pricing theory — for instance, the intertemporal capital asset pricing model (ICAPM) — suggests that risk premia vary over time with the macroeconomic state. Feeding all 178 raw macro series into the SDF network each month would treat the latest releases as the complete state, even though the economically relevant state may be a persistent, low-dimensional summary of macroeconomic *history*. @ChenPelgerZhu2024 therefore use an LSTM to process the macroeconomic sequence and compress it into a small hidden state $h_t$, a learned representation of the current macro state. This state vector enters the SDF network alongside the firm characteristics.
+**A recurrent macro state.** Motivated by time-varying risk premia and a persistent macroeconomic state, @ChenPelgerZhu2024 use an LSTM to process the macroeconomic sequence and compress it into a small hidden state $h_t$. Feeding all 178 raw macro series into the SDF network each month would treat the latest releases as the complete state, whereas $h_t$ is a learned, low-dimensional summary of macroeconomic *history*. This state vector enters the SDF network alongside the firm characteristics.
 
 ```{r}
 #| label: fig-pelger-architecture
@@ -307,21 +279,28 @@ $$
 
 where the weight function $\omega$ is a feed-forward network and $h_t$ is the LSTM's macro state.
 
+To see identification within this restricted class, collect the excess returns in a vector $R^e_{t+1}$ and write $M_{t+1}=1-\omega_t^{\top}R^e_{t+1}$. The conditional Euler equation implies
+$$
+\mathbb{E}_t[R^e_{t+1}R_{t+1}^{e\top}]\,\omega_t
+=\mathbb{E}_t[R^e_{t+1}].
+$$
+If the conditional second-moment matrix is nonsingular, this equation identifies $\omega_t$ within the affine tradable class. It does not identify a unique unrestricted SDF — in an incomplete market many pricing kernels satisfy the same Euler equations — and the neural-network parameters representing the same weight function need not themselves be unique. The adversarial, regularized empirical criterion selects a solution within the chosen function classes and instrument functions. Exact no-arbitrage also requires a strictly positive SDF; if strict positivity is not imposed, the fitted object is best understood as an empirical pricing-kernel candidate rather than as proof of an everywhere-positive SDF.
+
 **Adversarial instruments.** The moment condition must hold for *all* conditioning functions $g$, which no finite procedure can impose directly. The authors' solution is a Generative Adversarial Network (GAN) framework: a second network chooses $g$ — in effect, the test assets — to make the pricing errors of the current SDF as large as possible, while the SDF network is trained to shrink them. The adversary thus supplies the hardest-to-price moments in the conditional GMM problem; it is an estimation device for the moment restrictions, not an adjustment to a prediction loss. We do not cover GANs further in this book.
 
 **Empirical results.** The headline numbers, all from @ChenPelgerZhu2024, summarize what this combination of economic structure and neural-network flexibility delivers:
 
 -   **Performance:** The full model (GAN-SDF) achieves an annual out-of-sample Sharpe ratio of approximately 2.6, compared with about 1.7 for linear models and 0.8 for the Fama-French 5-factor model.
 -   **Explanatory Power:** The model explains over 90% of the cross-sectional variation in returns on 46 well-known anomaly portfolios.
--   **Main lesson:** Combining economic structure (no-arbitrage moment conditions, a time-varying macro state) with machine-learning flexibility (LSTMs, adversarial estimation) outperforms both linear models and prediction-only machine learning. The economics does real work in the estimation objective — it is not merely decoration around a forecasting network.
+-   **Main lesson:** In the paper's sample and benchmark design, combining economic structure (no-arbitrage moment conditions, a time-varying macro state) with machine-learning flexibility (LSTMs, adversarial estimation) performs better than the linear and prediction-only machine-learning alternatives considered. The comparison suggests that the economic restrictions do substantive work in the estimation objective.
 
 ## From Recurrent States to Attention
 
 The LSTM cell state $C_t$ is a fixed-dimensional vector that summarizes the relevant past at each step. Its width $H$ is chosen once, before training, and does not change with the length of the input sequence. Everything a plain LSTM uses at step $t$ to forecast must pass through this bottleneck.
 
-This design is efficient, but it has a structural cost. If the predictively relevant past at step $t$ requires distinguishing fine information from many earlier positions, an $H$-dimensional vector has to compress all of it into the same width. For moderately long sequences or for tasks where position-specific information matters --- a monetary-policy statement whose meaning depends on whether a given clause appears in paragraph two or paragraph eight, for instance --- the bottleneck can become binding: it binds when the predictively relevant past does not admit an adequate $H$-dimensional summary.
+This design is efficient, but it has a structural cost. If the predictively relevant past at step $t$ requires distinguishing fine information from many earlier positions, an $H$-dimensional vector has to compress all of it into the same width. For moderately long sequences or for tasks where position-specific information matters — a monetary-policy statement whose meaning depends on whether a given clause appears in paragraph two or paragraph eight, for instance — the bottleneck can become binding: it binds when the predictively relevant past does not admit an adequate $H$-dimensional summary.
 
-One of the later chapters, [Foundation Models for Economic Text and Expectations](foundation_models.qmd#sec-foundation-models), introduces a different construction. The transition from recurrent states to attention is the key structural change we emphasize in moving from the RNN/LSTM chapters to the foundation-model chapter — which also changes positional representation, parallel computation, and training design. We return to it formally in [From Words to Representations](foundation_models.qmd#sec-fm-representations).
+One of the later chapters, [Foundation Models for Economic Text and Expectations](foundation_models.qmd#sec-foundation-models), introduces a different construction. The transition from recurrent states to attention is the key structural change we emphasize in moving from the RNN/LSTM chapters to the foundation-model chapter. Attention also changes positional representation, parallel computation, and training design. We return to it formally in [From Words to Representations](foundation_models.qmd#sec-fm-representations).
 
 **Where the implementation lives.** As in the [RNN chapter](recurrent_neural_networks.qmd), we have not fit an LSTM in code here. The [empirical chapter on networks for time series](nn_example.qmd) trains an LSTM on realized-volatility data with the complete Python pipeline — sequence construction, chronological splits, training-only scaling, tuning, and evaluation against a heterogeneous autoregressive (HAR) benchmark.
 
@@ -330,7 +309,7 @@ One of the later chapters, [Foundation Models for Economic Text and Expectations
 :::{.callout-important}
 ## Key Takeaways
 1. LSTMs modify the plain RNN state update to reduce the vanishing-gradient problem.
-2. The cell state $C_t$ provides a more stable path for information and gradients to move through time.
+2. The cell state $C_t$ provides a potentially lower-attenuation path for information and gradients when the relevant forget gates remain close to one.
 3. Forget, input, and output gates learn what to retain, what to add, and what to reveal at each time step.
 4. The improvement comes at a cost: an LSTM has several sets of weights and is more computationally expensive than a plain RNN.
 5. In econometric forecasting, LSTMs are most useful when the predictive state is likely persistent and validation performance supports the added complexity.
@@ -358,7 +337,7 @@ Consider an LSTM cell with a single unit processing one time step. You will comp
 - Forget gate: $W_f = [0.3, 0.2]$, $b_f = 0.1$
 - Input gate: $W_i = [0.4, 0.1]$, $b_i = 0.0$
 - Output gate: $W_o = [0.2, 0.5]$, $b_o = 0.2$
-- Candidate values: $W_c = [0.6, -0.3]$, $b_c = 0.0$
+- Candidate value: $W_c = [0.6, -0.3]$, $b_c = 0.0$
 
 **Initial Conditions:**
 - Current input: $x_1 = 0.5$
@@ -367,17 +346,18 @@ Consider an LSTM cell with a single unit processing one time step. You will comp
 
 **Parts:**
 
-1. **Compute the forward pass.** Compute, in order, the forget gate $f_1$, the input gate $i_1$, the candidate values $\tilde{C}_1$, the updated cell state $C_1$, the output gate $o_1$, and the hidden state $h_1$.
+1. **Compute the forward pass.** Compute, in order, the forget gate $f_1$, the input gate $i_1$, the candidate value $\tilde{C}_1$, the updated cell state $C_1$, the output gate $o_1$, and the hidden state $h_1$.
 2. **Interpret the update.** Decompose $C_1$ into its two terms, $f_1 \odot C_0$ and $i_1 \odot \tilde{C}_1$. Which term dominates, and what does this say about how much the cell relies on old memory versus new information at this step? Then solve for the input-gate value $i^\ast$ that would make the two terms equal, holding $\tilde{C}_1$ fixed, and explain what the result reveals about what a gate can and cannot do.
+3. **Translate a gate value into a retention horizon.** Holding the gates and candidate fixed, derive $\partial C_1/\partial C_0$. Now suppose the same forget-gate value $f=0.572$ applies for $d$ consecutive steps. Derive the retained fraction of an initial perturbation after $d$ steps and solve for its half-life $d_{1/2}$, defined by $f^{d_{1/2}}=1/2$. Use $\log(1/2)\approx-0.693$ and $\log(0.572)\approx-0.559$. Explain why this calculation alone does not establish that a fitted LSTM has learned economically useful long memory.
 
 **Note:** Use sigmoid $\sigma(z) = \frac{1}{1+e^{-z}}$ for gates and $\tanh$ for candidate values and final hidden state computation. Use the approximations $\sigma(0.29) \approx 0.572$, $\sigma(0.17) \approx 0.542$, $\sigma(0.51) \approx 0.625$, $\tanh(0.03) \approx 0.030$, and $\tanh(0.245) \approx 0.240$.
 
-*Exam-level as scaffolding: Part 1 is mechanical substitution into the gate equations and works best as a warm-up for Exercise 7.2; Part 2 adds an interpretive check with a counterfactual on the gate's range.*
+*Exam-level exercise: Part 1 is mechanical scaffolding; Part 2 interprets the competing state-update channels; Part 3 connects local sensitivity to a retention horizon and its limits.*
 :::
 
 :::{.callout-warning collapse="true"}
 ## Hint for Part 1
-Concatenate the previous hidden state and current input: $[h_{t-1}, x_t] = [h_0, x_1] = [0.3, 0.5]$. All weight matrices operate on this concatenated vector via the dot product, $W \cdot [h_{t-1}, x_t] + b$ — the same construction applies in every subsequent part.
+Concatenate the previous hidden state and current input: $[h_{t-1}, x_t] = [h_0, x_1] = [0.3, 0.5]$. Use this same concatenated vector in all four gate or candidate computations in Part 1.
 :::
 
 :::{.callout-tip collapse="true"}
@@ -388,7 +368,7 @@ $$
 \begin{aligned}
 f_t &= \sigma(W_f \cdot [h_{t-1}, x_t] + b_f) \quad \text{(forget gate)} \\
 i_t &= \sigma(W_i \cdot [h_{t-1}, x_t] + b_i) \quad \text{(input gate)} \\
-\tilde{C}_t &= \tanh(W_c \cdot [h_{t-1}, x_t] + b_c) \quad \text{(candidate values)} \\
+\tilde{C}_t &= \tanh(W_c \cdot [h_{t-1}, x_t] + b_c) \quad \text{(candidate value)} \\
 C_t &= f_t \odot C_{t-1} + i_t \odot \tilde{C}_t \quad \text{(cell state)} \\
 o_t &= \sigma(W_o \cdot [h_{t-1}, x_t] + b_o) \quad \text{(output gate)} \\
 h_t &= o_t \odot \tanh(C_t) \quad \text{(hidden state)}
@@ -423,7 +403,7 @@ i_1 &= \sigma(W_i \cdot [0.3, 0.5] + b_i) \\
 \end{aligned}
 $$
 
-*Candidate values.*
+*Candidate value.*
 $$
 \begin{aligned}
 \tilde{C}_1 &= \tanh(W_c \cdot [0.3, 0.5] + b_c) \\
@@ -467,7 +447,7 @@ $$
 
 - Forget gate: $f_1 \approx 0.572$
 - Input gate: $i_1 \approx 0.542$
-- Candidate values: $\tilde{C}_1 \approx 0.030$
+- Candidate value: $\tilde{C}_1 \approx 0.030$
 - Cell state: $C_1 \approx 0.245$
 - Output gate: $o_1 \approx 0.625$
 - Hidden state: $h_1 \approx 0.150$
@@ -477,7 +457,20 @@ $$
 
 The two terms of the update are $f_1 \odot C_0 = 0.572 \times 0.4 \approx 0.229$ and $i_1 \odot \tilde{C}_1 = 0.542 \times 0.030 \approx 0.016$. The memory term dominates by an order of magnitude: at this step the cell mostly carries forward old information and adds little from the current input. The reason is not the input gate — it is moderately open ($i_1 \approx 0.542$) — but the candidate itself: its pre-activation is only $0.03$, and since $\tanh(z) \approx z$ near zero, the candidate $\tilde{C}_1 \approx 0.030$ is itself close to zero, so there is little new content to add, however open the gate. The moderately open forget gate ($f_1 \approx 0.572$) passes on roughly half of the previous cell state.
 
-For the two terms to be equal with $\tilde{C}_1$ held fixed, the input gate would need $i^\ast = 0.229 / 0.030 \approx 7.6$ — far outside the sigmoid's range $(0,1)$. No admissible input-gate value can make the new information dominate here. This is the general lesson of the counterfactual: a gate rescales its channel by a factor between 0 and 1, so it can attenuate a signal but never amplify one. Dominance of new information would require a larger candidate value, not a wider-open gate.
+For the two terms to be equal with $f_1$, $C_0$, and $\tilde{C}_1$ held fixed, the input gate would need $i^\ast = 0.229 / 0.030 \approx 7.6$ — far outside the sigmoid's range $(0,1)$. No admissible input-gate value can make the new information dominate under this counterfactual. A gate rescales its channel by a factor between 0 and 1, so it can attenuate a signal but never amplify one. With the current carry-over term fixed, dominance would require a larger candidate magnitude. In the unrestricted cell update, a smaller forget-gate contribution $f_1C_0$ is the other route by which new information can dominate.
+
+**Part 3: Retention horizon**
+
+Holding the gates and candidate fixed gives
+$$
+\frac{\partial C_1}{\partial C_0}=f_1=0.572.
+$$
+If the same forget gate applies for $d$ steps, the retained fraction is the product $f^d=0.572^d$. The half-life therefore solves
+$$
+d_{1/2}=\frac{\log(1/2)}{\log(0.572)}
+\approx\frac{-0.693}{-0.559}\approx1.24\text{ steps}.
+$$
+This coordinate would attenuate an initial perturbation by one half after only about 1.24 steps under the constant-gate approximation, so the computed value does not indicate long retention. More generally, one realized gate value does not describe the time-varying products along other observations, and even a near-one gate says nothing about whether the retained state improves forecasts; Exercise 7.2 takes up the validation evidence that such a claim requires.
 
 **Further remarks:**
 
@@ -534,7 +527,7 @@ $$
 
 For the RNN, $|\partial h_T/\partial h_t| \le |W_{hh}|^{T-t}$ because $|\tanh'(z)| \le 1$; with $W_{hh} = 0.8$ and $T-t = 30$, the bound is $0.8^{30} \approx 0.0012$ — the gradient signal from step $t$ is essentially extinguished. For the LSTM with $f_k = 0.99$, the cell-state path carries $0.99^{30} \approx 0.74$ — about three-quarters of the signal survives thirty steps.
 
-Two structural features produce the difference. First, the cell-state update is **additive**: $C_{k-1}$ enters linearly, multiplied only by the forget gate — a learned value in $(0,1)$ that the network can push toward 1 when long-run information matters. In the RNN, the state is multiplied by the *weight matrix* $W_{hh}$ at every step, a quantity that also has to serve every other function of the recursion and cannot simply be set near 1. Second, the cell-state path **bypasses the activation function**: $C_{k-1}$ is not passed through a $\tanh$ on its way into $C_k$, so no activation derivative enters the product; in the RNN, every step contributes a factor $\tanh'(z_k) \le 1$ that attenuates further whenever the unit saturates.
+Two structural features produce the difference. First, $C_{k-1}$ enters the cell-state update linearly, multiplied only by a learned, input-dependent forget gate in $(0,1)$ — a separate, adaptive retention channel. A scalar RNN recurrent weight can also be set near one, but the same weight must simultaneously implement the state dynamics, so it cannot be tuned for retention alone. Second, the direct cell-state path bypasses the activation function: $C_{k-1}$ is not passed through a $\tanh$ on its way into $C_k$, so no activation derivative enters this product, whereas every RNN step contributes a factor $\tanh'(z_k)\le 1$ that attenuates further whenever the unit saturates.
 
 **Part 3: What the gates-fixed approximation ignores**
 

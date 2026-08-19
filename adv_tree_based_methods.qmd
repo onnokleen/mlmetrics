@@ -35,7 +35,7 @@ $$
 w_i(x)
 =
 \frac{1}{B}\sum_{b=1}^B
-\frac{1\{x_i \in L_b(x)\}}{N_b(x)}.
+\frac{\mathbf{1}\{x_i \in L_b(x)\}}{N_b(x)}.
 $$
 
 This representation is a useful way to read a forest. The weights $w_i(x)$ define a local neighborhood around $x$, but the neighborhood is learned by recursive splits rather than fixed by Euclidean distance.
@@ -43,7 +43,7 @@ This representation is a useful way to read a forest. The weights $w_i(x)$ defin
 One convention needs stating, because it differs from the exact bagged-forest representation in the [random forests chapter](random_forests.qmd). Reproducing a bagged tree's stored leaf mean requires tracking how often each observation was drawn into that tree's bootstrap sample. The weights above instead run over the $N$ original observations and ask whether observation $i$ falls into the leaf region reached by $x$, without counting bootstrap multiplicities. This is the QRF convention introduced by @Meinshausen2006QRF, and it is the convention used by the estimator and code below. The two conventions coincide when each tree is grown on the full original sample; with bootstrap sampling they describe the same learned partition but need not produce exactly the same conditional-mean prediction.
 
 :::{.callout-important}
-## Why this matters
+## Why This Matters
 
 The weight view separates two ingredients:
 
@@ -75,10 +75,10 @@ it estimates the conditional CDF
 $$
 \hat F(y\mid X=x)
 =
-\sum_{i=1}^N w_i(x)1\{y_i \leq y\}.
+\sum_{i=1}^N w_i(x)\mathbf{1}\{y_i \leq y\}.
 $$
 
-This is a weighted empirical distribution of the training outcomes. Once we have $\hat F(y\mid X=x)$, we can compute conditional medians, prediction intervals, lower-tail probabilities, and other distributional functionals.
+This is a weighted empirical distribution of the training outcomes. Once we have $\hat F(y\mid X=x)$, we can compute conditional medians, nominal prediction intervals, lower-tail probabilities, and other distributional functionals. A band formed from fitted quantiles is *nominal* because its realized coverage must still be checked on suitable out-of-sample data; QRF alone does not supply a finite-sample coverage guarantee.
 
 QRF focuses on conditional quantiles. For a probability level $\alpha\in(0,1)$, the estimated conditional quantile is
 $$
@@ -92,11 +92,11 @@ An approximately equivalent implementation view is to collect the training outco
 :::{.callout-warning}
 ## Consistency of $\hat F(y\mid X=x)$
 
-Consistency of the weighted empirical CDF $\hat F(y\mid X=x)$ requires more than the bagging logic of [Chapter 11](random_forests.qmd). The classical QRF theorem of @Meinshausen2006QRF establishes, for each fixed $x$,
+Consistency of the weighted empirical CDF $\hat F(y\mid X=x)$ requires more than the bagging logic of [Chapter 11](random_forests.qmd). The classical QRF theorem of @Meinshausen2006QRF assumes independent and identically distributed (i.i.d.) observations and a fixed predictor dimension. Under that sampling setup, it establishes, for each fixed $x$,
 $$
 \sup_y\left|\hat{F}(y\mid X=x)-F(y\mid X=x)\right|\overset{p}{\longrightarrow}0.
 $$
-Its conditions include a predictor density that is bounded above and bounded away from zero on its support, leaf sizes that grow while remaining a vanishing fraction of the sample, a positive probability of splitting on every predictor with sufficiently balanced child nodes, and a conditional CDF that is Lipschitz in $x$. A strictly increasing conditional CDF is additionally used to transfer consistency of the CDF estimator to its conditional quantiles. These assumptions make the bias–variance logic explicit: neighborhoods must shrink in predictor space, yet contain increasingly many observations.
+The convergence is pointwise in $x$ and uniform in the outcome threshold $y$. Its other conditions include a predictor density that is bounded above and bounded away from zero on its support, leaf sizes that grow while remaining a vanishing fraction of the sample, a positive probability of splitting on every predictor with sufficiently balanced child nodes, and a conditional CDF that is Lipschitz in $x$. A strictly increasing conditional CDF is additionally used to transfer consistency of the CDF estimator to its conditional quantiles. These assumptions make the bias--variance logic explicit: neighborhoods must shrink in predictor space, yet contain increasingly many observations. Temporal, spatial, or clustered dependence requires a separate consistency argument; time-ordered validation alone does not extend the theorem.
 
 Honest-forest inference is related but distinct. @WagerAthey2018 establish asymptotic normality for honest regression and causal forests, while @AtheyTibshiraniWager2019 extend the framework to local moment estimators, including conditional quantiles. Those inferential results use subsampling, honesty, and additional regularity conditions; they are not a drop-in theorem for every QRF implementation.
 
@@ -117,15 +117,15 @@ The conditional mean uses only a weighted average of neighboring outcomes. Condi
 
 QRF is attractive when heteroskedasticity or tail risk is central. Examples include volatility forecasting, downside return risk, firm default loss distributions, and macroeconomic fan charts. It can adapt prediction intervals to the covariates because the neighborhood around $x$ changes with the forest partitions.
 
-The main advantage is flexibility: the method is nonparametric in the conditional distribution and can represent skewness, heavy tails, and multimodality through the empirical neighbor distribution. The main limitation is that the estimator is still local. If the relevant tail event is rare, the local neighborhood may contain little information about the tail. Like ordinary forests, QRF also needs validation that respects dependence, publication lags, and forecast-origin information sets.
+The main advantage is flexibility: QRF does not impose a fixed parametric family on the conditional distribution and can represent skewness, heavy tails, and multimodality through the empirical neighbor distribution. This is the relevant sense in which the method is nonparametric. It is not assumption-free: the estimate is conditional on tuning choices and fitted quantiles cannot move beyond the support represented in the training outcomes. If the relevant tail event is rare, the local neighborhood may contain little information about it. Like ordinary forests, QRF also needs validation that respects dependence, publication lags, and forecast-origin information sets.
 
-@fig-qrf-fredqd illustrates the method with the quarterly Federal Reserve Economic Data collection (FRED-QD). The target is annualized gross domestic product (GDP) growth in quarter $t+1$, and the five predictors are dated quarter $t$.[^qrf-fredqd-final-vintage] The horizontal axis records the target quarter $t+1$. Look for both the changing width of the 10–90% interval and its behavior during the pandemic observations.
+@fig-qrf-fredqd illustrates the method with the quarterly [Federal Reserve Economic Data collection (FRED-QD)](datasets.qmd#fred-qd) [@McCrackenNg2020FREDQD]. The target is annualized gross domestic product (GDP) growth in quarter $t+1$, and the five predictors are dated quarter $t$.[^qrf-fredqd-final-vintage] The horizontal axis records the target quarter $t+1$. Look for both the changing width of the central 80% interval, formed by the estimated 10th and 90th conditional quantiles, and its behavior during the pandemic observations.
 
 [^qrf-fredqd-final-vintage]: This is a pedagogical final-vintage FRED-QD example. The forest settings are illustrative rather than test-set-tuned. A full real-time GDP forecasting evaluation would choose them inside a time-aware training/validation design and account for release calendars and data revisions.
 
 ```{python}
 #| label: fig-qrf-fredqd
-#| fig-cap: "QRF forecasts for one-step-ahead GDP growth (annualized log-difference of GDPC1) over the final 25% of FRED-QD quarters. The horizontal axis gives the target quarter. The blue band spans the conditional 10th to 90th percentile, the solid blue line is the conditional median, and the gray line is realized GDP growth. Conditional quantiles use original-observation neighborhood weights from 200 trees with a minimum in-bag leaf size of five."
+#| fig-cap: "QRF forecasts for one-step-ahead GDP growth (annualized log-difference of GDPC1) over the final 25% of FRED-QD quarters. The horizontal axis gives the target quarter. The blue band is the central 80% predictive interval spanning the estimated conditional 10th to 90th percentiles, the solid blue line is the estimated conditional median, and the gray line is realized GDP growth. Conditional quantiles use original-observation neighborhood weights from 200 trees with a minimum in-bag leaf size of five."
 #| echo: true
 
 import numpy as np
@@ -177,7 +177,7 @@ train_leaves = rf.apply(X_train)   # (n_train, n_trees)
 test_leaves  = rf.apply(X_test)    # (n_test,  n_trees)
 n_trees = train_leaves.shape[1]
 
-# For each test point, accumulate normalised weights across trees
+# For each test point, accumulate normalized weights across trees
 weights_matrix = np.zeros((len(X_test), len(X_train)))
 for b in range(n_trees):
     same_leaf  = test_leaves[:, b:b+1] == train_leaves[np.newaxis, :, b]  # (n_test, n_train)
@@ -211,7 +211,7 @@ plt.tight_layout()
 plt.show()
 ```
 
-The interval width varies across the test period because the QRF neighborhood changes with the predictors; a homoskedastic parametric model would instead impose a constant width around its conditional mean. The pandemic quarters expose the more important limitation. Realized growth reaches roughly $-33$ and then $+30$ annualized percent in 2020, while the forecast band remains far inside those values. By construction, $\hat F(y \mid X=x)$ reweights outcomes observed in the training sample and therefore cannot place mass beyond their range. When the training neighborhood contains no comparable episode, changing the quantile level cannot recover the missing tail support.
+The interval width varies across the test period because the QRF neighborhood changes with the predictors. A homoskedastic fixed-shape location-scale model, such as a Gaussian location model with constant conditional variance, would instead impose a constant central-interval width around its conditional mean. Homoskedasticity alone would not do so if other shape parameters could vary with predictors. The estimated band is a central 80% predictive interval, not an automatic 80% coverage guarantee. Its marginal and conditional coverage are empirical calibration questions. A finite-sample guarantee would require an additional calibration method, such as those developed in the [conformal-prediction chapter](conformal_prediction.qmd), under its own assumptions. The pandemic quarters expose the more immediate limitation. Realized growth reaches roughly $-33$ and then $+30$ annualized percent in 2020, while the forecast band remains far inside those values. By construction, $\hat F(y \mid X=x)$ reweights outcomes observed in the training sample and therefore cannot place mass beyond their range. When the training neighborhood contains no comparable episode, changing the quantile level cannot recover the missing tail support.
 
 This failure is the distributional counterpart of the extrapolation limit from the [decision trees chapter](decision_trees.qmd): QRF interpolates among observed outcomes for the entire predictive distribution, not only for its mean. A parametric family with unbounded support, such as the NGBoost specification below, can *represent* outcomes beyond the training range, and an explicit extreme-value model can impose tail structure. Neither choice guarantees accurate pandemic-tail forecasts under a structural break; both still require time-aware validation and a defensible distributional specification.
 
@@ -221,14 +221,14 @@ NGBoost takes a different route. Instead of estimating the conditional distribut
 $$
 Y\mid X=x \sim P_{\theta(x)}
 $$
-and learns the parameter vector $\theta(x)$ by boosting. For example, a Gaussian predictive distribution might use $\theta(x)=(\mu(x),\sigma(x))$, while a positive target might use an exponential distribution with a rate parameter.
+and learns its parameters by boosting. The learner works in a coordinate vector $\theta(x)$ on an unconstrained chart and maps those coordinates into valid distribution parameters. For a Gaussian distribution, for example, it can use $\theta(x)=(\mu(x),\eta(x))$ with $\eta(x)=\log\sigma(x)$; a positive exponential rate can likewise be represented on the log scale.
 
 To keep the formulas concrete, we use the negative log-likelihood (NLL), which is the logarithmic-score loss,
 $$
 \ell(y;\theta)=-\log p_\theta(y).
 $$
 
-This choice connects NGBoost to the distributional-network chapter and the predictive-distribution evaluation chapter: minimizing average NLL is the training analogue of optimizing the logarithmic score (see the [Kullback–Leibler (KL) divergence connection](evaluating_distributions.qmd#sec-mini-log-score-kl)). NGBoost can instead use another proper scoring rule, such as the continuous ranked probability score; in that case the natural-gradient metric is derived from the local curvature of the divergence induced by that score rather than necessarily from Fisher information [@DuanAvatiDingThaiBasuNgSchuler2020].
+This choice connects NGBoost to the distributional-network chapter and the predictive-distribution evaluation chapter: minimizing average NLL is the training analogue of optimizing the logarithmic score (see the [Kullback–Leibler (KL) divergence connection](evaluating_distributions.qmd#sec-mini-log-score-kl)). NGBoost can instead use another proper scoring rule, such as the continuous ranked probability score. In that case, the natural-gradient metric is derived from the local curvature of the divergence induced by that score and need not equal the Fisher information [@DuanAvatiDingThaiBasuNgSchuler2020].
 
 :::{.callout-important}
 ## Standard Boosting vs NGBoost
@@ -243,10 +243,10 @@ NGBoost's defining choice is the natural gradient. In an ordinary gradient step,
 As in standard boosting, the path needs an initial prediction. NGBoost starts from the constant parameter vector that best fits the marginal training distribution,
 $$
 \theta^{(0)}
-=
+\in
 \arg\min_{\theta}\sum_{i=1}^N \ell(y_i;\theta),
 $$
-so every training observation initially receives the same predictive distribution. The boosted stages then let its parameters vary with $x$.
+so every training observation initially receives the same predictive distribution. This notation allows multiple minimizers; the discussion assumes that at least one finite interior solution exists. Boundary samples may instead require regularization, clipping, or rejection by the implementation. The boosted stages then let the coordinates, and hence the mapped distribution parameters, vary with $x$.
 
 At iteration $m$, let
 $$
@@ -272,11 +272,11 @@ $$
 \mathcal{I}(\theta^{(m-1)}(x_i))^{-1}g_i^{(m)}.
 $$
 
-@fig-ngboost-natural-step makes the rescaling visible for a Gaussian negative log-likelihood parameterized by its mean $\mu$ and log standard deviation $\ell=\log\sigma$. The contour lines are equal-loss sets for a five-observation sample. Both arrows start from the same parameter value and use the same nominal step size; they differ only in whether the loss gradient is used directly or premultiplied by inverse Fisher information.
+@fig-ngboost-natural-step makes the rescaling visible for a Gaussian negative log-likelihood parameterized by its mean $\mu$ and log standard deviation $\eta=\log\sigma$. The contour lines are equal-loss sets for a five-observation sample. Both arrows start from the same parameter value and use the same nominal step size; they differ only in whether the loss gradient is used directly or premultiplied by inverse Fisher information.
 
 ```{python}
 #| label: fig-ngboost-natural-step
-#| fig-cap: 'Ordinary and natural-gradient descent directions for a Gaussian negative log-likelihood in the parameterization $(\mu,\ell)$, where $\ell=\log\sigma$. Contours show the sample-average loss above its minimum. Both arrows start at $(\mu,\ell)=(-1,0.4)$ and use the same nominal step size. Fisher scaling places relatively more weight on correcting the mean at this starting point, so the natural-gradient arrow moves farther horizontally and less vertically.'
+#| fig-cap: 'Ordinary and natural-gradient descent directions for Gaussian negative log-likelihood in the parameterization $(\mu,\eta)$, where $\eta=\log\sigma$. Contours show the sample-average loss above its minimum. Both arrows start at $(\mu,\eta)=(-1,0.4)$ and use the same nominal step size.'
 #| echo: true
 
 import numpy as np
@@ -284,42 +284,42 @@ import matplotlib.pyplot as plt
 
 y_demo = np.array([-2.0, -0.5, 0.0, 1.0, 2.0])
 mu_grid = np.linspace(-2.5, 2.5, 260)
-ell_grid = np.linspace(-1.0, 1.2, 240)
-MU, ELL = np.meshgrid(mu_grid, ell_grid)
-LOSS = ELL + 0.5 * np.mean(
+eta_grid = np.linspace(-1.0, 1.2, 240)
+MU, ETA = np.meshgrid(mu_grid, eta_grid)
+LOSS = ETA + 0.5 * np.mean(
     (y_demo[None, None, :] - MU[:, :, None]) ** 2
-    * np.exp(-2.0 * ELL[:, :, None]),
+    * np.exp(-2.0 * ETA[:, :, None]),
     axis=2,
 )
 LOSS = LOSS - LOSS.min()
 
-mu0, ell0 = -1.0, 0.4
+mu0, eta0 = -1.0, 0.4
 mean_sq_resid = np.mean((y_demo - mu0) ** 2)
 ordinary = np.array([
-    np.exp(-2.0 * ell0) * (mu0 - y_demo.mean()),
-    1.0 - np.exp(-2.0 * ell0) * mean_sq_resid,
+    np.exp(-2.0 * eta0) * (mu0 - y_demo.mean()),
+    1.0 - np.exp(-2.0 * eta0) * mean_sq_resid,
 ])
-fisher = np.diag([np.exp(-2.0 * ell0), 2.0])
+fisher = np.diag([np.exp(-2.0 * eta0), 2.0])
 natural = np.linalg.solve(fisher, ordinary)
 step = 0.8
 
 fig, ax = plt.subplots(figsize=(8.2, 4.8))
 levels = [0.02, 0.05, 0.10, 0.20, 0.40, 0.80, 1.50, 2.50, 4.00]
-contours = ax.contour(MU, ELL, LOSS, levels=levels, cmap="Greys")
+contours = ax.contour(MU, ETA, LOSS, levels=levels, cmap="Greys")
 ax.clabel(contours, inline=True, fontsize=8, fmt="%.2g")
-ax.scatter([mu0], [ell0], color="black", s=45, zorder=4, label="Starting value")
+ax.scatter([mu0], [eta0], color="black", s=45, zorder=4, label="Starting value")
 
 for direction, color, label in [
     (ordinary, "C3", "Ordinary gradient"),
     (natural, "C0", "Natural gradient"),
 ]:
     delta = -step * direction
-    ax.arrow(mu0, ell0, delta[0], delta[1], width=0.012,
+    ax.arrow(mu0, eta0, delta[0], delta[1], width=0.012,
              head_width=0.09, length_includes_head=True,
              color=color, alpha=0.9, label=label)
 
 ax.set_xlabel(r"Mean parameter $\mu$")
-ax.set_ylabel(r"Log standard deviation $\ell=\log\sigma$")
+ax.set_ylabel(r"Log standard deviation $\eta=\log\sigma$")
 ax.set_title("Fisher scaling changes the descent direction")
 ax.grid(True, alpha=0.18)
 ax.legend(frameon=False)
@@ -327,9 +327,9 @@ plt.tight_layout()
 plt.show()
 ```
 
-In @fig-ngboost-natural-step, the ordinary direction reacts to the numerical coordinates themselves, whereas the natural direction measures a change relative to how much it moves the predictive distribution. The figure is illustrative rather than a convergence comparison: line search and repeated boosted stages still determine the realized path.
+In @fig-ngboost-natural-step, the ordinary direction reacts to the numerical coordinates themselves, whereas the natural direction measures a change relative to how much it moves the predictive distribution. At this starting point, Fisher scaling places relatively more weight on correcting the mean: the natural-gradient arrow moves farther horizontally and less vertically than the ordinary-gradient arrow. The figure is illustrative rather than a convergence comparison: line search and repeated boosted stages still determine the realized path.
 
-The Bernoulli leaf update in the [gradient-boosting chapter](gradient_boosting.qmd#sec-gb-general) is the scalar version of this connection. Its Newton denominator $\sum_i p_i(1-p_i)$ is the Fisher curvature of the leaf's log-odds parameter, so dividing the score by that quantity is a one-parameter Fisher-scoring step. NGBoost extends that information scaling to a vector of distribution parameters and then approximates each component with a base learner.
+The Bernoulli leaf update in the [gradient-boosting chapter](gradient_boosting.qmd#sec-gb-general) is a scalar instance of this Fisher-scaling idea. Its Newton denominator $\sum_{i:\,x_i\in R_{jm}} p_{i,m-1}(1-p_{i,m-1})$ is the Fisher curvature of the leaf's log-odds parameter, so dividing the leaf score by that quantity is a one-parameter Fisher-scoring step. NGBoost extends that information scaling to a vector of distribution parameters and then approximates each component with a base learner.
 
 This chapter uses a positive loss-gradient convention: NGBoost fits a weak learner $\hat h_m(x)$ to $\tilde g_i^{(m)}$ and subtracts the fitted direction. The [gradient-boosting chapter](gradient_boosting.qmd) instead defined pseudo-residuals as *negative* gradients and added the fitted tree; the two sign conventions describe the same descent step.
 
@@ -348,7 +348,7 @@ $$
 \theta^{(m-1)}(x) - \nu\, \rho^{(m)}\, \hat h_m(x),
 \qquad m=1,\ldots,M.
 $$
-This update is analogous to the stagewise descent of the previous chapter, now along a vector of distribution parameters. There is one important difference in the line search: $\rho^{(m)}$ is a single scalar for the whole multi-parameter stage, whereas $\gamma_{jm}$ in the [gradient-boosting chapter](gradient_boosting.qmd) is chosen separately for each leaf. The learning rate $\nu$, the number of iterations $M$, and the need for time-aware early stopping carry over. Fisher scaling makes the direction invariant to smooth one-to-one reparameterizations and prevents the numerical units of one parameter from dominating the update [@DuanAvatiDingThaiBasuNgSchuler2020].
+This update is analogous to the stagewise descent of the previous chapter, now along a vector of distribution parameters. There is one important difference in the line search: $\rho^{(m)}$ is a single scalar for the whole multi-parameter stage, whereas the exact loss-optimal $\gamma_{jm}^{\star}$ in the [gradient-boosting chapter](gradient_boosting.qmd) is chosen separately for each leaf. The learning rate $\nu$, the number of iterations $M$, and the need for time-aware early stopping carry over. Fisher scaling makes the natural-gradient direction, viewed as an infinitesimal tangent vector, invariant to smooth one-to-one reparameterizations and prevents the numerical units of one parameter from dominating that direction [@DuanAvatiDingThaiBasuNgSchuler2020]. An ordinary finite coordinate update is an Euler step along this vector field and is only first-order invariant: applying separate finite steps in two parameterizations need not produce exactly corresponding parameter paths.
 
 ## Parameterization and Update Choices {#sec-adv-parameterization}
 
@@ -357,7 +357,7 @@ Distribution parameters often have constraints. A variance, standard deviation, 
 Common constraint-preserving parameterizations include:
 
 - predict $\log \sigma(x)$ rather than $\sigma(x)$
-- use a softplus transformation $\zeta(x)=\log(1+e^{x})$, which is smooth and strictly positive, for positive scale parameters
+- use a softplus transformation $\zeta(z)=\log(1+e^{z})$, which is smooth and strictly positive, to map a learned scalar score $z(x)$ into a positive parameter $\zeta(z(x))$
 - use a logistic transformation $s(z)=1/(1+e^{-z})$ for probabilities (written $s$ here because $\sigma$ already denotes a scale parameter in this chapter)
 
 For a distribution with several parameters, standard NGBoost fits one base learner to each component of the natural gradient at every stage. For a Gaussian model, for example, one learner fits the mean component and another fits the log-scale component; together they form the vector $\hat h_m(x)$. All components update simultaneously and share the stage scale $\rho^{(m)}$. A coordinate-wise cycle or a single multi-output learner would be a different algorithmic variant, not the standard NGBoost update.
@@ -368,7 +368,7 @@ QRF and NGBoost both produce conditional predictive distributions, but in opposi
 
 | Method | Distributional object | Main advantage | Main limitation |
 |---|---|---|---|
-| QRF | Weighted empirical CDF from forest neighbors | Nonparametric shape and adaptive intervals | Few local tail observations and no extrapolation beyond observed outcomes |
+| QRF | Weighted empirical CDF from forest neighbors | Flexible shape and adaptive quantile intervals | Few local tail observations and no extrapolation beyond observed outcomes |
 | NGBoost | Parametric distribution $P_{\theta(x)}$ | Smooth distribution and proper-score-based training | Sensitive to distributional misspecification |
 
 In econometric work, the choice depends on the forecasting object. If the goal is flexible local quantiles with few parametric assumptions, QRF is natural. If the goal is a smooth parametric predictive distribution with proper-score-based training, NGBoost is more natural.
@@ -382,9 +382,9 @@ Both methods estimate uncertainty in the outcome $Y\mid X=x$. Neither fitted pre
 
 1. Forest partitions induce neighborhood weights through shared terminal leaves; under bootstrap sampling, exact reproduction of a stored forest mean additionally requires bootstrap multiplicities.
 2. QRF uses original-observation neighborhood weights to estimate a weighted empirical conditional CDF rather than only a conditional mean.
-3. QRF can produce conditional quantiles and prediction intervals without specifying a parametric distribution.
+3. QRF can produce conditional quantiles and prediction intervals without specifying a parametric distribution; realized coverage must still be assessed.
 4. NGBoost learns parameters of a predictive distribution by minimizing a proper scoring rule such as NLL.
-5. Under NLL, natural gradients rescale ordinary gradients by inverse Fisher information, making the descent direction insensitive to smooth reparameterization.
+5. Under NLL, natural gradients rescale ordinary gradients by inverse Fisher information; the descent direction is invariant to smooth reparameterization.
 6. Both approaches remain predictive tools; they do not solve identification or dependence-aware validation problems automatically.
 :::
 
@@ -419,7 +419,7 @@ Questions:
    $$
    w_i(x_{\text{new}})
    =
-   \frac{1}{B}\sum_{b=1}^B \frac{1\{x_i \in L_b(x_{\text{new}})\}}{N_b(x_{\text{new}})},
+   \frac{1}{B}\sum_{b=1}^B \frac{\mathbf{1}\{x_i \in L_b(x_{\text{new}})\}}{N_b(x_{\text{new}})},
    $$
    to derive each observation's weight and the resulting probability mass on each distinct outcome value. Construct the weighted empirical CDF $\hat F(y \mid X=x_{\text{new}})$ and use
    $$
@@ -428,8 +428,9 @@ Questions:
    to compute the predicted conditional median and conditional 25th percentile.
 2. Explain why the repeated appearance of observation $7$ should not be removed, and distinguish it from a case in which three different observations happen to have the same outcome value.
 3. Across a long out-of-sample evaluation, a dependence-robust coverage test rejects the null that realized returns fall below the estimated 10% quantile with probability 10%; the observed violation rate is higher. State what this establishes about 10% quantile calibration, give two distinct misspecification mechanisms that the test does not distinguish, and name one additional diagnostic that would help separate them.
+4. Use the weighted empirical CDF to show that every fitted QRF quantile lies between the smallest and largest training outcome with positive weight at $x_{\text{new}}$. State the implication for forecasting an unprecedented tail realization below all positively weighted outcomes.
 
-*Exam level. Part 1 connects pooled neighbors to forest weights and weighted empirical quantiles, Part 2 checks the neighborhood interpretation, and Part 3 adds an econometric diagnostic about tail calibration.*
+*Exam level. Part 1 connects pooled neighbors to forest weights and weighted empirical quantiles, Part 2 checks the neighborhood interpretation, Part 3 adds a tail-calibration diagnostic, and Part 4 establishes the support limitation.*
 :::
 
 ::: {.callout-warning collapse="true"}
@@ -489,7 +490,7 @@ The weighted empirical CDF places mass on the sorted distinct outcomes as follow
 For the median, we need the first value where cumulative weight reaches at least $0.5$. That happens at $y=12$, so
 
 $$
-\hat q_{0.5}(x_{\text{new}})=12.
+\widehat q_{0.5}(x_{\text{new}})=12.
 $$
 
 For the 25th percentile, we need the first value where cumulative weight reaches at least $0.25$. Since
@@ -499,7 +500,7 @@ $$
 the conditional 25th percentile is
 
 $$
-\hat q_{0.25}(x_{\text{new}})=11.
+\widehat q_{0.25}(x_{\text{new}})=11.
 $$
 
 **Part 2: Repeated observations and repeated values**
@@ -513,6 +514,15 @@ The identification matters: what carries the weight is the repeated *observation
 The determinate conclusion is about calibration, not mechanism: the rejection and the violation rate above 10% show that the forecasts fail unconditional 10% quantile calibration and understate downside risk in frequency terms. The coverage test does not establish that the estimated quantile is above the true conditional quantile at every date, or even on average under a particular numerical measure of distance.
 
 The violation count does not identify why calibration fails. A systematically optimistic center with otherwise adequate dispersion and a well-centered forecast with too little dispersion can both produce excess violations; so can a left tail that is too thin or failures concentrated in stressed periods. Median forecast errors help diagnose a location shift, calibration at several quantile levels helps distinguish a general dispersion problem from a local tail problem, and the time sequence of violations reveals whether failures cluster.
+
+**Part 4: Predictive support**
+
+Let $y_{min}(x)$ and $y_{max}(x)$ be the smallest and largest training outcomes with $w_i(x)>0$. The weighted CDF is zero below $y_{min}(x)$ and equals one at and above $y_{max}(x)$. Its generalized inverse therefore satisfies
+$$
+y_{min}(x)\leq \widehat q_\alpha(x)\leq y_{max}(x)
+\qquad\text{for every }\alpha\in(0,1).
+$$
+At $x_{\text{new}}$, this interval is $[8,20]$. Lowering the quantile level can move the forecast only among positively weighted training outcomes; it cannot assign a fitted quantile below 8 or recover a genuinely unprecedented left-tail event.
 :::
 
 ::: {.callout-note}
@@ -532,10 +542,11 @@ Questions:
 1. Contrast NGBoost with standard gradient boosting under mean squared error (MSE) and with QRF along three dimensions: the prediction produced, the distributional assumption, and the object fitted at each boosting or forest step.
 2. Derive the per-observation NLL $\ell(y;\lambda)$ and its ordinary gradient $\partial \ell/\partial \lambda$. Given the Fisher information $\mathcal{I}_{\lambda\lambda}=1/\lambda^2$, derive the natural gradient $\tilde g_\lambda=\mathcal{I}_{\lambda\lambda}^{-1}\partial \ell/\partial \lambda$.
 3. For $\lambda=0.4$ and $y=3$, compute the ordinary and natural gradients. For a single-observation descent step with a positive step size small enough to keep $\lambda>0$, state whether $\lambda$ and the implied conditional mean $1/\lambda$ move up or down.
-4. Let $\theta(x)=\log \lambda(x)$, so $\lambda=e^\theta$. Derive $\partial \ell/\partial \theta$, $\mathcal{I}_{\theta\theta}$, and the natural gradient in the $\theta$ parameterization. Show that mapping this direction back to the $\lambda$ scale gives the natural-gradient direction from Part 2, and explain how the log-rate parameterization enforces the parameter constraint.
-5. For an exponential distribution, both the conditional mean and the conditional standard deviation, written $\operatorname{SD}(Y\mid X=x)$, equal $1/\lambda(x)$. Suppose that, at a particular predictor value $x$, the conditional mean is $2$ and the conditional standard deviation is $4$. Show that no value of $\lambda(x)$ matches both features, and explain why allowing a flexible function $\lambda(x)$ cannot remove this distributional misspecification.
+4. Let $\theta(x)=\log \lambda(x)$, so $\lambda=e^\theta$. Derive $\partial \ell/\partial \theta$, $\mathcal{I}_{\theta\theta}$, and the natural gradient in the $\theta$ parameterization. Show that mapping this infinitesimal direction back to the $\lambda$ scale gives the natural-gradient direction from Part 2.
+5. Explain why the agreement of the infinitesimal directions in Part 4 does not imply that ordinary finite Euler updates in the two coordinates generate exactly matching parameter sequences. Then explain how the log-rate parameterization enforces the constraint $\lambda>0$.
+6. For an exponential distribution, both the conditional mean and the conditional standard deviation, written $\operatorname{SD}(Y\mid X=x)$, equal $1/\lambda(x)$. Suppose that, at a particular predictor value $x$, the conditional mean is $2$ and the conditional standard deviation is $4$. Show that no value of $\lambda(x)$ matches both features, and explain why allowing a flexible function $\lambda(x)$ cannot remove this distributional misspecification.
 
-*Exam level. The exercise connects model comparison, likelihood calculation, reparameterization, and a testable restriction of the exponential family.*
+*Exam level. The exercise connects model comparison, likelihood calculation, reparameterization, finite-step interpretation, and a testable restriction of the exponential family.*
 :::
 
 ::: {.callout-warning collapse="true"}
@@ -656,9 +667,15 @@ $$
 =
 \tilde g_\lambda,
 $$
-which is the direction obtained in Part 2. This agreement illustrates the reparameterization invariance of the natural gradient. The log-rate parameterization also turns the constrained rate $\lambda>0$ into an unconstrained parameter $\theta\in\mathbb{R}$, while $\lambda=e^\theta$ guarantees a positive implied rate after every update.
+which is the direction obtained in Part 2. This agreement establishes the coordinate transformation of the infinitesimal natural-gradient direction.
 
-**Part 5: Exponential-family misspecification**
+**Part 5: Finite coordinate updates and the positivity constraint**
+
+The agreement in Part 4 concerns an infinitesimal direction. After a finite log-rate step $\Delta\theta$, the exact mapped change is $\lambda(e^{\Delta\theta}-1)$, which equals $\lambda\Delta\theta$ only to first order. Ordinary finite Euler updates carried out separately in the two coordinates can therefore generate different parameter sequences.
+
+The log-rate parameterization also turns the constrained rate $\lambda>0$ into an unconstrained parameter $\theta\in\mathbb{R}$. Any finite value of $\theta$ maps to $\lambda=e^\theta>0$, so every update produces a valid rate.
+
+**Part 6: Exponential-family misspecification**
 
 Matching the conditional mean $2$ requires
 $$

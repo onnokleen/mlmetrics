@@ -427,18 +427,18 @@ window.Quarto = {
 <h1 data-number="8"><span class="header-section-number">8</span> Empirical Illustration: Neural Networks for Realized Volatility</h1>
 <section id="overview" class="level2" data-number="8.1">
 <h2 data-number="8.1" class="anchored" data-anchor-id="overview"><span class="header-section-number">8.1</span> Overview</h2>
-<p>Neural-network architectures are often introduced as if the main empirical question were which architecture is most powerful. In time-series econometrics, that is usually the wrong starting point. Before comparing a feed-forward network, a recurrent network, or a long short-term memory (LSTM) network, we must define the forecast target, the information set at each forecast origin, the validation scheme, and the loss function used for evaluation.</p>
-<p>This chapter makes those choices explicit in a single empirical illustration. The object is one-step-ahead forecasting of the realized volatility of the SPDR S&amp;P 500 exchange-traded fund (ETF; ticker <code>SPY</code>), using the daily realized-variance measures described in <a href="./datasets.html#sec-spy-taq-realized">the dataset appendix</a>.</p>
-<p>The empirical comparison has two purposes. First, it shows why modeling the log of realized variance (<span class="math inline">RV</span>) often works better than modeling <span class="math inline">RV</span> in levels: the log transform removes most of the series’ right skewness, so squared-error training is not dominated by a handful of extreme days. Second, it compares a linear benchmark — the heterogeneous autoregressive (HAR) model of daily, weekly, and monthly volatility components, estimated by ordinary least squares (OLS), abbreviated HAR-OLS — with four neural-network specifications: a parsimonious HAR-FNN (a feed-forward neural network, FNN, on the HAR inputs), a full FNN, a Simple RNN (recurrent neural network), and an LSTM — all evaluated under the same forecast-origin discipline. A central finding is that the linear benchmark is hard to beat: with the regressors held identical, the nonlinear HAR-FNN improves on HAR-OLS only marginally, and the full-history neural networks at best come close.</p>
+<p>Neural-network architectures are often introduced as if the main empirical question were which architecture is most powerful. In time-series econometrics, that is usually the wrong starting point. Before comparing a feed-forward network, a recurrent network, or a long short-term memory (LSTM) network, we must define the forecast target, the information set at each forecast origin, the validation scheme, and the loss function used for evaluation. Throughout this chapter, <em>volatility</em> names the broad forecasting application; the measured target is realized <strong>variance</strong>, not its square root.</p>
+<p>This chapter makes those choices explicit in a single empirical illustration. The object is one-step-ahead forecasting of the realized variance of the S&amp;P 500 exchange-traded fund (ETF; ticker <code>SPY</code>), using the daily measures described in <a href="./datasets.html#sec-spy-taq-realized">the dataset appendix</a>.</p>
+<p>The empirical comparison has two purposes. First, it compares a complete log-target pipeline with a complete level-target pipeline. In this sample the log transform removes most of the target’s right skewness, and the log-target pipeline performs better on the chapter’s main log-scale criterion. The comparison also changes the normalization of the lag inputs, however, so it does not isolate a causal effect of the target transformation alone. Second, it compares a linear benchmark — the heterogeneous autoregressive (HAR) model of daily, weekly, and monthly volatility components, estimated by ordinary least squares (OLS), abbreviated HAR-OLS — with four neural-network specifications: a parsimonious HAR-FNN (a feed-forward neural network, FNN, on the HAR inputs), a full FNN, a Simple RNN (recurrent neural network), and an LSTM — all evaluated under the same forecast-origin discipline. A central finding is that the linear benchmark is hard to beat: with the regressor set held fixed, the nonlinear HAR-FNN improves on HAR-OLS only marginally, and the full-history neural networks at best come close.</p>
 </section>
 <section id="roadmap" class="level2" data-number="8.2">
 <h2 data-number="8.2" class="anchored" data-anchor-id="roadmap"><span class="header-section-number">8.2</span> Roadmap</h2>
 <ol type="1">
-<li>We define the realized-volatility target and the one-step-ahead forecast origin.</li>
+<li>We define the realized-variance target and the one-step-ahead forecast origin.</li>
 <li>We specify the local-data workflow and the time-ordered train-validation-test split.</li>
 <li>We define the HAR-OLS, HAR-FNN, full FNN, Simple RNN, and LSTM inputs.</li>
 <li>We tune the neural networks using only the validation block.</li>
-<li>We interpret the empirical results as evidence about target transformations, benchmark choice, and architecture choice.</li>
+<li>We interpret the empirical results as evidence about target-and-normalization pipelines, benchmark choice, and architecture choice.</li>
 </ol>
 </section>
 <section id="data-and-forecast-target" class="level2" data-number="8.3">
@@ -449,7 +449,7 @@ window.Quarto = {
 RV_t=\sum_{j=1}^{M_t} r_{t,j}^2,
 </span></p>
 </div>
-<p> where <span class="math inline">M_t</span> is the number of intraday return intervals available after cleaning. Realized variance — the sum of intraday squared returns as a consistent estimator of integrated variance under standard semimartingale assumptions — is a canonical high-frequency volatility measure; <span class="citation" data-cites="AndersenBollerslevDieboldLabys2003">Andersen et al. (<a href="#ref-AndersenBollerslevDieboldLabys2003" role="doc-biblioref">2003</a>)</span> is a standard reference for modeling and forecasting it. It is positive, highly right-skewed, and persistent. For that reason, a common forecasting target is </p>
+<p> where <span class="math inline">M_t</span> is the number of intraday return intervals available after cleaning. Realized variance <span class="math inline">RV_t</span> is a canonical high-frequency volatility measure; <span class="citation" data-cites="AndersenBollerslevDieboldLabys2003">Andersen et al. (<a href="#ref-AndersenBollerslevDieboldLabys2003" role="doc-biblioref">2003</a>)</span> is a standard reference for modeling and forecasting it.<a href="#fn1" class="footnote-ref" id="fnref1" role="doc-noteref"><sup>1</sup></a> It is positive, highly right-skewed, and persistent. For that reason, a common forecasting target is </p>
 <div class="display-math-block">
 <p><span class="math display">
 z_t = \log(RV_t),
@@ -465,7 +465,7 @@ f_\theta(z_t,z_{t-1},\ldots,z_{t-21}),
 </span></p>
 </div>
 <p> where the input window contains the previous 22 trading days, roughly one trading month. The forecast target <span class="math inline">z_{t+1}</span> is not part of the input window.</p>
-<p>The full-history models all use this same forecast-origin history. The full FNN receives the 22 lags as a flattened feature vector. The Simple RNN and LSTM receive the same values as an ordered sequence. The HAR specifications are different by design: they receive a traditional volatility summary consisting of yesterday’s realized variance <span class="math inline">RV_t</span>, the trailing 5-day average, and the trailing 21-day average. This three-component (daily, weekly, monthly) decomposition is the HAR model of <span class="citation" data-cites="CorsiHAR2009">Corsi (<a href="#ref-CorsiHAR2009" role="doc-biblioref">2009</a>)</span>, designed to capture the long-memory structure of realized volatility with a parsimonious linear specification. All three components are known at the forecast origin <span class="math inline">t</span>.</p>
+<p>The full-history models all use this same forecast-origin history. The full FNN receives the 22 lags as a flattened feature vector. The Simple RNN and LSTM receive the same values as an ordered sequence. The HAR specifications are different by design: they receive a traditional volatility summary consisting of yesterday’s realized variance <span class="math inline">RV_t</span>, the trailing 5-day average, and the trailing 21-day average. This three-component (daily, weekly, monthly) decomposition is the HAR model of <span class="citation" data-cites="CorsiHAR2009">Corsi (<a href="#ref-CorsiHAR2009" role="doc-biblioref">2009</a>)</span>, designed to capture the long-memory structure of realized variance with a parsimonious linear specification. All three components are known at the forecast origin <span class="math inline">t</span>.</p>
 <p>The local replication code expects the daily SPY realized-measures file documented in <a href="./datasets.html#sec-spy-taq-realized">the dataset appendix</a>.</p>
 <p><a href="#fig-nn-forecast-window" class="quarto-xref">Figure&nbsp;8.1</a> shows the forecast-origin convention. The training, validation, and test blocks are chronological. Scaling constants and hyperparameters are learned before the test block is touched.</p>
 <div id="cell-fig-nn-forecast-window" class="cell" data-execution_count="2">
@@ -483,7 +483,7 @@ Figure&nbsp;8.1: Forecast-origin convention for the volatility experiment. Each 
 </div>
 </div>
 <p>The workflow below makes the econometric design explicit: it constructs forecast origins before splitting the sample, estimates scaling constants only on the training block, and keeps the test block untouched until the final comparison. Concretely, the 22-lag inputs and the target are transformed with the training-block mean and standard deviation of the target series — every lag coordinate is the same variable, so a single center and scale serves all of them — while the three HAR components are standardized column by column with their own training-block moments (cf.&nbsp;<a href="./cross_validation.html#sec-cv-leakage">the Cross-Validation chapter on fitting preprocessing on training data only</a>); forecasts are mapped back to the original scale. Replication uses the local SPY realized-variance file documented in <a href="./datasets.html#sec-spy-taq-realized">the dataset appendix</a>.</p>
-<p>The first chunk loads the realized-variance series and constructs <span class="math inline">z_t=\log(RV_t)</span>. Rows with missing or nonpositive realized variance are excluded before forming forecast origins.</p>
+<p>The first chunk loads the realized-variance series and constructs <span class="math inline">z_t=\log(RV_t)</span>.</p>
 <div id="setup-load" class="cell" data-execution_count="3">
 <details class="code-fold">
 <summary>Show the code</summary>
@@ -506,18 +506,22 @@ Figure&nbsp;8.1: Forecast-origin convention for the volatility experiment. Each 
 <span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>keras.utils.set_random_seed(<span class="dv">0</span>)</span>
 <span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>path <span class="op">=</span> <span class="st">"data/taq_spy/SPY_daily_measures.csv"</span></span>
-<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>rv <span class="op">=</span> (</span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>rv_source <span class="op">=</span> (</span>
 <span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>    pd.read_csv(path, parse_dates<span class="op">=</span>[<span class="st">"date"</span>])</span>
 <span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a>    .sort_values(<span class="st">"date"</span>)</span>
 <span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a>    .loc[:, [<span class="st">"date"</span>, <span class="st">"rv"</span>]]</span>
-<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a>    .dropna()</span>
-<span id="cb1-25"><a href="#cb1-25" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb1-25"><a href="#cb1-25" aria-hidden="true" tabindex="-1"></a>rv <span class="op">=</span> rv_source.dropna(subset<span class="op">=</span>[<span class="st">"rv"</span>])</span>
 <span id="cb1-26"><a href="#cb1-26" aria-hidden="true" tabindex="-1"></a>rv <span class="op">=</span> rv.loc[rv[<span class="st">"rv"</span>] <span class="op">&gt;</span> <span class="dv">0</span>].reset_index(drop<span class="op">=</span><span class="va">True</span>)</span>
-<span id="cb1-27"><a href="#cb1-27" aria-hidden="true" tabindex="-1"></a>rv[<span class="st">"z"</span>] <span class="op">=</span> np.log(rv[<span class="st">"rv"</span>])</span>
-<span id="cb1-28"><a href="#cb1-28" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"observations: </span><span class="sc">{</span><span class="bu">len</span>(rv)<span class="sc">}</span><span class="ss">, range: </span><span class="sc">{</span>rv[<span class="st">'date'</span>]<span class="sc">.</span><span class="bu">min</span>()<span class="sc">.</span>date()<span class="sc">}</span><span class="ss"> to </span><span class="sc">{</span>rv[<span class="st">'date'</span>]<span class="sc">.</span><span class="bu">max</span>()<span class="sc">.</span>date()<span class="sc">}</span><span class="ss">"</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<span id="cb1-27"><a href="#cb1-27" aria-hidden="true" tabindex="-1"></a><span class="co"># Guard: no missing or nonpositive rv inside the usable sample, so that lag k</span></span>
+<span id="cb1-28"><a href="#cb1-28" aria-hidden="true" tabindex="-1"></a><span class="co"># below means k trading days back rather than k available observations back.</span></span>
+<span id="cb1-29"><a href="#cb1-29" aria-hidden="true" tabindex="-1"></a>usable <span class="op">=</span> rv_source[<span class="st">"date"</span>] <span class="op">&lt;=</span> rv[<span class="st">"date"</span>].<span class="bu">max</span>()</span>
+<span id="cb1-30"><a href="#cb1-30" aria-hidden="true" tabindex="-1"></a><span class="cf">assert</span> (rv_source.loc[usable, <span class="st">"rv"</span>] <span class="op">&gt;</span> <span class="dv">0</span>).<span class="bu">all</span>(), <span class="st">"gap inside the usable sample"</span></span>
+<span id="cb1-31"><a href="#cb1-31" aria-hidden="true" tabindex="-1"></a>rv[<span class="st">"z"</span>] <span class="op">=</span> np.log(rv[<span class="st">"rv"</span>])</span>
+<span id="cb1-32"><a href="#cb1-32" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"observations: </span><span class="sc">{</span><span class="bu">len</span>(rv)<span class="sc">}</span><span class="ss">, range: </span><span class="sc">{</span>rv[<span class="st">'date'</span>]<span class="sc">.</span><span class="bu">min</span>()<span class="sc">.</span>date()<span class="sc">}</span><span class="ss"> to </span><span class="sc">{</span>rv[<span class="st">'date'</span>]<span class="sc">.</span><span class="bu">max</span>()<span class="sc">.</span>date()<span class="sc">}</span><span class="ss">"</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </details>
 <div class="cell-output cell-output-stdout">
-<pre><code>observations: 2451, range: 2015-01-02 to 2024-12-31</code></pre>
+<pre><code>observations: 2516, range: 2015-01-02 to 2024-12-31</code></pre>
 </div>
 </div>
 <p>The next helper constructs the supervised forecasting problem. For each valid origin <span class="math inline">t</span>, the full-history models see <span class="math inline">(z_t,\ldots,z_{t-21})</span> and forecast <span class="math inline">z_{t+1}</span>. The HAR helper uses the same origin <span class="math inline">t</span> but replaces the 22 individual lags by three realized-variance summaries: </p>
@@ -677,8 +681,8 @@ RV_t,\quad
 <span id="cb3-140"><a href="#cb3-140" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"train: </span><span class="sc">{</span>train_end<span class="sc">}</span><span class="ss">, validation: </span><span class="sc">{</span>valid_end <span class="op">-</span> train_end<span class="sc">}</span><span class="ss">, test: </span><span class="sc">{</span>n <span class="op">-</span> valid_end<span class="sc">}</span><span class="ss">"</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </details>
 <div class="cell-output cell-output-stdout">
-<pre><code>forecast origins: 2429
-train: 1554, validation: 389, test: 486</code></pre>
+<pre><code>forecast origins: 2494
+train: 1596, validation: 399, test: 499</code></pre>
 </div>
 </div>
 </section>
@@ -687,12 +691,12 @@ train: 1554, validation: 389, test: 486</code></pre>
 <p>The specifications differ in how they represent the same forecasting problem.</p>
 <ul>
 <li>The <strong>HAR-OLS</strong> benchmark is linear. For the log target, it regresses <span class="math inline">\log(RV_{t+1})</span> on the logs of the daily, weekly, and monthly HAR components. For the level target, it regresses <span class="math inline">RV_{t+1}</span> on the corresponding level components.</li>
-<li>The <strong>HAR-FNN</strong> is the most structured specification. It uses the three HAR volatility-component summaries — daily, weekly, and monthly averages of realized variance — that follow the <span class="citation" data-cites="CorsiHAR2009">Corsi (<a href="#ref-CorsiHAR2009" role="doc-biblioref">2009</a>)</span> model. For the log target it receives exactly the same three log-transformed components as HAR-OLS (standardized), so the two specifications share their regressors and differ only in functional form; for the level target, both receive the level components.</li>
+<li>The <strong>HAR-FNN</strong> is the most structured specification. It uses the three HAR volatility-component summaries — daily, weekly, and monthly averages of realized variance — from the <span class="citation" data-cites="CorsiHAR2009">Corsi (<a href="#ref-CorsiHAR2009" role="doc-biblioref">2009</a>)</span> model. For the log target it receives exactly the same three log-transformed components as HAR-OLS (standardized), so the two specifications share their target and predictor information while contrasting a linear OLS procedure with a tuned nonlinear neural procedure; for the level target, both receive the level components.</li>
 <li>The <strong>full FNN</strong> uses the full 22-day history, processing the fixed-position lag vector jointly through dense layers: each lag coordinate receives its own weights, with no recurrent parameter sharing and no sequential state update.</li>
 <li>The <strong>Simple RNN</strong> also uses the full 22-day history, but processes the lags sequentially through a recurrent state.</li>
 <li>The <strong>LSTM</strong> processes the same sequence with gated memory, allowing the network to regulate how much past information is retained.</li>
 </ul>
-<p><a href="#fig-nn-architectures" class="quarto-xref">Figure&nbsp;8.2</a> summarizes the neural specifications. All models share the forecast origin, the one-step horizon, and roughly one month of history, but they do not receive identical information: the HAR specifications see three summaries of the past 21 days, while the full-history models see all 22 individual lags — and summarization discards information. Each model’s width is tuned separately, so parameter counts differ as well. The one clean controlled comparison is HAR-OLS versus HAR-FNN, which share their regressors exactly; the other contrasts mix information design with architecture. HAR-OLS is included because the nonlinear HAR-FNN is informative mainly as a comparison against a linear model fit on identical regressors: with the inputs shared, the HAR-FNN-versus-HAR-OLS comparison isolates functional form.</p>
+<p><a href="#fig-nn-architectures" class="quarto-xref">Figure&nbsp;8.2</a> summarizes the neural specifications. All models share the forecast origin, the one-step horizon, and roughly one month of history, but they do not receive identical information: the HAR specifications see three summaries of the past 21 days, while the full-history models see all 22 individual lags — and summarization discards information. Each model’s width is tuned separately, so parameter counts differ as well. The most controlled comparison is HAR-OLS versus HAR-FNN, which share the target and predictor information exactly; the other contrasts mix information design with architecture. Even this comparison is not a pure functional-form experiment: HAR-OLS uses direct least-squares fitting on raw HAR inputs, whereas HAR-FNN uses standardized inputs, stochastic optimization, and validation-based tuning. It therefore asks whether the complete tuned nonlinear procedure improves on the linear benchmark for the same information set.</p>
 <p>All four neural networks are deliberately shallow. The HAR-FNN and full FNN have one hidden dense layer with a tuned width and a linear output layer. The Simple RNN and LSTM have one recurrent layer with a tuned number of units and a linear output layer. A deeper pyramidal FNN, for example 22 inputs to 64 hidden units to 32 hidden units to one output, would be a reasonable robustness check. It is not the baseline here because it would add another capacity choice while the chapter’s main comparison is about target transformation and information representation.</p>
 <div id="cell-fig-nn-architectures" class="cell" data-execution_count="5">
 <div class="cell-output cell-output-display">
@@ -708,8 +712,8 @@ Figure&nbsp;8.2: Four volatility-forecasting specifications. The HAR-FNN uses th
 </div>
 </div>
 </div>
-<p>Each architecture below uses the same skeleton — one hidden layer of tuned width followed by a linear output. The input shapes enforce the intended information sets: three HAR features for the HAR-FNN, 22 flattened lags for the full FNN, and a 22-step sequence for the recurrent models. The dense models use softplus hidden activations, as in <a href="./feed_forward_nns.html">the feed-forward chapter</a>; the recurrent models use the <span class="math inline">\tanh</span> cells whose gradient behavior <a href="./recurrent_neural_networks.html">Chapters 6</a> and <a href="./lstm_neural_networks.html">7</a> analyze.</p>
-<div id="36ebaa35" class="cell" data-execution_count="6">
+<p>Each architecture below uses the same skeleton — one hidden layer of tuned width followed by a linear output. The input shapes enforce the intended information sets: three HAR features for the HAR-FNN, 22 flattened lags for the full FNN, and a 22-step sequence for the recurrent models. The dense models use softplus hidden activations, as in <a href="./feed_forward_nns.html">the feed-forward chapter</a>; the recurrent models use the <span class="math inline">\tanh</span> cells whose gradient behavior is analyzed in <a href="./recurrent_neural_networks.html">Chapter 6</a> and <a href="./lstm_neural_networks.html">Chapter 7</a>.</p>
+<div id="4b7ab1ab" class="cell" data-execution_count="6">
 <details class="code-fold">
 <summary>Show the code</summary>
 <div class="sourceCode cell-code" id="cb5"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> make_fnn(n_neurons, learning_rate):</span>
@@ -746,39 +750,50 @@ Figure&nbsp;8.2: Four volatility-forecasting specifications. The HAR-FNN uses th
 <span id="cb5-32"><a href="#cb5-32" aria-hidden="true" tabindex="-1"></a>    model <span class="op">=</span> keras.Sequential(</span>
 <span id="cb5-33"><a href="#cb5-33" aria-hidden="true" tabindex="-1"></a>        [</span>
 <span id="cb5-34"><a href="#cb5-34" aria-hidden="true" tabindex="-1"></a>            keras.Input(shape<span class="op">=</span>(window, <span class="dv">1</span>)),</span>
-<span id="cb5-35"><a href="#cb5-35" aria-hidden="true" tabindex="-1"></a>            layers.SimpleRNN(n_neurons, activation<span class="op">=</span><span class="st">"tanh"</span>, return_sequences<span class="op">=</span><span class="va">False</span>),</span>
-<span id="cb5-36"><a href="#cb5-36" aria-hidden="true" tabindex="-1"></a>            layers.Dense(<span class="dv">1</span>),</span>
-<span id="cb5-37"><a href="#cb5-37" aria-hidden="true" tabindex="-1"></a>        ],</span>
-<span id="cb5-38"><a href="#cb5-38" aria-hidden="true" tabindex="-1"></a>        name<span class="op">=</span><span class="st">"SimpleRNN"</span>,</span>
-<span id="cb5-39"><a href="#cb5-39" aria-hidden="true" tabindex="-1"></a>    )</span>
-<span id="cb5-40"><a href="#cb5-40" aria-hidden="true" tabindex="-1"></a>    model.<span class="bu">compile</span>(</span>
-<span id="cb5-41"><a href="#cb5-41" aria-hidden="true" tabindex="-1"></a>        loss<span class="op">=</span>keras.losses.MeanSquaredError(),</span>
-<span id="cb5-42"><a href="#cb5-42" aria-hidden="true" tabindex="-1"></a>        optimizer<span class="op">=</span>keras.optimizers.Adam(learning_rate<span class="op">=</span>learning_rate),</span>
-<span id="cb5-43"><a href="#cb5-43" aria-hidden="true" tabindex="-1"></a>    )</span>
-<span id="cb5-44"><a href="#cb5-44" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> model</span>
-<span id="cb5-45"><a href="#cb5-45" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb5-46"><a href="#cb5-46" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> make_lstm(n_neurons, learning_rate):</span>
-<span id="cb5-47"><a href="#cb5-47" aria-hidden="true" tabindex="-1"></a>    model <span class="op">=</span> keras.Sequential(</span>
-<span id="cb5-48"><a href="#cb5-48" aria-hidden="true" tabindex="-1"></a>        [</span>
-<span id="cb5-49"><a href="#cb5-49" aria-hidden="true" tabindex="-1"></a>            keras.Input(shape<span class="op">=</span>(window, <span class="dv">1</span>)),</span>
-<span id="cb5-50"><a href="#cb5-50" aria-hidden="true" tabindex="-1"></a>            layers.LSTM(n_neurons, activation<span class="op">=</span><span class="st">"tanh"</span>, return_sequences<span class="op">=</span><span class="va">False</span>),</span>
-<span id="cb5-51"><a href="#cb5-51" aria-hidden="true" tabindex="-1"></a>            layers.Dense(<span class="dv">1</span>),</span>
-<span id="cb5-52"><a href="#cb5-52" aria-hidden="true" tabindex="-1"></a>        ],</span>
-<span id="cb5-53"><a href="#cb5-53" aria-hidden="true" tabindex="-1"></a>        name<span class="op">=</span><span class="st">"LSTM"</span>,</span>
-<span id="cb5-54"><a href="#cb5-54" aria-hidden="true" tabindex="-1"></a>    )</span>
-<span id="cb5-55"><a href="#cb5-55" aria-hidden="true" tabindex="-1"></a>    model.<span class="bu">compile</span>(</span>
-<span id="cb5-56"><a href="#cb5-56" aria-hidden="true" tabindex="-1"></a>        loss<span class="op">=</span>keras.losses.MeanSquaredError(),</span>
-<span id="cb5-57"><a href="#cb5-57" aria-hidden="true" tabindex="-1"></a>        optimizer<span class="op">=</span>keras.optimizers.Adam(learning_rate<span class="op">=</span>learning_rate),</span>
-<span id="cb5-58"><a href="#cb5-58" aria-hidden="true" tabindex="-1"></a>    )</span>
-<span id="cb5-59"><a href="#cb5-59" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> model</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<span id="cb5-35"><a href="#cb5-35" aria-hidden="true" tabindex="-1"></a>            layers.SimpleRNN(</span>
+<span id="cb5-36"><a href="#cb5-36" aria-hidden="true" tabindex="-1"></a>                n_neurons,</span>
+<span id="cb5-37"><a href="#cb5-37" aria-hidden="true" tabindex="-1"></a>                activation<span class="op">=</span><span class="st">"tanh"</span>,</span>
+<span id="cb5-38"><a href="#cb5-38" aria-hidden="true" tabindex="-1"></a>                return_sequences<span class="op">=</span><span class="va">False</span>,</span>
+<span id="cb5-39"><a href="#cb5-39" aria-hidden="true" tabindex="-1"></a>                stateful<span class="op">=</span><span class="va">False</span>,</span>
+<span id="cb5-40"><a href="#cb5-40" aria-hidden="true" tabindex="-1"></a>            ),</span>
+<span id="cb5-41"><a href="#cb5-41" aria-hidden="true" tabindex="-1"></a>            layers.Dense(<span class="dv">1</span>),</span>
+<span id="cb5-42"><a href="#cb5-42" aria-hidden="true" tabindex="-1"></a>        ],</span>
+<span id="cb5-43"><a href="#cb5-43" aria-hidden="true" tabindex="-1"></a>        name<span class="op">=</span><span class="st">"SimpleRNN"</span>,</span>
+<span id="cb5-44"><a href="#cb5-44" aria-hidden="true" tabindex="-1"></a>    )</span>
+<span id="cb5-45"><a href="#cb5-45" aria-hidden="true" tabindex="-1"></a>    model.<span class="bu">compile</span>(</span>
+<span id="cb5-46"><a href="#cb5-46" aria-hidden="true" tabindex="-1"></a>        loss<span class="op">=</span>keras.losses.MeanSquaredError(),</span>
+<span id="cb5-47"><a href="#cb5-47" aria-hidden="true" tabindex="-1"></a>        optimizer<span class="op">=</span>keras.optimizers.Adam(learning_rate<span class="op">=</span>learning_rate),</span>
+<span id="cb5-48"><a href="#cb5-48" aria-hidden="true" tabindex="-1"></a>    )</span>
+<span id="cb5-49"><a href="#cb5-49" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> model</span>
+<span id="cb5-50"><a href="#cb5-50" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-51"><a href="#cb5-51" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> make_lstm(n_neurons, learning_rate):</span>
+<span id="cb5-52"><a href="#cb5-52" aria-hidden="true" tabindex="-1"></a>    model <span class="op">=</span> keras.Sequential(</span>
+<span id="cb5-53"><a href="#cb5-53" aria-hidden="true" tabindex="-1"></a>        [</span>
+<span id="cb5-54"><a href="#cb5-54" aria-hidden="true" tabindex="-1"></a>            keras.Input(shape<span class="op">=</span>(window, <span class="dv">1</span>)),</span>
+<span id="cb5-55"><a href="#cb5-55" aria-hidden="true" tabindex="-1"></a>            layers.LSTM(</span>
+<span id="cb5-56"><a href="#cb5-56" aria-hidden="true" tabindex="-1"></a>                n_neurons,</span>
+<span id="cb5-57"><a href="#cb5-57" aria-hidden="true" tabindex="-1"></a>                activation<span class="op">=</span><span class="st">"tanh"</span>,</span>
+<span id="cb5-58"><a href="#cb5-58" aria-hidden="true" tabindex="-1"></a>                return_sequences<span class="op">=</span><span class="va">False</span>,</span>
+<span id="cb5-59"><a href="#cb5-59" aria-hidden="true" tabindex="-1"></a>                stateful<span class="op">=</span><span class="va">False</span>,</span>
+<span id="cb5-60"><a href="#cb5-60" aria-hidden="true" tabindex="-1"></a>            ),</span>
+<span id="cb5-61"><a href="#cb5-61" aria-hidden="true" tabindex="-1"></a>            layers.Dense(<span class="dv">1</span>),</span>
+<span id="cb5-62"><a href="#cb5-62" aria-hidden="true" tabindex="-1"></a>        ],</span>
+<span id="cb5-63"><a href="#cb5-63" aria-hidden="true" tabindex="-1"></a>        name<span class="op">=</span><span class="st">"LSTM"</span>,</span>
+<span id="cb5-64"><a href="#cb5-64" aria-hidden="true" tabindex="-1"></a>    )</span>
+<span id="cb5-65"><a href="#cb5-65" aria-hidden="true" tabindex="-1"></a>    model.<span class="bu">compile</span>(</span>
+<span id="cb5-66"><a href="#cb5-66" aria-hidden="true" tabindex="-1"></a>        loss<span class="op">=</span>keras.losses.MeanSquaredError(),</span>
+<span id="cb5-67"><a href="#cb5-67" aria-hidden="true" tabindex="-1"></a>        optimizer<span class="op">=</span>keras.optimizers.Adam(learning_rate<span class="op">=</span>learning_rate),</span>
+<span id="cb5-68"><a href="#cb5-68" aria-hidden="true" tabindex="-1"></a>    )</span>
+<span id="cb5-69"><a href="#cb5-69" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> model</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </details>
 </div>
+<p>The code presents each overlapping 22-day window as a separate input sequence and sets <code>stateful=False</code> for both recurrent layers. Because no <code>initial_state</code> is supplied, Keras initializes the Simple RNN hidden state at <span class="math inline">h_0=0</span> and the LSTM hidden and cell states at <span class="math inline">h_0=C_0=0</span> for every window. The estimated weights persist across windows, but the final hidden and cell states do not: they are discarded rather than passed to the next window. Both the forward state horizon and the gradient horizon are therefore limited to 22 steps. This is the <strong>fixed-window training</strong> scheme defined in the <a href="./recurrent_neural_networks.html#sec-rnn-windows">RNN chapter</a>.</p>
 </section>
 <section id="validation-and-tuning" class="level2" data-number="8.5">
 <h2 data-number="8.5" class="anchored" data-anchor-id="validation-and-tuning"><span class="header-section-number">8.5</span> Validation and Tuning</h2>
-<p>Hyperparameters are selected using the validation block, not the test block. This is not a nested evaluation design; it is a compact empirical illustration with a single holdout test period. The validation block is used for model selection, and the final test block is used once after the selected hyperparameters have been fixed.</p>
-<p>The load-bearing time-series restrictions are the chronological train-validation-test split and the lookahead-free window construction — not the <code>shuffle</code> flag. Once the overlapping windows are formed, each is a self-contained input-target pair, so shuffling <em>pre-built training windows</em> between epochs (the Keras default for stateless models) neither leaks future information nor breaks the forecast-origin discipline. We set <code>shuffle=False</code> as a deliberate batch-composition choice — training batches are then contiguous, chronologically ordered blocks, whose gradient-variance implications under serial correlation are exactly those analyzed in Exercise 4.2 of the <a href="./optimization.html">optimization chapter</a> — not as a leakage protection. What must never be randomized is the split itself: this chapter does not use random <span class="math inline">K</span>-fold cross-validation, because random folds would mix volatility regimes across training and validation sets and would no longer mimic the one-step-ahead forecasting problem.</p>
-<div id="84ac4e98" class="cell" data-execution_count="7">
+<p>Hyperparameters are selected using the validation block, not the test block. This is not a nested evaluation design; it is a compact empirical illustration with a single holdout test period. Because the validation block is consulted across trials and epochs, the best attained validation loss is an adaptively selected criterion rather than an unbiased estimate of future performance. The final test block is used once after the selected hyperparameters have been fixed.</p>
+<p>The load-bearing time-series restrictions are the chronological train-validation-test split and the lookahead-free window construction — not the <code>shuffle</code> flag. Under the fixed-window scheme just described, each overlapping window is a self-contained input-target pair, so shuffling <em>pre-built training windows</em> between epochs (the Keras default for stateless models) neither leaks future information nor breaks the forecast-origin discipline. We set <code>shuffle=False</code> as a deliberate batch-composition choice — training batches are then contiguous, chronologically ordered blocks, whose gradient-variance implications under serial correlation are exactly those analyzed in Exercise 4.2 of the <a href="./optimization.html">optimization chapter</a> — not as a leakage protection. What must never be randomized is the split itself: this chapter does not use random <span class="math inline">K</span>-fold cross-validation, because random folds would mix volatility regimes across training and validation sets and would no longer mimic the one-step-ahead forecasting problem.</p>
+<div id="cbe20e58" class="cell" data-execution_count="7">
 <details class="code-fold">
 <summary>Show the code</summary>
 <div class="sourceCode cell-code" id="cb6"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> as_sequence(X):</span>
@@ -821,23 +836,25 @@ Figure&nbsp;8.2: Four volatility-forecasting specifications. The HAR-FNN uses th
 <span id="cb6-38"><a href="#cb6-38" aria-hidden="true" tabindex="-1"></a>best_lstm <span class="op">=</span> tune_model(make_lstm, as_sequence(X_train), as_sequence(X_valid), y_train, y_valid)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </details>
 </div>
-<p>In the local run that produced this chapter’s output, chronological validation selected the following hyperparameters. Validation losses are comparable within a panel but not across the <code>log(rv)</code> and <code>rv</code> panels: both targets are standardized to unit training variance, but the two panels minimize mean squared error for <em>different</em> standardized targets, so the numbers measure performance on different objectives.</p>
+<p>In the local run that produced this chapter’s output, chronological validation selected the following hyperparameters. Validation losses are comparable within a panel but not across the <code>log(rv)</code> and <code>rv</code> panels: both targets are standardized to unit training variance, but the two panels minimize mean squared error for <em>different</em> standardized targets, so the numbers measure performance on different objectives. The trainable-parameter count includes the hidden or recurrent layer and the final linear output layer; it makes clear that an equal number of tuning trials does not imply equal search difficulty across architectures.</p>
 <p>HAR-OLS does not appear in this table because it has no neural tuning parameters. It is fit by ordinary least squares on the combined train-validation block before the final test evaluation.</p>
 <table class="caption-top table">
 <colgroup>
-<col style="width: 11%">
-<col style="width: 11%">
-<col style="width: 15%">
-<col style="width: 15%">
-<col style="width: 15%">
-<col style="width: 15%">
-<col style="width: 15%">
+<col style="width: 10%">
+<col style="width: 10%">
+<col style="width: 13%">
+<col style="width: 13%">
+<col style="width: 13%">
+<col style="width: 13%">
+<col style="width: 13%">
+<col style="width: 13%">
 </colgroup>
 <thead>
 <tr class="header">
 <th>Target fit</th>
 <th>Model</th>
 <th style="text-align: right;">Tuned width</th>
+<th style="text-align: right;">Trainable parameters</th>
 <th style="text-align: right;">Learning rate</th>
 <th style="text-align: right;">Batch size</th>
 <th style="text-align: right;">Best epoch</th>
@@ -849,79 +866,87 @@ Figure&nbsp;8.2: Four volatility-forecasting specifications. The HAR-FNN uses th
 <td><code>log(rv)</code></td>
 <td>HAR-FNN</td>
 <td style="text-align: right;">96</td>
+<td style="text-align: right;">481</td>
 <td style="text-align: right;">0.000972</td>
 <td style="text-align: right;">48</td>
 <td style="text-align: right;">30</td>
-<td style="text-align: right;">0.2809</td>
+<td style="text-align: right;">0.2762</td>
 </tr>
 <tr class="even">
 <td><code>log(rv)</code></td>
 <td>FNN</td>
-<td style="text-align: right;">48</td>
-<td style="text-align: right;">0.000328</td>
-<td style="text-align: right;">16</td>
-<td style="text-align: right;">19</td>
-<td style="text-align: right;">0.2763</td>
+<td style="text-align: right;">72</td>
+<td style="text-align: right;">1,729</td>
+<td style="text-align: right;">0.000346</td>
+<td style="text-align: right;">36</td>
+<td style="text-align: right;">28</td>
+<td style="text-align: right;">0.2743</td>
 </tr>
 <tr class="odd">
 <td><code>log(rv)</code></td>
 <td>Simple RNN</td>
-<td style="text-align: right;">44</td>
-<td style="text-align: right;">0.000180</td>
-<td style="text-align: right;">28</td>
-<td style="text-align: right;">19</td>
-<td style="text-align: right;">0.2741</td>
+<td style="text-align: right;">20</td>
+<td style="text-align: right;">461</td>
+<td style="text-align: right;">0.000752</td>
+<td style="text-align: right;">60</td>
+<td style="text-align: right;">13</td>
+<td style="text-align: right;">0.2717</td>
 </tr>
 <tr class="even">
 <td><code>log(rv)</code></td>
 <td>LSTM</td>
-<td style="text-align: right;">76</td>
-<td style="text-align: right;">0.000717</td>
-<td style="text-align: right;">64</td>
-<td style="text-align: right;">22</td>
-<td style="text-align: right;">0.2718</td>
+<td style="text-align: right;">72</td>
+<td style="text-align: right;">21,385</td>
+<td style="text-align: right;">0.000715</td>
+<td style="text-align: right;">16</td>
+<td style="text-align: right;">30</td>
+<td style="text-align: right;">0.2678</td>
 </tr>
 <tr class="odd">
 <td><code>rv</code></td>
 <td>HAR-FNN</td>
-<td style="text-align: right;">32</td>
-<td style="text-align: right;">0.000275</td>
-<td style="text-align: right;">40</td>
-<td style="text-align: right;">30</td>
-<td style="text-align: right;">0.0953</td>
+<td style="text-align: right;">52</td>
+<td style="text-align: right;">261</td>
+<td style="text-align: right;">0.000538</td>
+<td style="text-align: right;">44</td>
+<td style="text-align: right;">22</td>
+<td style="text-align: right;">0.1099</td>
 </tr>
 <tr class="even">
 <td><code>rv</code></td>
 <td>FNN</td>
+<td style="text-align: right;">96</td>
+<td style="text-align: right;">2,305</td>
+<td style="text-align: right;">0.000972</td>
 <td style="text-align: right;">48</td>
-<td style="text-align: right;">0.000806</td>
-<td style="text-align: right;">44</td>
-<td style="text-align: right;">26</td>
-<td style="text-align: right;">0.1023</td>
+<td style="text-align: right;">21</td>
+<td style="text-align: right;">0.1156</td>
 </tr>
 <tr class="odd">
 <td><code>rv</code></td>
 <td>Simple RNN</td>
-<td style="text-align: right;">44</td>
-<td style="text-align: right;">0.000204</td>
-<td style="text-align: right;">40</td>
-<td style="text-align: right;">4</td>
-<td style="text-align: right;">0.0961</td>
+<td style="text-align: right;">88</td>
+<td style="text-align: right;">8,009</td>
+<td style="text-align: right;">0.000109</td>
+<td style="text-align: right;">24</td>
+<td style="text-align: right;">2</td>
+<td style="text-align: right;">0.1168</td>
 </tr>
 <tr class="even">
 <td><code>rv</code></td>
 <td>LSTM</td>
-<td style="text-align: right;">96</td>
-<td style="text-align: right;">0.000972</td>
-<td style="text-align: right;">48</td>
-<td style="text-align: right;">18</td>
-<td style="text-align: right;">0.1014</td>
+<td style="text-align: right;">36</td>
+<td style="text-align: right;">5,509</td>
+<td style="text-align: right;">0.000984</td>
+<td style="text-align: right;">64</td>
+<td style="text-align: right;">28</td>
+<td style="text-align: right;">0.1149</td>
 </tr>
 </tbody>
 </table>
-<p>The log-target full-history models have similar validation losses, so the final test comparison should not be read as a decisive ranking of recurrent memory versus a flattened lag vector. The level-target validation losses also cluster tightly. One entry deserves attention already here: the level-target Simple RNN’s validation-selected epoch count is just 4 — an unusually short training run whose consequences surface in the results below. This is a useful warning: validation loss alone does not settle the target-transformation question because each panel is fit and scaled on a different target.</p>
-<p>After tuning, each selected model is refit on the combined train-validation block and evaluated once on the test block. This gives the final table a simple interpretation: each row is the out-of-sample performance of one target choice and one architecture under the same chronological split.</p>
-<div id="a32dc5a9" class="cell" data-execution_count="8">
+<p>The log-target full-history models have similar validation losses, so the final test comparison should not be read as a decisive ranking of recurrent memory versus a flattened lag vector. The level-target validation losses also cluster tightly. Two entries deserve attention already here. The level-target Simple RNN’s validation-selected epoch count is just 2, paired with the smallest learning rate in the table. This is an observed outcome of the tuning rule, not by itself evidence that the model is undertrained; learning curves or repeated-seed fits would be needed for that diagnosis. Two of the log-target winners, the HAR-FNN and the LSTM, sit exactly at the 30-epoch cap, so for them the best-epoch rule did not stop training early; a longer cap might have selected differently. Validation loss alone does not settle the target-transformation question because each panel is fit and scaled on a different target.</p>
+<p>After tuning, each selected model is refit on the combined train-validation block and evaluated once on the test block. Only the network weights are refit: the preprocessing moments remain fixed at their estimates from the original training block. This is leakage-safe because the test block remains untouched and preserves the transformation used during tuning, although it is not a full re-estimation of every data-dependent component on the combined pre-test sample. Each row in the final table is therefore the out-of-sample performance of one target choice and one architecture under this stated protocol.</p>
+<div id="d69d46a2" class="cell" data-execution_count="8">
 <details class="code-fold">
 <summary>Show the code</summary>
 <div class="sourceCode cell-code" id="cb7"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> qlike(rv_true, rv_pred):</span>
@@ -1000,8 +1025,8 @@ Figure&nbsp;8.2: Four volatility-forecasting specifications. The HAR-FNN uses th
 <span id="cb7-74"><a href="#cb7-74" aria-hidden="true" tabindex="-1"></a>performance</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </details>
 </div>
-<p>The level-target rows of the results below use the analogous pipeline on the <code>rv</code>-scale arrays constructed earlier — the only changes are the target arrays, the <code>rv</code>-scale standardizers, and the back-transformation from standardized levels rather than logs:</p>
-<div id="96ce8463" class="cell" data-execution_count="9">
+<p>The level-target rows of the results below use the analogous pipeline on the <code>rv</code>-scale arrays constructed earlier — the changes are the target arrays, the <code>rv</code>-scale standardizers, and the back-transformation from standardized levels rather than logs. The 22 log-lag coordinates use one common center and scale, whereas the 22 level-lag coordinates are standardized coordinate by coordinate. Both transformations are estimated on the training block, but the log-versus-level comparison therefore changes input normalization as well as the target transformation and should not be read as isolating the target scale alone:</p>
+<div id="24d33655" class="cell" data-execution_count="9">
 <details class="code-fold">
 <summary>Show the code</summary>
 <div class="sourceCode cell-code" id="cb8"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> fit_and_score_level(name, model_factory, params, X_trva, y_trva, X_te):</span>
@@ -1037,7 +1062,7 @@ Figure&nbsp;8.2: Four volatility-forecasting specifications. The HAR-FNN uses th
 </details>
 </div>
 <p>The final table and figure are assembled directly from the two result lists:</p>
-<div id="2251e515" class="cell" data-execution_count="10">
+<div id="94a75637" class="cell" data-execution_count="10">
 <details class="code-fold">
 <summary>Show the code</summary>
 <div class="sourceCode cell-code" id="cb9"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> matplotlib.pyplot <span class="im">as</span> plt</span>
@@ -1082,7 +1107,7 @@ Figure&nbsp;8.2: Four volatility-forecasting specifications. The HAR-FNN uses th
 <span id="cb9-40"><a href="#cb9-40" aria-hidden="true" tabindex="-1"></a>                          ha<span class="op">=</span><span class="st">"center"</span>, va<span class="op">=</span><span class="st">"bottom"</span>, fontsize<span class="op">=</span><span class="dv">9</span>)</span>
 <span id="cb9-41"><a href="#cb9-41" aria-hidden="true" tabindex="-1"></a>ax_l.grid(alpha<span class="op">=</span><span class="fl">0.3</span>)</span>
 <span id="cb9-42"><a href="#cb9-42" aria-hidden="true" tabindex="-1"></a>fig.text(<span class="fl">0.01</span>, <span class="fl">0.015</span>,</span>
-<span id="cb9-43"><a href="#cb9-43" aria-hidden="true" tabindex="-1"></a>         <span class="st">"Derived from local SPY realized-volatility data through 2024-12-31; see the dataset appendix.</span><span class="ch">\n</span><span class="st">"</span></span>
+<span id="cb9-43"><a href="#cb9-43" aria-hidden="true" tabindex="-1"></a>         <span class="st">"Derived from local SPY realized-variance data through 2024-12-31; see the dataset appendix.</span><span class="ch">\n</span><span class="st">"</span></span>
 <span id="cb9-44"><a href="#cb9-44" aria-hidden="true" tabindex="-1"></a>         <span class="st">"HAR-OLS and HAR-FNN use the same components (logs for the log target, levels for the level target).</span><span class="ch">\n</span><span class="st">"</span></span>
 <span id="cb9-45"><a href="#cb9-45" aria-hidden="true" tabindex="-1"></a>         <span class="st">"Recurrent models use tanh cells; validation-selected epoch counts are reused in the final refits.</span><span class="ch">\n</span><span class="st">"</span></span>
 <span id="cb9-46"><a href="#cb9-46" aria-hidden="true" tabindex="-1"></a>         <span class="st">"Log-scale and QLIKE losses are undefined when a model submits nonpositive variance forecasts."</span>,</span>
@@ -1094,9 +1119,17 @@ Figure&nbsp;8.2: Four volatility-forecasting specifications. The HAR-FNN uses th
 </section>
 <section id="results" class="level2" data-number="8.6">
 <h2 data-number="8.6" class="anchored" data-anchor-id="results"><span class="header-section-number">8.6</span> Results</h2>
-<p>The model-fitting and tuning code above is shown for exposition but is not executed on render; the results below come from a local run with access to the Wharton Research Data Services (WRDS) Trade and Quote (TAQ) database. The empirical output uses the SPY realized-variance file described in <a href="./datasets.html#sec-spy-taq-realized">the dataset appendix</a>, filtered to positive realized-variance observations; the usable modeling sample ends on 2024-12-31. The log-target rows come from the workflow shown above. The level-target rows repeat the same split, input construction, tuning budget, and evaluation protocol, but fit the models to <span class="math inline">RV_{t+1}</span> rather than <span class="math inline">\log(RV_{t+1})</span>, using the level pipeline shown above. The tuning run used 20 Optuna trials for each neural architecture. <a href="#fig-nn-performance" class="quarto-xref">Figure&nbsp;8.3</a> is likewise a pre-generated figure from the same local run.</p>
+<p>The model-fitting and tuning code above is shown for exposition but is not executed on render; the results below come from a local run with access to the Wharton Research Data Services (WRDS) Trade and Quote (TAQ) database. The empirical output uses the 2015-01-02 through 2024-12-31 SPY realized-variance file described in <a href="./datasets.html#sec-spy-taq-realized">the dataset appendix</a>. The log-target rows come from the workflow shown above. The level-target rows repeat the same split, input construction, tuning budget, and evaluation protocol, but fit the models to <span class="math inline">RV_{t+1}</span> rather than <span class="math inline">\log(RV_{t+1})</span>, using the level pipeline shown above. The tuning run used 20 Optuna trials for each neural architecture. This is an equal nominal trial budget, not equal effective search coverage: architectures differ in parameter count, search geometry, and optimization variability. Each candidate is evaluated using one training run with a fixed random seed, so architecture rankings remain conditional on that run; a stronger empirical comparison would repeat the leading configurations across several seeds. <a href="#fig-nn-performance" class="quarto-xref">Figure&nbsp;8.3</a> is likewise a pre-generated figure from the same local run. The Python package versions are pinned in <code>requirements.txt</code>, but no versioned file of the test forecasts accompanies this frozen output; after a data, code, or environment change, the displayed table and figure must therefore be regenerated together rather than assumed current.</p>
 <p>One protocol detail deserves explicit mention. During tuning, each configuration is scored by its <em>best epoch within 30</em> on the validation block — an implicit form of early stopping. The epoch count that achieved the selected validation loss is recorded for the winning configuration and reused in the final refit on the combined training and validation data, so the deployed training length matches the one that was selected. Validation <em>selects</em> this epoch count; it does not certify that the count is optimal for the refit sample. One approximation remains: the refit applies that epoch count to a larger sample, and with the validation block folded into training there is nothing left to monitor — an explicit early-stopping callback with a further holdout block would be the fully adaptive alternative.</p>
-<p>The columns answer different questions. Here the root mean squared error, <span class="math inline">\text{RMSE}=\sqrt{\frac{1}{N_{\text{test}}}\sum_t(\hat z_t-z_t)^2}</span>, aggregates the squared forecast errors over the <span class="math inline">N_{\text{test}}</span> test origins; <span class="math inline">\hat z_t</span> denotes the forecast of <span class="math inline">z_t</span> formed at <span class="math inline">t-1</span> — we drop the two-index subscript of <span class="math inline">\hat z_{t+1\mid t}</span> in this section to keep the formulas readable. RMSE on <span class="math inline">\log(RV)</span> evaluates forecasts on the scale used by the log-target models and is the main comparison criterion here. For level-target models, the log-scale metrics require exponentiated forecasts to be positive; they are reported as undefined for any model that violates this. RMSE on <span class="math inline">RV</span> evaluates the implied variance forecasts after exponentiating log-target forecasts. This back-transformation carries a subtlety: if <span class="math inline">\hat z_t</span> targets the conditional <em>mean</em> of <span class="math inline">\log RV_t</span>, then <span class="math inline">\exp(\hat z_t)</span> estimates the conditional <em>median</em> of <span class="math inline">RV_t</span>, not its conditional mean. A lognormal-type correction of the form <span class="math inline">\exp(\hat z_t + \tfrac{1}{2}\hat\sigma^2)</span> would be required for a mean forecast — the identity maps a Gaussian log-scale forecast to its conditional <em>mean</em> on the level scale; transforming the whole predictive density is a separate change-of-variables step, discussed in the <a href="./distributions_via_nns.html">distributional networks chapter</a>. Because RV-scale squared-error and QLIKE losses are minimized by conditional-mean forecasts, the RV-scale columns compare a median-type functional (log-target models, uncorrected) against a mean-type functional (level-target models); read them with that handicap in mind. The log-scale RMSE column, i.e.&nbsp;the main criterion here, is unaffected. QLIKE — for quasi-likelihood — is the volatility loss </p>
+<p>The columns answer different questions. Here the root mean squared error, <span class="math inline">\text{RMSE}=\sqrt{\frac{1}{N_{\text{test}}}\sum_t(\hat z_t-z_t)^2}</span>, aggregates the squared forecast errors over the <span class="math inline">N_{\text{test}}</span> test origins; <span class="math inline">\hat z_t</span> denotes the forecast of <span class="math inline">z_t</span> formed at <span class="math inline">t-1</span> — we drop the two-index subscript of <span class="math inline">\hat z_{t+1\mid t}</span> in this section to keep the formulas readable. RMSE on <span class="math inline">\log(RV)</span> evaluates forecasts on the scale used by the log-target models and is the main comparison criterion here. For level-target models, the log-scale metrics require exponentiated forecasts to be positive; they are reported as undefined for any model that violates this. RMSE on <span class="math inline">RV</span> evaluates the implied variance forecasts after exponentiating log-target forecasts. This back-transformation carries a subtlety: if <span class="math inline">\hat z_t</span> targets <span class="math inline">\mathbb{E}[\log RV_t\mid\mathcal F_{t-1}]</span>, then <span class="math inline">\exp(\hat z_t)</span> is a conditional geometric-mean forecast. It equals the conditional median only under an additional condition that makes the conditional mean and median of <span class="math inline">\log RV_t</span> coincide, such as conditional symmetry. Writing <span class="math inline">\log RV_t=\mu_t+\varepsilon_t</span> with <span class="math inline">\mathbb{E}[\varepsilon_t\mid\mathcal F_{t-1}]=0</span>, the conditional mean on the level scale is </p>
+<div class="display-math-block">
+<p><span class="math display">
+\mathbb{E}[RV_t\mid\mathcal F_{t-1}]
+=
+\exp(\mu_t)\,\mathbb{E}[\exp(\varepsilon_t)\mid\mathcal F_{t-1}].
+</span></p>
+</div>
+<p> The familiar correction <span class="math inline">\exp(\mu_t+\sigma_t^2/2)</span> follows only when the log-scale error is conditionally Gaussian with variance <span class="math inline">\sigma_t^2</span>; in general the smearing factor depends on its full conditional distribution. Transforming a complete predictive density is a separate change-of-variables step, discussed in the <a href="./distributions_via_nns.html">distributional networks chapter</a>. Because RV-scale squared-error and QLIKE losses are minimized by conditional-mean forecasts, the uncorrected exponentiated log forecasts do not generally target the same level-scale functional as the level-target models. The log-scale RMSE column, the main criterion here, is unaffected. QLIKE — for quasi-likelihood — is the volatility loss </p>
 <div class="display-math-block">
 <p><span class="math display">
 \frac{1}{N_{\text{test}}}\sum_{t}
@@ -1107,7 +1140,7 @@ Figure&nbsp;8.2: Four volatility-forecasting specifications. The HAR-FNN uses th
 \right),
 </span></p>
 </div>
-<p> which is defined only for positive variance forecasts; with the same indexing convention as above, <span class="math inline">\widehat{RV}_t</span> is the forecast of <span class="math inline">RV_t</span> formed at <span class="math inline">t-1</span>. All three measures are losses, so smaller values are better. Where a model produced a nonpositive variance forecast, the two losses that require positivity — log-RV RMSE and QLIKE — are reported as undefined; the discussion after the table explains why.</p>
+<p> which is defined only for positive variance forecasts; with the same indexing convention as above, <span class="math inline">\widehat{RV}_t</span> is the forecast of <span class="math inline">RV_t</span> formed at <span class="math inline">t-1</span>. All three measures are losses, so smaller values are better. If a model produces a nonpositive variance forecast, the two losses that require positivity — log-RV RMSE and QLIKE — are reported as undefined rather than rescued by clipping. The replication object records the count of such violations and RV-scale absolute error; the compact table below omits those two diagnostics.</p>
 <table class="caption-top table">
 <thead>
 <tr class="header">
@@ -1122,153 +1155,92 @@ Figure&nbsp;8.2: Four volatility-forecasting specifications. The HAR-FNN uses th
 <tr class="odd">
 <td><code>log(rv)</code></td>
 <td>HAR-OLS</td>
-<td style="text-align: right;">0.5992</td>
-<td style="text-align: right;">0.4121</td>
-<td style="text-align: right;">0.2124</td>
+<td style="text-align: right;">0.5771</td>
+<td style="text-align: right;">0.3183</td>
+<td style="text-align: right;">0.1957</td>
 </tr>
 <tr class="even">
 <td><code>log(rv)</code></td>
 <td>HAR-FNN</td>
-<td style="text-align: right;">0.5977</td>
-<td style="text-align: right;">0.4118</td>
-<td style="text-align: right;">0.2016</td>
+<td style="text-align: right;">0.5771</td>
+<td style="text-align: right;">0.3166</td>
+<td style="text-align: right;">0.1836</td>
 </tr>
 <tr class="odd">
 <td><code>log(rv)</code></td>
 <td>FNN</td>
-<td style="text-align: right;">0.6135</td>
-<td style="text-align: right;">0.4150</td>
-<td style="text-align: right;">0.2154</td>
+<td style="text-align: right;">0.5735</td>
+<td style="text-align: right;">0.3145</td>
+<td style="text-align: right;">0.1860</td>
 </tr>
 <tr class="even">
 <td><code>log(rv)</code></td>
 <td>Simple RNN</td>
-<td style="text-align: right;">0.6189</td>
-<td style="text-align: right;">0.4129</td>
-<td style="text-align: right;">0.2280</td>
+<td style="text-align: right;">0.5873</td>
+<td style="text-align: right;">0.3168</td>
+<td style="text-align: right;">0.2046</td>
 </tr>
 <tr class="odd">
 <td><code>log(rv)</code></td>
 <td>LSTM</td>
-<td style="text-align: right;">0.6016</td>
-<td style="text-align: right;">0.4121</td>
-<td style="text-align: right;">0.2102</td>
+<td style="text-align: right;">0.5795</td>
+<td style="text-align: right;">0.3141</td>
+<td style="text-align: right;">0.1917</td>
 </tr>
 <tr class="even">
 <td><code>rv</code></td>
 <td>HAR-OLS</td>
-<td style="text-align: right;">0.6755</td>
-<td style="text-align: right;">0.4197</td>
-<td style="text-align: right;">0.1985</td>
+<td style="text-align: right;">0.6641</td>
+<td style="text-align: right;">0.3262</td>
+<td style="text-align: right;">0.1861</td>
 </tr>
 <tr class="odd">
 <td><code>rv</code></td>
 <td>HAR-FNN</td>
-<td style="text-align: right;">0.7633</td>
-<td style="text-align: right;">0.4183</td>
-<td style="text-align: right;">0.2263</td>
+<td style="text-align: right;">0.6783</td>
+<td style="text-align: right;">0.3304</td>
+<td style="text-align: right;">0.1903</td>
 </tr>
 <tr class="even">
 <td><code>rv</code></td>
 <td>FNN</td>
-<td style="text-align: right;">0.6977</td>
-<td style="text-align: right;">0.4240</td>
-<td style="text-align: right;">0.2302</td>
+<td style="text-align: right;">0.7130</td>
+<td style="text-align: right;">0.3416</td>
+<td style="text-align: right;">0.2106</td>
 </tr>
 <tr class="odd">
 <td><code>rv</code></td>
 <td>Simple RNN</td>
-<td style="text-align: right;">undefined</td>
-<td style="text-align: right;">0.4886</td>
-<td style="text-align: right;">undefined</td>
+<td style="text-align: right;">0.7154</td>
+<td style="text-align: right;">0.3507</td>
+<td style="text-align: right;">0.2259</td>
 </tr>
 <tr class="even">
 <td><code>rv</code></td>
 <td>LSTM</td>
-<td style="text-align: right;">0.6441</td>
-<td style="text-align: right;">0.4249</td>
-<td style="text-align: right;">0.2043</td>
+<td style="text-align: right;">0.7005</td>
+<td style="text-align: right;">0.3288</td>
+<td style="text-align: right;">0.1988</td>
 </tr>
 </tbody>
 </table>
-<p>The next table records whether a level-target model produced nonpositive variance forecasts. In this run one did: the level-target Simple RNN — refit with its validation-selected epoch count of only 4 — produced 8 nonpositive variance forecasts.</p>
-<p>This is why two entries in its results row are reported as undefined rather than as numbers. Both the log-scale losses and QLIKE require a strictly positive variance forecast: the first takes <span class="math inline">\log \widehat{RV}_t</span>, the second the ratio <span class="math inline">RV_t/\widehat{RV}_t</span>. A common expedient is to clip nonpositive forecasts to a small constant such as <span class="math inline">10^{-12}</span> and score them anyway, but the resulting number is then governed by the arbitrary constant rather than by the forecast — clipping at <span class="math inline">10^{-12}</span> turns eight inadmissible forecasts into a QLIKE in the billions, while clipping at <span class="math inline">10^{-6}</span> would produce a different figure entirely. We therefore treat these losses as undefined for any model that submits a nonpositive variance, and report the RV-scale squared and absolute errors, which remain well defined, alongside the count of violations. A model that cannot deliver an admissible variance forecast has failed a precondition of variance-scale evaluation; that is a more informative verdict than a large but arbitrary score.</p>
-<p>The undertrained level-target Simple RNN is thus a live illustration of why this diagnostic belongs in the table — and of how a tuning protocol that selects a very short training run can produce a fragile final model. The structural remedy is to make nonpositive forecasts impossible by construction: a positivity-enforcing output such as the softplus head used in the <a href="./distributions_via_nns.html">distributional networks chapter</a> removes this failure mode entirely, at the cost of losing the diagnostic that exposed it here.</p>
-<table class="caption-top table">
-<thead>
-<tr class="header">
-<th>Target fit</th>
-<th>Model</th>
-<th style="text-align: right;">Nonpositive RV forecasts</th>
-</tr>
-</thead>
-<tbody>
-<tr class="odd">
-<td><code>log(rv)</code></td>
-<td>HAR-OLS</td>
-<td style="text-align: right;">0</td>
-</tr>
-<tr class="even">
-<td><code>log(rv)</code></td>
-<td>HAR-FNN</td>
-<td style="text-align: right;">0</td>
-</tr>
-<tr class="odd">
-<td><code>log(rv)</code></td>
-<td>FNN</td>
-<td style="text-align: right;">0</td>
-</tr>
-<tr class="even">
-<td><code>log(rv)</code></td>
-<td>Simple RNN</td>
-<td style="text-align: right;">0</td>
-</tr>
-<tr class="odd">
-<td><code>log(rv)</code></td>
-<td>LSTM</td>
-<td style="text-align: right;">0</td>
-</tr>
-<tr class="even">
-<td><code>rv</code></td>
-<td>HAR-OLS</td>
-<td style="text-align: right;">0</td>
-</tr>
-<tr class="odd">
-<td><code>rv</code></td>
-<td>HAR-FNN</td>
-<td style="text-align: right;">0</td>
-</tr>
-<tr class="even">
-<td><code>rv</code></td>
-<td>FNN</td>
-<td style="text-align: right;">0</td>
-</tr>
-<tr class="odd">
-<td><code>rv</code></td>
-<td>Simple RNN</td>
-<td style="text-align: right;">8</td>
-</tr>
-<tr class="even">
-<td><code>rv</code></td>
-<td>LSTM</td>
-<td style="text-align: right;">0</td>
-</tr>
-</tbody>
-</table>
+<p>The <code>nonpositive_rv_forecasts</code> column of <code>performance</code> records whether a level-target model produced nonpositive variance forecasts. In this run no model did — every count is zero, so all ten rows above have well-defined entries. The check is not decorative, however. Both the log-scale losses and QLIKE require a strictly positive variance forecast: the first takes <span class="math inline">\log \widehat{RV}_t</span>, the second the ratio <span class="math inline">RV_t/\widehat{RV}_t</span>. A common expedient is to clip nonpositive forecasts to a small constant such as <span class="math inline">10^{-12}</span> and score them anyway, but the resulting number is then governed by the arbitrary constant rather than by the forecast — clipping at <span class="math inline">10^{-12}</span> turns a handful of inadmissible forecasts into a QLIKE in the billions, while clipping at <span class="math inline">10^{-6}</span> would produce a different figure entirely. We therefore treat these losses as undefined for any model that submits a nonpositive variance. RV-scale squared and absolute errors remain well defined and are retained in <code>performance</code>, along with the violation count; the displayed table reports RMSE but omits MAE and the all-zero count column. A model that cannot deliver an admissible variance forecast has failed a precondition of variance-scale evaluation; that is a more informative verdict than a large but arbitrary score.</p>
+<p>The failure mode is not hypothetical. A level-target network with a linear output layer has nothing that keeps <span class="math inline">\widehat{RV}_t</span> positive. In an earlier run of this design on a slightly different sample, the level-target Simple RNN returned eight nonpositive forecasts. In the current run it stays positive but ranks last among the level-target models on all three displayed losses. Its validation-selected two-epoch fit and small learning rate make insufficient optimization one plausible explanation, but the reported evidence does not distinguish that hypothesis from seed variation, model misspecification, or the tuning rule itself. A positivity-enforcing output such as the softplus head used in the <a href="./distributions_via_nns.html">distributional networks chapter</a> makes nonpositive forecasts impossible by construction. It removes the inadmissibility count as a diagnostic, so practitioners should instead monitor the minimum forecast, the frequency of near-zero forecasts, individual QLIKE contributions, and variance calibration.</p>
 <div id="fig-nn-performance" class="quarto-float quarto-figure quarto-figure-center anchored">
 <figure class="quarto-float quarto-float-fig figure">
 <div aria-describedby="fig-nn-performance-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
 <img src="figures/nn-example-performance.png" class="img-fluid figure-img">
 </div>
 <figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-nn-performance-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Figure&nbsp;8.3: Empirical output from the local SPY realized-variance run. Left panel: the realized log-realized-variance series over the test period (black) together with the one-step-ahead forecasts of all five log-target models — HAR-OLS (gray), HAR-FNN (brown), full FNN (blue), Simple RNN (orange), and LSTM (green). Right panel: test RMSE on log realized variance for each architecture, with one bar per training target — fit on <code>log(rv)</code> (blue) versus fit on <code>rv</code> (orange); bars are annotated with their values; the vertical axis is linear and starts at zero, so visual differences are proportional to actual differences. The level-target Simple RNN has no bar because its log-scale RMSE is undefined: that model produced nonpositive variance forecasts.
+Figure&nbsp;8.3: Empirical output from the local SPY realized-variance run. Left panel: the observed log-realized-variance series over the test period (black) together with the one-step-ahead forecasts of all five log-target models — HAR-OLS (gray), HAR-FNN (brown), full FNN (blue), Simple RNN (orange), and LSTM (green). Right panel: test RMSE on log realized variance for each architecture, with one bar per training target — fit on <code>log(rv)</code> (blue) versus fit on <code>rv</code> (orange); bars are annotated with their values; the vertical axis is linear and starts at zero, so visual differences are proportional to actual differences. Had a level-target model produced nonpositive variance forecasts, its bar would be replaced by an “undefined” marker; in this run all ten bars are defined.
 </figcaption>
 </figure>
 </div>
-<p><a href="#fig-nn-performance" class="quarto-xref">Figure&nbsp;8.3</a> makes the transformation choice visible. On the common log-realized-variance scale, the log-input HAR-FNN is the best-performing model, but its RMSE advantage over HAR-OLS is 0.0015 log-RV units — about 0.25% of the baseline RMSE, numerically tiny. The LSTM lands close behind HAR-OLS (0.6016 against 0.5992), with the full FNN and Simple RNN further back. That is the main benchmark lesson: the neural networks are not automatically better just because they are more flexible. The level-target rows lose accuracy on the log-realized-variance scale throughout, and the Simple RNN drops out of that comparison altogether: its four-epoch refit produced nonpositive forecasts, so its log-scale bar is marked undefined in the right panel.</p>
-<p>Two notes on reading these rankings. First, the yardstick for whether a ranking is informative is the standard error of the <em>mean</em> loss differential, not the dispersion of the individual per-period differentials — a distinction worth being explicit about, because the two differ by a large factor here. Let <span class="math inline">d_t</span> denote the per-period difference in squared forecast errors between two models. A <span class="citation" data-cites="DieboldMariano1995">Diebold and Mariano (<a href="#ref-DieboldMariano1995" role="doc-biblioref">1995</a>)</span> comparison contrasts <span class="math inline">\bar d = N_{\text{test}}^{-1}\sum_t d_t</span> with <span class="math inline">\widehat{\text{se}}(\bar d) = (\hat\omega^2/N_{\text{test}})^{1/2}</span>, where <span class="math inline">\hat\omega^2</span> is a heteroskedasticity- and autocorrelation-consistent (HAC) estimate of the long-run variance of <span class="math inline">\{d_t\}</span>; the HAC correction is needed because loss differentials from volatility forecasts are serially correlated (Exercise 3.4 in the <a href="./evaluating_distributions.html">predictive-distributions chapter</a> works through exactly this construction for score differentials). Up to that correction, the relevant band is narrower than the per-period standard deviation of <span class="math inline">d_t</span> by a factor <span class="math inline">\sqrt{N_{\text{test}}} = \sqrt{486} \approx 22</span>. Treating “smaller than one per-period standard deviation” as a tie would therefore declare essentially every comparison in the table a tie, which is the opposite mistake. We do not run the test here, so nothing in this chapter establishes which of these differences are statistically distinguishable; what the 0.0015 log-RV-unit HAR-FNN-versus-HAR-OLS gap does establish is that the gain from the nonlinear layer is negligible relative to the level of the RMSE itself. Second, the QLIKE column in the table above is the <span class="citation" data-cites="Patton2011">Patton (<a href="#ref-Patton2011" role="doc-biblioref">2011</a>)</span> quasi-likelihood loss for volatility — the standard comparison loss in the high-frequency volatility literature, <em>robust</em> in Patton’s sense that rankings by <em>expected</em> loss are preserved when the true variance is replaced by a conditionally unbiased proxy such as realized variance; sampling variation can still reverse the ordering of finite-sample average losses.</p>
-<p>The two HAR rows isolate functional form, because HAR-OLS and HAR-FNN share their regressors within each panel. In the log-target panel, the nonlinear layer buys a 0.0015 improvement in log-RV RMSE and a clearer QLIKE gain. In the level-target panel it hurts: the HAR-FNN loses to HAR-OLS on log-RV RMSE and QLIKE, and essentially ties on RV-scale RMSE. For this sample, nonlinearity on top of the HAR components helps at most marginally on the log target and not at all on the level target: in this sample and design, the selected HAR-FNN adds little incremental predictive accuracy beyond what the HAR components already deliver.</p>
-<p>QLIKE and log-RV RMSE also need not pick the same winner. QLIKE is scale-invariant, that is, homogeneous of degree zero: it depends on forecast and target only through the ratio <span class="math inline">RV_t/\widehat{RV}_t</span>, so rescaling both by a common positive constant leaves the loss unchanged. It measures whether <span class="math inline">\widehat{RV}_t</span> tracks <span class="math inline">RV_t</span> accurately in ratio terms, and it penalizes underprediction more heavily than overprediction through the ratio <span class="math inline">RV_t/\widehat{RV}_t</span>. A model that calibrates the relative size of volatility spikes well can win on QLIKE while losing on log-RV RMSE — which is why the HAR-OLS fit in levels attains the lowest QLIKE in the table while the HAR-FNN fit on <span class="math inline">\log(RV)</span> attains the lowest log-RV RMSE.</p>
+<p><a href="#fig-nn-performance" class="quarto-xref">Figure&nbsp;8.3</a> makes the pipeline comparison visible. On the common log-realized-variance scale, the log-target full FNN is the best-performing model, but its RMSE advantage over HAR-OLS is 0.0036 log-RV units — about 0.6% of the baseline RMSE. The log-target HAR-FNN and HAR-OLS are identical to four decimals (0.5771 against 0.5771; the network is lower by 0.00006), the LSTM lands just behind them (0.5795), and the Simple RNN is last in the panel (0.5873). That is the main benchmark lesson: the neural networks are not automatically better just because they are more flexible. The level-target pipelines lose accuracy on the log-realized-variance scale throughout — by roughly 0.09 to 0.14 log-RV units for the same architecture — and the level-target Simple RNN is the weakest model in the figure. Because lag normalization also differs across target pipelines, these gaps do not identify the effect of the target transformation alone.</p>
+<p>Two notes help interpret these rankings. First, the yardstick for whether a ranking is informative is the standard error of the <em>mean</em> loss differential, not the dispersion of the individual per-period differentials — a distinction worth being explicit about, because the two differ by a large factor here. Let <span class="math inline">d_t</span> denote the per-period difference in squared forecast errors between two models. A <span class="citation" data-cites="DieboldMariano1995">Diebold and Mariano (<a href="#ref-DieboldMariano1995" role="doc-biblioref">1995</a>)</span> comparison contrasts <span class="math inline">\bar d = N_{\text{test}}^{-1}\sum_t d_t</span> with <span class="math inline">\widehat{\text{se}}(\bar d) = (\hat\omega^2/N_{\text{test}})^{1/2}</span>, where <span class="math inline">\hat\omega^2</span> is a heteroskedasticity- and autocorrelation-consistent (HAC) estimate of the long-run variance of <span class="math inline">\{d_t\}</span>; the HAC correction is needed because loss differentials from volatility forecasts are serially correlated (Exercise 3.4 in the <a href="./evaluating_distributions.html">predictive-distributions chapter</a> works through exactly this construction for score differentials). Up to that correction, the relevant band is narrower than the per-period standard deviation of <span class="math inline">d_t</span> by a factor <span class="math inline">\sqrt{N_{\text{test}}} = \sqrt{499} \approx 22</span>. Treating “smaller than one per-period standard deviation” as a tie would therefore declare essentially every comparison in the table a tie, which is the opposite mistake. We do not run the test here, so nothing in this chapter establishes which differences are statistically distinguishable or economically irrelevant. The 0.0036 log-RV-unit FNN-versus-HAR-OLS gap, and the 0.00006 HAR-FNN-versus-HAR-OLS gap, are numerically small relative to the baseline RMSE; without a loss-differential test or economic-value calculation, they indicate weak practical separation rather than established equivalence.</p>
+<p>Second, the QLIKE column in the table above is the <span class="citation" data-cites="Patton2011">Patton (<a href="#ref-Patton2011" role="doc-biblioref">2011</a>)</span> quasi-likelihood loss for volatility — the standard comparison loss in the high-frequency volatility literature, <em>robust</em> in Patton’s sense that rankings by <em>expected</em> loss are preserved when the true variance is replaced by a conditionally unbiased proxy such as realized variance; sampling variation can still reverse the ordering of finite-sample average losses.</p>
+<p>The two HAR rows hold the target and predictor information fixed while comparing a linear OLS procedure with a tuned nonlinear neural procedure. In the log-target panel, the nonlinear procedure leaves log-RV RMSE unchanged to four decimals, lowers RV-scale RMSE slightly, and produces a clearer QLIKE gain (0.1836 against 0.1957). In the level-target panel it performs worse: HAR-FNN loses to HAR-OLS on all three columns. In this sample and design, the selected HAR-FNN adds little incremental predictive accuracy beyond what the HAR components already deliver. Because the fitting, scaling, and selection procedures also differ, the comparison should not be interpreted as isolating nonlinearity alone.</p>
+<p>QLIKE and log-RV RMSE also need not pick the same winner. QLIKE is scale-invariant, that is, homogeneous of degree zero: it depends on forecast and target only through the ratio <span class="math inline">RV_t/\widehat{RV}_t</span>, so rescaling both by a common positive constant leaves the loss unchanged. It measures whether <span class="math inline">\widehat{RV}_t</span> tracks <span class="math inline">RV_t</span> accurately in ratio terms, and it penalizes underprediction more heavily than overprediction through the ratio <span class="math inline">RV_t/\widehat{RV}_t</span>. A model that calibrates the relative size of volatility spikes well can win on QLIKE while losing on log-RV RMSE — which is why the HAR-FNN fit on <span class="math inline">\log(RV)</span> attains the lowest QLIKE in the table while the full FNN fit on <span class="math inline">\log(RV)</span> attains the lowest log-RV RMSE, and why the level-target HAR-OLS, mediocre on log-RV RMSE, sits within 0.003 of the best QLIKE.</p>
 <p>With dependent financial data, an architecture comparison is interpretable only after the forecast target, lag construction, scaling, validation block, and tuning protocol have been fixed. The numerical ranking of LSTM, HAR-OLS, and the FNN is secondary to that design discipline.</p>
 </section>
 <section id="summary" class="level2" data-number="8.7">
@@ -1285,9 +1257,9 @@ Key Takeaways
 <div class="callout-body-container callout-body">
 <ol type="1">
 <li>Empirical architecture comparisons must hold the forecast target, information set, preprocessing, validation design, and tuning budget fixed.</li>
-<li>HAR-OLS is a strong baseline: neural networks must beat it before their added flexibility is empirically useful.</li>
-<li>In this volatility example, modeling <span class="math inline">\log(RV_{t+1})</span> gives the best log-scale accuracy, while level-target models can still be competitive under variance-scale losses.</li>
-<li>With regressors held identical, adding a nonlinear hidden layer to the HAR components (HAR-FNN) moves accuracy only marginally relative to linear HAR-OLS in this sample and design.</li>
+<li>HAR-OLS is a strong baseline: added neural flexibility is empirically useful only if it improves a pre-specified out-of-sample criterion by an amount supported by the intended statistical or economic decision standard.</li>
+<li>In this realized-variance example, the complete log-target pipeline gives the best accuracy on the log scale and on RV-scale RMSE, while the level-target linear HAR-OLS remains competitive under the ratio-based QLIKE loss. Because input normalization also changes, this comparison does not isolate the target scale alone.</li>
+<li>With the target and predictor information held fixed, the tuned nonlinear HAR-FNN moves accuracy only marginally relative to HAR-OLS in this sample and design; the comparison does not isolate nonlinearity from fitting and selection.</li>
 <li>The neural networks are intentionally shallow: one hidden or recurrent layer plus a linear output layer.</li>
 <li>Time-ordered validation is required because random splits would leak future volatility regimes into tuning.</li>
 <li>Small architecture differences should be interpreted as predictive evidence for this design, not as structural evidence that one architecture captures an economic mechanism.</li>
@@ -1338,7 +1310,13 @@ Patton, Andrew J. 2011. <span>“Volatility Forecast Comparison Using Imperfect 
 </section>
 </section>
 
-</main> <!-- /main -->
+
+<div id="quarto-appendix" class="default"><section id="footnotes" class="footnotes footnotes-end-of-document" role="doc-endnotes"><h2 class="anchored quarto-appendix-heading">Footnotes</h2>
+
+<ol>
+<li id="fn1"><p>Under standard semimartingale conditions, realized variance consistently estimates quadratic variation. In a continuous-path model without price jumps, quadratic variation equals integrated variance; with jumps, it also contains the sum of squared jump sizes.<a href="#fnref1" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
+</ol>
+</section></div></main> <!-- /main -->
 <script id="quarto-html-after-body" type="application/javascript">
   window.document.addEventListener("DOMContentLoaded", function (event) {
     const icon = "";

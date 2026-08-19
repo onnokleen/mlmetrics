@@ -436,7 +436,7 @@ window.Quarto = {
 <h1 data-number="15"><span class="header-section-number">15</span> Conformal Prediction</h1>
 <section id="overview" class="level2" data-number="15.1">
 <h2 data-number="15.1" class="anchored" data-anchor-id="overview"><span class="header-section-number">15.1</span> Overview</h2>
-<p>Earlier chapters studied predictive uncertainty by modeling a conditional distribution directly, for example through likelihood-based neural networks, quantile methods, or distributional forests. Conformal prediction takes a different route. It starts from any predictive model, uses nonconformity scores computed on held-out or out-of-fold data as the calibration object, and constructs prediction sets with a finite-sample marginal coverage guarantee under exchangeability <span class="citation" data-cites="VovkGammermanShafer2005 LeiGsellRinaldoTibshiraniWasserman2018">(<a href="#ref-VovkGammermanShafer2005" role="doc-biblioref">Vovk, Gammerman, and Shafer 2005</a>; <a href="#ref-LeiGsellRinaldoTibshiraniWasserman2018" role="doc-biblioref">Lei et al. 2018</a>)</span>.</p>
+<p>Earlier chapters studied predictive uncertainty by modeling or evaluating conditional distributions, for example through likelihood-based neural networks, quantile methods, distributional forests, and proper scoring rules. Conformal prediction takes a different route. It starts from any predictive model and computes a <strong>nonconformity score</strong>, a number that is larger when an observation fits the model poorly, on held-out or out-of-fold data. It then uses those scores to construct prediction sets with a finite-sample marginal coverage guarantee under exchangeability <span class="citation" data-cites="VovkGammermanShafer2005 LeiGsellRinaldoTibshiraniWasserman2018">(<a href="#ref-VovkGammermanShafer2005" role="doc-biblioref">Vovk, Gammerman, and Shafer 2005</a>; <a href="#ref-LeiGsellRinaldoTibshiraniWasserman2018" role="doc-biblioref">Lei et al. 2018</a>)</span>.</p>
 <p>For econometricians, this is useful because point forecasts alone are often not enough. A central bank may want an inflation fan chart, a risk manager may want a forecast interval for portfolio returns, and a macro forecaster may want uncertainty bands around gross domestic product (GDP) growth projections. In all of those settings, the question is not only “What is the predicted mean?” but also “How wide should a well-calibrated prediction band be?”</p>
 <p>Conformal prediction is attractive because it is:</p>
 <ul>
@@ -453,9 +453,9 @@ window.Quarto = {
 <li>We then develop split conformal prediction in its general score-based form and specialize it to regression intervals.</li>
 <li>Next we define exchangeability, state the finite-sample coverage result, and sketch the rank argument behind it.</li>
 <li>We then study what basic split conformal does and does not guarantee, including the distinction between marginal and conditional coverage.</li>
-<li>After that we cover adaptive scores and conformalized quantile regression.</li>
+<li>After that we cover adaptive scores, which let interval width vary with predictors, and conformalized quantile regression (CQR), which calibrates an initially asymmetric quantile band.</li>
 <li>We apply split conformal prediction to quarterly U.S. gross domestic product growth and interpret overall and high-volatility coverage diagnostics.</li>
-<li>We then study data-efficient variants such as cross-validation+ (CV+) and jackknife+, followed by conformal prediction for time series.</li>
+<li>We then study data-efficient variants: jackknife+ uses leave-one-out predictions, while cross-validation+ (CV+) replaces them with omitted-fold predictions. We then turn to conformal prediction for time series.</li>
 <li>We close with a practical workflow for econometric applications, a summary, and exercises.</li>
 </ol>
 </section>
@@ -475,7 +475,7 @@ window.Quarto = {
 <span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>e1 <span class="op">=</span> rng.normal(<span class="fl">0.0</span>, <span class="fl">0.18</span>, size<span class="op">=</span>x.size)</span>
 <span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>e2 <span class="op">=</span> rng.normal(<span class="fl">0.0</span>, <span class="fl">0.07</span> <span class="op">+</span> <span class="fl">0.28</span> <span class="op">*</span> x, size<span class="op">=</span>x.size)</span>
 <span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>mix <span class="op">=</span> rng.uniform(size<span class="op">=</span>x.size) <span class="op">&lt;</span> <span class="fl">0.75</span></span>
-<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>e3 <span class="op">=</span> np.where(mix, rng.normal(<span class="op">-</span><span class="fl">0.08</span>, <span class="fl">0.11</span>, size<span class="op">=</span>x.size), rng.normal(<span class="fl">0.34</span>, <span class="fl">0.18</span>, size<span class="op">=</span>x.size))</span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>e3 <span class="op">=</span> np.where(mix, rng.normal(<span class="op">-</span><span class="fl">0.08</span>, <span class="fl">0.11</span>, size<span class="op">=</span>x.size), rng.normal(<span class="fl">0.24</span>, <span class="fl">0.18</span>, size<span class="op">=</span>x.size))</span>
 <span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>y1 <span class="op">=</span> m <span class="op">+</span> e1</span>
 <span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>y2 <span class="op">=</span> m <span class="op">+</span> e2</span>
@@ -510,7 +510,7 @@ Figure&nbsp;15.1: Three data-generating situations with the same conditional mea
 </div>
 </div>
 </div>
-<p>This chapter therefore fits naturally after the earlier chapters on <a href="./evaluating_distributions.html">Evaluating Predictive Distributions</a>, <a href="./distributions_via_nns.html">Distribution Modeling with Neural Networks</a>, and <a href="./adv_tree_based_methods.html">Advanced Tree-Based Methods</a>. Those chapters model a conditional distribution directly. Conformal prediction instead calibrates a prediction set around a fitted model.</p>
+<p>This chapter therefore fits naturally after <a href="./evaluating_distributions.html">Evaluating Predictive Distributions</a>, which develops tools for assessing distribution forecasts, and the chapters on <a href="./distributions_via_nns.html">Distribution Modeling with Neural Networks</a> and <a href="./adv_tree_based_methods.html">Advanced Tree-Based Methods</a>, which construct conditional-distribution models. Conformal prediction instead calibrates a prediction set around a fitted model.</p>
 <p>Formally, the object of interest is a prediction set <span class="math inline">C(x)</span> such that for a new observation <span class="math inline">(X_{N+1},Y_{N+1})</span>,</p>
 <div class="display-math-block">
 <p><span class="math display">
@@ -756,20 +756,31 @@ Theorem: Split Conformal Coverage
 </div>
 </div>
 <div class="callout-body-container callout-body">
-<p>Suppose an exchangeable sample has been split into a training part <span class="math inline">D_{\text{train}}</span>, a calibration part <span class="math inline">(X_i,Y_i)</span> for <span class="math inline">i=1,\dots,N_{\text{cal}}</span>, and one future point <span class="math inline">(X_{N_{\text{cal}}+1},Y_{N_{\text{cal}}+1})</span>. Suppose the score function <span class="math inline">S(\cdot,\cdot;D_{\text{train}})</span> is fully determined by <span class="math inline">D_{\text{train}}</span> and then kept fixed when evaluating calibration and future points. Define</p>
+<p>Suppose an exchangeable sample has been split into a training part <span class="math inline">D_{\text{train}}</span>, a calibration part <span class="math inline">(X_i,Y_i)</span> for <span class="math inline">i=1,\dots,N_{\text{cal}}</span>, and one future point <span class="math inline">(X_{N_{\text{cal}}+1},Y_{N_{\text{cal}}+1})</span>. The split indices must be fixed in advance or selected independently of the observation values. Suppose the score function <span class="math inline">S(\cdot,\cdot;D_{\text{train}})</span> is fully determined by <span class="math inline">D_{\text{train}}</span> and then kept fixed. Define the calibration scores</p>
 <div class="display-math-block">
 <p><span class="math display">
-R_i=S(X_i,Y_i;D_{\text{train}}),
+R_i^{\mathrm{cal}}=S(X_i,Y_i;D_{\text{train}}),
 \qquad
-i=1,\dots,N_{\text{cal}},N_{\text{cal}}+1,
+i=1,\dots,N_{\text{cal}},
 </span></p>
 </div>
-<p>and set</p>
+<p>and let <span class="math inline">R_{(1)}^{\mathrm{cal}}\le\cdots\le R_{(N_{\text{cal}})}^{\mathrm{cal}}</span> be their order statistics. Set</p>
 <div class="display-math-block">
 <p><span class="math display">
 k=\left\lceil (1-\alpha)(N_{\text{cal}}+1)\right\rceil,
 \qquad
-\hat q = R_{(k)}.
+\hat q =
+\begin{cases}
+R_{(k)}^{\mathrm{cal}}, &amp; k\le N_{\text{cal}},\\
++\infty, &amp; k=N_{\text{cal}}+1.
+\end{cases}
+</span></p>
+</div>
+<p>Define the future score separately as</p>
+<div class="display-math-block">
+<p><span class="math display">
+R_{\mathrm{new}}
+=S(X_{N_{\text{cal}}+1},Y_{N_{\text{cal}}+1};D_{\text{train}}).
 </span></p>
 </div>
 <p>Then the split conformal set</p>
@@ -784,7 +795,7 @@ C(x)=\{y:S(x,y;D_{\text{train}})\le \hat q\}
 \Pr\{Y_{N_{\text{cal}}+1}\in C(X_{N_{\text{cal}}+1})\}\ge 1-\alpha.
 </span></p>
 </div>
-<p>If the scores are almost surely distinct, then</p>
+<p>If the calibration and future scores are almost surely distinct, then</p>
 <div class="display-math-block">
 <p><span class="math display">
 \Pr\{Y_{N_{\text{cal}}+1}\in C(X_{N_{\text{cal}}+1})\}
@@ -802,34 +813,35 @@ C(x)=\{y:S(x,y;D_{\text{train}})\le \hat q\}
 1-\alpha+\frac{1}{N_{\text{cal}}+1}.
 </span></p>
 </div>
+<p>This is the standard finite-sample split-conformal result <span class="citation" data-cites="VovkGammermanShafer2005 LeiGsellRinaldoTibshiraniWasserman2018">(<a href="#ref-VovkGammermanShafer2005" role="doc-biblioref">Vovk, Gammerman, and Shafer 2005</a>; <a href="#ref-LeiGsellRinaldoTibshiraniWasserman2018" role="doc-biblioref">Lei et al. 2018</a>)</span>.</p>
 </div>
 </div>
 <p>The proof is a rank argument, but it is worth spelling out because the entire finite-sample result comes from it. Once the training subset has been chosen and the score function has been fitted on that subset, the training data are no longer random objects inside the proof. What remains random are the calibration points and the future point, and those still enter symmetrically. Conditional on the realized training data, the scores</p>
 <div class="display-math-block">
 <p><span class="math display">
-R_1,\dots,R_{N_{\text{cal}}},R_{N_{\text{cal}}+1}
+R_1^{\mathrm{cal}},\dots,R_{N_{\text{cal}}}^{\mathrm{cal}},R_{\mathrm{new}}
 </span></p>
 </div>
-<p>are exchangeable. If ties are absent, the rank of the future score <span class="math inline">R_{N_{\text{cal}}+1}</span> among these <span class="math inline">N_{\text{cal}}+1</span> values is uniformly distributed on <span class="math inline">\{1,\dots,N_{\text{cal}}+1\}</span>. Writing</p>
+<p>are exchangeable. If ties are absent, the rank of <span class="math inline">R_{\mathrm{new}}</span> among these <span class="math inline">N_{\text{cal}}+1</span> values is uniformly distributed on <span class="math inline">\{1,\dots,N_{\text{cal}}+1\}</span>. Writing</p>
 <div class="display-math-block">
 <p><span class="math display">
-\operatorname{rank}(R_{N_{\text{cal}}+1})
+\operatorname{rank}(R_{\mathrm{new}})
 =
-1+\sum_{i=1}^{N_{\text{cal}}}1\{R_i&lt;R_{N_{\text{cal}}+1}\},
+1+\sum_{i=1}^{N_{\text{cal}}}\mathbf{1}\{R_i^{\mathrm{cal}}&lt;R_{\mathrm{new}}\},
 </span></p>
 </div>
 <p>coverage occurs when</p>
 <div class="display-math-block">
 <p><span class="math display">
-R_{N_{\text{cal}}+1}\le R_{(k)},
+R_{\mathrm{new}}\le \hat q,
 </span></p>
 </div>
-<p>which is equivalent to the event that the future score has rank at most <span class="math inline">k</span>. Therefore</p>
+<p>which is equivalent to the event that the future score has rank at most <span class="math inline">k</span> when <span class="math inline">k\le N_{\text{cal}}</span>; under the <span class="math inline">+\infty</span> convention, the event is automatic when <span class="math inline">k=N_{\text{cal}}+1</span>. Therefore</p>
 <div class="display-math-block">
 <p><span class="math display">
 \Pr\{Y_{N_{\text{cal}}+1}\in C(X_{N_{\text{cal}}+1})\}
 =
-\Pr\{\operatorname{rank}(R_{N_{\text{cal}}+1})\le k\}
+\Pr\{\operatorname{rank}(R_{\mathrm{new}})\le k\}
 =
 \frac{k}{N_{\text{cal}}+1}
 \ge
@@ -870,11 +882,11 @@ k &lt; (1-\alpha)(N_{\text{cal}}+1)+1,
 </div>
 <p><strong>Two procedures, two coverage statements.</strong> It is worth separating the unmodified procedure from the randomized one, because they are not the same algorithm.</p>
 <ol type="1">
-<li><em>Unmodified split conformal</em> (the procedure used in practice): the prediction set uses the order-statistic threshold <span class="math inline">R_{(k)}</span> defined from the calibration scores as written. When ties among scores have positive probability, the resulting marginal coverage is at least <span class="math inline">1-\alpha</span> but may strictly exceed it; the exchangeability argument delivers the lower bound but not equality.</li>
+<li><em>Unmodified split conformal</em> (the procedure used in practice): the prediction set uses the calibration-only threshold <span class="math inline">\hat q</span> defined above. When ties among scores have positive probability, the resulting marginal coverage is at least <span class="math inline">1-\alpha</span> but may strictly exceed it; the exchangeability argument delivers the lower bound but not equality.</li>
 <li><em>Randomized split conformal</em> (a theoretical device): attach independent <span class="math inline">U_i\sim\mathrm{Uniform}(0,1)</span> variables to the scores and order the pairs <span class="math inline">(R_i,U_i)</span> lexicographically. The auxiliary variable breaks only ties in <span class="math inline">R_i</span>; it never reverses two unequal scores. For this modified randomized procedure, the future pair has a uniform strict rank on <span class="math inline">\{1,\dots,N_{\text{cal}}+1\}</span>, and the coverage probability equals exactly <span class="math inline">\lceil(1-\alpha)(N_{\text{cal}}+1)\rceil/(N_{\text{cal}}+1)</span>.</li>
 </ol>
-<p>The unmodified procedure in (1) inherits the coverage lower bound from (2) because the event <span class="math inline">R_{N_{\text{cal}}+1}\le R_{(k)}</span> contains the corresponding randomized-rank event. This is the core reason conformal prediction is finite-sample and distribution-free: the proof uses only exchangeability and ranks, not a parametric error law.</p>
-<p>One useful mathematical consequence is that validity is separated from efficiency. If the score function is badly chosen, intervals can be unnecessarily wide, but marginal coverage still holds. Better base models and better scores mainly improve <strong>length</strong>, not <strong>validity</strong>.</p>
+<p>The unmodified procedure in (1) inherits the coverage lower bound from (2) because the event <span class="math inline">R_{\mathrm{new}}\le\hat q</span> contains the corresponding randomized-rank event. This is the core reason conformal prediction is finite-sample and distribution-free: the proof uses only exchangeability and ranks, not a parametric error law.</p>
+<p>One useful mathematical consequence is that validity is separated from efficiency. If the score function is badly chosen, intervals can be unnecessarily wide, but marginal coverage still holds. Better base models and better scores mainly improve interval length rather than validity.</p>
 <div class="callout callout-style-default callout-note callout-titled" title="Question for Reflection">
 <div class="callout-header d-flex align-content-center">
 <div class="callout-icon-container">
@@ -919,7 +931,7 @@ Suggested Answer
 </div>
 <p>This distinction matters for econometrics because uncertainty often differs sharply across subgroups, regimes, income levels, leverage levels, or business-cycle states. A method can achieve nominal marginal coverage while still undercovering in high-volatility regions and overcovering in quiet regions.</p>
 <p>The gap is not an artifact of a clumsy method; it is fundamental. Distribution-free <em>exact</em> conditional coverage is impossible for any procedure producing nontrivial intervals: a method that guaranteed conditional coverage at every <span class="math inline">x</span>, under every distribution, would be forced to produce intervals of infinite expected length at non-atomic covariate values <span class="citation" data-cites="Vovk2012ConditionalValidity LeiWasserman2014 FoygelBarberCandesRamdasTibshirani2021Limits">(<a href="#ref-Vovk2012ConditionalValidity" role="doc-biblioref">Vovk 2012</a>; <a href="#ref-LeiWasserman2014" role="doc-biblioref">Lei and Wasserman 2014</a>; <a href="#ref-FoygelBarberCandesRamdasTibshirani2021Limits" role="doc-biblioref">Foygel Barber et al. 2021</a>)</span>. Better nonconformity scores — the normalized and quantile-based scores introduced later in this chapter — improve <em>approximate</em> conditional behavior, but no choice of score can turn the marginal guarantee into a conditional one.</p>
-<p>This is not just a verbal warning. For constant-width intervals, the failure of exact conditional coverage under heteroskedasticity can be shown directly.</p>
+<p>The marginal–conditional distinction is not merely verbal. For constant-width intervals, the failure of exact conditional coverage under heteroskedasticity can be shown directly.</p>
 <div class="callout callout-style-default callout-note callout-titled" title="Proposition: Constant-Width Coverage Cannot Be Conditionally Exact Under Heteroskedasticity">
 <div class="callout-header d-flex align-content-center">
 <div class="callout-icon-container">
@@ -1026,7 +1038,7 @@ Figure&nbsp;15.3: Marginal versus conditional coverage under heteroskedasticity.
 </div>
 </div>
 </div>
-<p>This is one reason the <a href="./evaluating_distributions.html">Evaluating Predictive Distributions</a> chapter remains relevant. Coverage is not the whole story. Interval width, sharpness, and subgroup behavior still matter. Conformal prediction gives a strong calibration guarantee, but it does not exempt us from checking whether the intervals are informative and where they may fail.</p>
+<p>The need to assess interval width, sharpness, and subgroup behavior is one reason the <a href="./evaluating_distributions.html">Evaluating Predictive Distributions</a> chapter remains relevant. Coverage is not the whole story. Conformal prediction gives a strong calibration guarantee, but it does not exempt us from checking whether the intervals are informative and where they may fail.</p>
 <p>The other main limitation is data efficiency. In split conformal, the calibration observations are not used to fit the predictive model. If data are scarce, the base model can become worse and the resulting intervals can widen.</p>
 </section>
 <section id="adaptive-and-asymmetric-conformal-intervals" class="level2" data-number="15.7">
@@ -1101,7 +1113,7 @@ C(x)=
 [\hat q_{\mathrm{low}}(x)-\hat q_{\mathrm{cal}},\hat q_{\mathrm{high}}(x)+\hat q_{\mathrm{cal}}].
 </span></p>
 </div>
-<p>This looks simple, but it is conceptually different from basic split conformal. The width already varies with <span class="math inline">x</span> before calibration, because the lower and upper quantile models can respond differently to heteroskedasticity and asymmetry.</p>
+<p>This interval is conceptually different from the basic absolute-residual split-conformal interval. Its width already varies with <span class="math inline">x</span> before calibration, because the lower and upper quantile models can respond differently to heteroskedasticity and asymmetry.</p>
 <p>The logic is visualized in <a href="#fig-cqr-recalibration" class="quarto-xref">Figure&nbsp;15.4</a>. The dashed band is the raw quantile-regression interval. The solid band is the conformalized version after applying the calibration correction <span class="math inline">\hat q_{\mathrm{cal}}</span> to the lower and upper sides. In the figure the adjustment widens the band because <span class="math inline">\hat q_{\mathrm{cal}}&gt;0</span>. More generally, the conformal step can either widen or shrink the initial band depending on the calibration scores.</p>
 <div id="cell-fig-cqr-recalibration" class="cell" data-execution_count="5">
 <details class="code-fold">
@@ -1155,7 +1167,7 @@ Question for Reflection
 </div>
 </div>
 <div class="callout-body-container callout-body">
-<p>When would conformalized quantile regression be preferable to symmetric split conformal intervals?</p>
+<p>Holding the marginal coverage target fixed, when can conformalized quantile regression produce a more efficient or appropriately shaped interval than symmetric absolute-residual split conformal?</p>
 </div>
 </div>
 <div class="callout callout-style-default callout-tip callout-titled" title="Suggested Answer">
@@ -1170,22 +1182,22 @@ Suggested Answer
 </div>
 <div id="callout-10" class="callout-10-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
-<p>CQR is preferable when uncertainty is clearly heteroskedastic or asymmetric, so a constant-width symmetric band would be implausible. By starting from lower and upper quantile models, CQR can adapt interval width and skewness across the predictor space before conformal calibration corrects the overall coverage.</p>
+<p>CQR can be more efficient when uncertainty is clearly heteroskedastic or asymmetric, so a constant-width symmetric band would be implausible. By starting from lower and upper quantile models, CQR can adapt interval width and asymmetry across the predictor space before conformal calibration corrects overall marginal coverage.</p>
 </div>
 </div>
 </div>
 </section>
 <section id="real-data-example-quarterly-gdp-growth-with-fred-qd" class="level2" data-number="15.8">
 <h2 data-number="15.8" class="anchored" data-anchor-id="real-data-example-quarterly-gdp-growth-with-fred-qd"><span class="header-section-number">15.8</span> Real Data Example: Quarterly GDP Growth with FRED-QD</h2>
-<p>The chapter is easier to interpret once we see the methods on real macroeconomic data. We therefore use the quarterly U.S. macro panel in <code>data/fred_qd_current.csv</code>, the repository copy of the Federal Reserve Economic Data Quarterly Database (FRED-QD) release used in these notes. The target is next-quarter annualized real GDP growth, constructed from <code>GDPC1</code>. The predictors are current-quarter macro and financial indicators: GDP growth, consumer price index (CPI) inflation, the unemployment rate, the federal funds rate, the term spread, and a log volatility proxy based on <code>VIXCLSx</code>.</p>
-<p>This is a chronological <strong>pseudo-out-of-sample illustration</strong>, not a literal application of the split-conformal theorem and not a genuine real-time forecast evaluation. Quarterly macro data are time ordered and are not exchangeable. Moreover, the repository file is a single current-vintage panel: the code respects observation dates but does not reconstruct the data releases and revisions that were actually available at each historical forecast origin. The point is practical: it shows how to adapt the chapter’s logic to a time-ordered design, and it shows again why overall coverage can differ from subgroup coverage.</p>
+<p>The chapter is easier to interpret once we see the methods on real macroeconomic data. We therefore analyze the quarterly U.S. macro panel in <code>data/fred_qd_current.csv</code>, the repository copy of the Federal Reserve Economic Data Quarterly Database (FRED-QD) release underlying these notes <span class="citation" data-cites="McCrackenNg2020FREDQD">(<a href="#ref-McCrackenNg2020FREDQD" role="doc-biblioref">McCracken and Ng 2020</a>)</span>. The <a href="./datasets.html#fred-qd">Data Appendix</a> documents the file and variables. The target is next-quarter annualized real GDP growth, constructed from <code>GDPC1</code>. The predictors are current-quarter macro and financial indicators: GDP growth, consumer price index (CPI) inflation, the unemployment rate, the federal funds rate, the term spread, and the log of the Cboe Volatility Index (VIX), recorded as <code>VIXCLSx</code>.</p>
+<p>This is a chronological <strong>pseudo-out-of-sample illustration</strong>, not a literal application of the split-conformal theorem and not a genuine real-time forecast evaluation. Quarterly macro data are time ordered and are not exchangeable. Moreover, the repository file is a single current-vintage panel: the code respects row dates but reconstructs neither historical revisions nor release delays. Current-quarter macro values are treated as if they were known at the end of their reference quarter, which is generally false in real time. A genuine forecast exercise would use historical vintages or lag each predictor to its actual release date. The point here is practical: to show how the chapter’s calibration logic can be organized chronologically and why overall coverage can differ from subgroup coverage.</p>
 <p>To keep the empirical section transparent, we use only one method here: a split conformal interval around a random-forest point forecast. The sample is divided chronologically:</p>
 <ol type="1">
 <li>training sample through 1999Q4</li>
 <li>calibration sample from 2000Q1 through 2011Q4</li>
 <li>test sample from 2012Q1 onward</li>
 </ol>
-<p>One data-handling detail matters for the code below: this FRED-QD file dates each quarter by the first day of its final month, so 1999Q4 appears as <code>1999-12-01</code>. The cutoffs are placed after those month-start dates, which ensures every quarter lands in exactly one of the three subsamples.</p>
+<p>One data-handling detail matters for the code below: this FRED-QD file dates each quarter by the first day of its final month, so 1999Q4 appears as <code>1999-12-01</code>. In each row dated <span class="math inline">t</span>, the predictors refer to quarter <span class="math inline">t</span> and <code>y_next</code> is GDP growth in quarter <span class="math inline">t+1</span>. The displayed split dates therefore label predictor/reference quarters, which the plot calls pseudo-forecast origins, while each realized target occurs one quarter later. The cutoffs are placed after the month-start dates so every row lands in exactly one subsample.</p>
 <div class="cell" data-execution_count="6">
 <details class="code-fold">
 <summary>Show the code</summary>
@@ -1214,14 +1226,14 @@ Suggested Answer
 <span id="cb5-23"><a href="#cb5-23" aria-hidden="true" tabindex="-1"></a>    {</span>
 <span id="cb5-24"><a href="#cb5-24" aria-hidden="true" tabindex="-1"></a>        <span class="st">"date"</span>: fred_qd[<span class="st">"sasdate"</span>],</span>
 <span id="cb5-25"><a href="#cb5-25" aria-hidden="true" tabindex="-1"></a>        <span class="st">"y_next"</span>: gdp_growth.shift(<span class="op">-</span><span class="dv">1</span>),</span>
-<span id="cb5-26"><a href="#cb5-26" aria-hidden="true" tabindex="-1"></a>        <span class="st">"gdp_growth_lag1"</span>: gdp_growth,</span>
-<span id="cb5-27"><a href="#cb5-27" aria-hidden="true" tabindex="-1"></a>        <span class="st">"gdp_growth_lag2"</span>: gdp_growth.shift(<span class="dv">1</span>),</span>
-<span id="cb5-28"><a href="#cb5-28" aria-hidden="true" tabindex="-1"></a>        <span class="st">"inflation_lag1"</span>: inflation,</span>
-<span id="cb5-29"><a href="#cb5-29" aria-hidden="true" tabindex="-1"></a>        <span class="st">"inflation_lag2"</span>: inflation.shift(<span class="dv">1</span>),</span>
-<span id="cb5-30"><a href="#cb5-30" aria-hidden="true" tabindex="-1"></a>        <span class="st">"unrate_lag1"</span>: fred_qd[<span class="st">"UNRATE"</span>],</span>
-<span id="cb5-31"><a href="#cb5-31" aria-hidden="true" tabindex="-1"></a>        <span class="st">"fedfunds_lag1"</span>: fred_qd[<span class="st">"FEDFUNDS"</span>],</span>
-<span id="cb5-32"><a href="#cb5-32" aria-hidden="true" tabindex="-1"></a>        <span class="st">"term_spread_lag1"</span>: term_spread,</span>
-<span id="cb5-33"><a href="#cb5-33" aria-hidden="true" tabindex="-1"></a>        <span class="st">"vix_lag1"</span>: log_vix,</span>
+<span id="cb5-26"><a href="#cb5-26" aria-hidden="true" tabindex="-1"></a>        <span class="st">"gdp_growth_current"</span>: gdp_growth,</span>
+<span id="cb5-27"><a href="#cb5-27" aria-hidden="true" tabindex="-1"></a>        <span class="st">"gdp_growth_lag1"</span>: gdp_growth.shift(<span class="dv">1</span>),</span>
+<span id="cb5-28"><a href="#cb5-28" aria-hidden="true" tabindex="-1"></a>        <span class="st">"inflation_current"</span>: inflation,</span>
+<span id="cb5-29"><a href="#cb5-29" aria-hidden="true" tabindex="-1"></a>        <span class="st">"inflation_lag1"</span>: inflation.shift(<span class="dv">1</span>),</span>
+<span id="cb5-30"><a href="#cb5-30" aria-hidden="true" tabindex="-1"></a>        <span class="st">"unrate_current"</span>: fred_qd[<span class="st">"UNRATE"</span>],</span>
+<span id="cb5-31"><a href="#cb5-31" aria-hidden="true" tabindex="-1"></a>        <span class="st">"fedfunds_current"</span>: fred_qd[<span class="st">"FEDFUNDS"</span>],</span>
+<span id="cb5-32"><a href="#cb5-32" aria-hidden="true" tabindex="-1"></a>        <span class="st">"term_spread_current"</span>: term_spread,</span>
+<span id="cb5-33"><a href="#cb5-33" aria-hidden="true" tabindex="-1"></a>        <span class="st">"vix_current"</span>: log_vix,</span>
 <span id="cb5-34"><a href="#cb5-34" aria-hidden="true" tabindex="-1"></a>    }</span>
 <span id="cb5-35"><a href="#cb5-35" aria-hidden="true" tabindex="-1"></a>).dropna().reset_index(drop<span class="op">=</span><span class="va">True</span>)</span>
 <span id="cb5-36"><a href="#cb5-36" aria-hidden="true" tabindex="-1"></a></span>
@@ -1255,8 +1267,8 @@ Suggested Answer
 <span id="cb5-64"><a href="#cb5-64" aria-hidden="true" tabindex="-1"></a>test[<span class="st">"covered"</span>] <span class="op">=</span> (test[<span class="st">"y_next"</span>] <span class="op">&gt;=</span> test[<span class="st">"lower"</span>]) <span class="op">&amp;</span> (test[<span class="st">"y_next"</span>] <span class="op">&lt;=</span> test[<span class="st">"upper"</span>])</span>
 <span id="cb5-65"><a href="#cb5-65" aria-hidden="true" tabindex="-1"></a>test[<span class="st">"width"</span>] <span class="op">=</span> test[<span class="st">"upper"</span>] <span class="op">-</span> test[<span class="st">"lower"</span>]</span>
 <span id="cb5-66"><a href="#cb5-66" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb5-67"><a href="#cb5-67" aria-hidden="true" tabindex="-1"></a>vix_cutoff <span class="op">=</span> test[<span class="st">"vix_lag1"</span>].quantile(<span class="fl">0.80</span>)</span>
-<span id="cb5-68"><a href="#cb5-68" aria-hidden="true" tabindex="-1"></a>test[<span class="st">"high_vix"</span>] <span class="op">=</span> test[<span class="st">"vix_lag1"</span>] <span class="op">&gt;</span> vix_cutoff</span>
+<span id="cb5-67"><a href="#cb5-67" aria-hidden="true" tabindex="-1"></a>vix_cutoff <span class="op">=</span> test[<span class="st">"vix_current"</span>].quantile(<span class="fl">0.80</span>)</span>
+<span id="cb5-68"><a href="#cb5-68" aria-hidden="true" tabindex="-1"></a>test[<span class="st">"high_vix"</span>] <span class="op">=</span> test[<span class="st">"vix_current"</span>] <span class="op">&gt;</span> vix_cutoff</span>
 <span id="cb5-69"><a href="#cb5-69" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb5-70"><a href="#cb5-70" aria-hidden="true" tabindex="-1"></a>summary <span class="op">=</span> pd.DataFrame(</span>
 <span id="cb5-71"><a href="#cb5-71" aria-hidden="true" tabindex="-1"></a>    {</span>
@@ -1292,7 +1304,7 @@ Suggested Answer
 <div id="tbl-conformal-fredqd" class="cell quarto-float quarto-figure quarto-figure-center anchored" data-execution_count="6">
 <figure class="quarto-float quarto-float-tbl figure">
 <figcaption class="quarto-float-caption-top quarto-float-caption quarto-float-tbl" id="tbl-conformal-fredqd-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Table&nbsp;15.1: Split conformal results for one-quarter-ahead U.S. real GDP growth. The base predictor is a random forest fit on data through 1999Q4, calibrated on 2000Q1-2011Q4 absolute residuals at <span class="math inline">\alpha=0.10</span>, and evaluated from 2012Q1 onward. Coverage, width, and mean absolute error (MAE) are computed on the test sample; the high-VIX rows restrict to the top quintile of test quarters by lagged log VIX. Growth rates and interval widths are in annualized percentage points.
+Table&nbsp;15.1: Split conformal results for one-quarter-ahead U.S. real GDP growth. The row dates label predictor/reference quarters: the base predictor is fit through 1999Q4, calibrated on rows from 2000Q1 through 2011Q4 at <span class="math inline">\alpha=0.10</span>, and evaluated on rows from 2012Q1 onward. Coverage, width, and mean absolute error (MAE) are computed on the test sample; the high-VIX rows are restricted to the top quintile by current-row log VIX. Growth rates and interval widths are in annualized percentage points.
 </figcaption>
 <div aria-describedby="tbl-conformal-fredqd-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
 <div class="cell-output cell-output-display">
@@ -1368,8 +1380,8 @@ Table&nbsp;15.1: Split conformal results for one-quarter-ahead U.S. real GDP gro
 </div>
 </div>
 <p>The results are collected in <a href="#tbl-conformal-fredqd" class="quarto-xref">Table&nbsp;15.1</a>. This split produces 150 training quarters, 48 calibration quarters, and 53 test quarters. Overall test coverage is about 94%, above the nominal 90% target. Under i.i.d. sampling and distinct scores, finite-sample discreteness alone would imply expected coverage <span class="math inline">45/49\approx91.8\%</span>, because <span class="math inline">k=\lceil0.9\times49\rceil=45</span>. The gap to 94% can easily arise from a short evaluation window: as a rough i.i.d. benchmark, the binomial standard error of a coverage estimate near 0.9 with 53 observations is about 4 percentage points. Across i.i.d. continuous calibration samples, the conditional coverage associated with the <span class="math inline">k</span>-th order statistic is Beta<span class="math inline">(k,N_{\text{cal}}+1-k)</span> distributed, here also with a standard deviation of about 4 percentage points. These calculations are benchmarks, not valid time-series standard errors. Quarterly macro data are dependent and nonexchangeable, so the split-conformal theorem does not apply to this exercise; the reported coverage is descriptive. The average interval width is about 13.5 annualized growth points, and the point-forecast MAE is about 3.16 points.</p>
-<p>The subgroup comparison is suggestive, but it must be read with more care than the overall figure. If we classify the top quintile of test quarters by current-quarter VIX as high-volatility quarters, coverage in that subgroup falls to about 82%. The quintile cutoff is estimated from the full test sample, so this is an ex post diagnostic, not a grouping rule available to a real-time forecaster. The direction is what the theory predicts, since a constant-width band should undercover where dispersion is largest. The evidence, however, is thin. That subgroup contains only 11 quarters and exactly two misses, so the binomial standard error attached to the 82% figure is roughly 12 percentage points, and the gap to the 90% target is well under one standard error.</p>
-<p>The composition of those two misses matters even more than their count. Both are 2020Q1 and 2020Q2, the COVID collapse and rebound, with realized annualized growth of <span class="math inline">-32.8</span>% and <span class="math inline">+29.9</span>%. Excluding calendar 2020 entirely, the high-VIX subgroup covers seven quarters out of seven. No band calibrated on 2000-2011 residuals could have contained a <span class="math inline">-33</span>% quarter, so what this subgroup mainly records is an unprecedented outlier rather than systematic conditional undercoverage.</p>
+<p>The subgroup comparison is suggestive, but it must be read with more care than the overall figure. If we classify test rows in the top quintile of current-row VIX as high-volatility cases, coverage in that subgroup falls to about 82%. The quintile cutoff is estimated from the full test sample, so this is an ex post diagnostic, not a grouping rule available to a real-time forecaster. A constant-width band can undercover where dispersion is largest, but the evidence here is thin. The subgroup contains only 11 rows and exactly two misses, so the binomial standard error attached to the 82% figure is roughly 12 percentage points, and the gap to the 90% target is well under one standard error.</p>
+<p>The composition of those two misses matters even more than their count. They occur at rows dated 2020Q1 and 2020Q2, whose targets are the 2020Q2 COVID collapse and 2020Q3 rebound, with realized annualized growth of <span class="math inline">-32.8</span>% and <span class="math inline">+29.9</span>%. If rows whose predictor/reference quarter lies in calendar 2020 are excluded, the remaining high-VIX subgroup contains seven cases and covers all seven. The historically estimated residual quantile used by this fitted constant-width band was far too small to contain the <span class="math inline">-32.8</span>% realization. These two misses therefore mainly record an unprecedented shock rather than persuasive evidence of systematic conditional undercoverage.</p>
 <p>The right conclusion is therefore methodological rather than empirical. The marginal-versus-conditional distinction is genuine, and it is established above by the proposition and by <a href="#fig-marginal-vs-conditional-coverage" class="quarto-xref">Figure&nbsp;15.3</a>, where the sample is large enough for the pattern to be visible. A 53-quarter evaluation window with an 11-quarter subgroup is simply too short to demonstrate it convincingly. That limitation is itself worth absorbing: subgroup coverage diagnostics are appealing in principle, but in quarterly macroeconomic samples the subgroups are usually far too small to distinguish a real conditional-coverage failure from a couple of unusual quarters.</p>
 <p><a href="#fig-conformal-fredqd-example" class="quarto-xref">Figure&nbsp;15.5</a> makes the same point visually. The left panel plots the split-conformal band over the test period. The right panel compares overall coverage with the coverage in the high-VIX subgroup. The nominal 90% line is included so the interpretation stays tied to the calibration target rather than to a vague notion of “good” performance.</p>
 <div id="cell-fig-conformal-fredqd-example" class="cell" data-execution_count="7">
@@ -1441,7 +1453,7 @@ Table&nbsp;15.1: Split conformal results for one-quarter-ahead U.S. real GDP gro
 <img src="conformal_prediction_files/figure-html/fig-conformal-fredqd-example-output-1.png" class="img-fluid figure-img">
 </div>
 <figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-conformal-fredqd-example-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Figure&nbsp;15.5: Chronological current-vintage illustration using quarterly U.S. macro data from FRED-QD. The left panel shows the test-period one-quarter-ahead GDP-growth forecasts from the random-forest point predictor together with the split-conformal interval based on calibration residuals from 2000Q1-2011Q4. Black dots are realized next-quarter annualized GDP growth rates, and red markers indicate misses where the realization falls outside the conformal interval. The right panel compares empirical coverage over the full 2012 onward test sample with coverage in the highest-VIX quintile of test quarters. The dashed horizontal line marks the nominal 90% target; the exercise does not reconstruct real-time data vintages.
+Figure&nbsp;15.5: Chronological current-vintage illustration using quarterly U.S. macro data from FRED-QD. Row dates on the horizontal axis label predictor/reference quarters, and each outcome is next-quarter annualized GDP growth. The left panel shows random-forest point forecasts and split-conformal intervals calibrated on rows dated 2000Q1-2011Q4; red markers indicate misses. The right panel compares empirical coverage over all test rows dated from 2012 onward with coverage in the highest-VIX quintile. The dashed line marks the nominal 90% target. Release delays and real-time data vintages are not reconstructed.
 </figcaption>
 </figure>
 </div>
@@ -1544,7 +1556,7 @@ L_{(1)}(x)\le \cdots \le L_{(N)}(x),
 U_{(1)}(x)\le \cdots \le U_{(N)}(x).
 </span></p>
 </div>
-<p>The jackknife+ interval is then obtained by taking an empirical lower quantile of the <span class="math inline">L_i(x)</span> values and an empirical upper quantile of the <span class="math inline">U_i(x)</span> values. Throughout the chapter, “empirical <span class="math inline">(1-\alpha)</span>-quantile” of a sample of size <span class="math inline">m</span> means the conformal order statistic <span class="math inline">R_{(\lceil (1-\alpha)(m+1)\rceil)}</span> on that sample, with the finite-sample <span class="math inline">\lceil\cdot\rceil/(m+1)</span> correction, rather than the plain sample quantile; the lower side uses the matching <span class="math inline">\lfloor \alpha(m+1)\rfloor</span> index. Concretely,</p>
+<p>The jackknife+ interval is obtained by taking a lower order statistic of the <span class="math inline">L_i(x)</span> values and an upper order statistic of the <span class="math inline">U_i(x)</span> values. For a generic ordered sample <span class="math inline">Z_{(1)}\le\cdots\le Z_{(m)}</span>, extend the notation by setting <span class="math inline">Z_{(0)}=-\infty</span> and <span class="math inline">Z_{(m+1)}=+\infty</span>. The jackknife+ lower endpoint uses index <span class="math inline">\lfloor\alpha(m+1)\rfloor</span>, and its upper endpoint uses index <span class="math inline">\lceil(1-\alpha)(m+1)\rceil</span>. These extended-real conventions keep the finite-sample correction defined even when the requested coverage is too high for a finite endpoint at the available sample size. Concretely,</p>
 <div class="display-math-block">
 <p><span class="math display">
 C_{J+}(x)
@@ -1552,10 +1564,10 @@ C_{J+}(x)
 \left[
 L_{(\lfloor \alpha(N+1)\rfloor)}(x),\;
 U_{(\lceil (1-\alpha)(N+1)\rceil)}(x)
-\right],
+\right].
 </span></p>
 </div>
-<p>with the convention that <span class="math inline">L_{(0)}(x)=-\infty</span> if <span class="math inline">\lfloor \alpha(N+1)\rfloor=0</span>.</p>
+<p>Thus <span class="math inline">L_{(0)}(x)=-\infty</span> and <span class="math inline">U_{(N+1)}(x)=+\infty</span> whenever the corresponding boundary index occurs.</p>
 <div class="callout callout-style-default callout-tip callout-titled" title="Example: Jackknife+ by Hand">
 <div class="callout-header d-flex align-content-center">
 <div class="callout-icon-container">
@@ -1623,21 +1635,21 @@ U_{(1)}=5.2,\;U_{(2)}=5.3,\;U_{(3)}=5.3,\;U_{(4)}=5.8.
 </div>
 </div>
 <p>CV+ is now easy to interpret: it uses the same idea as jackknife+, but with omitted folds instead of omitted single observations.</p>
-<p>Let the sample be partitioned into folds <span class="math inline">I_1,\dots,I_K</span>. For each fold <span class="math inline">k</span>, fit a model <span class="math inline">\hat \mu^{(-k)}</span> on all observations not in <span class="math inline">I_k</span>. For any observation <span class="math inline">i\in I_k</span>, define the out-of-fold residual</p>
+<p>Let the sample be partitioned into folds <span class="math inline">I_1,\dots,I_K</span>. For each fold <span class="math inline">b</span>, fit a model <span class="math inline">\hat \mu^{(-b)}</span> on all observations not in <span class="math inline">I_b</span>. For any observation <span class="math inline">i\in I_b</span>, define the out-of-fold residual</p>
 <div class="display-math-block">
 <p><span class="math display">
-R_i = |Y_i-\hat \mu^{(-k)}(X_i)|.
+R_i = |Y_i-\hat \mu^{(-b)}(X_i)|.
 </span></p>
 </div>
 <p>Every observation now receives a score computed from a model that did not train on it. For a new predictor value <span class="math inline">x</span>, define the lower and upper candidate bounds</p>
 <div class="display-math-block">
 <p><span class="math display">
-L_i(x)=\hat \mu^{(-k(i))}(x)-R_i,
+L_i(x)=\hat \mu^{(-b(i))}(x)-R_i,
 \qquad
-U_i(x)=\hat \mu^{(-k(i))}(x)+R_i,
+U_i(x)=\hat \mu^{(-b(i))}(x)+R_i,
 </span></p>
 </div>
-<p>where <span class="math inline">k(i)</span> is the fold containing observation <span class="math inline">i</span>. Sort these candidate bounds as</p>
+<p>where <span class="math inline">b(i)</span> is the fold containing observation <span class="math inline">i</span>. Sort these candidate bounds as</p>
 <div class="display-math-block">
 <p><span class="math display">
 L_{(1)}(x)\le \cdots \le L_{(N)}(x),
@@ -1645,7 +1657,7 @@ L_{(1)}(x)\le \cdots \le L_{(N)}(x),
 U_{(1)}(x)\le \cdots \le U_{(N)}(x).
 </span></p>
 </div>
-<p>A formal CV+ interval is then obtained by taking an empirical lower quantile of the <span class="math inline">L_i(x)</span> values and an empirical upper quantile of the <span class="math inline">U_i(x)</span> values:</p>
+<p>Using the same extended-order-statistic convention, the displayed CV+ construction is</p>
 <div class="display-math-block">
 <p><span class="math display">
 C_{CV+}(x)
@@ -1653,17 +1665,17 @@ C_{CV+}(x)
 \left[
 L_{(\lfloor \alpha(N+1)\rfloor)}(x),\;
 U_{(\lceil (1-\alpha)(N+1)\rceil)}(x)
-\right],
+\right].
 </span></p>
 </div>
-<p>with the convention that <span class="math inline">L_{(0)}(x)=-\infty</span> if <span class="math inline">\lfloor \alpha(N+1)\rfloor=0</span>. Jackknife+ is the leave-one-out special case obtained by setting <span class="math inline">K=N</span>.</p>
+<p>Here too, <span class="math inline">L_{(0)}(x)=-\infty</span> and <span class="math inline">U_{(N+1)}(x)=+\infty</span>. Jackknife+ is the leave-one-out special case obtained by setting <span class="math inline">K=N</span>.</p>
 <p>So the operational difference is not conceptual but computational:</p>
 <ol type="1">
 <li>jackknife+ omits one observation at a time</li>
 <li>CV+ omits one fold at a time</li>
 <li>both methods propagate out-of-sample residuals into lower and upper candidate bounds at the new point</li>
 </ol>
-<p>These methods often tighten intervals because the base models use more data than in a single split while the residuals remain out-of-sample. Jackknife+ in particular comes with a finite-sample marginal coverage result under exchangeability — but its level must be quoted carefully. For any fitting algorithm that is <em>symmetric</em> in the training observations (invariant to permuting them), <span class="citation" data-cites="BarberCandesRamdasTibshirani2021">Barber et al. (<a href="#ref-BarberCandesRamdasTibshirani2021" role="doc-biblioref">2021</a>)</span> prove coverage of at least <span class="math inline">1-2\alpha</span>. Note the <span class="math inline">2\alpha</span>: although the interval is indexed to target <span class="math inline">1-\alpha</span>, the worst-case finite-sample guarantee is the weaker <span class="math inline">1-2\alpha</span>; empirical coverage is typically close to the nominal <span class="math inline">1-\alpha</span>, but that is an empirical regularity, not the content of the theorem. CV+ follows the same construction logic with <span class="math inline">K</span>-fold refits and carries a worst-case guarantee of the same <span class="math inline">1-2\alpha</span> type (up to a small additional term), but the chapter should not be read as claiming that every CV+ variant automatically inherits exactly the same theorem in exactly the same form <span class="citation" data-cites="BarberCandesRamdasTibshirani2021">(<a href="#ref-BarberCandesRamdasTibshirani2021" role="doc-biblioref">Barber et al. 2021</a>)</span>. The practical tradeoff is computational cost. In econometric forecasting settings with expensive rolling validation, that cost can be substantial.</p>
+<p>Because jackknife+ and CV+ train each base model on more observations than a single split does, they can produce shorter intervals when the fitting algorithm is stable and the additional training data improve prediction. Shorter intervals are not guaranteed. Jackknife+ does have a finite-sample marginal coverage result under exchangeability: for a fitting algorithm that is <em>symmetric</em> in the training observations, <span class="citation" data-cites="BarberCandesRamdasTibshirani2021">Barber et al. (<a href="#ref-BarberCandesRamdasTibshirani2021" role="doc-biblioref">2021</a>)</span> prove coverage of at least <span class="math inline">1-2\alpha</span>. Although the interval is indexed to target <span class="math inline">1-\alpha</span>, its general worst-case guarantee is therefore weaker. CV+ has a related finite-sample theorem, but its exact correction depends on the fold construction, fold sizes, <span class="math inline">N</span>, and <span class="math inline">K</span>. Rather than importing those additional conditions here, we use CV+ as a construction and refer to <span class="citation" data-cites="BarberCandesRamdasTibshirani2021">Barber et al. (<a href="#ref-BarberCandesRamdasTibshirani2021" role="doc-biblioref">2021</a>)</span> for the precise result. The practical tradeoff is computational cost, which can be substantial in econometric forecasting settings with expensive rolling validation.</p>
 </section>
 <section id="conformal-prediction-for-time-series" class="level2" data-number="15.10">
 <h2 data-number="15.10" class="anchored" data-anchor-id="conformal-prediction-for-time-series"><span class="header-section-number">15.10</span> Conformal Prediction for Time Series</h2>
@@ -1676,17 +1688,17 @@ Y_t = \rho Y_{t-1}+\varepsilon_t,
 </span></p>
 </div>
 <p>then the vector <span class="math inline">(Y_1,Y_2,Y_3)</span> does not generally have the same distribution as <span class="math inline">(Y_1,Y_3,Y_2)</span>, because the covariance between adjacent observations is <span class="math inline">\rho \sigma_Y^2</span> while the covariance at lag two is <span class="math inline">\rho^2 \sigma_Y^2</span>. Permuting the entries changes the covariance structure. So the rank argument from split conformal no longer applies automatically.</p>
-<p>In practice, the right design is closer to the logic of <a href="./cross_validation.html#sec-cv-time-series">Time Series Cross-Validation</a>. Forecasts should be generated using only information available up to the forecast origin, and calibration residuals should come from past out-of-sample forecast errors rather than random reshuffling.</p>
+<p>In practice, the right design is closer to the logic of <a href="./cross_validation.html#sec-cv-time-series">Time Series Cross-Validation</a>. Let <span class="math inline">\mathcal F_t</span> denote the information available when the forecast is issued at origin <span class="math inline">t</span>, and let <span class="math inline">Z_t</span> be an <span class="math inline">\mathcal F_t</span>-measurable predictor vector used to forecast <span class="math inline">Y_{t+1}</span>. Forecasts should use only <span class="math inline">\mathcal F_t</span>, and calibration residuals should come from past out-of-sample forecast errors rather than random reshuffling. Known-ahead future covariates can be included in <span class="math inline">Z_t</span> only when their values are genuinely available at origin <span class="math inline">t</span>.</p>
 <p>A simple rolling conformal workflow is:</p>
 <ol type="1">
-<li>At each forecast origin <span class="math inline">t</span>, fit the forecasting model using data up to time <span class="math inline">t</span>.</li>
+<li>At each forecast origin <span class="math inline">t</span>, fit the forecasting model <span class="math inline">\hat\mu_t</span> using only <span class="math inline">\mathcal F_t</span>.</li>
 <li>Store recent out-of-sample absolute residuals <span class="math display">
-R_s = |Y_s-\hat \mu_{s-1}(X_s)|,
-</span> where each <span class="math inline">\hat \mu_{s-1}</span> is trained only on information available before time <span class="math inline">s</span>.</li>
-<li>Form the interval for <span class="math inline">t+1</span> as <span class="math display">
-C_t(X_{t+1})
+R_s = |Y_{s+1}-\hat \mu_s(Z_s)|,
+</span> for past origins <span class="math inline">s&lt;t</span>, using only residuals whose outcomes have already been observed.</li>
+<li>Form the interval for <span class="math inline">Y_{t+1}</span> as <span class="math display">
+C_t(Z_t)
 =
-[\hat \mu_t(X_{t+1})-\hat q_t,\hat \mu_t(X_{t+1})+\hat q_t],
+[\hat \mu_t(Z_t)-\hat q_t,\hat \mu_t(Z_t)+\hat q_t],
 </span> where <span class="math inline">\hat q_t</span> is the empirical <span class="math inline">(1-\alpha)</span>-quantile of a recent residual window.</li>
 </ol>
 <p>This procedure is no longer distribution-free in the same finite-sample sense as i.i.d. split conformal, but it is aligned with the information structure of forecasting. If the residual process is locally stable, the recent residual quantile can still serve as a useful calibration device.</p>
@@ -1695,7 +1707,7 @@ C_t(X_{t+1})
 <p><span class="math display">
 \operatorname{err}_t
 =
-1\{Y_t\notin C_t^{1-\alpha_t}\},
+\mathbf{1}\{Y_t\notin C_t^{1-\alpha_t}\},
 </span></p>
 </div>
 <p> and choose a step size <span class="math inline">\gamma&gt;0</span>. ACI updates </p>
@@ -1720,7 +1732,7 @@ C_t(X_{t+1})
 <p> Hence the empirical miscoverage discrepancy is <span class="math inline">O(1/(\gamma T))</span> whenever the working levels remain uniformly bounded. The usual ACI convention guarantees this boundedness by saturating the underlying set family: a requested coverage level at or below zero returns the empty set, while a level at or above one returns the whole outcome space. With <span class="math inline">\alpha_1\in[0,1]</span>, this feedback keeps <span class="math inline">\alpha_t\in[-\gamma,1+\gamma]</span> <span class="citation" data-cites="GibbsCandes2021">(<a href="#ref-GibbsCandes2021" role="doc-biblioref">Gibbs and Candès 2021</a>)</span>. No stochastic assumption on the data-generating process is needed for this identity.</p>
 <p>This result is about the average error frequency over a long horizon. It does not promise conditional coverage, does not promise coverage at each date, and does not by itself ensure useful interval width: a procedure that alternates between nearly empty and nearly universal sets can have the right average error rate while being operationally poor. The step size <span class="math inline">\gamma</span> trades faster adaptation against more volatile working levels and interval widths.</p>
 <p>A complementary route beyond exchangeability is to replace the unweighted calibration quantile by a weighted one that emphasizes observations judged more relevant to the current test point or forecast origin. Such methods can reduce coverage degradation under distribution drift, but their guarantees depend on the weighting construction; they do not restore the ordinary exchangeable-rank theorem merely by assigning larger weights to recent observations <span class="citation" data-cites="BarberCandesRamdasTibshirani2023Beyond">(<a href="#ref-BarberCandesRamdasTibshirani2023Beyond" role="doc-biblioref">Barber et al. 2023</a>)</span>.</p>
-<p>Ensemble batch prediction intervals (EnbPI) take this idea further by combining ensemble forecasts with time-ordered residual calibration <span class="citation" data-cites="XuXie2021PMLR">(<a href="#ref-XuXie2021PMLR" role="doc-biblioref">Xu and Xie 2021</a>)</span>. The spirit is similar to CV+:</p>
+<p>A separate time-series approach, ensemble batch prediction intervals (EnbPI), combines ensemble forecasts with time-ordered residual calibration <span class="citation" data-cites="XuXie2021PMLR">(<a href="#ref-XuXie2021PMLR" role="doc-biblioref">Xu and Xie 2021</a>)</span>. Its operational spirit is similar to CV+:</p>
 <ul>
 <li>fit many bootstrap-style models on past data</li>
 <li>aggregate their predictions</li>
@@ -1802,10 +1814,10 @@ Suggested Answer
 <section id="practical-workflow-for-econometricians" class="level2" data-number="15.11">
 <h2 data-number="15.11" class="anchored" data-anchor-id="practical-workflow-for-econometricians"><span class="header-section-number">15.11</span> Practical Workflow for Econometricians</h2>
 <p>For applied work, the right conformal design depends on the data structure and the research goal.</p>
-<p><strong>If the data are approximately exchangeable and sample size is adequate.</strong> Basic split conformal is often a strong default. It is easy to explain, easy to compute, and its finite-sample guarantee is transparent.</p>
+<p><strong>If the data are approximately exchangeable and the sample size is adequate.</strong> Basic split conformal is often a strong default. It is easy to explain, easy to compute, and its finite-sample guarantee is transparent.</p>
 <p><strong>If uncertainty clearly varies with covariates.</strong> Use an adaptive score or CQR rather than constant-width intervals. The guarantee is still marginal, but the intervals can become much sharper in quiet regions and more cautious in volatile ones.</p>
-<p><strong>If data are scarce and model fitting is expensive but feasible multiple times.</strong> Consider CV+ or jackknife+. The extra computation may be worthwhile if split conformal wastes too much training information.</p>
-<p><strong>If the data are time ordered.</strong> Do not use standard split conformal mechanically. Use a forecasting design that respects time order, calibration on past out-of-sample errors, and, when appropriate, time-series conformal methods such as EnbPI.</p>
+<p><strong>If data are scarce and fitting the model is expensive but still feasible to repeat.</strong> Consider CV+ or jackknife+. The extra computation may be worthwhile if split conformal wastes too much training information.</p>
+<p><strong>If the data are time ordered.</strong> Do not use standard split conformal mechanically. Use a forecasting design that respects time order and calibrates on past out-of-sample errors; when appropriate, use a time-series conformal method such as EnbPI.</p>
 <p><strong>Evaluate more than raw coverage.</strong> Coverage should be checked together with interval width and stability across relevant subgroups or regimes. A method that attains 95% coverage by giving nearly uselessly wide intervals may satisfy the theorem and still fail the applied forecasting task.</p>
 <p>This chapter therefore complements rather than replaces <a href="./evaluating_distributions.html">Evaluating Predictive Distributions</a>. Proper scores and distributional evaluation remain useful when the researcher cares about the whole predictive distribution, not only coverage. Conformal prediction is a calibration layer, not a universal substitute for all distributional modeling.</p>
 </section>
@@ -1825,7 +1837,7 @@ Key Takeaways
 <li>Conformal prediction calibrates prediction sets around a fitted model rather than estimating a full predictive distribution directly.</li>
 <li>Under exchangeability and a clean train/calibration separation, split conformal prediction delivers a finite-sample marginal coverage guarantee.</li>
 <li>The guarantee comes from a rank argument and does not require the underlying forecasting model to be correctly specified.</li>
-<li>Basic split conformal intervals are constant-width and guarantee only marginal, not conditional, coverage.</li>
+<li>Basic absolute-residual split-conformal intervals have constant width, and split conformal generally guarantees marginal rather than conditional coverage.</li>
 <li>Adaptive scores and conformalized quantile regression improve interval shape and heteroskedastic adaptation without changing the basic calibration logic.</li>
 <li>CV+ and jackknife+ improve data efficiency by using out-of-fold residuals instead of one train/calibration split.</li>
 <li>In time series, naive conformal prediction loses its usual guarantee because exchangeability fails, so calibration must respect forecast origins and temporal dependence.</li>
@@ -1844,7 +1856,7 @@ Common Pitfalls
 <div class="callout-body-container callout-body">
 <ul>
 <li>Confusing marginal coverage with conditional or subgroup coverage.</li>
-<li>Thinking conformal prediction validates a poor model rather than only recalibrating its prediction set.</li>
+<li>Thinking that conformal prediction validates a poor base model; it only calibrates the resulting prediction set.</li>
 <li>Using the calibration sample during model fitting or hyperparameter tuning.</li>
 <li>Treating constant-width split conformal intervals as adequate when heteroskedasticity is central.</li>
 <li>Applying i.i.d. conformal methods directly to time-series data with serial dependence or regime change.</li>
@@ -1861,11 +1873,11 @@ Common Pitfalls
 <i class="callout-icon"></i>
 </div>
 <div class="callout-title-container flex-fill">
-Exercise 15.1: Split Conformal Coverage and Regime-Specific Coverage
+Exercise 15.1: Split Conformal Coverage and Adaptive Updating
 </div>
 </div>
 <div class="callout-body-container callout-body">
-<p>You use split conformal prediction with target miscoverage rate <span class="math inline">\alpha=0.1</span> to forecast quarterly GDP growth. The calibration sample has <span class="math inline">N_{\text{cal}}=19</span> observations. After fitting a point predictor <span class="math inline">\hat \mu</span> on the training sample, you compute the absolute residual scores on the calibration sample. Their sorted values are</p>
+<p>You use split conformal prediction with a target miscoverage rate of <span class="math inline">\alpha=0.1</span> to forecast quarterly GDP growth. The calibration sample has <span class="math inline">N_{\text{cal}}=19</span> observations. After fitting a point predictor <span class="math inline">\hat \mu</span> on the training sample, you compute the absolute residual scores on the calibration sample. Their sorted values are</p>
 <div class="display-math-block">
 <p><span class="math display">
 \{0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0,1.1,1.2,1.3,1.4,1.5,1.6,1.7,1.8,1.9\}.
@@ -1874,12 +1886,20 @@ Exercise 15.1: Split Conformal Coverage and Regime-Specific Coverage
 <ol type="1">
 <li>Compute the conformal rank index <span class="math display">
 k=\left\lceil (1-\alpha)(N_{\text{cal}}+1)\right\rceil
-</span> and the conformal quantile <span class="math inline">\hat q</span>.</li>
-<li>If <span class="math inline">\hat \mu(x_{\text{new}})=5.0</span>, compute the 90% split conformal prediction interval for a new point <span class="math inline">x_{\text{new}}</span>.</li>
-<li>Assume the calibration scores and future score are almost surely distinct. Using the uniform-rank argument, compute the exact coverage probability of this split conformal rule and the numerical gap between this exact coverage and the nominal target <span class="math inline">1-\alpha</span>.</li>
-<li>In a later evaluation exercise, the overall empirical coverage is close to 90%, but coverage is only 75% during recession quarters and 95% during expansion quarters. Explain why this does not contradict the split conformal theorem, and name one modification from the chapter that would be a natural next step.</li>
+</span> and the conformal quantile <span class="math inline">\hat q</span>. If <span class="math inline">\hat \mu(x_{\text{new}})=5.0</span>, compute the 90% split conformal prediction interval.</li>
+<li>Assume the calibration and future scores are almost surely distinct. Starting from the uniform rank on <span class="math inline">\{1,\ldots,N_{\text{cal}}+1\}</span>, derive <span class="math display">
+\Pr\{Y_{N_{\text{cal}}+1}\in C(X_{N_{\text{cal}}+1})\}
+=\frac{\lceil(1-\alpha)(N_{\text{cal}}+1)\rceil}{N_{\text{cal}}+1}
+</span> and show that this probability lies in <span class="math inline">[1-\alpha,\,1-\alpha+1/(N_{\text{cal}}+1))</span>. Evaluate it first for <span class="math inline">N_{\text{cal}}=19</span> and then for <span class="math inline">N_{\text{cal}}=18</span>. Which case has strict ceiling-induced overcoverage?</li>
+<li>Adaptive conformal inference uses <span class="math display">
+\alpha_{t+1}=\alpha_t+\gamma(\alpha-\operatorname{err}_t).
+</span> Starting from <span class="math inline">\alpha_1=0.10</span> with <span class="math inline">\gamma=0.05</span>, compute <span class="math inline">\alpha_2,\ldots,\alpha_6</span> for the error sequence <span class="math inline">(0,1,0,0,1)</span>.</li>
+<li>Verify numerically that the sequence in Part 3 satisfies <span class="math display">
+\frac{1}{5}\sum_{t=1}^5\operatorname{err}_t-\alpha
+=\frac{\alpha_1-\alpha_6}{5\gamma}.
+</span> Explain why this identity does not by itself imply conditional coverage or informative interval widths.</li>
 </ol>
-<p><em>Exam level. Parts 1-3 combine conformal mechanics with the finite-sample rank argument, and Part 4 tests whether students understand the difference between marginal and regime-specific coverage.</em></p>
+<p><em>Exam level. Part 1 checks the construction, Part 2 requires the finite-sample rank and discreteness derivation, and Parts 3-4 apply and interpret adaptive conformal inference.</em></p>
 </div>
 </div>
 <div class="callout callout-style-default callout-warning callout-titled">
@@ -1888,34 +1908,18 @@ k=\left\lceil (1-\alpha)(N_{\text{cal}}+1)\right\rceil
 <i class="callout-icon"></i>
 </div>
 <div class="callout-title-container flex-fill">
-Hint for Part 3
+Hint for Part 2
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
 <div id="callout-18" class="callout-18-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
-<p>If ranks are uniform on <span class="math inline">\{1,\dots,N_{\text{cal}}+1\}</span> and coverage occurs when the future score has rank at most <span class="math inline">k</span>, then the coverage probability is <span class="math inline">k/(N_{\text{cal}}+1)</span>.</p>
-</div>
-</div>
-</div>
-<div class="callout callout-style-default callout-warning callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-19-contents" aria-controls="callout-19" aria-expanded="false" aria-label="Toggle callout">
-<div class="callout-icon-container">
-<i class="callout-icon"></i>
-</div>
-<div class="callout-title-container flex-fill">
-Hint for Part 4
-</div>
-<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
-</div>
-<div id="callout-19" class="callout-19-contents callout-collapse collapse">
-<div class="callout-body-container callout-body">
-<p>The theorem is about marginal coverage over the full distribution, not exact coverage inside every subgroup or regime.</p>
+<p>Count how many of the <span class="math inline">N_{\text{cal}}+1</span> possible ranks produce coverage, then apply the two defining inequalities for the ceiling function.</p>
 </div>
 </div>
 </div>
 <div class="callout callout-style-default callout-tip callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-20-contents" aria-controls="callout-20" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-19-contents" aria-controls="callout-19" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -1924,9 +1928,9 @@ Solution
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-20" class="callout-20-contents callout-collapse collapse">
+<div id="callout-19" class="callout-19-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
-<p><strong>Part 1: Quantile index</strong></p>
+<p><strong>Part 1: Quantile index and interval</strong></p>
 <p>Here</p>
 <div class="display-math-block">
 <p><span class="math display">
@@ -1941,7 +1945,6 @@ k=\left\lceil (1-0.1)(19+1)\right\rceil
 \hat q = 1.8.
 </span></p>
 </div>
-<p><strong>Part 2: Prediction interval</strong></p>
 <p>The split conformal interval is</p>
 <div class="display-math-block">
 <p><span class="math display">
@@ -1956,27 +1959,45 @@ C(x_{\text{new}})
 [5.0-1.8,\; 5.0+1.8]=[3.2,\; 6.8].
 </span></p>
 </div>
-<p><strong>Part 3: Exact coverage under distinct ranks</strong></p>
-<p>If the scores are distinct, the rank of the future score among the 20 scores is uniform on <span class="math inline">\{1,\dots,20\}</span>. Coverage occurs when the future score has rank at most <span class="math inline">k=18</span>. Therefore</p>
+<p><strong>Part 2: Exact coverage and finite-sample discreteness</strong></p>
+<p>With distinct scores, the future score has a uniform rank on <span class="math inline">\{1,\ldots,N_{\text{cal}}+1\}</span>. Exactly <span class="math inline">k</span> of these ranks produce coverage, so </p>
 <div class="display-math-block">
 <p><span class="math display">
-\Pr\{Y_{N+1}\in C(X_{N+1})\}
-=
-\frac{18}{20}
-=
-0.9.
+\Pr\{Y_{N_{\text{cal}}+1}\in C(X_{N_{\text{cal}}+1})\}
+=\frac{k}{N_{\text{cal}}+1}
+=\frac{\lceil(1-\alpha)(N_{\text{cal}}+1)\rceil}{N_{\text{cal}}+1}.
 </span></p>
 </div>
-<p>So the exact coverage is 90%, which equals the target <span class="math inline">1-\alpha=0.9</span> in this case. The numerical gap between exact and nominal coverage is therefore</p>
+<p> For any real <span class="math inline">u</span>, <span class="math inline">u\le\lceil u\rceil&lt;u+1</span>. Taking <span class="math inline">u=(1-\alpha)(N_{\text{cal}}+1)</span> and dividing by <span class="math inline">N_{\text{cal}}+1</span> gives </p>
 <div class="display-math-block">
 <p><span class="math display">
-0.9-0.9=0.
+1-\alpha
+\le\frac{k}{N_{\text{cal}}+1}
+&lt;1-\alpha+\frac{1}{N_{\text{cal}}+1}.
 </span></p>
 </div>
-<p>In general the ceiling rule can create slight overcoverage, but in this particular example it hits the nominal target exactly.</p>
-<p><strong>Part 4: Regime-specific undercoverage</strong></p>
-<p>This does not contradict the split conformal theorem because the theorem guarantees marginal coverage over the full distribution of future observations, not exact coverage within every subgroup or regime. Recession quarters may have higher forecast uncertainty than expansion quarters, so a constant-width interval can undercover in recessions and overcover in expansions while still averaging out to roughly 90% overall coverage.</p>
-<p>A natural next step from the chapter is to use an adaptive conformal score or conformalized quantile regression, because both allow interval width to adjust with covariates or state-dependent uncertainty rather than staying constant across all quarters.</p>
+<p>For <span class="math inline">N_{\text{cal}}=19</span>, <span class="math inline">k=18</span> and coverage is <span class="math inline">18/20=0.9</span>, so the gap is zero. For <span class="math inline">N_{\text{cal}}=18</span>, <span class="math inline">k=\lceil0.9\times19\rceil=18</span> and coverage is <span class="math inline">18/19\approx0.947</span>, about 4.7 percentage points above nominal. The second case has strict ceiling-induced overcoverage.</p>
+<p><strong>Part 3: Adaptive updates</strong></p>
+<p>Apply the update sequentially: </p>
+<div class="display-math-block">
+<p><span class="math display">
+\begin{aligned}
+\alpha_2&amp;=0.10+0.05(0.10-0)=0.105,\\
+\alpha_3&amp;=0.105+0.05(0.10-1)=0.060,\\
+\alpha_4&amp;=0.060+0.05(0.10-0)=0.065,\\
+\alpha_5&amp;=0.065+0.05(0.10-0)=0.070,\\
+\alpha_6&amp;=0.070+0.05(0.10-1)=0.025.
+\end{aligned}
+</span></p>
+</div>
+<p><strong>Part 4: Telescoping identity and its scope</strong></p>
+<p>The average error is <span class="math inline">2/5=0.4</span>, so the left-hand side is <span class="math inline">0.4-0.1=0.3</span>. The right-hand side is </p>
+<div class="display-math-block">
+<p><span class="math display">
+\frac{0.10-0.025}{5\times0.05}=\frac{0.075}{0.25}=0.3.
+</span></p>
+</div>
+<p> The identity controls a time average through the endpoint difference in working levels. It does not condition on the current covariates or regime, so it does not imply conditional coverage. Nor does it constrain interval width: a sequence of nearly empty and nearly universal sets could satisfy the same average-error identity while being operationally useless.</p>
 </div>
 </div>
 </div>
@@ -1990,7 +2011,7 @@ Exercise 15.2: Conformalized Quantile Regression and Calibration Direction
 </div>
 </div>
 <div class="callout-body-container callout-body">
-<p>You use conformalized quantile regression with target coverage 80%, so <span class="math inline">\alpha=0.2</span>, to build downside-risk intervals for firm-level returns. The initial models target the conventional 10th and 90th conditional quantiles. The calibration sample has four observations, and the lower-quantile prediction, upper-quantile prediction, and realized outcome are:</p>
+<p>You use conformalized quantile regression with a target coverage of 80%, so <span class="math inline">\alpha=0.2</span>, to build downside-risk intervals for firm-level returns. The initial models target the conventional 10th and 90th conditional quantiles. The calibration sample has four observations, and the lower-quantile prediction, upper-quantile prediction, and realized outcome are:</p>
 <table class="caption-top table">
 <colgroup>
 <col style="width: 20%">
@@ -2055,7 +2076,7 @@ R_i = \max\{\hat q_{\mathrm{low}}(x_i)-y_i,\; y_i-\hat q_{\mathrm{high}}(x_i)\}.
 </div>
 </div>
 <div class="callout callout-style-default callout-warning callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-22-contents" aria-controls="callout-22" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-21-contents" aria-controls="callout-21" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -2064,14 +2085,14 @@ Hint for Part 1
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-22" class="callout-22-contents callout-collapse collapse">
+<div id="callout-21" class="callout-21-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p>The score is positive when the realized value lies outside the initial quantile band and negative when it lies comfortably inside.</p>
 </div>
 </div>
 </div>
 <div class="callout callout-style-default callout-warning callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-23-contents" aria-controls="callout-23" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-22-contents" aria-controls="callout-22" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -2080,30 +2101,14 @@ Hint for Part 4
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-23" class="callout-23-contents callout-collapse collapse">
+<div id="callout-22" class="callout-22-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p>The inequality <span class="math inline">\max(a,b)\le c</span> is equivalent to imposing both <span class="math inline">a\le c</span> and <span class="math inline">b\le c</span>.</p>
 </div>
 </div>
 </div>
-<div class="callout callout-style-default callout-warning callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-24-contents" aria-controls="callout-24" aria-expanded="false" aria-label="Toggle callout">
-<div class="callout-icon-container">
-<i class="callout-icon"></i>
-</div>
-<div class="callout-title-container flex-fill">
-Hint for Part 6
-</div>
-<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
-</div>
-<div id="callout-24" class="callout-24-contents callout-collapse collapse">
-<div class="callout-body-container callout-body">
-<p>Again distinguish marginal coverage from subgroup or conditional coverage. Then ask whether a more adaptive interval construction is needed.</p>
-</div>
-</div>
-</div>
 <div class="callout callout-style-default callout-tip callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-25-contents" aria-controls="callout-25" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-23-contents" aria-controls="callout-23" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -2112,7 +2117,7 @@ Solution
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-25" class="callout-25-contents callout-collapse collapse">
+<div id="callout-23" class="callout-23-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p><strong>Part 1: Calibration scores</strong></p>
 <p>The scores are</p>
@@ -2165,7 +2170,7 @@ k=\left\lceil (1-0.2)(4+1)\right\rceil
 \max(\hat q_{\mathrm{low}}(x)-y,\; y-\hat q_{\mathrm{high}}(x))\le \hat q_{\mathrm{cal}}.
 </span></p>
 </div>
-<p>This is equivalent to requiring both</p>
+<p>The maximum inequality is equivalent to requiring both</p>
 <div class="display-math-block">
 <p><span class="math display">
 \hat q_{\mathrm{low}}(x)-y\le \hat q_{\mathrm{cal}}
@@ -2251,13 +2256,18 @@ R_1=0.5,\quad R_2=0.8,\quad R_3=0.3,\quad R_4=0.6,\quad R_5=0.4.
 [m-\max_i R_i,\;m+\max_i R_i].
 </span></li>
 <li>Explain why jackknife+ is more data-efficient than split conformal.</li>
-<li>In a small cross-sectional macro dataset where model fitting is cheap but the sample size is limited, when would jackknife+ be more attractive than split conformal?</li>
+<li>Choose a method for each application and justify the choice.
+<ul>
+<li>Application A has <span class="math inline">N=80</span> observations, each model refit takes 2 seconds, and holding out 20 observations materially worsens point predictions.</li>
+<li>Application B has <span class="math inline">N=5{,}000</span> observations, each model refit takes 30 minutes, a 20% calibration split barely changes point accuracy, and the total fitting budget is 4 hours.</li>
+</ul>
+Compare split conformal with jackknife+ in terms of training information and computation. Do not claim that either method is universally superior.</li>
 </ol>
 <p><em>Exam level. Parts 1-2 require students to work through the jackknife+ construction formally, and Parts 3-4 test whether they understand the efficiency-computation tradeoff in an applied setting.</em></p>
 </div>
 </div>
 <div class="callout callout-style-default callout-warning callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-27-contents" aria-controls="callout-27" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-25-contents" aria-controls="callout-25" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -2266,30 +2276,14 @@ Hint for Part 2
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-27" class="callout-27-contents callout-collapse collapse">
+<div id="callout-25" class="callout-25-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
-<p>If all leave-one-out predictions equal <span class="math inline">m</span>, then the candidate bounds become <span class="math inline">m-R_i</span> and <span class="math inline">m+R_i</span>. With <span class="math inline">N=5</span> and <span class="math inline">\alpha=0.2</span>, the lower index is 1 and the upper index is 5.</p>
-</div>
-</div>
-</div>
-<div class="callout callout-style-default callout-warning callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-28-contents" aria-controls="callout-28" aria-expanded="false" aria-label="Toggle callout">
-<div class="callout-icon-container">
-<i class="callout-icon"></i>
-</div>
-<div class="callout-title-container flex-fill">
-Hint for Part 4
-</div>
-<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
-</div>
-<div id="callout-28" class="callout-28-contents callout-collapse collapse">
-<div class="callout-body-container callout-body">
-<p>Think about the tradeoff between holding back a dedicated calibration sample and fitting many models on almost the full sample.</p>
+<p>If all leave-one-out predictions equal <span class="math inline">m</span>, ask how sorting <span class="math inline">m-R_i</span> reverses the ordering of the residuals, while sorting <span class="math inline">m+R_i</span> preserves it.</p>
 </div>
 </div>
 </div>
 <div class="callout callout-style-default callout-tip callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-29-contents" aria-controls="callout-29" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-26-contents" aria-controls="callout-26" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -2298,7 +2292,7 @@ Solution
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-29" class="callout-29-contents callout-collapse collapse">
+<div id="callout-26" class="callout-26-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p><strong>Part 1: Candidate bounds and final interval</strong></p>
 <p>The candidate lower bounds are</p>
@@ -2377,8 +2371,9 @@ U_{(5)}=m+\max_i R_i.
 </div>
 <p><strong>Part 3: Why jackknife+ is more data-efficient</strong></p>
 <p>Split conformal permanently reserves a calibration sample and does not use those observations to fit the base model. Jackknife+ instead fits many leave-one-out models, so every observation contributes to model fitting in almost every refit and also contributes one out-of-sample residual. That is why it often uses scarce data more efficiently.</p>
-<p><strong>Part 4: When jackknife+ is attractive</strong></p>
-<p>Jackknife+ is especially attractive when sample size is limited, because sacrificing a dedicated calibration block could noticeably weaken the fitted model. If model fitting is cheap enough that many leave-one-out refits are feasible, the extra computation is worth paying to avoid throwing away training information.</p>
+<p><strong>Part 4: Choosing under data and compute constraints</strong></p>
+<p>Application A favors jackknife+. With only 80 observations, the 20-observation calibration block would materially weaken the split-conformal base model, while 80 leave-one-out fits take only about 160 seconds. Jackknife+ lets each fitted model use 79 observations and gives every observation an out-of-sample residual.</p>
+<p>Application B favors split conformal. A jackknife+ implementation would require 5,000 refits, far beyond the 4-hour budget, whereas holding out 1,000 observations has little effect on point accuracy. One split fit is therefore computationally feasible and sacrifices little predictive quality. The comparison depends on both the value of additional training observations and the cost of repeated fitting.</p>
 </div>
 </div>
 </div>
@@ -2414,7 +2409,7 @@ Y_t=\rho Y_{t-1}+\varepsilon_t,
 </div>
 </div>
 <div class="callout callout-style-default callout-warning callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-31-contents" aria-controls="callout-31" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-28-contents" aria-controls="callout-28" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -2423,14 +2418,14 @@ Hint for Part 1
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-31" class="callout-31-contents callout-collapse collapse">
+<div id="callout-28" class="callout-28-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p>For a stationary AR(1), <span class="math inline">\operatorname{Cov}(Y_t,Y_{t+h})=\rho^{|h|}\operatorname{Var}(Y_t)</span>.</p>
 </div>
 </div>
 </div>
 <div class="callout callout-style-default callout-warning callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-32-contents" aria-controls="callout-32" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-29-contents" aria-controls="callout-29" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -2439,14 +2434,14 @@ Hint for Part 3
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-32" class="callout-32-contents callout-collapse collapse">
+<div id="callout-29" class="callout-29-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
-<p>The calibration residuals should be genuine past forecast errors computed with only past information. A very short window is noisy; a very long window may mix together different regimes.</p>
+<p>Draw a timeline and mark the information available when each forecast is issued. Use it to decide which realized forecast errors may enter the calibration window.</p>
 </div>
 </div>
 </div>
 <div class="callout callout-style-default callout-warning callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-33-contents" aria-controls="callout-33" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-30-contents" aria-controls="callout-30" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -2455,14 +2450,14 @@ Hint for Part 4
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-33" class="callout-33-contents callout-collapse collapse">
+<div id="callout-30" class="callout-30-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p>Ask whether pre-shock residuals are likely to be smaller or larger than post-shock forecast errors when volatility rises abruptly.</p>
 </div>
 </div>
 </div>
 <div class="callout callout-style-default callout-tip callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-34-contents" aria-controls="callout-34" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-31-contents" aria-controls="callout-31" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -2471,7 +2466,7 @@ Solution
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-34" class="callout-34-contents callout-collapse collapse">
+<div id="callout-31" class="callout-31-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p><strong>Part 1: Why the process is not exchangeable</strong></p>
 <p>For a stationary AR(1),</p>
@@ -2492,7 +2487,7 @@ Solution
 \operatorname{Cov}(Y_1,Y_3)=\rho^2 \operatorname{Var}(Y_t).
 </span></p>
 </div>
-<p>These are equal only in special cases such as <span class="math inline">\rho=0</span>. For generic <span class="math inline">\rho \neq 0</span>, the covariance structure changes under permutation, so the joint distribution is not invariant to permutation. Hence the process is not exchangeable.</p>
+<p>These two covariances are equal only in special cases such as <span class="math inline">\rho=0</span>. For generic <span class="math inline">\rho \neq 0</span>, the covariance structure changes under permutation, so the joint distribution is not invariant to permutation. Hence the process is not exchangeable.</p>
 <p><strong>Part 2: Why naive split conformal breaks</strong></p>
 <p>The split conformal proof relies on the calibration scores and future score being exchangeable, so that the future score has a uniform rank among them. In a time series, random splitting does not restore exchangeability. The calibration residuals can mix observations from different times, different volatility states, and even future information relative to earlier forecast origins. Once the scores are no longer exchangeable, the uniform-rank argument fails, so the usual finite-sample coverage theorem no longer applies.</p>
 <p><strong>Part 3: Rolling conformal design</strong></p>
@@ -2530,6 +2525,9 @@ Lei, Jing, Max G’Sell, Alessandro Rinaldo, Ryan J. Tibshirani, and Larry Wasse
 </div>
 <div id="ref-LeiWasserman2014" class="csl-entry" role="listitem">
 Lei, Jing, and Larry Wasserman. 2014. <span>“Distribution-Free Prediction Bands for Non-Parametric Regression.”</span> <em>Journal of the Royal Statistical Society: Series B</em> 76 (1): 71–96. <a href="https://doi.org/10.1111/rssb.12021">https://doi.org/10.1111/rssb.12021</a>.
+</div>
+<div id="ref-McCrackenNg2020FREDQD" class="csl-entry" role="listitem">
+McCracken, Michael W., and Serena Ng. 2020. <span>“FRED-QD: A Quarterly Database for Macroeconomic Research.”</span> Working Paper 26872. National Bureau of Economic Research. <a href="https://doi.org/10.3386/w26872">https://doi.org/10.3386/w26872</a>.
 </div>
 <div id="ref-RomanoPattersonCandes2019" class="csl-entry" role="listitem">
 Romano, Yaniv, Evan Patterson, and Emmanuel J. Candes. 2019. <span>“Conformalized Quantile Regression.”</span> In <em>Advances in Neural Information Processing Systems 32</em>, 3538–48.
