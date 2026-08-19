@@ -223,7 +223,7 @@ $\mathcal{F}_t$ should contain only the real-time data vintage available at the 
 
 Training an RNN raises a problem absent from feed-forward networks: because the same weight matrices ($\mathbf{W}_{hh}, \mathbf{W}_{xh}$) are applied at every time step, the gradient with respect to each matrix is the sum of contributions from every time step. The algorithm that handles this is **Backpropagation Through Time (BPTT)**.
 
-The core idea of BPTT is to unroll the network through time, as shown in @fig-rnn-side-by-side. This conceptually transforms the RNN into a deep feed-forward network where each time step becomes a layer, but with the critical constraint that the weights are shared across all layers. Once unrolled, standard backpropagation can be applied.
+The core idea of BPTT is to **unroll** the network through time, as shown in @fig-rnn-side-by-side. This conceptually transforms the RNN into a deep feed-forward network where each time step becomes a layer, but with the critical constraint that the weights are shared across all layers. Once unrolled, standard backpropagation can be applied.
 
 For clarity, the chapter specializes to a single terminal loss evaluated at the terminal step $T$, written in the forecasting convention: the step-$T$ output is scored against the outcome it forecasts,
 $$
@@ -249,9 +249,8 @@ where $g'$ is the derivative of the activation function (e.g., $\tanh'$) and $\m
 
 ## Vanishing and Exploding Gradients
 
-The long product of Jacobians is the source of the **vanishing gradient problem**. If each one-step Jacobian along the trajectory satisfies $\lVert \operatorname{diag}(g'(\mathbf{z}_i))\,\mathbf{W}_{hh} \rVert \leq \kappa$ for some $\kappa < 1$, the norm of the product is at most $\kappa^{T-t}$: the gradient signal from a particular loss at $T$ shrinks exponentially as it propagates backwards through time. Consequently, a state many steps before that loss can receive almost no credit or blame for it.
-
-For econometric forecasting, this is the central limitation of a plain RNN. The model may have a recursive state, but training can fail when a loss must assign credit across a long time gap. This statement is relative to a loss, not to the calendar date of an observation: with a loss at every forecast origin, each date still supplies a nearby learning signal. The difficulty arises when information useful for one of those losses entered the state many recurrent steps earlier and cannot be recovered from more recent inputs.
+The long product of Jacobians is the source of the **vanishing gradient problem**. If each one-step Jacobian along the trajectory satisfies $\lVert \operatorname{diag}(g'(\mathbf{z}_i))\,\mathbf{W}_{hh} \rVert \leq \kappa$ for some $\kappa < 1$, the norm of the product is at most $\kappa^{T-t}$: the gradient signal shrinks exponentially as it propagates backwards through time. Consequently, contributions from early time steps ($t \ll T$) become so small that they are effectively zero.
+For econometric forecasting, this is the central limitation of a plain RNN. The model may have a recursive state, but training can fail when a loss must assign credit across a long time gap.
 
 The same recurrent-state Jacobian product can also grow, in which case gradients **explode** rather than vanish. Since $g' \leq 1$ for the $\tanh$ activation, each one-step Jacobian is bounded in norm by $\lVert\mathbf{W}_{hh}\rVert$, so $\lVert\mathbf{W}_{hh}\rVert > 1$ is necessary for this upper bound to permit exponential pathwise growth. It is not sufficient: whether the product actually grows depends on the entire trajectory of factors $\operatorname{diag}(g'(\mathbf{z}_i))\,\mathbf{W}_{hh}$ — a per-factor bound below one forces decay, but individual factors with norms above one do not by themselves force growth. Nor does $\lVert\mathbf{W}_{hh}\rVert\leq 1$ uniformly bound every total parameter gradient, because contributions from many loss terms can still accumulate with sequence length. In the scalar case the pathwise picture is transparent: the product is $\prod_i |W_{hh}|\,g'(z_i)$ and grows geometrically whenever the factors stay above some $\gamma > 1$ along the trajectory. Exploding gradients are the less subtle failure mode: they show up as numerical overflow or as parameter updates that jump erratically between iterations, rather than as a silent failure to learn long-run dependence. The standard remedy is **gradient clipping** [@PascanuMikolovBengio2013]: if the norm of the stacked raw gradient vector $\mathbf{g}$ exceeds a threshold $c$, replace $\mathbf{g}$ by $c\,\mathbf{g}/\lVert\mathbf{g}\rVert$ before the optimizer sees it. This transformation caps the raw gradient norm and preserves the raw gradient direction. Under plain stochastic gradient descent it also caps the norm of the immediate parameter step, up to the learning rate; with momentum or adaptive optimizers, the eventual update also depends on stored optimizer state. Clipping stabilizes the exploding case but does nothing for vanishing gradients, whose problem is the loss of signal across a long credit-assignment path.
 
@@ -284,7 +283,7 @@ Plain RNNs are hard to train reliably whenever the forecast depends on informati
 3. Econometrically, an RNN can be interpreted as a flexible nonlinear state-update model, similar in spirit to GARCH or state-space recursions but less tightly specified.
 4. An RNN output is deterministic unless we combine it with a probabilistic output layer and train the resulting distribution with a proper scoring rule.
 5. Training uses backpropagation through time, which applies the chain rule to an unrolled sequence of shared-parameter hidden states.
-6. The main limitation of plain RNNs is the vanishing gradient problem: a loss can assign almost no credit to states many recurrent steps before it.
+6. The main limitation of plain RNNs is the vanishing gradient problem: early time steps can have almost no influence on parameter updates for long sequences.
 7. Gradients can also explode when the recurrent dynamics are expansive; gradient clipping caps the raw gradient norm in that case but does not repair vanishing gradients.
 8. In fixed-window training, the window length caps the recurrent state's horizon and the gradient's reach. Forecasts cannot use pre-window information unless the included inputs or engineered features carry that information forward; sharing parameters across windows also imposes time-invariant dynamics.
 9. The vanishing gradient problem is the main conceptual bridge to LSTM networks in the next chapter.
@@ -297,7 +296,7 @@ Plain RNNs are hard to train reliably whenever the forecast depends on informati
 - Randomly shuffling time-series observations before training or evaluation, thereby destroying the temporal information structure or leaking future information.
 - Assuming that a plain RNN can learn very long-run dependence just because the hidden state is recursively updated.
 - Confusing the unrolled computational graph used for training with a model that has different parameters at each time step; RNNs share parameters over time.
-- Choosing a training window that excludes predictive information not recoverable from the included inputs, and then blaming the architecture for not learning it.
+- Choosing a training-window length shorter than the dependence horizon the model is meant to capture, and then blaming the architecture for not learning it.
 :::
 
 
@@ -317,7 +316,7 @@ In this exercise, we examine the vanishing gradient problem in RNNs. Consider a 
 5. **Separate data memory from model memory.** Explain which object's memory is described by the AR(1) impulse response and which object's memory is described by the bound from Part 2.
 6. **Locate the learning signal.** An RNN is trained to forecast the AR(1) process one step ahead, observing the current value as its input at each step ($x_t = y_t$), with a one-step-ahead loss at each forecast origin. Explain why the vanishing-gradient bound does *not* prevent this network from learning the AR(1) dynamics, identifying the time gap across which the loss-relevant signal about $\phi$ must travel and whether $W_{hh}$ must equal $\phi$.
 7. **Trace a genuinely long-gap signal.** Now let the data-generating process be $y_{t+1} = \psi x_{t-k} + u_{t+1}$ for a large delay $k$, where the network observes the scalar input sequence $\{x_t\}$, the intermediate inputs $x_{t-k+1}, \ldots, x_t$ carry no information about $y_{t+1}$, and training again uses a one-step-ahead loss at each origin. Explain why the only gradient path connecting the loss to the relevant input bridges $k$ recurrence steps.
-8. **Explain the lock-in mechanism.** Using the dual role of $\partial h_T/\partial h_t$ as a measure of fitted-state sensitivity and as a factor in the parameter gradient, explain why a contractive network can remain in a short-memory regime during training in the delayed-signal design of Part 7.
+8. **Explain the lock-in mechanism.** Using the dual role of $\partial h_T/\partial h_t$ as a measure of fitted-state sensitivity and as a factor in the parameter gradient, explain why a contractive network can remain short-memoried during training in the delayed-signal design of Part 7.
 
 *Exam level, deliberately long as a whole. Parts 1–3 form one exam question. Parts 4–8 form a second only if the decomposition and bound from Parts 1–2 are supplied with the question.*
 :::
@@ -442,7 +441,7 @@ The impulse response $\phi^k$ is a property of the *data-generating process*: it
 
 **Part 6: Why local learning suffices for the AR(1)**
 
-By Part 1, $\partial h_T / \partial h_t$ is also the factor that carries the training signal from the loss back to early time steps — yet for the AR(1) this does not prevent learning. The one-step conditional mean is $\mathbb{E}[y_{t+1} \mid \mathcal{F}_t] = \phi y_t$: everything the network needs in order to forecast is contained in its current input $x_t = y_t$. The relevant path is therefore $x_t \to h_t \to \hat{y}_{t+1\mid t}$, which crosses no recurrent transition after $x_t$ enters the state. The input and output weights can encode the coefficient $\phi$; $W_{hh}$ need not equal or directly represent it. Adjacent-observation forecast errors thus provide a local learning signal without long-range credit assignment.
+By Part 1, $\partial h_T / \partial h_t$ is also the factor that carries the training signal from the loss back to early time steps — yet for the AR(1) this does not prevent learning. The one-step conditional mean is $\mathbb{E}[y_{t+1} \mid \mathcal{F}_t] = \phi y_t$: everything the network needs in order to forecast is contained in its current input $x_t = y_t$. The relevant path is therefore $x_t \to h_t \to \widehat y_{t+1\mid t}$, which crosses no recurrent transition after $x_t$ enters the state. The input and output weights can encode the coefficient $\phi$; $W_{hh}$ need not equal or directly represent it. Adjacent-observation forecast errors thus provide a local learning signal without long-range credit assignment.
 
 **Part 7: The long-gap gradient path**
 
