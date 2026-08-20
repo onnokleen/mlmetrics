@@ -11,7 +11,7 @@ Hyperparameter optimization (HPO) is the problem of choosing settings that contr
 
 For econometricians, HPO matters for two reasons. First, predictive performance can change materially across plausible settings. Second, the act of searching itself creates a statistical problem: if we try many specifications and keep the one with the best validation score, we are optimizing a noisy estimate of out-of-sample performance. Without a disciplined workflow, the selected model can look much better in validation than it will look in truly new data.
 
-This chapter extends the basic validation ideas from the [Cross Validation chapter](cross_validation.qmd), especially the discussions of [Reliable Workflow: Validation vs Test Set](cross_validation.qmd#sec-cv-reliable-workflow), [Leakage Inside Cross-Validation](cross_validation.qmd#sec-cv-leakage), [K-Fold Cross-Validation](cross_validation.qmd#sec-cv-kfold), and [Time Series Cross-Validation](cross_validation.qmd#sec-cv-time-series). The goal here is not to repeat that chapter in full, but to show how those ideas change once hyperparameters themselves become the optimization target.
+This chapter extends the basic validation ideas from the [Cross Validation chapter](cross_validation.qmd), especially the discussions of [Reliable Workflow: Validation vs Test Set](cross_validation.qmd#sec-cv-reliable-workflow), [Leakage Inside Cross-Validation](cross_validation.qmd#sec-cv-leakage), [K-Fold Cross-Validation](cross_validation.qmd#sec-cv-kfold), and [Time Series Cross-Validation](cross_validation.qmd#sec-cv-time-series). The goal here is not to repeat that chapter in full, but to show how those ideas change once hyperparameters themselves become the optimization target. A worked credit-default application later in the chapter makes Gaussian-process Bayesian optimization concrete and compares it with random search under the same evaluation budget.
 
 :::{.callout-note title="Definition: Parameters vs Hyperparameters"}
 
@@ -25,8 +25,10 @@ This chapter extends the basic validation ideas from the [Cross Validation chapt
 1. We begin with why reliable HPO is statistically harder than fitting one fixed model.
 2. We then discuss how dependent data, overlapping targets, and preprocessing choices complicate HPO in econometric applications.
 3. Next we formalize HPO as the optimization of a noisy validation objective over a search space.
-4. We compare baseline search methods, Bayesian optimization, and multi-fidelity methods, which compare configurations using cheap partial training runs before committing the full budget. Hyperband is the main example.
-5. Finally, we summarize a practical workflow for choosing and validating tuning strategies in econometric work.
+4. We compare baseline search methods with Bayesian optimization, which uses earlier evaluations to guide later trials.
+5. We apply Gaussian-process Bayesian optimization to credit-default prediction and compare it with random search under the same trial budget.
+6. We then study multi-fidelity methods, which compare configurations using cheap partial training runs before committing the full budget. Hyperband is the main example.
+7. Finally, we summarize a practical workflow for choosing and validating tuning strategies in econometric work.
 
 ## Why Reliable HPO Is Hard
 
@@ -491,6 +493,350 @@ Consider two settings. In (A), there are four continuous hyperparameters, 25 tri
 Gaussian-process BO is more likely to help in setting A. Each avoided evaluation saves substantial time, and the modest continuous space plus assumed smoothness gives the surrogate a plausible structure to learn. In setting B, 500 draws do not densely cover a twelve-dimensional space, but they do provide broad, easily parallelized exploration at low cost. Mixed and conditional coordinates make a standard GP surrogate harder to specify, and its sequential overhead is harder to justify when each trial takes only seconds. A specialized surrogate such as TPE could still exploit the conditional structure, so this comparison is about standard GP BO rather than all model-based search.
 :::
 
+## Worked Application: Bayesian HPO for Credit Default {#sec-hpo-credit-default}
+
+The preceding derivation describes how Bayesian optimization chooses a trial. We now apply that rule to the [Taiwan credit-card default data](datasets.qmd#sec-taiwan-credit-default), which the [gradient-boosting chapter](gradient_boosting.qmd#sec-gb-credit-default) used for a common comparison of logistic regression, neural networks, and tree-based methods. The outcome indicates whether a client defaults in the month after the observed repayment histories. The present application changes the object of interest: instead of constructing another broad model ranking, we study how two search procedures allocate the same limited number of validation evaluations.
+
+We use the same stratified 60% training, 20% validation, and 20% test split as the earlier chapters. The randomized split is appropriate only for this within-cohort cross-sectional illustration under an exchangeability approximation; it is not an out-of-time credit-risk design. The test clients have already appeared in the earlier model comparison, so the test columns below are descriptive follow-up results rather than fresh independent evidence.
+
+**Search space and budget.** Every trial fits a gradient-boosting classifier with 100 depth-2 trees. Hyperparameter optimization varies two quantities:
+
+- the learning rate over $[0.01,0.20]$ on a logarithmic scale
+- the minimum number of training observations in a leaf over $[10,400]$ on a logarithmic scale, rounded to an integer
+
+The two logarithmic coordinates are mapped to the unit square before fitting the GP surrogate. This modest two-dimensional space is a favorable setting for GP Bayesian optimization: both coordinates are ordered, evaluations are costly enough to ration, and the surrogate can represent nearby configurations as related. Rounding the leaf-size coordinate introduces a small discrete component, so the objective is not literally a smooth function on the entire square.
+
+Both methods receive 15 model evaluations and share the same first five randomly drawn configurations. Random search draws its remaining ten configurations independently. Bayesian optimization instead fits a Matérn-kernel GP after every completed trial and selects the next point by maximizing the expected-improvement formula derived above over a fixed pool of candidate points. Validation log loss is the only search objective. Preprocessing is estimated on the training sample and applied unchanged to validation observations.
+
+@fig-hpo-credit-bo shows both where Bayesian optimization evaluates the objective and how quickly each method improves its incumbent validation loss.
+
+```{python}
+#| label: fig-hpo-credit-bo
+#| fig-cap: "Bayesian hyperparameter optimization for gradient-boosted credit-default probabilities. The left panel locates the 15 Bayesian-optimization trials by learning rate and minimum leaf size; circles are the five shared random initializations, squares are the ten expected-improvement proposals, color records validation log loss, and the star marks the selected configuration. Both axes use logarithmic scales. The right panel reports the lowest validation log loss found after each trial by Bayesian optimization and random search. Both methods start from the same five configurations and receive 15 evaluations in total."
+#| echo: true
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from scipy.stats import norm
+from sklearn.compose import ColumnTransformer
+from sklearn.ensemble import GradientBoostingClassifier
+from sklearn.gaussian_process import GaussianProcessRegressor
+from sklearn.gaussian_process.kernels import Matern, WhiteKernel
+from sklearn.metrics import accuracy_score, brier_score_loss, log_loss
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
+
+credit_default = pd.read_csv("data/credit_card_default_taiwan.csv")
+y = credit_default["default_next_month"]
+X = credit_default.drop(columns=["id", "default_next_month"])
+
+categorical_columns = [
+    "sex_code",
+    "education_code",
+    "marriage_code",
+    "repay_status_sep",
+    "repay_status_aug",
+    "repay_status_jul",
+    "repay_status_jun",
+    "repay_status_may",
+    "repay_status_apr",
+]
+continuous_columns = [
+    column for column in X.columns if column not in categorical_columns
+]
+
+X_development, X_test, y_development, y_test = train_test_split(
+    X, y, test_size=0.20, stratify=y, random_state=42,
+)
+X_train, X_validation, y_train, y_validation = train_test_split(
+    X_development,
+    y_development,
+    test_size=0.25,
+    stratify=y_development,
+    random_state=42,
+)
+
+def make_preprocessor():
+    return ColumnTransformer(
+        [
+            ("continuous", StandardScaler(), continuous_columns),
+            (
+                "categorical",
+                OneHotEncoder(
+                    drop="first",
+                    handle_unknown="ignore",
+                    sparse_output=False,
+                ),
+                categorical_columns,
+            ),
+        ]
+    )
+
+selection_preprocessor = make_preprocessor()
+X_train_transformed = selection_preprocessor.fit_transform(X_train)
+X_validation_transformed = selection_preprocessor.transform(X_validation)
+
+learning_rate_bounds = np.log10([0.01, 0.20])
+leaf_size_bounds = np.log10([10, 400])
+
+def decode_configuration(unit_point):
+    learning_rate = 10 ** (
+        learning_rate_bounds[0]
+        + unit_point[0] * np.diff(learning_rate_bounds)[0]
+    )
+    leaf_size = int(
+        round(
+            10 ** (
+                leaf_size_bounds[0]
+                + unit_point[1] * np.diff(leaf_size_bounds)[0]
+            )
+        )
+    )
+    return learning_rate, leaf_size
+
+evaluated_losses = {}
+
+def evaluate_configuration(unit_point):
+    key = tuple(np.round(unit_point, 12))
+    if key not in evaluated_losses:
+        learning_rate, leaf_size = decode_configuration(unit_point)
+        model = GradientBoostingClassifier(
+            n_estimators=100,
+            learning_rate=learning_rate,
+            max_depth=2,
+            min_samples_leaf=leaf_size,
+            random_state=42,
+        )
+        model.fit(X_train_transformed, y_train)
+        probability = model.predict_proba(X_validation_transformed)[:, 1]
+        evaluated_losses[key] = log_loss(y_validation, probability)
+    return evaluated_losses[key]
+
+rng = np.random.default_rng(1401)
+initial_points = rng.uniform(size=(5, 2))
+candidate_pool = rng.uniform(size=(2500, 2))
+random_additional_points = rng.uniform(size=(10, 2))
+
+bo_points = list(initial_points)
+bo_losses = [evaluate_configuration(point) for point in initial_points]
+
+kernel = (
+    Matern(
+        length_scale=[0.3, 0.3],
+        length_scale_bounds="fixed",
+        nu=2.5,
+    )
+    + WhiteKernel(
+        noise_level=1e-6,
+        noise_level_bounds="fixed",
+    )
+)
+
+for _ in range(10):
+    surrogate = GaussianProcessRegressor(
+        kernel=kernel,
+        normalize_y=True,
+        random_state=42,
+    )
+    surrogate.fit(np.asarray(bo_points), np.asarray(bo_losses))
+    posterior_mean, posterior_std = surrogate.predict(
+        candidate_pool,
+        return_std=True,
+    )
+
+    improvement = np.min(bo_losses) - posterior_mean
+    z_value = np.divide(
+        improvement,
+        posterior_std,
+        out=np.zeros_like(improvement),
+        where=posterior_std > 0,
+    )
+    expected_improvement = (
+        improvement * norm.cdf(z_value)
+        + posterior_std * norm.pdf(z_value)
+    )
+
+    next_index = int(np.argmax(expected_improvement))
+    next_point = candidate_pool[next_index].copy()
+    candidate_pool = np.delete(candidate_pool, next_index, axis=0)
+    bo_points.append(next_point)
+    bo_losses.append(evaluate_configuration(next_point))
+
+random_points = list(initial_points) + list(random_additional_points)
+random_losses = bo_losses[:5] + [
+    evaluate_configuration(point) for point in random_additional_points
+]
+
+bo_points_array = np.asarray(bo_points)
+bo_learning_rates, bo_leaf_sizes = zip(
+    *(decode_configuration(point) for point in bo_points_array)
+)
+best_bo_index = int(np.argmin(bo_losses))
+
+fig, axes = plt.subplots(1, 2, figsize=(12.5, 4.8))
+color_limits = {
+    "vmin": min(bo_losses),
+    "vmax": max(bo_losses),
+}
+
+initial_scatter = axes[0].scatter(
+    bo_learning_rates[:5],
+    bo_leaf_sizes[:5],
+    c=bo_losses[:5],
+    cmap="viridis",
+    marker="o",
+    s=75,
+    edgecolor="white",
+    linewidth=0.8,
+    label="Random initialization",
+    **color_limits,
+)
+guided_scatter = axes[0].scatter(
+    bo_learning_rates[5:],
+    bo_leaf_sizes[5:],
+    c=bo_losses[5:],
+    cmap="viridis",
+    marker="s",
+    s=75,
+    edgecolor="white",
+    linewidth=0.8,
+    label="Expected-improvement proposal",
+    **color_limits,
+)
+axes[0].scatter(
+    bo_learning_rates[best_bo_index],
+    bo_leaf_sizes[best_bo_index],
+    marker="*",
+    s=220,
+    color="C3",
+    edgecolor="black",
+    linewidth=0.7,
+    label="Selected configuration",
+    zorder=4,
+)
+axes[0].set_xscale("log")
+axes[0].set_yscale("log")
+axes[0].set_xlabel("Learning rate")
+axes[0].set_ylabel("Minimum leaf size")
+axes[0].set_title("Bayesian search locations")
+axes[0].grid(True, alpha=0.25)
+axes[0].legend(frameon=False, fontsize=8)
+fig.colorbar(
+    guided_scatter,
+    ax=axes[0],
+    label="Validation log loss",
+)
+
+trials = np.arange(1, 16)
+axes[1].plot(
+    trials,
+    np.minimum.accumulate(bo_losses),
+    marker="o",
+    linewidth=2,
+    label="Bayesian optimization",
+)
+axes[1].plot(
+    trials,
+    np.minimum.accumulate(random_losses),
+    marker="s",
+    linewidth=2,
+    label="Random search",
+)
+axes[1].axvline(5.5, color="0.45", linestyle="--", linewidth=1.2)
+axes[1].set_xticks([1, 5, 10, 15])
+axes[1].set_xlabel("Completed model evaluations")
+axes[1].set_ylabel("Best validation log loss so far")
+axes[1].set_title("Equal-budget search paths")
+axes[1].grid(True, alpha=0.25)
+axes[1].legend(frameon=False)
+
+plt.tight_layout()
+plt.show()
+```
+
+The left panel shows that expected improvement does not simply repeat one point. After exploring the boundaries and intermediate leaf sizes, the search concentrates on high learning rates, where the best validation scores occur for this fixed 100-tree ensemble. In the right panel, Bayesian optimization improves on the shared initialization by its sixth evaluation and reaches its selected validation loss by evaluation seven. Random search finds no improvement over the best shared initialization within the remaining ten trials. This realized path illustrates sample efficiency under one seed; it does not imply that Bayesian optimization wins for every random initialization or search space.
+
+After both searches finish, each selected configuration is refitted on the combined training and validation observations. The following table reports the search objective and three descriptive test metrics. The Brier score is the mean squared error of a binary probability forecast, $N_{\mathrm{test}}^{-1}\sum_i(y_i-\hat p_i)^2$. The best value in each performance column is highlighted dynamically.
+
+```{python}
+#| label: tbl-hpo-credit-bo
+#| tbl-cap: "Selected gradient-boosting configurations and performance for Bayesian optimization and random search on the Taiwan credit-card default data. Both searches share five random initializations and receive 15 validation evaluations. Each selected model is refitted on the 24,000-client development sample before evaluation on the previously used 6,000-client test sample. Lower validation log loss, test log loss, and Brier score are better; higher accuracy under the 0.5 threshold is better."
+#| echo: true
+
+final_preprocessor = make_preprocessor()
+X_development_transformed = final_preprocessor.fit_transform(X_development)
+X_test_transformed = final_preprocessor.transform(X_test)
+
+search_results = []
+for method, points, losses in [
+    ("Bayesian optimization", bo_points, bo_losses),
+    ("Random search", random_points, random_losses),
+]:
+    best_index = int(np.argmin(losses))
+    learning_rate, leaf_size = decode_configuration(points[best_index])
+    selected_model = GradientBoostingClassifier(
+        n_estimators=100,
+        learning_rate=learning_rate,
+        max_depth=2,
+        min_samples_leaf=leaf_size,
+        random_state=42,
+    )
+    selected_model.fit(X_development_transformed, y_development)
+    test_probability = selected_model.predict_proba(X_test_transformed)[:, 1]
+    search_results.append(
+        {
+            "Search method": method,
+            "Learning rate": learning_rate,
+            "Minimum leaf size": leaf_size,
+            "Validation log loss": losses[best_index],
+            "Test log loss": log_loss(y_test, test_probability),
+            "Brier score": brier_score_loss(y_test, test_probability),
+            "Accuracy at 0.5": accuracy_score(
+                y_test,
+                test_probability >= 0.5,
+            ),
+        }
+    )
+
+search_table = pd.DataFrame(search_results).set_index("Search method")
+best_cell_style = "background-color: #d9ead3; font-weight: 700;"
+
+(
+    search_table.style
+    .format(
+        {
+            "Learning rate": "{:.4f}",
+            "Minimum leaf size": "{:.0f}",
+            "Validation log loss": "{:.4f}",
+            "Test log loss": "{:.4f}",
+            "Brier score": "{:.4f}",
+            "Accuracy at 0.5": "{:.4f}",
+        }
+    )
+    .highlight_min(
+        subset=["Validation log loss", "Test log loss", "Brier score"],
+        props=best_cell_style,
+    )
+    .highlight_max(
+        subset=["Accuracy at 0.5"],
+        props=best_cell_style,
+    )
+)
+```
+
+Bayesian optimization selects a learning rate of approximately 0.2000 and a minimum leaf size of 94, while random search retains a shared initialization with a learning rate of approximately 0.1285 and a minimum leaf size of 37. Bayesian optimization attains the lower validation log loss and slightly lowers test log loss, from 0.4322 to 0.4320. The test Brier-score ordering reverses by less than 0.0001, while Bayesian optimization has slightly higher 0.5-threshold accuracy. These small differences reinforce the distinction between optimizing one validation criterion and dominating every realized test metric.
+
+:::{.callout-note title="Question for Reflection"}
+
+Why is it possible for Bayesian optimization to select the lower-validation-log-loss configuration and also attain lower test log loss, while random search attains the lower test Brier score?
+:::
+
+:::{.callout-tip collapse="true" title="Suggested Answer"}
+
+The search targets validation log loss, not the Brier score. Log loss and the Brier score are both proper probability scores, but they weight probability errors differently and need not rank two fitted models identically on a finite sample. Validation selection also contains sampling noise, so a small validation advantage need not translate into uniformly better values for every test criterion.
+:::
+
 ## Multi-Fidelity Search
 
 When each model can be evaluated at different resource levels, full-budget tuning may be wasteful. The resource might be training epochs, sample size, number of boosting rounds, or another quantity that lets us obtain a cheap but noisy preview of eventual performance.
@@ -649,7 +995,8 @@ Packages such as Optuna make these search strategies convenient to run, especial
 2. Reliable HPO requires a clean separation between training, validation, and test data, and nested resampling is the benchmark when the entire tuning procedure must be evaluated credibly.
 3. In econometric applications, time order, overlapping targets, preprocessing leakage, and regime change are central design issues rather than technical afterthoughts.
 4. Random search is a strong baseline, Bayesian optimization uses past evaluations to guide future trials, and Hyperband uses cheap partial evaluations to save computation.
-5. The best HPO method depends on the evaluation design, search-space structure, and compute budget, not on a universal ranking of algorithms.
+5. In the credit-default illustration, Gaussian-process Bayesian optimization finds a lower validation log loss than equal-budget random search, but the small test-score differences depend on the evaluation criterion.
+6. The best HPO method depends on the evaluation design, search-space structure, and compute budget, not on a universal ranking of algorithms.
 :::
 
 :::{.callout-warning}

@@ -11,7 +11,7 @@ Gradient boosting is a sequential tree-based method that builds an additive pred
 
 For econometricians, boosting is a flexible predictive tool for tabular data. It can learn nonlinearities, interactions, threshold effects, and asymmetric predictive relationships without the researcher specifying them. It is well suited to settings where the signal is spread across many variables: representing such structure with one regularized tree may require many splits and produce an unstable approximation.
 
-At the same time, boosting has several interacting tuning choices. Learning rate, tree depth, early stopping, and validation design are all consequential. In time-series and forecasting applications, careless validation can create large but spurious performance gains.
+At the same time, boosting has several interacting tuning choices. Learning rate, tree depth, early stopping, and validation design are all consequential. In time-series and forecasting applications, careless validation can create large but spurious performance gains. A common credit-default application near the end of the chapter compares boosting with a single tree, a random forest, logistic regression, and a feed-forward neural network under the same data split and probability scores.
 
 ## Roadmap
 
@@ -19,7 +19,8 @@ At the same time, boosting has several interacting tuning choices. Learning rate
 2. We then derive the squared-error version, where each new tree fits residuals.
 3. Next we generalize to arbitrary differentiable losses, with each new tree fitted to the negative loss gradients — the *pseudo-residuals*.
 4. We then discuss shrinkage (scaling each tree's contribution by a learning rate), tree depth, subsampling, and early stopping.
-5. Finally, we summarize how boosting should be interpreted and validated in econometric applications.
+5. We then revisit credit-card default prediction to compare the tree-based methods with logistic regression and a feed-forward neural network.
+6. Finally, we summarize how boosting should be interpreted and validated in econometric applications.
 
 ## Additive Stagewise Modeling {#sec-gb-additive}
 
@@ -634,6 +635,232 @@ The validation design should mirror the actual forecast exercise:
 - group-aware validation for clustered or panel-style dependence
 - leakage-safe preprocessing inside each training fold
 
+## Empirical Comparison: Credit-Default Probabilities {#sec-gb-credit-default}
+
+The three tree-based chapters introduce a single tree, a random forest, and gradient boosting separately. We can now compare them on one common task. The [Taiwan credit-card default data](datasets.qmd#sec-taiwan-credit-default) contain 30,000 clients and a binary indicator for default in the month after six months of observed repayment histories [@Yeh2009CreditDefaultData; @YehLien2009]. The predictors also include the granted credit limit, bill and payment amounts, age, and coded demographic characteristics.
+
+The design exactly reuses the stratified 60% training, 20% validation, and 20% test split from the [feed-forward networks chapter](feed_forward_nns.qmd#sec-ffn-credit-default). This reuse makes the model scores directly comparable, but it does not create a second independent test of the neural network. The network architecture remains fixed at the eight-unit, one-hidden-layer candidate selected there; we do not alter it after seeing its earlier test result.
+
+The single-tree, random-forest, and boosting settings are chosen by validation log loss from small candidate sets declared in the code. The comparison uses the same transformed predictors for every model: continuous variables are standardized and categorical variables are one-hot encoded. Standardization is needed by logistic regression and the network. It does not change a tree's available split order because it is a strictly increasing transformation, but using one representation removes an incidental difference between the model pipelines. All transformations are estimated without the test observations.
+
+We evaluate the final probability forecasts by log loss, by the Brier score $N_{\mathrm{test}}^{-1}\sum_i(y_i-\hat p_i)^2$, and by accuracy after applying a 0.5 threshold. The first two columns evaluate the probabilities themselves; the last evaluates one particular binary decision rule.
+
+```{python}
+#| label: tbl-gb-credit-comparison
+#| tbl-cap: "Probability-forecast performance on the common 6,000-client test sample from the Taiwan credit-card default data. Hyperparameters for the FNN and three tree-based methods are chosen by validation log loss; logistic regression has no tuned hyperparameter. All nonconstant models are then refitted on the combined training and validation samples. Lower log loss and Brier score are better; higher accuracy under the 0.5 threshold is better."
+#| echo: true
+
+import numpy as np
+import pandas as pd
+from sklearn.base import clone
+from sklearn.compose import ColumnTransformer
+from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score, brier_score_loss, log_loss
+from sklearn.model_selection import train_test_split
+from sklearn.neural_network import MLPClassifier
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.tree import DecisionTreeClassifier
+
+credit_default = pd.read_csv("data/credit_card_default_taiwan.csv")
+y = credit_default["default_next_month"]
+X = credit_default.drop(columns=["id", "default_next_month"])
+
+categorical_columns = [
+    "sex_code",
+    "education_code",
+    "marriage_code",
+    "repay_status_sep",
+    "repay_status_aug",
+    "repay_status_jul",
+    "repay_status_jun",
+    "repay_status_may",
+    "repay_status_apr",
+]
+continuous_columns = [
+    column for column in X.columns if column not in categorical_columns
+]
+
+X_development, X_test, y_development, y_test = train_test_split(
+    X, y, test_size=0.20, stratify=y, random_state=42,
+)
+X_train, X_validation, y_train, y_validation = train_test_split(
+    X_development,
+    y_development,
+    test_size=0.25,
+    stratify=y_development,
+    random_state=42,
+)
+
+def make_preprocessor():
+    return ColumnTransformer(
+        [
+            ("continuous", StandardScaler(), continuous_columns),
+            (
+                "categorical",
+                OneHotEncoder(
+                    drop="first",
+                    handle_unknown="ignore",
+                    sparse_output=False,
+                ),
+                categorical_columns,
+            ),
+        ]
+    )
+
+# Use training-only transformations for model selection.
+selection_preprocessor = make_preprocessor()
+X_train_transformed = selection_preprocessor.fit_transform(X_train)
+X_validation_transformed = selection_preprocessor.transform(X_validation)
+
+def select_by_log_loss(candidates):
+    fitted_candidates = []
+    for setting, model in candidates:
+        model.fit(X_train_transformed, y_train)
+        probability = model.predict_proba(X_validation_transformed)[:, 1]
+        fitted_candidates.append(
+            (log_loss(y_validation, probability), setting, model)
+        )
+    return min(fitted_candidates, key=lambda result: result[0])
+
+tree_candidates = [
+    (
+        f"depth {depth}, leaf {leaf}",
+        DecisionTreeClassifier(
+            max_depth=depth,
+            min_samples_leaf=leaf,
+            random_state=42,
+        ),
+    )
+    for depth in [2, 4, 6, 8]
+    for leaf in [20, 100]
+]
+
+forest_candidates = [
+    (
+        f"300 trees, max features {max_features}, leaf {leaf}",
+        RandomForestClassifier(
+            n_estimators=300,
+            max_features=max_features,
+            min_samples_leaf=leaf,
+            n_jobs=-1,
+            random_state=42,
+        ),
+    )
+    for max_features in ["sqrt", 0.5]
+    for leaf in [5, 20, 50]
+]
+
+boosting_candidates = [
+    (
+        f"rate {rate}, {trees} trees, depth {depth}",
+        GradientBoostingClassifier(
+            n_estimators=trees,
+            learning_rate=rate,
+            max_depth=depth,
+            min_samples_leaf=20,
+            random_state=42,
+        ),
+    )
+    for rate, trees in [(0.1, 50), (0.05, 100), (0.025, 200)]
+    for depth in [1, 2]
+]
+
+_, tree_setting, selected_tree = select_by_log_loss(tree_candidates)
+_, forest_setting, selected_forest = select_by_log_loss(forest_candidates)
+_, boosting_setting, selected_boosting = select_by_log_loss(
+    boosting_candidates
+)
+
+# Re-estimate all preprocessing on the development sample before testing.
+final_preprocessor = make_preprocessor()
+X_development_transformed = final_preprocessor.fit_transform(X_development)
+X_test_transformed = final_preprocessor.transform(X_test)
+
+final_models = {
+    "Logistic regression": (
+        "No penalty",
+        LogisticRegression(penalty=None, max_iter=1000),
+    ),
+    "FNN": (
+        "Hidden layer 8",
+        MLPClassifier(
+            hidden_layer_sizes=(8,),
+            activation="relu",
+            solver="adam",
+            alpha=0.0,
+            batch_size=256,
+            learning_rate_init=0.001,
+            max_iter=500,
+            tol=1e-4,
+            n_iter_no_change=10,
+            random_state=42,
+        ),
+    ),
+    "Classification tree": (tree_setting, clone(selected_tree)),
+    "Random forest": (forest_setting, clone(selected_forest)),
+    "Gradient boosting": (boosting_setting, clone(selected_boosting)),
+}
+
+test_probabilities = {
+    "Constant probability": np.full(len(y_test), y_development.mean())
+}
+selected_settings = {"Constant probability": "Development mean"}
+
+for name, (setting, model) in final_models.items():
+    model.fit(X_development_transformed, y_development)
+    test_probabilities[name] = model.predict_proba(X_test_transformed)[:, 1]
+    selected_settings[name] = setting
+
+comparison = pd.DataFrame(
+    [
+        {
+            "Model": name,
+            "Selected setting": selected_settings[name],
+            "Log loss": log_loss(y_test, probability),
+            "Brier score": brier_score_loss(y_test, probability),
+            "Accuracy at 0.5": accuracy_score(y_test, probability >= 0.5),
+        }
+        for name, probability in test_probabilities.items()
+    ]
+).set_index("Model")
+
+best_cell_style = "background-color: #d9ead3; font-weight: 700;"
+
+(
+    comparison.style
+    .format(
+        {
+            "Log loss": "{:.4f}",
+            "Brier score": "{:.4f}",
+            "Accuracy at 0.5": "{:.4f}",
+        }
+    )
+    .highlight_min(
+        subset=["Log loss", "Brier score"],
+        props=best_cell_style,
+    )
+    .highlight_max(
+        subset=["Accuracy at 0.5"],
+        props=best_cell_style,
+    )
+)
+```
+
+The random forest has the lowest test log loss, 0.4324, and Brier score, 0.1356, in this comparison. The selected FNN is next on both probability scores, followed closely by gradient boosting. The single tree improves substantially on the constant-probability benchmark but has the weakest probability scores among the fitted models. Accuracy gives a less informative and slightly different ranking: the forest attains 81.80%, the FNN and logistic regression both attain 81.70%, and boosting attains 81.52%.
+
+These results support a deliberately local conclusion. On this split and within these modest candidate sets, averaging randomized trees works better than relying on one partition, and it slightly outperforms the selected FNN. The table does not show that random forests universally dominate networks or boosting. The score gaps are small, the test observations are shared across models, and the data cover only one borrower cohort. A serious performance claim would require paired uncertainty assessment across fresh test observations or repeated deployment-relevant samples; a later-period cohort would also be needed to assess stability across credit regimes.
+
+:::{.callout-note title="Question for Reflection"}
+
+Why does the table justify saying that the random forest has the best realized log loss on this test sample, but not that it has the lowest population risk?
+:::
+
+:::{.callout-tip collapse="true" title="Suggested Answer"}
+
+The first claim is a direct comparison of scores computed for the same 6,000 clients. The second concerns expected performance over new samples. One realized test set contains sampling variation, and the small score gaps could change for another cohort or credit regime. Establishing a population ranking requires uncertainty assessment or additional deployment-relevant test samples.
+:::
+
 ## Strengths and Limits for Econometric Work {#sec-gb-strengths-limits}
 
 Boosting is a flexible off-the-shelf method for tabular prediction. It is useful when:
@@ -668,7 +895,8 @@ Like random forests, boosted trees should be understood as flexible predictive a
 2. Under squared loss, the pseudo-residuals are ordinary residuals, so boosting repeatedly fits trees to what the current model still misses.
 3. Under general differentiable losses, boosting follows the negative gradient of the loss in function space; for Bernoulli log-loss, the pseudo-residual is $y-p$.
 4. Learning rate, number of trees, tree depth, subsampling, and early stopping are the key regularization devices.
-5. Boosting can be effective for econometric prediction on tabular data, but honest validation is essential, especially in time-series applications.
+5. In the common credit-default comparison, the random forest has the best realized probability scores, followed by the selected FNN and then gradient boosting; this ranking is conditional on one split and modest candidate sets.
+6. Boosting can be effective for econometric prediction on tabular data, but honest validation is essential, especially in time-series applications.
 :::
 
 :::{.callout-warning}
@@ -676,6 +904,7 @@ Like random forests, boosted trees should be understood as flexible predictive a
 
 - Using a large learning rate because it improves training loss quickly.
 - Choosing the number of trees from a validation scheme that leaks future information.
+- Comparing model scores computed from different test splits or preprocessing rules.
 - Forgetting that tree depth controls interaction complexity.
 - Reading boosted-tree importance measures as structural or causal evidence.
 - Expecting boosted trees to extrapolate smooth trends outside the training support.

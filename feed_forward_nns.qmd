@@ -13,6 +13,7 @@ For econometricians, the main attraction is flexibility. When the relationship b
 
 - **Asset pricing**: mapping many firm characteristics into expected returns
 - **Macroeconomic forecasting**: combining large predictor sets, survey variables, or text-based indicators
+- **Credit risk**: estimating default probabilities from borrower characteristics and payment histories
 - **Household or firm behavior**: approximating nonlinear production relationships or treatment-response interactions
 
 ## Roadmap
@@ -21,7 +22,7 @@ For econometricians, the main attraction is flexibility. When the relationship b
 2. We then discuss activation functions, the transformations that make successive layers nonlinear, and an approximation theorem that explains what sufficiently wide networks can represent.
 3. Next, we connect neural-network estimation to loss minimization, maximum likelihood, and gradient descent, before introducing backpropagation as an efficient way to reuse chain-rule derivatives across layers.
 4. We then show that the training objective is non-convex, connect the fitted network to familiar econometric objects, and explain why its individual weights are not identified.
-5. We close with applications in asset pricing and macroeconomic forecasting and a practical training workflow.
+5. We apply a network with one hidden layer to credit-card default probabilities, compare it with logistic regression on untouched test data, and then close with further applications and a practical training workflow.
 
 ## Basic Architecture {#sec-def-multilayer-nn}
 
@@ -786,7 +787,296 @@ This has a concrete consequence that matters more in econometrics than in machin
 
 One further caution belongs here, because the slide from one to the other is easy to make. Even a network that predicts well out of sample gives $\hat{\boldsymbol{\theta}}$ no causal interpretation. Good predictive performance is evidence that $\widehat m$ approximates the conditional mean $m$ under the distribution that generated the data; it is not evidence about what would happen to $Y$ if a predictor were intervened on. The non-identification just described sharpens the point: individual weights cannot carry a structural reading in the first place, so there is nothing for a causal interpretation to attach to.
 
+## Empirical Illustration: Predicting Credit-Card Default {#sec-ffn-credit-default}
+
+The preceding sections separate the fitted probability function from the particular weights used to represent it. We now make that distinction concrete in a cross-sectional credit-risk application: the object we evaluate is each client's predicted probability of default, not an individual network coefficient.
+
+The [Taiwan credit-card default data](datasets.qmd#sec-taiwan-credit-default) contain 30,000 clients [@Yeh2009CreditDefaultData]. For each client, the predictors combine a granted credit limit, age and coded demographic characteristics with six months of repayment statuses, bill amounts, and payment amounts. The repayment histories run from April through September 2005, and the binary outcome $y_i$ records whether client $i$ defaulted in the following month. The original study uses the data to compare several statistical and machine-learning methods, including a neural network, with an explicit emphasis on probability forecasts rather than only hard classifications [@YehLien2009].
+
+The default share is $6{,}636/30{,}000=0.2212$. A classifier that always predicts no default therefore attains 77.88% accuracy without using a single predictor. That number is a useful warning: accuracy at a fixed threshold can look respectable even when a model has learned nothing about how risk varies across clients.
+
+**Data design.** We remove the row identifier and treat the documented and undocumented category codes as labels rather than quantities with meaningful numerical distances. The continuous variables are standardized, while the demographic and monthly repayment-status variables are one-hot encoded with one reference category omitted. Every transformation is estimated on the data available for fitting and then applied unchanged to held-out observations.
+
+We divide the observations randomly and stratify by the outcome, meaning that the default share is kept approximately constant across a 60% training sample, a 20% validation sample, and a 20% test sample. The validation sample chooses among four architectures that follow a simple **pyramid rule**: each successive hidden layer is narrower as the network approaches its scalar output. The candidates have hidden-layer widths $8$, $16\to8$, $32\to16\to8$, and $64\to32\to16\to8$. The first is the smallest pyramid, contracting directly from eight hidden units to the output. We use no weight penalty, so architecture is the only tuned dimension. All candidates use the same rule that stops training when the training loss no longer improves by a stated tolerance. The test sample remains untouched until the architecture has been chosen. The comparison model is an unpenalized logistic regression fitted to the same transformed predictors. After selection, both models are refitted on the combined training and validation observations, which we call the development sample, before the final test evaluation.
+
+This randomized design has a narrow interpretation. All clients share the same calendar period, so the test results estimate within-cohort cross-sectional performance under an exchangeability approximation. They do not estimate how a model trained in 2005 would perform on borrowers from a later credit regime. The data contain no later target period with which to conduct that out-of-time evaluation.
+
+The data also contain sex, education, and marital-status codes. Including these historical fields in a benchmark prediction exercise is not an endorsement of their use in an operational lending decision. The score comparison below answers whether the stated procedures predict this sample's outcome; it does not establish that the predictors are appropriate, that the resulting decisions would be fair, or that the model should be deployed.
+
+We evaluate the probability forecasts using the cross-entropy loss defined in @sec-ffn-losses and the **Brier score**
+
+$$
+\operatorname{BS}
+=
+\frac{1}{N_{\mathrm{test}}}
+\sum_{i=1}^{N_{\mathrm{test}}}
+(y_i-\hat p_i)^2.
+$$
+
+The Brier score is the mean squared error of a binary probability forecast and is a strictly proper scoring rule: in population, its expected value is uniquely minimized by reporting the true conditional event probability [@Brier1950; @GneitingRaftery2007]. Lower cross-entropy and Brier scores are better. We also report accuracy after thresholding the probabilities at 0.5, but this last column evaluates the resulting decisions rather than the probability forecasts themselves.
+
+```{python}
+#| label: tbl-ffn-credit-validation
+#| tbl-cap: "Validation log loss for four unpenalized pyramidal FNN architectures fitted to the Taiwan credit-card default training sample. Arrows separate successive hidden layers. Lower values are better."
+#| echo: true
+
+import numpy as np
+import pandas as pd
+from sklearn.compose import ColumnTransformer
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score, brier_score_loss, log_loss
+from sklearn.model_selection import train_test_split
+from sklearn.neural_network import MLPClassifier
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
+
+credit_default = pd.read_csv("data/credit_card_default_taiwan.csv")
+y = credit_default["default_next_month"]
+X = credit_default.drop(columns=["id", "default_next_month"])
+
+categorical_columns = [
+    "sex_code",
+    "education_code",
+    "marriage_code",
+    "repay_status_sep",
+    "repay_status_aug",
+    "repay_status_jul",
+    "repay_status_jun",
+    "repay_status_may",
+    "repay_status_apr",
+]
+continuous_columns = [
+    column for column in X.columns if column not in categorical_columns
+]
+
+# First reserve the untouched 20% test sample. Splitting the remaining
+# observations 75/25 then produces the 60/20/20 allocation.
+X_development, X_test, y_development, y_test = train_test_split(
+    X,
+    y,
+    test_size=0.20,
+    stratify=y,
+    random_state=42,
+)
+X_train, X_validation, y_train, y_validation = train_test_split(
+    X_development,
+    y_development,
+    test_size=0.25,
+    stratify=y_development,
+    random_state=42,
+)
+
+def make_preprocessor():
+    return ColumnTransformer(
+        [
+            ("continuous", StandardScaler(), continuous_columns),
+            (
+                "categorical",
+                OneHotEncoder(
+                    drop="first",
+                    handle_unknown="ignore",
+                    sparse_output=False,
+                ),
+                categorical_columns,
+            ),
+        ]
+    )
+
+def make_pipeline(model):
+    return Pipeline(
+        [
+            ("preprocess", make_preprocessor()),
+            ("model", model),
+        ]
+    )
+
+candidate_architectures = [
+    (8,),
+    (16, 8),
+    (32, 16, 8),
+    (64, 32, 16, 8),
+]
+
+validation_results = []
+for architecture in candidate_architectures:
+    candidate = make_pipeline(
+        MLPClassifier(
+            hidden_layer_sizes=architecture,
+            activation="relu",
+            solver="adam",
+            alpha=0.0,
+            batch_size=256,
+            learning_rate_init=0.001,
+            max_iter=500,
+            # Stop using training loss only; the validation sample is reserved
+            # for comparing the completed candidate fits.
+            tol=1e-4,
+            n_iter_no_change=10,
+            random_state=42,
+        )
+    )
+    candidate.fit(X_train, y_train)
+    validation_probability = candidate.predict_proba(X_validation)[:, 1]
+    validation_results.append(
+        {
+            "Architecture": " → ".join(map(str, architecture)),
+            "architecture_tuple": architecture,
+            "Validation log loss": log_loss(
+                y_validation,
+                validation_probability,
+            ),
+        }
+    )
+
+best_candidate = min(
+    validation_results,
+    key=lambda result: result["Validation log loss"],
+)
+best_architecture = best_candidate["architecture_tuple"]
+
+validation_table = pd.DataFrame(validation_results).drop(
+    columns="architecture_tuple"
+)
+best_cell_style = "background-color: #d9ead3; font-weight: 700;"
+
+(
+    validation_table.set_index("Architecture")
+    .style.format({"Validation log loss": "{:.4f}"})
+    .highlight_min(
+        subset=["Validation log loss"],
+        props=best_cell_style,
+    )
+)
+```
+
+Validation log loss selects the one-hidden-layer architecture with eight units. On this split, adding unpenalized layers makes validation performance worse rather than better. The result illustrates why the pyramid rule defines a candidate set, not a guarantee that the deepest member should be used.
+
+```{python}
+#| label: tbl-ffn-credit-test
+#| tbl-cap: "Probability-forecast performance on the 6,000-client test sample from the Taiwan credit-card default data. The constant benchmark reports the development-sample default share for every client. Logistic regression and the selected FNN are refitted on the combined training and validation samples. Lower log loss and Brier score are better; higher accuracy under the 0.5 decision threshold is better."
+#| echo: true
+
+logit = make_pipeline(
+    LogisticRegression(penalty=None, max_iter=1000)
+)
+fnn = make_pipeline(
+    MLPClassifier(
+        hidden_layer_sizes=best_architecture,
+        activation="relu",
+        solver="adam",
+        alpha=0.0,
+        batch_size=256,
+        learning_rate_init=0.001,
+        max_iter=500,
+        tol=1e-4,
+        n_iter_no_change=10,
+        random_state=42,
+    )
+)
+
+logit.fit(X_development, y_development)
+fnn.fit(X_development, y_development)
+
+test_probabilities = {
+    "Constant probability": np.full(len(y_test), y_development.mean()),
+    "Logistic regression": logit.predict_proba(X_test)[:, 1],
+    "FNN": fnn.predict_proba(X_test)[:, 1],
+}
+
+test_results = pd.DataFrame(
+    [
+        {
+            "Model": name,
+            "Log loss": log_loss(y_test, probability),
+            "Brier score": brier_score_loss(y_test, probability),
+            "Accuracy at 0.5": accuracy_score(y_test, probability >= 0.5),
+        }
+        for name, probability in test_probabilities.items()
+    ]
+).set_index("Model")
+
+(
+    test_results.style
+    .format(
+        {
+            "Log loss": "{:.4f}",
+            "Brier score": "{:.4f}",
+            "Accuracy at 0.5": "{:.4f}",
+        }
+    )
+    .highlight_min(
+        subset=["Log loss", "Brier score"],
+        props=best_cell_style,
+    )
+    .highlight_max(
+        subset=["Accuracy at 0.5"],
+        props=best_cell_style,
+    )
+)
+```
+
+On the test sample, the selected network lowers log loss from 0.4431 for logistic regression to 0.4369 and lowers the Brier score from 0.1390 to 0.1376. The gain is modest, while both procedures classify 81.70% correctly under the 0.5 threshold. There is no contradiction: the first two criteria evaluate the entire probability forecast, while accuracy discards probability magnitudes after applying a decision threshold.
+
+A grouped **calibration diagnostic** compares predicted probabilities with observed event frequencies. For each model, we sort the 6,000 test probabilities into ten approximately equal-sized groups. A point's horizontal coordinate is a group's mean predicted probability, and its vertical coordinate is that group's realized default frequency. A perfectly calibrated set of grouped forecasts would lie on the 45-degree line, although agreement in ten groups would not by itself establish calibration conditional on the full predictor vector.
+
+```{python}
+#| label: fig-ffn-credit-calibration
+#| fig-cap: "Grouped calibration of logistic-regression and FNN default probabilities on the 6,000-client test sample. Each point summarizes one model-specific probability decile: the horizontal coordinate is the decile's mean predicted default probability and the vertical coordinate is its observed default frequency. The dashed 45-degree line marks equality of the two quantities. Deciles are formed separately for each model and contain equal numbers of clients up to ties."
+#| echo: true
+
+import matplotlib.pyplot as plt
+from sklearn.calibration import calibration_curve
+
+fig, ax = plt.subplots(figsize=(6.4, 5.2))
+
+for name, color in [
+    ("Logistic regression", "C0"),
+    ("FNN", "C1"),
+]:
+    observed_frequency, mean_probability = calibration_curve(
+        y_test,
+        test_probabilities[name],
+        n_bins=10,
+        strategy="quantile",
+    )
+    ax.plot(
+        mean_probability,
+        observed_frequency,
+        marker="o",
+        linewidth=1.8,
+        label=name,
+        color=color,
+    )
+
+ax.plot([0, 0.8], [0, 0.8], "--", color="0.45", label="45-degree line")
+ax.set_xlim(0, 0.8)
+ax.set_ylim(0, 0.8)
+ax.set_aspect("equal", adjustable="box")
+ax.set_xlabel("Mean predicted default probability")
+ax.set_ylabel("Observed default frequency")
+ax.grid(alpha=0.25)
+ax.legend(frameon=False)
+plt.tight_layout()
+plt.show()
+```
+
+@fig-ffn-credit-calibration shows that both models track the diagonal reasonably closely at low and intermediate predicted risks. Both also overpredict in their highest-risk decile: the mean forecast is about 0.73, while the realized frequency is about 0.67 for logistic regression and 0.68 for the network. The plot therefore adds information that the average scores suppress, but it remains a descriptive test-set diagnostic rather than a proof of conditional calibration.
+
+The comparison is intentionally limited. The fixed random seed makes the calculation reproducible, but a different initialization can change the fitted network because its objective is non-convex. Likewise, one held-out split does not establish that the small score difference is statistically distinguishable from sampling variation. The defensible conclusion is narrower: under this stated split, preprocessing rule, candidate set, and training algorithm, a shallow network slightly improves the two reported probability scores over logistic regression, but not the 0.5-threshold accuracy. The [gradient-boosting chapter](gradient_boosting.qmd#sec-gb-credit-default) later compares this selected network with a single tree, a random forest, and gradient boosting on the same test clients.
+
+:::{.callout-note title="Question for Reflection"}
+
+On the fixed test sample, why can the neural network have lower cross-entropy and Brier scores than logistic regression while having exactly the same accuracy under the 0.5 threshold?
+:::
+
+:::{.callout-tip collapse="true" title="Suggested Answer"}
+
+Cross-entropy and the Brier score use every reported probability and reward probabilities that move toward the realized outcomes. Accuracy first converts each probability into a class label at 0.5 and then ignores its magnitude. The network can therefore improve many probability estimates without changing the total number classified correctly.
+:::
+
 ## Applications in Economics and Finance
+
+The credit-default illustration is one cross-sectional application. Feed-forward networks also appear in asset-pricing and macroeconomic prediction problems with larger or time-indexed information sets.
 
 **Asset pricing and portfolio management.** Predicting stock returns from a large set of firm characteristics and macroeconomic variables is the flagship application. The traditional route specifies linear factor models with pre-specified factors; feed-forward networks instead capture nonlinear interactions between characteristics and let the data suggest the functional form. @GuKellyXiu2020 show that flexible nonlinear specifications can outperform linear benchmarks for individual-stock return prediction.
 
@@ -810,6 +1100,7 @@ Batch gradient descent uses the entire training set for each update. Mini-batch 
 **2. Architecture Design**
 
 - Start with one or two hidden layers, which are often enough for tabular econometric data
+- A pyramidal candidate makes successive hidden layers narrower toward the output, but its depth still has to be justified by validation performance
 - Increase width or depth only if validation performance justifies the extra complexity. Architecture is itself a tuning dimension: @ChristensenSiggardVeliyev2023 compare networks of one to four hidden layers in a realized-variance forecasting exercise, and find that the ranking across depths varies while all of them beat the heterogeneous autoregressive (HAR) benchmark. Their broader finding is a useful corrective in the other direction too — even a shallow network, implemented with minimal tuning, was competitive, so extra depth is not where the gains in that application came from. @GuKellyXiu2020 report the sharper version of the same lesson for return prediction: performance there *deteriorates* beyond roughly three hidden layers
 - Choose an appropriate output activation for the outcome type, using the guidelines in @sec-ffn-activations
 
@@ -833,6 +1124,7 @@ Batch gradient descent uses the entire training set for each update. Mini-batch 
 3. Universal approximation is an existence result; it neither chooses an architecture nor guarantees successful estimation.
 4. Backpropagation computes gradients efficiently, but the non-convex objective makes initialization, learning rates, and validation consequential.
 5. Fitting defines an estimator of the prediction function, while individual weights are not identified and have no structural or causal interpretation; judge the fitted function by its out-of-sample performance against simpler benchmarks.
+6. Probability forecasts and thresholded classifications answer different questions: choose architectures on a held-out probability loss, retain an untouched test sample, and report the decision threshold separately.
 :::
 
 :::{.callout-warning}
@@ -840,6 +1132,8 @@ Batch gradient descent uses the entire training set for each update. Mini-batch 
 - Interpreting individual network weights as identified coefficients or causal effects.
 - Assuming that a wider or deeper network must improve prediction instead of validating architecture choices against a simpler benchmark.
 - Letting evaluation-period information enter training, for example by fitting the scaler on the full sample or randomizing a chronological train-validation-test split.
+- Treating undocumented category codes as economically ordered numerical values without checking the data documentation.
+- Reading a randomized same-period client split as evidence about performance in later credit regimes.
 :::
 
 ## Exercises
