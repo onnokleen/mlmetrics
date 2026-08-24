@@ -424,24 +424,24 @@ window.Quarto = {
 <h1 data-number="4"><span class="header-section-number">4</span> Optimization for Machine Learning</h1>
 <section id="overview" class="level2" data-number="4.1">
 <h2 data-number="4.1" class="anchored" data-anchor-id="overview"><span class="header-section-number">4.1</span> Overview</h2>
-<p>Training a machine learning model is an optimization problem. The goal is to find the set of model parameters that minimizes a <strong>loss function</strong>, which measures how well the model fits the training data. Gradient-based methods are the standard tools for navigating the high-dimensional “loss landscape” to find this minimum. Stochastic-gradient methods trace back to stochastic approximation ideas such as <span class="citation" data-cites="RobbinsMonro1951">Robbins and Monro (<a href="#ref-RobbinsMonro1951" role="doc-biblioref">1951</a>)</span>.</p>
+<p>Training a machine learning model is an optimization problem. The goal is to find the set of model parameters that minimizes a <strong>loss function</strong>, which measures how well the model fits the training data. Gradient-based methods are the standard tools for navigating the high-dimensional “loss landscape” to find this minimum.</p>
 <p>For econometricians, the key connection is that this is the same basic problem as nonlinear least squares or maximum likelihood estimation: choose parameters to minimize an objective function. What changes in machine learning is the scale of the parameter space, the non-convexity of the objective, and the reliance on iterative gradient-based updates.</p>
 <p>This chapter explains how these optimization methods work at a general level. The next chapter then applies this machinery to feed-forward neural networks and backpropagation.</p>
 </section>
 <section id="roadmap" class="level2" data-number="4.2">
 <h2 data-number="4.2" class="anchored" data-anchor-id="roadmap"><span class="header-section-number">4.2</span> Roadmap</h2>
 <ol type="1">
-<li>We begin with <strong>gradient descent</strong> which can be interpreted as repeatedly moving the parameters in the direction that most steeply reduces the loss.</li>
+<li>We begin with <strong>gradient descent</strong>, which can be interpreted as repeatedly moving the parameters in the direction that most steeply reduces the loss.</li>
 <li>We then compare <strong>batch</strong>, <strong>stochastic</strong>, and <strong>mini-batch</strong> updates — gradients computed from the full sample, a single observation, or a small random subset — since this distinction is central in machine learning practice.</li>
 <li>Next, we discuss the main weaknesses of plain gradient descent and motivate more advanced optimizers.</li>
-<li>We then study <strong>Momentum</strong>, <strong>AdaGrad</strong>, <strong>RMSprop</strong>, and <strong>Adam</strong>, which are widely used adaptive optimizers in modern machine learning.</li>
+<li>We then study <strong>Momentum</strong>, <strong>AdaGrad</strong>, <strong>RMSprop</strong>, and <strong>Adam</strong>. These optimizers use past gradients to smooth the update, adjust its scale coordinate by coordinate, or do both.</li>
 <li>Finally, we compare their behavior visually and summarize practical lessons for modern machine-learning estimation.</li>
 </ol>
 </section>
 <section id="the-core-idea-for-optimization-gradient-descent" class="level2" data-number="4.3">
 <h2 data-number="4.3" class="anchored" data-anchor-id="the-core-idea-for-optimization-gradient-descent"><span class="header-section-number">4.3</span> The Core Idea for Optimization: Gradient Descent</h2>
 <p>Imagine you are standing on a foggy mountain and want to get to the lowest valley. The simplest strategy is to look at the ground at your feet and take a step in the steepest downhill direction. You repeat this process until further steps no longer reduce the loss.</p>
-<p>This is the core intuition behind <strong>Gradient Descent</strong>.</p>
+<p>This downhill strategy is the core intuition behind <strong>Gradient Descent</strong>.</p>
 <ul>
 <li>The “mountain” is the loss landscape.</li>
 <li>Your “position” is the current set of model parameters, <span class="math inline">\boldsymbol \theta</span>.</li>
@@ -463,9 +463,8 @@ window.Quarto = {
 <li><span class="math inline">\ell_i(\boldsymbol{\theta}) = \ell(y_i, \hat{y}_i)</span>: loss for individual sample <span class="math inline">i</span></li>
 <li><span class="math inline">L(\boldsymbol{\theta}) = \frac{1}{N}\sum_{i=1}^N \ell_i(\boldsymbol{\theta})</span>: average training loss</li>
 <li><span class="math inline">x_i</span>: predictors, <span class="math inline">y_i</span>: observed value, <span class="math inline">\hat{y}_i</span>: predicted/fitted value depending on <span class="math inline">\boldsymbol{\theta}</span></li>
-<li><span class="math inline">\mathcal{D} = \{(x_i,y_i): i = 1, \dots, N\}</span>: the complete training dataset</li>
 </ul>
-<p>Two remarks connect this notation to the previous chapters. First, relative to <a href="./cross_validation.html">the cross-validation chapter</a>, which wrote the per-observation loss as <span class="math inline">L(y,\hat y)</span> and sample averages as <span class="math inline">\hat{R}</span>, we now write <span class="math inline">\ell_i(\boldsymbol{\theta})</span> for the per-observation loss viewed as a function of the parameters and <span class="math inline">L(\boldsymbol{\theta})</span> for its average — the same objects in parameter-dependent form. Second, <span class="math inline">L(\boldsymbol{\theta})</span> is the <em>empirical</em> training loss: optimization in this chapter minimizes it, while the generalization risk <span class="math inline">R</span> of that chapter is what validation ultimately judges — and the gap between the two is exactly the overfitting problem that motivated cross-validation.</p>
+<p>Two remarks connect this notation to the previous chapter. First, relative to <a href="./cross_validation.html">the cross-validation chapter</a>, which wrote the per-observation loss as <span class="math inline">L(y,\hat y)</span> and sample averages as <span class="math inline">\hat{R}</span>, we now write <span class="math inline">\ell_i(\boldsymbol{\theta})</span> for the per-observation loss viewed as a function of the parameters and <span class="math inline">L(\boldsymbol{\theta})</span> for its average — the same objects in parameter-dependent form. Second, <span class="math inline">L(\boldsymbol{\theta})</span> is the <em>empirical</em> training loss: optimization in this chapter minimizes it, while the generalization risk <span class="math inline">R</span> of that chapter is what validation ultimately judges — and the gap between the two is exactly the overfitting problem that motivated cross-validation.</p>
 <div class="callout callout-style-default callout-note callout-titled">
 <div class="callout-header d-flex align-content-center">
 <div class="callout-icon-container">
@@ -524,7 +523,7 @@ Note
 </div>
 <div class="callout-body-container callout-body">
 <ul>
-<li><strong>Pros</strong>: Fast per update and requires little memory; the noisy updates can sometimes move through shallow basins that trap a deterministic path, although they do not guarantee escape from local minima.</li>
+<li><strong>Pros</strong>: SGD is fast per update and requires little memory; the noisy updates can sometimes move through shallow basins that trap a deterministic path, although they do not guarantee escape from local minima.</li>
 <li><strong>Cons</strong>: The path to the minimum is noisy and erratic; with a <em>constant</em> step size the iterates generally keep fluctuating rather than converging to a fixed point.<a href="#fn1" class="footnote-ref" id="fnref1" role="doc-noteref"><sup>1</sup></a></li>
 </ul>
 </div>
@@ -543,7 +542,7 @@ What Do Convergence Guarantees Actually Say?
 </div>
 </div>
 <p><strong>Mini-Batch Gradient Descent</strong></p>
-<p>Mini-Batch Gradient Descent is the standard approach in deep learning, balancing BGD and SGD. The gradient is computed on a small, random subset of the data called a <strong>mini-batch</strong>.</p>
+<p>Mini-Batch Gradient Descent is the standard approach for training neural networks, the subject of the next chapter, because it balances BGD and SGD. The gradient is computed on a small, random subset of the data called a <strong>mini-batch</strong>.</p>
 <p>More precisely: We first define <span class="math inline">J</span> batches <span class="math inline">B_j</span> such that <span class="math inline">\bigcup_{j=1}^J B_j = \{1,\ldots,N\}</span> and <span class="math inline">B_j \cap B_{j'} = \emptyset \quad \text{ for all } j,j' = 1,\ldots,J:\ j \neq j'</span>. With learning rate <span class="math inline">\eta &gt; 0</span> and starting value <span class="math inline">\boldsymbol{\theta}^{(0)}</span>, we get the following gradient approximation for the selected batch <span class="math inline">B_j</span>:</p>
 <div class="display-math-block">
 <p><span class="math display"> \nabla_{\boldsymbol \theta} L(\boldsymbol \theta^{(t-1)}) \approx \frac{1}{\left|B_j\right|}  \sum_{i \in B_j} \nabla_{\boldsymbol \theta} \ell_i(\boldsymbol \theta^{(t-1)})</span></p>
@@ -554,7 +553,7 @@ What Do Convergence Guarantees Actually Say?
 \boldsymbol{\theta}^{(t)} = \boldsymbol{\theta}^{(t-1)} - \eta \frac{1}{\left|B_j\right|} \sum_{i \in B_j}\nabla_{\boldsymbol{\theta}}\ell_i(\boldsymbol{\theta}^{(t-1)}).
 </span></p>
 </div>
-<p>A typical mini-batch size <span class="math inline">b = |B_j|</span> is 32, 64, or 128. The total number of iteration steps for the algorithm <span class="math inline">T</span> doesn’t need to coincide with the number of batches <span class="math inline">J</span>. Typically, we have <span class="math inline">J \ll T</span> such that, after going through all batches for updating the parameters, we draw new batches of the same size to continue updating our parameter.</p>
+<p>A typical mini-batch size <span class="math inline">b = |B_j|</span> is 32, 64, or 128. The total number of iteration steps for the algorithm <span class="math inline">T</span> does not need to coincide with the number of batches <span class="math inline">J</span>. Typically, <span class="math inline">J \ll T</span>: after processing every batch in the partition, we reshuffle the data, form a new partition with the same batch size, and continue updating the parameters. Holding <span class="math inline">\boldsymbol\theta</span> fixed before a fresh shuffle, each labeled batch is marginally a uniform size-<span class="math inline">b</span> subset, so its gradient is unbiased for the full-sample gradient. Conditional on the batches already processed within that epoch, however, the next batch is sampled only from the remaining observations and need not be unbiased for the full-sample gradient.</p>
 <div class="callout callout-style-default callout-note callout-titled">
 <div class="callout-header d-flex align-content-center">
 <div class="callout-icon-container">
@@ -569,10 +568,10 @@ Note
 <li><strong>Pros</strong>: Mini-Batch Gradient Descent balances the stability of Batch Gradient Descent with the speed of SGD. It also allows for efficient computation using vectorized operations on modern hardware such as graphics processing units (GPUs).</li>
 <li><strong>Cons</strong>: It introduces an additional hyperparameter (the batch size) to (potentially) tune.</li>
 </ul>
-<p>If you take</p>
+<p>The two limiting choices recover the earlier methods:</p>
 <ul>
-<li><span class="math inline">|B_j| = 1</span> for each batch used in the update, then we are back at SGD, and</li>
-<li><span class="math inline">J = 1</span> with <span class="math inline">B_1 = \{1,\ldots,N\}</span> reduces to Batch Gradient Descent.</li>
+<li>If <span class="math inline">|B_j| = 1</span> for each batch used in the update, the method reduces to SGD.</li>
+<li>If <span class="math inline">J = 1</span> with <span class="math inline">B_1 = \{1,\ldots,N\}</span>, the method reduces to Batch Gradient Descent.</li>
 </ul>
 </div>
 </div>
@@ -601,11 +600,11 @@ Suggested Answer
 </div>
 <div id="callout-7" class="callout-7-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
-<p>Three points matter. First, hold <span class="math inline">\boldsymbol{\theta}</span> and the realized training sample fixed and draw a fresh batch uniformly: its gradient is unbiased for the full-sample gradient. Dependence changes the <em>unconditional variance</em> of that gradient, not this conditional sampling result, and the variance depends on whether a batch groups neighboring dates or observations from the same firm.</p>
+<p>Three points matter. First, hold <span class="math inline">\boldsymbol{\theta}</span> and the realized training sample fixed and draw a fresh batch uniformly: its gradient is unbiased for the full-sample gradient. Second, temporal or within-firm dependence changes the <em>unconditional variance</em> of that gradient, not this conditional sampling result; the variance depends on whether a batch groups neighboring dates or observations from the same firm. Third, batch construction is essential when the loss or update itself must process related observations together or in order. For example, an estimation routine may carry an internal state from one date to the next, or a loss may be defined for an entire firm-level group. If the loss remains a sum of separate observation-level terms and the update carries no information across observations, grouping changes the gradient noise but not the full-sample target.</p>
 </div>
 </div>
 </div>
-<div class="callout callout-style-default callout-note callout-titled">
+<div class="callout callout-style-default callout-note callout-titled" title="Definition: Epoch">
 <div class="callout-header d-flex align-content-center">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
@@ -615,7 +614,7 @@ Definition: Epoch
 </div>
 </div>
 <div class="callout-body-container callout-body">
-<p>An epoch refers to one full pass through the training data. With this notion introduced, we get the following pseudocode for mini-batch optimization in supervised learning:</p>
+<p>An epoch refers to one full pass through the training data. With this notion introduced, we get the following pseudocode for mini-batch training:</p>
 <p>Define <span class="math inline">n_e \in \mathbb{N}\setminus\{0\}</span> as the number of epochs used for training; within each epoch the <span class="math inline">J</span> batches defined above are processed once.</p>
 <p><strong>Algorithm: Mini-Batch Gradient Descent Training</strong></p>
 <p><strong><em>Input:</em></strong> Training data <span class="math inline">\{(x_i, y_i)\}_{i=1}^N</span>, learning rate <span class="math inline">\eta</span>, batch size <span class="math inline">b</span>, number of epochs <span class="math inline">n_e</span>, maximum number of iterations <span class="math inline">T</span></p>
@@ -630,9 +629,10 @@ Definition: Epoch
 <li><strong><em>Compute batch gradient:</em></strong> <span class="math inline">\boldsymbol{g}^{(t)} = \frac{1}{|B_j|} \sum_{i \in B_j} \nabla_{\boldsymbol{\theta}} \ell(y_i, f(x_i; \boldsymbol{\theta}^{(t)}))</span></li>
 <li><strong><em>Update parameters:</em></strong> <span class="math inline">\boldsymbol{\theta}^{(t+1)} = \boldsymbol{\theta}^{(t)} - \eta \boldsymbol{g}^{(t)}</span></li>
 <li><strong><em>Increment counter:</em></strong> <span class="math inline">t \leftarrow t + 1</span></li>
+<li><strong><em>Check stopping rule:</em></strong> If a convergence criterion is reached or <span class="math inline">t=T</span>, set <span class="math inline">t^\ast=t</span> and stop the algorithm</li>
 </ul></li>
 </ol>
-<p><strong><em>Stopping rule:</em></strong> Stop if a convergence criterion is reached or the maximum number of iterations <span class="math inline">T</span> is reached</p>
+<p>If no earlier stopping rule is met, set <span class="math inline">t^\ast=t</span> after the final epoch.</p>
 <p><strong><em>Output:</em></strong> Final parameters <span class="math inline">\boldsymbol{\theta}^{(t^\ast)}</span>, where <span class="math inline">t^\ast</span> is the realized stopping iteration</p>
 </div>
 </div>
@@ -656,10 +656,10 @@ Challenges with Vanilla Gradient Descent
 </ul>
 </div>
 </div>
-<p>To address these issues, researchers have developed <strong>adaptive optimization algorithms</strong> that adjust the learning rate for each parameter automatically.</p>
+<p>To address these issues, researchers have developed update rules that use past gradients to smooth the direction, adjust the learning rate for each parameter, or do both.</p>
 <p>In all of the following algorithms, we choose a learning rate <span class="math inline">\eta &gt; 0</span> and a starting value <span class="math inline">\boldsymbol{\theta}^{(0)}</span>. Consider iteration steps <span class="math inline">t = 1,\ldots,T</span>, and define <span class="math inline">\boldsymbol g_t = \frac{1}{N} \sum_{i = 1}^N \nabla_{\boldsymbol{\theta}}\ell_i(\boldsymbol{\theta}^{(t-1)})</span> as the gradient used for the <span class="math inline">t</span>th update. We can combine all methods below with mini-batches, but leave this out for brevity in notation.</p>
 <p><strong>Momentum</strong></p>
-<p>The momentum idea traces to <span class="citation" data-cites="Polyak1964">Polyak (<a href="#ref-Polyak1964" role="doc-biblioref">1964</a>)</span>, who introduced the “heavy ball” method to accelerate iterative optimization, and <span class="citation" data-cites="Nesterov1983">Nesterov (<a href="#ref-Nesterov1983" role="doc-biblioref">1983</a>)</span>, whose accelerated-gradient variant achieves a provably better convergence rate on convex objectives. Momentum builds movement in directions whose gradients remain persistent and dampens oscillation in directions whose gradient signs alternate. It does so by adding a fraction of the previous update vector to the current gradient, creating a “velocity” term <span class="math inline">\boldsymbol u_t</span> that accumulates past gradients. (We reserve <span class="math inline">\boldsymbol v_t</span> for the squared-gradient averages of RMSprop and Adam below.)</p>
+<p>The momentum idea traces to <span class="citation" data-cites="Polyak1964">Polyak (<a href="#ref-Polyak1964" role="doc-biblioref">1964</a>)</span>, who introduced the “heavy ball” method to accelerate iterative optimization, and <span class="citation" data-cites="Nesterov1983">Nesterov (<a href="#ref-Nesterov1983" role="doc-biblioref">1983</a>)</span>, whose accelerated-gradient variant achieves a provably better convergence rate on convex objectives. Momentum builds movement in directions whose gradients remain persistent and dampens oscillation in directions whose gradient signs alternate. We implement this idea by replacing the raw gradient with an exponentially weighted moving average of current and past gradients, creating a “velocity” term <span class="math inline">\boldsymbol u_t</span>. (We reserve <span class="math inline">\boldsymbol v_t</span> for the squared-gradient averages of RMSprop and Adam below.)</p>
 <div class="display-math-block">
 <p><span class="math display"> \boldsymbol u_t = \delta \boldsymbol u_{t-1} + (1 - \delta) \boldsymbol g_t </span></p>
 </div>
@@ -668,30 +668,30 @@ Challenges with Vanilla Gradient Descent
 <p><span class="math display"> \boldsymbol \theta^{(t)} = \boldsymbol \theta^{(t-1)} - \eta \boldsymbol u_t </span></p>
 </div>
 <p> with <span class="math inline">\boldsymbol u_0 = \mathbf 0</span>. (Note the timing: <span class="math inline">\boldsymbol g_t</span> is evaluated at <span class="math inline">\boldsymbol \theta^{(t-1)}</span>, and the <span class="math inline">t</span>th update produces <span class="math inline">\boldsymbol \theta^{(t)}</span> — the same convention as for the algorithms below.)</p>
-<p>Here, <span class="math inline">\delta \in [0,1)</span> is the momentum coefficient, and the velocity <span class="math inline">u_t</span> accumulates a weighted average of past gradients. This creates a “ball rolling downhill” effect that accelerates movement in directions with persistent gradients and can carry the iterate through a shallow basin, but it does not guarantee escape from a local minimum.</p>
+<p>Here, <span class="math inline">\delta \in [0,1)</span> is the momentum coefficient. Because the weights <span class="math inline">\delta</span> and <span class="math inline">1-\delta</span> sum to one, <span class="math inline">\boldsymbol u_t</span> is an exponentially weighted moving average on the same long-run scale as <span class="math inline">\boldsymbol g_t</span>. This normalization is a convention: Polyak’s original heavy-ball recursion, and the momentum option in many software implementations, instead uses <span class="math inline">\boldsymbol u_t=\delta\boldsymbol u_{t-1}+\boldsymbol g_t</span>. Under a persistent gradient, that unnormalized velocity is larger by the factor <span class="math inline">1/(1-\delta)</span>, so its learning rate should be smaller by approximately <span class="math inline">1-\delta</span> when translating from the convention used here. We retain the normalized convention throughout because it matches Adam’s first-moment recursion below. The resulting velocity creates a “ball rolling downhill” effect that accelerates movement in directions with persistent gradients and can carry the iterate through a shallow basin, but it does not guarantee escape from a local minimum.</p>
 <p><strong>AdaGrad (Adaptive Gradient)</strong></p>
-<p>AdaGrad adapts the learning rate for each parameter individually, performing larger updates for infrequent parameters and smaller updates for frequent ones <span class="citation" data-cites="DuchiHazanSinger2011">(<a href="#ref-DuchiHazanSinger2011" role="doc-biblioref">Duchi, Hazan, and Singer 2011</a>)</span>. It achieves this by dividing the learning rate by the square root of the sum of all past squared gradients for that parameter.</p>
+<p>AdaGrad adapts the learning rate for each parameter individually. It makes larger updates for parameters whose gradients are usually near zero — for example, because their associated predictors are rarely active — and smaller updates for parameters with persistently large gradients <span class="citation" data-cites="DuchiHazanSinger2011">(<a href="#ref-DuchiHazanSinger2011" role="doc-biblioref">Duchi, Hazan, and Singer 2011</a>)</span>. It achieves this by dividing the learning rate by the square root of the sum of all past squared gradients for that parameter.</p>
 <p>Two versions appear in the literature. The <strong>full-matrix</strong> version accumulates the outer products </p>
 <div class="display-math-block">
 <p><span class="math display">
 \boldsymbol{\mathcal{G}}_t = \sum_{\tau=1}^{t} \boldsymbol g_\tau \boldsymbol g_\tau^\top + \varepsilon \boldsymbol I_m
 </span></p>
 </div>
-<p> and updates </p>
+<p> where <span class="math inline">\varepsilon&gt;0</span> ensures that <span class="math inline">\boldsymbol{\mathcal G}_t</span> is positive definite and therefore has an inverse square root. Without this adjustment, the sum of outer products has rank at most <span class="math inline">t</span> and is singular whenever <span class="math inline">t&lt;m</span>.</p>
+<p>The full-matrix AdaGrad update is </p>
 <div class="display-math-block">
 <p><span class="math display">
 \boldsymbol{\theta}^{(t)} = \boldsymbol{\theta}^{(t-1)} - \eta \, \boldsymbol{\mathcal{G}}_t^{-\frac{1}{2}}\boldsymbol g_t.
 </span></p>
 </div>
-<p>This form is mathematically clean but computationally infeasible in modern networks: storing and inverting an <span class="math inline">m \times m</span> matrix with <span class="math inline">m</span> in the millions is impractical.</p>
-<p>Econometricians may recognize an outer-product structure reminiscent of the Berndt–Hall–Hall–Hausman (BHHH) algorithm <span class="citation" data-cites="BerndtHallHallHausman1974">(<a href="#ref-BerndtHallHallHausman1974" role="doc-biblioref">Berndt et al. 1974</a>)</span>. The analogy is instructive but not an identity: BHHH forms an outer product of observation-level likelihood scores evaluated at a <em>common</em> parameter value and uses its inverse as a curvature approximation, whereas full-matrix AdaGrad accumulates the gradients used across optimization iterations — full-sample under the displayed notation, stochastic under mini-batching — generally at changing parameter values, and scales the next gradient by the inverse <em>square root</em> of the accumulator <span class="citation" data-cites="DuchiHazanSinger2011">(<a href="#ref-DuchiHazanSinger2011" role="doc-biblioref">Duchi, Hazan, and Singer 2011</a>)</span>. What the two share is the construction: both rescale an update using a matrix built from gradient outer products, though the two matrices have different statistical meanings — a rescaling of directions that numerical optimization calls <strong>preconditioning</strong>. This is the concrete sense in which the Overview’s promise holds: adaptive optimizers are cousins of the curvature approximations used in maximum-likelihood computation.</p>
+<p>This form is mathematically clean but computationally infeasible in high-dimensional models: storing an <span class="math inline">m \times m</span> matrix and computing its inverse square root, with <span class="math inline">m</span> in the millions, is impractical.</p>
 <p>The version actually used in software (and called <em>AdaGrad</em> below) replaces the full matrix with its diagonal: define the elementwise gradient accumulator </p>
 <div class="display-math-block">
 <p><span class="math display">
 \boldsymbol G_t = \sum_{\tau=1}^{t} \boldsymbol g_\tau \odot \boldsymbol g_\tau \in \mathbb{R}^m,
 </span></p>
 </div>
-<p> where <span class="math inline">\odot</span> denotes the element-wise (Hadamard) product, and update each coordinate by </p>
+<p> where <span class="math inline">\odot</span> denotes the elementwise (Hadamard) product, and update each coordinate by </p>
 <div class="display-math-block">
 <p><span class="math display">
 \boldsymbol{\theta}^{(t)} = \boldsymbol{\theta}^{(t-1)} - \eta \, \frac{\boldsymbol g_t}{\sqrt{\boldsymbol G_t} + \varepsilon},
@@ -701,7 +701,7 @@ Challenges with Vanilla Gradient Descent
 <div class="display-math-block">
 <p><span class="math display"> \theta^{(t)} = \theta^{(t - 1)} - \frac{\eta}{\sqrt{G_{t}} + \varepsilon}\, g_{t}, \qquad G_{t} = \sum_{\tau=1}^{t} g_{\tau}^2.</span></p>
 </div>
-<p> The small constant <span class="math inline">\varepsilon &gt; 0</span> is a smoothing term that prevents division by zero. Throughout this book, <em>AdaGrad</em> refers to the diagonal version unless stated otherwise.</p>
+<p> In the diagonal update, the small constant <span class="math inline">\varepsilon</span> prevents division by zero. Throughout this book, <em>AdaGrad</em> refers to the diagonal version unless stated otherwise.</p>
 <div class="callout callout-style-default callout-note callout-titled">
 <div class="callout-header d-flex align-content-center">
 <div class="callout-icon-container">
@@ -714,16 +714,16 @@ Note
 <div class="callout-body-container callout-body">
 <ul>
 <li><strong>Pros</strong>: Excellent for sparse data — as in text applications, where some predictors appear infrequently.</li>
-<li><strong>Cons</strong>: The denominator <span class="math inline">\sqrt{\boldsymbol G_t}+\varepsilon</span> grows monotonically. This causes the effective learning rate to eventually become infinitesimally small, effectively stopping the training process.</li>
+<li><strong>Cons</strong>: The denominator <span class="math inline">\sqrt{\boldsymbol G_t}+\varepsilon</span> grows monotonically. Under persistent gradient noise, the accumulator diverges, so the effective learning rate shrinks toward zero and can eventually stall training. If the squared gradients are summable instead, the accumulator can converge to a finite limit, and this conclusion need not hold.</li>
 </ul>
 </div>
 </div>
 <p><strong>RMSprop (Root Mean Square Propagation)</strong></p>
-<p>RMSprop — which circulated through Hinton’s lecture notes <span class="citation" data-cites="hinton2012rmsprop">(<a href="#ref-hinton2012rmsprop" role="doc-biblioref">Hinton 2012</a>)</span> and was never formally published — modifies AdaGrad to resolve its main issue of a learning rate that aggressively and monotonically decreases. Instead of accumulating all past squared gradients, RMSprop uses an exponentially decaying average, preventing the denominator from growing endlessly. Define <span class="math inline">g_t</span> as above and <span class="math inline">\boldsymbol g_t^2</span> as the elementwise product of <span class="math inline">\boldsymbol g_t</span> times <span class="math inline">\boldsymbol g_t</span>; that is, <span class="math inline">\boldsymbol g_t^2 = \boldsymbol g_t \odot \boldsymbol g_t</span>.</p>
-<p>The update rules are (with <span class="math inline">v_0 = 0</span>):</p>
+<p>RMSprop — which circulated through Hinton’s lecture notes <span class="citation" data-cites="hinton2012rmsprop">(<a href="#ref-hinton2012rmsprop" role="doc-biblioref">Hinton 2012</a>)</span> and was never formally published — modifies AdaGrad to resolve its main issue of a learning rate that aggressively and monotonically decreases. Instead of accumulating all past squared gradients, RMSprop uses an exponentially decaying average, preventing the denominator from growing endlessly. Define <span class="math inline">\boldsymbol g_t</span> as above and <span class="math inline">\boldsymbol g_t^2</span> as the elementwise product of <span class="math inline">\boldsymbol g_t</span> times <span class="math inline">\boldsymbol g_t</span>; that is, <span class="math inline">\boldsymbol g_t^2 = \boldsymbol g_t \odot \boldsymbol g_t</span>.</p>
+<p>The update rules are (with <span class="math inline">\boldsymbol v_0 = \mathbf 0</span>):</p>
 <ol type="1">
-<li><strong>Compute decaying average of squared gradients</strong>: <span class="math display"> \boldsymbol v_t = \gamma \boldsymbol v_{t-1} + (1 - \gamma) \boldsymbol g_t^2 </span></li>
-<li><strong>Update parameters</strong>: <span class="math display"> \boldsymbol{\theta}^{(t)} = \boldsymbol{\theta}^{(t-1)} - \eta \frac{1}{\sqrt{v_t} + \varepsilon} \boldsymbol g_t </span> Here, <span class="math inline">v_t</span> is the moving average of squared gradients, and <span class="math inline">\gamma</span> is the squared-gradient decay rate (e.g., 0.9), distinct from the momentum coefficient <span class="math inline">\delta</span> above. By “forgetting” the distant past, RMSprop keeps the learning rate adaptive and responsive throughout training.</li>
+<li><strong>Compute decaying average of squared gradients</strong>: <span class="math display"> \boldsymbol v_t = \rho \boldsymbol v_{t-1} + (1 - \rho) \boldsymbol g_t^2 </span></li>
+<li><strong>Update parameters</strong>: <span class="math display"> \boldsymbol{\theta}^{(t)} = \boldsymbol{\theta}^{(t-1)} - \eta \frac{1}{\sqrt{\boldsymbol v_t} + \varepsilon} \boldsymbol g_t </span> Here, <span class="math inline">\boldsymbol v_t</span> is the moving average of squared gradients, and <span class="math inline">\rho</span> is the squared-gradient decay rate (e.g., 0.9), distinct from the momentum coefficient <span class="math inline">\delta</span> above. The division and square root are elementwise. By “forgetting” the distant past, RMSprop keeps the learning rate adaptive and responsive throughout training.</li>
 </ol>
 <p><strong>Adam (Adaptive Moment Estimation)</strong></p>
 <p>Adam is a widely used default optimizer for neural networks <span class="citation" data-cites="KingmaBa2015">(<a href="#ref-KingmaBa2015" role="doc-biblioref">Kingma and Ba 2015</a>)</span>. It combines the ideas of <strong>Momentum</strong> (using the first moment, or mean, of the gradients) and <strong>RMSprop</strong> (using the uncentered second moment of the gradients).</p>
@@ -732,7 +732,7 @@ Note
 <li><strong>First moment estimate</strong> (momentum), with first-moment decay <span class="math inline">\beta_1</span>: <span class="math display"> \boldsymbol m_t = \beta_1 \boldsymbol m_{t-1} + (1 - \beta_1) \boldsymbol g_{t} </span></li>
 <li><strong>Uncentered second-moment estimate</strong>, with second-moment decay <span class="math inline">\beta_2</span>: <span class="math display"> \boldsymbol v_t = \beta_2 \boldsymbol v_{t-1} + (1 - \beta_2) \boldsymbol g_{t}^2 </span></li>
 </ol>
-<p>Here <span class="math inline">\beta_1,\beta_2 \in [0,1)</span> play the roles that <span class="math inline">\delta</span> and <span class="math inline">\gamma</span> played for Momentum and RMSprop, respectively. Since <span class="math inline">\boldsymbol m_t</span> and <span class="math inline">\boldsymbol v_t</span> are initialized as zero vectors, they are biased toward zero, especially during the initial time steps. Unrolling the recursion gives <span class="math inline">\boldsymbol m_t = (1-\beta_1) \sum_{\tau=1}^{t} \beta_1^{t-\tau} \boldsymbol g_\tau</span>. To speak of a <em>bias</em> we need randomness in the gradients, which is where the mini-batches suppressed from our notation re-enter: think of <span class="math inline">\boldsymbol g_\tau</span> as the gradient of a randomly drawn batch, with the expectation below taken over that batch sampling. If the batch gradients are stationary with <span class="math inline">\mathbb{E}[\boldsymbol g_\tau] = \boldsymbol \mu</span>, then <span class="math inline">\mathbb{E}[\boldsymbol m_t] = (1-\beta_1^t)\boldsymbol \mu</span>. Adam corrects this bias by rescaling:</p>
+<p>Here <span class="math inline">\beta_1,\beta_2 \in [0,1)</span> play the roles that <span class="math inline">\delta</span> and <span class="math inline">\rho</span> played for Momentum and RMSprop, respectively. Since <span class="math inline">\boldsymbol m_t</span> and <span class="math inline">\boldsymbol v_t</span> are initialized as zero vectors, they are biased toward zero, especially during the initial time steps. Unrolling the recursion gives <span class="math inline">\boldsymbol m_t = (1-\beta_1) \sum_{\tau=1}^{t} \beta_1^{t-\tau} \boldsymbol g_\tau</span>. To speak of a <em>bias</em> we need randomness in the gradients, which is where the mini-batches suppressed from our notation re-enter: think of <span class="math inline">\boldsymbol g_\tau</span> as the gradient of a randomly drawn batch, with the expectation below taken over that batch sampling. If the batch gradients are stationary with <span class="math inline">\mathbb{E}[\boldsymbol g_\tau] = \boldsymbol \mu</span>, then <span class="math inline">\mathbb{E}[\boldsymbol m_t] = (1-\beta_1^t)\boldsymbol \mu</span>. Adam corrects this bias by rescaling:</p>
 <ol start="3" type="1">
 <li><strong>Bias-corrected estimates</strong>: <span class="math display"> \hat{\boldsymbol m}_t = \frac{\boldsymbol m_t}{1 - \beta_1^t} </span> <span class="math display"> \hat{\boldsymbol v}_t = \frac{\boldsymbol v_t}{1 - \beta_2^t} </span></li>
 </ol>
@@ -740,11 +740,17 @@ Note
 <ol start="4" type="1">
 <li><strong>Parameter update</strong>: <span class="math display"> \boldsymbol{\theta}^{(t)} = \boldsymbol{\theta}^{(t-1)} - \eta \frac{\hat{\boldsymbol m}_t}{\sqrt{\hat{\boldsymbol v}_t} + \varepsilon}. </span></li>
 </ol>
-<p>Adam is a common default starting point: it usually reduces training loss quickly across a wide range of problems without per-problem tuning. Whether it delivers the best final training loss or out-of-sample performance is problem-dependent, so optimizer choice and tuning remain part of the validation exercise. A modern variant is <strong>AdamW</strong> <span class="citation" data-cites="LoshchilovHutter2019AdamW">(<a href="#ref-LoshchilovHutter2019AdamW" role="doc-biblioref">Loshchilov and Hutter 2019</a>)</span>, which decouples <strong>weight decay</strong> — an <span class="math inline">L_2</span>-type shrinkage of the parameters applied directly in the update step, introduced properly in <a href="./feed_forward_nns.html">the next chapter</a> — from the adaptive gradient update; this makes the regularization effect easier to tune than in vanilla Adam with an ordinary <span class="math inline">L_2</span> penalty.</p>
+<p>Adam is a common default starting point: it usually reduces training loss quickly across a wide range of problems without per-problem tuning. Whether it delivers the best final training loss or out-of-sample performance is problem-dependent, so optimizer choice and tuning remain part of the validation exercise. A modern variant is <strong>AdamW</strong> <span class="citation" data-cites="LoshchilovHutter2019AdamW">(<a href="#ref-LoshchilovHutter2019AdamW" role="doc-biblioref">Loshchilov and Hutter 2019</a>)</span>, which decouples <strong>weight decay</strong> from the adaptive gradient update. With decay rate <span class="math inline">\omega\geq0</span> and Adam update direction <span class="math inline">\boldsymbol d_t</span> computed from the unpenalized training loss, direct weight decay applies </p>
+<div class="display-math-block">
+<p><span class="math display">
+\boldsymbol\theta^{(t)}=(1-\eta\omega)\boldsymbol\theta^{(t-1)}-\eta\boldsymbol d_t.
+</span></p>
+</div>
+<p> For ordinary gradient descent, this multiplicative shrinkage is algebraically equivalent to adding the penalty <span class="math inline">\omega\|\boldsymbol\theta\|_2^2/2</span> to the loss. In vanilla Adam, feeding the penalty gradient <span class="math inline">\omega\boldsymbol\theta</span> through the coordinate-specific moment and scaling calculations breaks that equivalence. AdamW instead applies the shrinkage outside the adaptive transformation, so <span class="math inline">\omega</span> directly controls the strength of parameter shrinkage.</p>
 </section>
 <section id="optimizer-comparison" class="level2" data-number="4.7">
 <h2 data-number="4.7" class="anchored" data-anchor-id="optimizer-comparison"><span class="header-section-number">4.7</span> Optimizer Comparison</h2>
-<p>The column <strong>Optimizer state</strong> reports the number of running state tensors the optimizer stores <em>per parameter</em> (on top of the parameter vector itself). It reflects the memory overhead of the update rule and should not be confused with dataset memory, which is controlled separately by the batch size. The citations in the algorithm column identify standard sources for the update rules; the remaining columns give criterion-specific comparisons that are qualified immediately below the table.</p>
+<p>Having derived the update rules one by one, we now place their computational tradeoffs side by side. The column <strong>Optimizer state</strong> reports the number of running state tensors the optimizer stores <em>per parameter</em> (on top of the parameter vector itself). It reflects the memory overhead of the update rule and should not be confused with dataset memory, which is controlled separately by the batch size. The citations in the algorithm column identify original or standard sources for the underlying methods; as noted above, the normalized Momentum convention used in this chapter differs from Polyak’s original heavy-ball recursion. The remaining columns give criterion-specific comparisons that are qualified immediately below the table.</p>
 <table class="caption-top table">
 <colgroup>
 <col style="width: 15%">
@@ -774,7 +780,7 @@ Note
 <td><strong>SGD</strong> <span class="citation" data-cites="RobbinsMonro1951">(<a href="#ref-RobbinsMonro1951" role="doc-biblioref">Robbins and Monro 1951</a>)</span></td>
 <td>0</td>
 <td><span class="math inline">\eta</span></td>
-<td>One observation per update</td>
+<td>Uses one observation per update</td>
 <td>High gradient noise; sensitive to <span class="math inline">\eta</span></td>
 </tr>
 <tr class="odd">
@@ -785,7 +791,7 @@ Note
 <td>Adds batch size as a tuning choice</td>
 </tr>
 <tr class="even">
-<td><strong>Momentum</strong> <span class="citation" data-cites="Polyak1964">(<a href="#ref-Polyak1964" role="doc-biblioref">Polyak 1964</a>)</span></td>
+<td><strong>Momentum</strong> (normalized convention; idea from <span class="citation" data-cites="Polyak1964">Polyak (<a href="#ref-Polyak1964" role="doc-biblioref">1964</a>)</span>)</td>
 <td>1 (velocity)</td>
 <td><span class="math inline">\eta</span>, <span class="math inline">\delta</span></td>
 <td>Dampens oscillations along directions with persistent gradients</td>
@@ -801,7 +807,7 @@ Note
 <tr class="even">
 <td><strong>RMSprop</strong> <span class="citation" data-cites="hinton2012rmsprop">(<a href="#ref-hinton2012rmsprop" role="doc-biblioref">Hinton 2012</a>)</span></td>
 <td>1 (moving average of squared gradients)</td>
-<td><span class="math inline">\eta</span>, <span class="math inline">\gamma</span>, <span class="math inline">\varepsilon</span></td>
+<td><span class="math inline">\eta</span>, <span class="math inline">\rho</span>, <span class="math inline">\varepsilon</span></td>
 <td>Avoids AdaGrad’s monotonically growing accumulator</td>
 <td>Vanilla form has no first-moment momentum term</td>
 </tr>
@@ -825,8 +831,8 @@ L(\theta_1,\theta_2)=1+0.1\,\theta_1^2+\theta_2^2,
 </span></p>
 </div>
 <p> which is — up to the harmless constant — the ill-conditioned quadratic family of Exercise 4.1 with Hessian eigenvalues <span class="math inline">0.2</span> and <span class="math inline">2</span>, but with the two coordinates interchanged: here the flat direction is <span class="math inline">\theta_1</span> and the steep one is <span class="math inline">\theta_2</span>, whereas Exercise 4.1 places the larger eigenvalue <span class="math inline">\lambda_{\max}</span> on <span class="math inline">\theta_1</span>.</p>
-<p>The algorithms stop after at most 100 iterations, with stopping criterion <span class="math inline">L(\theta_1,\theta_2)&lt;1.01</span> (close to the global minimum value of 1). Most optimizers use a learning rate of 0.3; the momentum panel uses 0.5 because the convex-combination velocity <span class="math inline">u_t = \delta u_{t-1} + (1-\delta)g_t</span> already shrinks the effective step by roughly <span class="math inline">1-\delta</span>. Because there is no empirical loss or dataset behind the contour, the noisy-gradient panel adds artificial Gaussian noise to the exact gradient. It illustrates stochastic-gradient-like variability but is not literal SGD generated by sampling observations or mini-batches.</p>
-<div id="cell-fig-optimizers" class="cell" data-execution_count="2">
+<p>The algorithms stop after at most 100 iterations, with stopping criterion <span class="math inline">L(\theta_1,\theta_2)&lt;1.01</span> (close to the global minimum value of 1). Most optimizers use a learning rate of 0.3. The Momentum panel uses 0.5 to compensate partly for the normalized velocity’s slow initial response: starting from <span class="math inline">\boldsymbol u_0=\mathbf 0</span>, its weights build over roughly <span class="math inline">1/(1-\delta)=10</span> iterations when <span class="math inline">\delta=0.9</span>. Because there is no empirical loss or dataset behind the contour, the noisy-gradient panel adds artificial Gaussian noise to the exact gradient. It illustrates stochastic-gradient-like variability but is not literal SGD generated by sampling observations or mini-batches.</p>
+<div id="cell-fig-optimizers" class="cell" data-execution_count="1">
 <details class="code-fold">
 <summary>Show the code</summary>
 <div class="sourceCode cell-code" id="cb1"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> numpy <span class="im">as</span> np</span>
@@ -916,7 +922,7 @@ L(\theta_1,\theta_2)=1+0.1\,\theta_1^2+\theta_2^2,
 <span id="cb1-85"><a href="#cb1-85" aria-hidden="true" tabindex="-1"></a>    x, y <span class="op">=</span> x0, y0</span>
 <span id="cb1-86"><a href="#cb1-86" aria-hidden="true" tabindex="-1"></a>    gx_sum_sq, gy_sum_sq <span class="op">=</span> <span class="dv">0</span>, <span class="dv">0</span></span>
 <span id="cb1-87"><a href="#cb1-87" aria-hidden="true" tabindex="-1"></a>    </span>
-<span id="cb1-88"><a href="#cb1-88" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> step <span class="kw">in</span> <span class="bu">range</span>(n_steps):</span>
+<span id="cb1-88"><a href="#cb1-88" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> _ <span class="kw">in</span> <span class="bu">range</span>(n_steps):</span>
 <span id="cb1-89"><a href="#cb1-89" aria-hidden="true" tabindex="-1"></a>        gx, gy <span class="op">=</span> df(x, y)</span>
 <span id="cb1-90"><a href="#cb1-90" aria-hidden="true" tabindex="-1"></a>        </span>
 <span id="cb1-91"><a href="#cb1-91" aria-hidden="true" tabindex="-1"></a>        <span class="co"># Accumulate squared gradients</span></span>
@@ -931,134 +937,128 @@ L(\theta_1,\theta_2)=1+0.1\,\theta_1^2+\theta_2^2,
 <span id="cb1-100"><a href="#cb1-100" aria-hidden="true" tabindex="-1"></a>        y <span class="op">-=</span> effective_lr_y <span class="op">*</span> gy</span>
 <span id="cb1-101"><a href="#cb1-101" aria-hidden="true" tabindex="-1"></a>        path.append((x, y))</span>
 <span id="cb1-102"><a href="#cb1-102" aria-hidden="true" tabindex="-1"></a>        </span>
-<span id="cb1-103"><a href="#cb1-103" aria-hidden="true" tabindex="-1"></a>        <span class="co"># More lenient stopping criterion to see stalling</span></span>
-<span id="cb1-104"><a href="#cb1-104" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span> f(x, y) <span class="op">&lt;</span> <span class="fl">1.01</span> <span class="kw">and</span> step <span class="op">&gt;</span> <span class="dv">20</span>:</span>
-<span id="cb1-105"><a href="#cb1-105" aria-hidden="true" tabindex="-1"></a>            <span class="cf">break</span></span>
-<span id="cb1-106"><a href="#cb1-106" aria-hidden="true" tabindex="-1"></a>            </span>
-<span id="cb1-107"><a href="#cb1-107" aria-hidden="true" tabindex="-1"></a>        <span class="co"># Stop if steps become too small (stalling)</span></span>
-<span id="cb1-108"><a href="#cb1-108" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span> step <span class="op">&gt;</span> <span class="dv">10</span> <span class="kw">and</span> effective_lr_x <span class="op">&lt;</span> <span class="fl">1e-4</span> <span class="kw">and</span> effective_lr_y <span class="op">&lt;</span> <span class="fl">1e-4</span>:</span>
-<span id="cb1-109"><a href="#cb1-109" aria-hidden="true" tabindex="-1"></a>            <span class="cf">break</span></span>
-<span id="cb1-110"><a href="#cb1-110" aria-hidden="true" tabindex="-1"></a>    </span>
-<span id="cb1-111"><a href="#cb1-111" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> np.array(path)</span>
-<span id="cb1-112"><a href="#cb1-112" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-113"><a href="#cb1-113" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> run_rmsprop(x0, y0, lr<span class="op">=</span><span class="fl">0.3</span>, gamma<span class="op">=</span><span class="fl">0.9</span>, eps<span class="op">=</span><span class="fl">1e-8</span>, n_steps<span class="op">=</span><span class="dv">100</span>):</span>
-<span id="cb1-114"><a href="#cb1-114" aria-hidden="true" tabindex="-1"></a>    <span class="co">"""RMSprop optimizer - maintains learning rate"""</span></span>
-<span id="cb1-115"><a href="#cb1-115" aria-hidden="true" tabindex="-1"></a>    path <span class="op">=</span> [(x0, y0)]</span>
-<span id="cb1-116"><a href="#cb1-116" aria-hidden="true" tabindex="-1"></a>    x, y <span class="op">=</span> x0, y0</span>
-<span id="cb1-117"><a href="#cb1-117" aria-hidden="true" tabindex="-1"></a>    vx, vy <span class="op">=</span> <span class="dv">0</span>, <span class="dv">0</span></span>
-<span id="cb1-118"><a href="#cb1-118" aria-hidden="true" tabindex="-1"></a>    </span>
-<span id="cb1-119"><a href="#cb1-119" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> step <span class="kw">in</span> <span class="bu">range</span>(n_steps):</span>
-<span id="cb1-120"><a href="#cb1-120" aria-hidden="true" tabindex="-1"></a>        gx, gy <span class="op">=</span> df(x, y)</span>
-<span id="cb1-121"><a href="#cb1-121" aria-hidden="true" tabindex="-1"></a>        </span>
-<span id="cb1-122"><a href="#cb1-122" aria-hidden="true" tabindex="-1"></a>        <span class="co"># Update moving average of squared gradients</span></span>
-<span id="cb1-123"><a href="#cb1-123" aria-hidden="true" tabindex="-1"></a>        vx <span class="op">=</span> gamma <span class="op">*</span> vx <span class="op">+</span> (<span class="dv">1</span> <span class="op">-</span> gamma) <span class="op">*</span> gx<span class="op">**</span><span class="dv">2</span></span>
-<span id="cb1-124"><a href="#cb1-124" aria-hidden="true" tabindex="-1"></a>        vy <span class="op">=</span> gamma <span class="op">*</span> vy <span class="op">+</span> (<span class="dv">1</span> <span class="op">-</span> gamma) <span class="op">*</span> gy<span class="op">**</span><span class="dv">2</span></span>
-<span id="cb1-125"><a href="#cb1-125" aria-hidden="true" tabindex="-1"></a>        </span>
-<span id="cb1-126"><a href="#cb1-126" aria-hidden="true" tabindex="-1"></a>        <span class="co"># RMSprop update - learning rate stays more stable</span></span>
-<span id="cb1-127"><a href="#cb1-127" aria-hidden="true" tabindex="-1"></a>        effective_lr_x <span class="op">=</span> lr <span class="op">/</span> (np.sqrt(vx) <span class="op">+</span> eps)</span>
-<span id="cb1-128"><a href="#cb1-128" aria-hidden="true" tabindex="-1"></a>        effective_lr_y <span class="op">=</span> lr <span class="op">/</span> (np.sqrt(vy) <span class="op">+</span> eps)</span>
-<span id="cb1-129"><a href="#cb1-129" aria-hidden="true" tabindex="-1"></a>        </span>
-<span id="cb1-130"><a href="#cb1-130" aria-hidden="true" tabindex="-1"></a>        x <span class="op">-=</span> effective_lr_x <span class="op">*</span> gx</span>
-<span id="cb1-131"><a href="#cb1-131" aria-hidden="true" tabindex="-1"></a>        y <span class="op">-=</span> effective_lr_y <span class="op">*</span> gy</span>
-<span id="cb1-132"><a href="#cb1-132" aria-hidden="true" tabindex="-1"></a>        path.append((x, y))</span>
-<span id="cb1-133"><a href="#cb1-133" aria-hidden="true" tabindex="-1"></a>        </span>
-<span id="cb1-134"><a href="#cb1-134" aria-hidden="true" tabindex="-1"></a>        <span class="co"># Same stopping criterion</span></span>
-<span id="cb1-135"><a href="#cb1-135" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span> f(x, y) <span class="op">&lt;</span> <span class="fl">1.01</span> <span class="kw">and</span> step <span class="op">&gt;</span> <span class="dv">20</span>:</span>
-<span id="cb1-136"><a href="#cb1-136" aria-hidden="true" tabindex="-1"></a>            <span class="cf">break</span></span>
-<span id="cb1-137"><a href="#cb1-137" aria-hidden="true" tabindex="-1"></a>    </span>
-<span id="cb1-138"><a href="#cb1-138" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> np.array(path)</span>
-<span id="cb1-139"><a href="#cb1-139" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-140"><a href="#cb1-140" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> run_adam(x0, y0, lr<span class="op">=</span><span class="fl">0.3</span>, beta1<span class="op">=</span><span class="fl">0.9</span>, beta2<span class="op">=</span><span class="fl">0.999</span>, eps<span class="op">=</span><span class="fl">1e-8</span>, n_steps<span class="op">=</span><span class="dv">100</span>):</span>
-<span id="cb1-141"><a href="#cb1-141" aria-hidden="true" tabindex="-1"></a>    <span class="co">"""Adam optimizer"""</span></span>
-<span id="cb1-142"><a href="#cb1-142" aria-hidden="true" tabindex="-1"></a>    path <span class="op">=</span> [(x0, y0)]</span>
-<span id="cb1-143"><a href="#cb1-143" aria-hidden="true" tabindex="-1"></a>    x, y <span class="op">=</span> x0, y0</span>
-<span id="cb1-144"><a href="#cb1-144" aria-hidden="true" tabindex="-1"></a>    mx, my <span class="op">=</span> <span class="dv">0</span>, <span class="dv">0</span></span>
-<span id="cb1-145"><a href="#cb1-145" aria-hidden="true" tabindex="-1"></a>    vx, vy <span class="op">=</span> <span class="dv">0</span>, <span class="dv">0</span></span>
-<span id="cb1-146"><a href="#cb1-146" aria-hidden="true" tabindex="-1"></a>    </span>
-<span id="cb1-147"><a href="#cb1-147" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> t <span class="kw">in</span> <span class="bu">range</span>(<span class="dv">1</span>, n_steps <span class="op">+</span> <span class="dv">1</span>):</span>
-<span id="cb1-148"><a href="#cb1-148" aria-hidden="true" tabindex="-1"></a>        gx, gy <span class="op">=</span> df(x, y)</span>
+<span id="cb1-103"><a href="#cb1-103" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span> f(x, y) <span class="op">&lt;</span> <span class="fl">1.01</span>:</span>
+<span id="cb1-104"><a href="#cb1-104" aria-hidden="true" tabindex="-1"></a>            <span class="cf">break</span></span>
+<span id="cb1-105"><a href="#cb1-105" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb1-106"><a href="#cb1-106" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> np.array(path)</span>
+<span id="cb1-107"><a href="#cb1-107" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-108"><a href="#cb1-108" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> run_rmsprop(x0, y0, lr<span class="op">=</span><span class="fl">0.3</span>, rho<span class="op">=</span><span class="fl">0.9</span>, eps<span class="op">=</span><span class="fl">1e-8</span>, n_steps<span class="op">=</span><span class="dv">100</span>):</span>
+<span id="cb1-109"><a href="#cb1-109" aria-hidden="true" tabindex="-1"></a>    <span class="co">"""RMSprop optimizer - maintains learning rate"""</span></span>
+<span id="cb1-110"><a href="#cb1-110" aria-hidden="true" tabindex="-1"></a>    path <span class="op">=</span> [(x0, y0)]</span>
+<span id="cb1-111"><a href="#cb1-111" aria-hidden="true" tabindex="-1"></a>    x, y <span class="op">=</span> x0, y0</span>
+<span id="cb1-112"><a href="#cb1-112" aria-hidden="true" tabindex="-1"></a>    vx, vy <span class="op">=</span> <span class="dv">0</span>, <span class="dv">0</span></span>
+<span id="cb1-113"><a href="#cb1-113" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb1-114"><a href="#cb1-114" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> _ <span class="kw">in</span> <span class="bu">range</span>(n_steps):</span>
+<span id="cb1-115"><a href="#cb1-115" aria-hidden="true" tabindex="-1"></a>        gx, gy <span class="op">=</span> df(x, y)</span>
+<span id="cb1-116"><a href="#cb1-116" aria-hidden="true" tabindex="-1"></a>        </span>
+<span id="cb1-117"><a href="#cb1-117" aria-hidden="true" tabindex="-1"></a>        <span class="co"># Update moving average of squared gradients</span></span>
+<span id="cb1-118"><a href="#cb1-118" aria-hidden="true" tabindex="-1"></a>        vx <span class="op">=</span> rho <span class="op">*</span> vx <span class="op">+</span> (<span class="dv">1</span> <span class="op">-</span> rho) <span class="op">*</span> gx<span class="op">**</span><span class="dv">2</span></span>
+<span id="cb1-119"><a href="#cb1-119" aria-hidden="true" tabindex="-1"></a>        vy <span class="op">=</span> rho <span class="op">*</span> vy <span class="op">+</span> (<span class="dv">1</span> <span class="op">-</span> rho) <span class="op">*</span> gy<span class="op">**</span><span class="dv">2</span></span>
+<span id="cb1-120"><a href="#cb1-120" aria-hidden="true" tabindex="-1"></a>        </span>
+<span id="cb1-121"><a href="#cb1-121" aria-hidden="true" tabindex="-1"></a>        <span class="co"># RMSprop update - learning rate stays more stable</span></span>
+<span id="cb1-122"><a href="#cb1-122" aria-hidden="true" tabindex="-1"></a>        effective_lr_x <span class="op">=</span> lr <span class="op">/</span> (np.sqrt(vx) <span class="op">+</span> eps)</span>
+<span id="cb1-123"><a href="#cb1-123" aria-hidden="true" tabindex="-1"></a>        effective_lr_y <span class="op">=</span> lr <span class="op">/</span> (np.sqrt(vy) <span class="op">+</span> eps)</span>
+<span id="cb1-124"><a href="#cb1-124" aria-hidden="true" tabindex="-1"></a>        </span>
+<span id="cb1-125"><a href="#cb1-125" aria-hidden="true" tabindex="-1"></a>        x <span class="op">-=</span> effective_lr_x <span class="op">*</span> gx</span>
+<span id="cb1-126"><a href="#cb1-126" aria-hidden="true" tabindex="-1"></a>        y <span class="op">-=</span> effective_lr_y <span class="op">*</span> gy</span>
+<span id="cb1-127"><a href="#cb1-127" aria-hidden="true" tabindex="-1"></a>        path.append((x, y))</span>
+<span id="cb1-128"><a href="#cb1-128" aria-hidden="true" tabindex="-1"></a>        </span>
+<span id="cb1-129"><a href="#cb1-129" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span> f(x, y) <span class="op">&lt;</span> <span class="fl">1.01</span>:</span>
+<span id="cb1-130"><a href="#cb1-130" aria-hidden="true" tabindex="-1"></a>            <span class="cf">break</span></span>
+<span id="cb1-131"><a href="#cb1-131" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb1-132"><a href="#cb1-132" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> np.array(path)</span>
+<span id="cb1-133"><a href="#cb1-133" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-134"><a href="#cb1-134" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> run_adam(x0, y0, lr<span class="op">=</span><span class="fl">0.3</span>, beta1<span class="op">=</span><span class="fl">0.9</span>, beta2<span class="op">=</span><span class="fl">0.999</span>, eps<span class="op">=</span><span class="fl">1e-8</span>, n_steps<span class="op">=</span><span class="dv">100</span>):</span>
+<span id="cb1-135"><a href="#cb1-135" aria-hidden="true" tabindex="-1"></a>    <span class="co">"""Adam optimizer"""</span></span>
+<span id="cb1-136"><a href="#cb1-136" aria-hidden="true" tabindex="-1"></a>    path <span class="op">=</span> [(x0, y0)]</span>
+<span id="cb1-137"><a href="#cb1-137" aria-hidden="true" tabindex="-1"></a>    x, y <span class="op">=</span> x0, y0</span>
+<span id="cb1-138"><a href="#cb1-138" aria-hidden="true" tabindex="-1"></a>    mx, my <span class="op">=</span> <span class="dv">0</span>, <span class="dv">0</span></span>
+<span id="cb1-139"><a href="#cb1-139" aria-hidden="true" tabindex="-1"></a>    vx, vy <span class="op">=</span> <span class="dv">0</span>, <span class="dv">0</span></span>
+<span id="cb1-140"><a href="#cb1-140" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb1-141"><a href="#cb1-141" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> t <span class="kw">in</span> <span class="bu">range</span>(<span class="dv">1</span>, n_steps <span class="op">+</span> <span class="dv">1</span>):</span>
+<span id="cb1-142"><a href="#cb1-142" aria-hidden="true" tabindex="-1"></a>        gx, gy <span class="op">=</span> df(x, y)</span>
+<span id="cb1-143"><a href="#cb1-143" aria-hidden="true" tabindex="-1"></a>        </span>
+<span id="cb1-144"><a href="#cb1-144" aria-hidden="true" tabindex="-1"></a>        <span class="co"># Update moments</span></span>
+<span id="cb1-145"><a href="#cb1-145" aria-hidden="true" tabindex="-1"></a>        mx <span class="op">=</span> beta1 <span class="op">*</span> mx <span class="op">+</span> (<span class="dv">1</span> <span class="op">-</span> beta1) <span class="op">*</span> gx</span>
+<span id="cb1-146"><a href="#cb1-146" aria-hidden="true" tabindex="-1"></a>        my <span class="op">=</span> beta1 <span class="op">*</span> my <span class="op">+</span> (<span class="dv">1</span> <span class="op">-</span> beta1) <span class="op">*</span> gy</span>
+<span id="cb1-147"><a href="#cb1-147" aria-hidden="true" tabindex="-1"></a>        vx <span class="op">=</span> beta2 <span class="op">*</span> vx <span class="op">+</span> (<span class="dv">1</span> <span class="op">-</span> beta2) <span class="op">*</span> gx<span class="op">**</span><span class="dv">2</span></span>
+<span id="cb1-148"><a href="#cb1-148" aria-hidden="true" tabindex="-1"></a>        vy <span class="op">=</span> beta2 <span class="op">*</span> vy <span class="op">+</span> (<span class="dv">1</span> <span class="op">-</span> beta2) <span class="op">*</span> gy<span class="op">**</span><span class="dv">2</span></span>
 <span id="cb1-149"><a href="#cb1-149" aria-hidden="true" tabindex="-1"></a>        </span>
-<span id="cb1-150"><a href="#cb1-150" aria-hidden="true" tabindex="-1"></a>        <span class="co"># Update moments</span></span>
-<span id="cb1-151"><a href="#cb1-151" aria-hidden="true" tabindex="-1"></a>        mx <span class="op">=</span> beta1 <span class="op">*</span> mx <span class="op">+</span> (<span class="dv">1</span> <span class="op">-</span> beta1) <span class="op">*</span> gx</span>
-<span id="cb1-152"><a href="#cb1-152" aria-hidden="true" tabindex="-1"></a>        my <span class="op">=</span> beta1 <span class="op">*</span> my <span class="op">+</span> (<span class="dv">1</span> <span class="op">-</span> beta1) <span class="op">*</span> gy</span>
-<span id="cb1-153"><a href="#cb1-153" aria-hidden="true" tabindex="-1"></a>        vx <span class="op">=</span> beta2 <span class="op">*</span> vx <span class="op">+</span> (<span class="dv">1</span> <span class="op">-</span> beta2) <span class="op">*</span> gx<span class="op">**</span><span class="dv">2</span></span>
-<span id="cb1-154"><a href="#cb1-154" aria-hidden="true" tabindex="-1"></a>        vy <span class="op">=</span> beta2 <span class="op">*</span> vy <span class="op">+</span> (<span class="dv">1</span> <span class="op">-</span> beta2) <span class="op">*</span> gy<span class="op">**</span><span class="dv">2</span></span>
+<span id="cb1-150"><a href="#cb1-150" aria-hidden="true" tabindex="-1"></a>        <span class="co"># Bias correction</span></span>
+<span id="cb1-151"><a href="#cb1-151" aria-hidden="true" tabindex="-1"></a>        mx_hat <span class="op">=</span> mx <span class="op">/</span> (<span class="dv">1</span> <span class="op">-</span> beta1<span class="op">**</span>t)</span>
+<span id="cb1-152"><a href="#cb1-152" aria-hidden="true" tabindex="-1"></a>        my_hat <span class="op">=</span> my <span class="op">/</span> (<span class="dv">1</span> <span class="op">-</span> beta1<span class="op">**</span>t)</span>
+<span id="cb1-153"><a href="#cb1-153" aria-hidden="true" tabindex="-1"></a>        vx_hat <span class="op">=</span> vx <span class="op">/</span> (<span class="dv">1</span> <span class="op">-</span> beta2<span class="op">**</span>t)</span>
+<span id="cb1-154"><a href="#cb1-154" aria-hidden="true" tabindex="-1"></a>        vy_hat <span class="op">=</span> vy <span class="op">/</span> (<span class="dv">1</span> <span class="op">-</span> beta2<span class="op">**</span>t)</span>
 <span id="cb1-155"><a href="#cb1-155" aria-hidden="true" tabindex="-1"></a>        </span>
-<span id="cb1-156"><a href="#cb1-156" aria-hidden="true" tabindex="-1"></a>        <span class="co"># Bias correction</span></span>
-<span id="cb1-157"><a href="#cb1-157" aria-hidden="true" tabindex="-1"></a>        mx_hat <span class="op">=</span> mx <span class="op">/</span> (<span class="dv">1</span> <span class="op">-</span> beta1<span class="op">**</span>t)</span>
-<span id="cb1-158"><a href="#cb1-158" aria-hidden="true" tabindex="-1"></a>        my_hat <span class="op">=</span> my <span class="op">/</span> (<span class="dv">1</span> <span class="op">-</span> beta1<span class="op">**</span>t)</span>
-<span id="cb1-159"><a href="#cb1-159" aria-hidden="true" tabindex="-1"></a>        vx_hat <span class="op">=</span> vx <span class="op">/</span> (<span class="dv">1</span> <span class="op">-</span> beta2<span class="op">**</span>t)</span>
-<span id="cb1-160"><a href="#cb1-160" aria-hidden="true" tabindex="-1"></a>        vy_hat <span class="op">=</span> vy <span class="op">/</span> (<span class="dv">1</span> <span class="op">-</span> beta2<span class="op">**</span>t)</span>
-<span id="cb1-161"><a href="#cb1-161" aria-hidden="true" tabindex="-1"></a>        </span>
-<span id="cb1-162"><a href="#cb1-162" aria-hidden="true" tabindex="-1"></a>        <span class="co"># Update parameters</span></span>
-<span id="cb1-163"><a href="#cb1-163" aria-hidden="true" tabindex="-1"></a>        x <span class="op">-=</span> lr <span class="op">*</span> mx_hat <span class="op">/</span> (np.sqrt(vx_hat) <span class="op">+</span> eps)</span>
-<span id="cb1-164"><a href="#cb1-164" aria-hidden="true" tabindex="-1"></a>        y <span class="op">-=</span> lr <span class="op">*</span> my_hat <span class="op">/</span> (np.sqrt(vy_hat) <span class="op">+</span> eps)</span>
-<span id="cb1-165"><a href="#cb1-165" aria-hidden="true" tabindex="-1"></a>        path.append((x, y))</span>
-<span id="cb1-166"><a href="#cb1-166" aria-hidden="true" tabindex="-1"></a>        </span>
-<span id="cb1-167"><a href="#cb1-167" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span> f(x, y) <span class="op">&lt;</span> <span class="fl">1.01</span>:</span>
-<span id="cb1-168"><a href="#cb1-168" aria-hidden="true" tabindex="-1"></a>            <span class="cf">break</span></span>
-<span id="cb1-169"><a href="#cb1-169" aria-hidden="true" tabindex="-1"></a>    </span>
-<span id="cb1-170"><a href="#cb1-170" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> np.array(path)</span>
-<span id="cb1-171"><a href="#cb1-171" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-172"><a href="#cb1-172" aria-hidden="true" tabindex="-1"></a><span class="co"># Run all optimizers from the same starting point</span></span>
-<span id="cb1-173"><a href="#cb1-173" aria-hidden="true" tabindex="-1"></a>start_x, start_y <span class="op">=</span> <span class="op">-</span><span class="dv">10</span>, <span class="dv">5</span></span>
-<span id="cb1-174"><a href="#cb1-174" aria-hidden="true" tabindex="-1"></a>path_batch <span class="op">=</span> run_batch_gd(start_x, start_y)</span>
-<span id="cb1-175"><a href="#cb1-175" aria-hidden="true" tabindex="-1"></a>path_noisy <span class="op">=</span> run_noisy_gd(start_x, start_y)</span>
-<span id="cb1-176"><a href="#cb1-176" aria-hidden="true" tabindex="-1"></a>path_momentum <span class="op">=</span> run_momentum(start_x, start_y)</span>
-<span id="cb1-177"><a href="#cb1-177" aria-hidden="true" tabindex="-1"></a>path_adagrad <span class="op">=</span> run_adagrad(start_x, start_y)</span>
-<span id="cb1-178"><a href="#cb1-178" aria-hidden="true" tabindex="-1"></a>path_rmsprop <span class="op">=</span> run_rmsprop(start_x, start_y)</span>
-<span id="cb1-179"><a href="#cb1-179" aria-hidden="true" tabindex="-1"></a>path_adam <span class="op">=</span> run_adam(start_x, start_y)</span>
-<span id="cb1-180"><a href="#cb1-180" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-181"><a href="#cb1-181" aria-hidden="true" tabindex="-1"></a><span class="co"># Plot - using 2x3 grid to accommodate all 6 optimizers</span></span>
-<span id="cb1-182"><a href="#cb1-182" aria-hidden="true" tabindex="-1"></a>fig, axes <span class="op">=</span> plt.subplots(<span class="dv">3</span>, <span class="dv">2</span>, figsize<span class="op">=</span>(<span class="dv">10</span>, <span class="dv">10</span>))</span>
-<span id="cb1-183"><a href="#cb1-183" aria-hidden="true" tabindex="-1"></a>axes <span class="op">=</span> axes.flatten()</span>
-<span id="cb1-184"><a href="#cb1-184" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-185"><a href="#cb1-185" aria-hidden="true" tabindex="-1"></a>paths_and_titles <span class="op">=</span> [</span>
-<span id="cb1-186"><a href="#cb1-186" aria-hidden="true" tabindex="-1"></a>    (path_batch, <span class="st">'Batch Gradient Descent'</span>),</span>
-<span id="cb1-187"><a href="#cb1-187" aria-hidden="true" tabindex="-1"></a>    (path_noisy, <span class="st">'Noisy Gradient Descent'</span>),</span>
-<span id="cb1-188"><a href="#cb1-188" aria-hidden="true" tabindex="-1"></a>    (path_momentum, <span class="st">'Momentum'</span>),</span>
-<span id="cb1-189"><a href="#cb1-189" aria-hidden="true" tabindex="-1"></a>    (path_adagrad, <span class="st">'AdaGrad'</span>),</span>
-<span id="cb1-190"><a href="#cb1-190" aria-hidden="true" tabindex="-1"></a>    (path_rmsprop, <span class="st">'RMSprop'</span>),</span>
-<span id="cb1-191"><a href="#cb1-191" aria-hidden="true" tabindex="-1"></a>    (path_adam, <span class="st">'Adam'</span>)</span>
-<span id="cb1-192"><a href="#cb1-192" aria-hidden="true" tabindex="-1"></a>]</span>
-<span id="cb1-193"><a href="#cb1-193" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-194"><a href="#cb1-194" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> i, (path, title) <span class="kw">in</span> <span class="bu">enumerate</span>(paths_and_titles):</span>
-<span id="cb1-195"><a href="#cb1-195" aria-hidden="true" tabindex="-1"></a>    ax <span class="op">=</span> axes[i]</span>
-<span id="cb1-196"><a href="#cb1-196" aria-hidden="true" tabindex="-1"></a>    </span>
-<span id="cb1-197"><a href="#cb1-197" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Create contour background</span></span>
-<span id="cb1-198"><a href="#cb1-198" aria-hidden="true" tabindex="-1"></a>    levels <span class="op">=</span> np.logspace(<span class="dv">0</span>, <span class="dv">2</span>, <span class="dv">15</span>)  <span class="co"># Better level spacing</span></span>
-<span id="cb1-199"><a href="#cb1-199" aria-hidden="true" tabindex="-1"></a>    ax.contour(X, Y, Z, levels<span class="op">=</span>levels, alpha<span class="op">=</span><span class="fl">0.6</span>, colors<span class="op">=</span><span class="st">'gray'</span>, linewidths<span class="op">=</span><span class="fl">0.5</span>)</span>
-<span id="cb1-200"><a href="#cb1-200" aria-hidden="true" tabindex="-1"></a>    ax.contourf(X, Y, Z, levels<span class="op">=</span>levels, alpha<span class="op">=</span><span class="fl">0.3</span>, cmap<span class="op">=</span><span class="st">'viridis'</span>)</span>
+<span id="cb1-156"><a href="#cb1-156" aria-hidden="true" tabindex="-1"></a>        <span class="co"># Update parameters</span></span>
+<span id="cb1-157"><a href="#cb1-157" aria-hidden="true" tabindex="-1"></a>        x <span class="op">-=</span> lr <span class="op">*</span> mx_hat <span class="op">/</span> (np.sqrt(vx_hat) <span class="op">+</span> eps)</span>
+<span id="cb1-158"><a href="#cb1-158" aria-hidden="true" tabindex="-1"></a>        y <span class="op">-=</span> lr <span class="op">*</span> my_hat <span class="op">/</span> (np.sqrt(vy_hat) <span class="op">+</span> eps)</span>
+<span id="cb1-159"><a href="#cb1-159" aria-hidden="true" tabindex="-1"></a>        path.append((x, y))</span>
+<span id="cb1-160"><a href="#cb1-160" aria-hidden="true" tabindex="-1"></a>        </span>
+<span id="cb1-161"><a href="#cb1-161" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span> f(x, y) <span class="op">&lt;</span> <span class="fl">1.01</span>:</span>
+<span id="cb1-162"><a href="#cb1-162" aria-hidden="true" tabindex="-1"></a>            <span class="cf">break</span></span>
+<span id="cb1-163"><a href="#cb1-163" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb1-164"><a href="#cb1-164" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> np.array(path)</span>
+<span id="cb1-165"><a href="#cb1-165" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-166"><a href="#cb1-166" aria-hidden="true" tabindex="-1"></a><span class="co"># Run all optimizers from the same starting point</span></span>
+<span id="cb1-167"><a href="#cb1-167" aria-hidden="true" tabindex="-1"></a>start_x, start_y <span class="op">=</span> <span class="op">-</span><span class="dv">10</span>, <span class="dv">5</span></span>
+<span id="cb1-168"><a href="#cb1-168" aria-hidden="true" tabindex="-1"></a>path_batch <span class="op">=</span> run_batch_gd(start_x, start_y)</span>
+<span id="cb1-169"><a href="#cb1-169" aria-hidden="true" tabindex="-1"></a>path_noisy <span class="op">=</span> run_noisy_gd(start_x, start_y)</span>
+<span id="cb1-170"><a href="#cb1-170" aria-hidden="true" tabindex="-1"></a>path_momentum <span class="op">=</span> run_momentum(start_x, start_y)</span>
+<span id="cb1-171"><a href="#cb1-171" aria-hidden="true" tabindex="-1"></a>path_adagrad <span class="op">=</span> run_adagrad(start_x, start_y)</span>
+<span id="cb1-172"><a href="#cb1-172" aria-hidden="true" tabindex="-1"></a>path_rmsprop <span class="op">=</span> run_rmsprop(start_x, start_y)</span>
+<span id="cb1-173"><a href="#cb1-173" aria-hidden="true" tabindex="-1"></a>path_adam <span class="op">=</span> run_adam(start_x, start_y)</span>
+<span id="cb1-174"><a href="#cb1-174" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-175"><a href="#cb1-175" aria-hidden="true" tabindex="-1"></a><span class="co"># Plot - using a 3x2 grid to accommodate all 6 optimizers</span></span>
+<span id="cb1-176"><a href="#cb1-176" aria-hidden="true" tabindex="-1"></a>fig, axes <span class="op">=</span> plt.subplots(<span class="dv">3</span>, <span class="dv">2</span>, figsize<span class="op">=</span>(<span class="dv">10</span>, <span class="dv">10</span>))</span>
+<span id="cb1-177"><a href="#cb1-177" aria-hidden="true" tabindex="-1"></a>axes <span class="op">=</span> axes.flatten()</span>
+<span id="cb1-178"><a href="#cb1-178" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-179"><a href="#cb1-179" aria-hidden="true" tabindex="-1"></a>paths_and_titles <span class="op">=</span> [</span>
+<span id="cb1-180"><a href="#cb1-180" aria-hidden="true" tabindex="-1"></a>    (path_batch, <span class="st">'Batch Gradient Descent'</span>),</span>
+<span id="cb1-181"><a href="#cb1-181" aria-hidden="true" tabindex="-1"></a>    (path_noisy, <span class="st">'Noisy Gradient Descent'</span>),</span>
+<span id="cb1-182"><a href="#cb1-182" aria-hidden="true" tabindex="-1"></a>    (path_momentum, <span class="st">'Momentum'</span>),</span>
+<span id="cb1-183"><a href="#cb1-183" aria-hidden="true" tabindex="-1"></a>    (path_adagrad, <span class="st">'AdaGrad'</span>),</span>
+<span id="cb1-184"><a href="#cb1-184" aria-hidden="true" tabindex="-1"></a>    (path_rmsprop, <span class="st">'RMSprop'</span>),</span>
+<span id="cb1-185"><a href="#cb1-185" aria-hidden="true" tabindex="-1"></a>    (path_adam, <span class="st">'Adam'</span>)</span>
+<span id="cb1-186"><a href="#cb1-186" aria-hidden="true" tabindex="-1"></a>]</span>
+<span id="cb1-187"><a href="#cb1-187" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-188"><a href="#cb1-188" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> i, (path, title) <span class="kw">in</span> <span class="bu">enumerate</span>(paths_and_titles):</span>
+<span id="cb1-189"><a href="#cb1-189" aria-hidden="true" tabindex="-1"></a>    ax <span class="op">=</span> axes[i]</span>
+<span id="cb1-190"><a href="#cb1-190" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb1-191"><a href="#cb1-191" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Create contour background</span></span>
+<span id="cb1-192"><a href="#cb1-192" aria-hidden="true" tabindex="-1"></a>    levels <span class="op">=</span> np.logspace(<span class="dv">0</span>, <span class="dv">2</span>, <span class="dv">15</span>)  <span class="co"># Better level spacing</span></span>
+<span id="cb1-193"><a href="#cb1-193" aria-hidden="true" tabindex="-1"></a>    ax.contour(X, Y, Z, levels<span class="op">=</span>levels, alpha<span class="op">=</span><span class="fl">0.6</span>, colors<span class="op">=</span><span class="st">'gray'</span>, linewidths<span class="op">=</span><span class="fl">0.5</span>)</span>
+<span id="cb1-194"><a href="#cb1-194" aria-hidden="true" tabindex="-1"></a>    ax.contourf(X, Y, Z, levels<span class="op">=</span>levels, alpha<span class="op">=</span><span class="fl">0.3</span>, cmap<span class="op">=</span><span class="st">'viridis'</span>)</span>
+<span id="cb1-195"><a href="#cb1-195" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb1-196"><a href="#cb1-196" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Plot optimization path</span></span>
+<span id="cb1-197"><a href="#cb1-197" aria-hidden="true" tabindex="-1"></a>    ax.plot(path[:, <span class="dv">0</span>], path[:, <span class="dv">1</span>], <span class="st">'r-'</span>, linewidth<span class="op">=</span><span class="dv">2</span>, alpha<span class="op">=</span><span class="fl">0.8</span>)</span>
+<span id="cb1-198"><a href="#cb1-198" aria-hidden="true" tabindex="-1"></a>    ax.plot(path[<span class="dv">0</span>, <span class="dv">0</span>], path[<span class="dv">0</span>, <span class="dv">1</span>], <span class="st">'go'</span>, markersize<span class="op">=</span><span class="dv">10</span>, label<span class="op">=</span><span class="st">'Start'</span>, zorder<span class="op">=</span><span class="dv">5</span>)</span>
+<span id="cb1-199"><a href="#cb1-199" aria-hidden="true" tabindex="-1"></a>    ax.plot(path[<span class="op">-</span><span class="dv">1</span>, <span class="dv">0</span>], path[<span class="op">-</span><span class="dv">1</span>, <span class="dv">1</span>], <span class="st">'ro'</span>, markersize<span class="op">=</span><span class="dv">8</span>, label<span class="op">=</span><span class="st">'End'</span>, zorder<span class="op">=</span><span class="dv">5</span>)</span>
+<span id="cb1-200"><a href="#cb1-200" aria-hidden="true" tabindex="-1"></a>    ax.plot(<span class="dv">0</span>, <span class="dv">0</span>, <span class="st">'k*'</span>, markersize<span class="op">=</span><span class="dv">15</span>, label<span class="op">=</span><span class="st">'Optimum'</span>, zorder<span class="op">=</span><span class="dv">5</span>)</span>
 <span id="cb1-201"><a href="#cb1-201" aria-hidden="true" tabindex="-1"></a>    </span>
-<span id="cb1-202"><a href="#cb1-202" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Plot optimization path</span></span>
-<span id="cb1-203"><a href="#cb1-203" aria-hidden="true" tabindex="-1"></a>    ax.plot(path[:, <span class="dv">0</span>], path[:, <span class="dv">1</span>], <span class="st">'r-'</span>, linewidth<span class="op">=</span><span class="dv">2</span>, alpha<span class="op">=</span><span class="fl">0.8</span>)</span>
-<span id="cb1-204"><a href="#cb1-204" aria-hidden="true" tabindex="-1"></a>    ax.plot(path[<span class="dv">0</span>, <span class="dv">0</span>], path[<span class="dv">0</span>, <span class="dv">1</span>], <span class="st">'go'</span>, markersize<span class="op">=</span><span class="dv">10</span>, label<span class="op">=</span><span class="st">'Start'</span>, zorder<span class="op">=</span><span class="dv">5</span>)</span>
-<span id="cb1-205"><a href="#cb1-205" aria-hidden="true" tabindex="-1"></a>    ax.plot(path[<span class="op">-</span><span class="dv">1</span>, <span class="dv">0</span>], path[<span class="op">-</span><span class="dv">1</span>, <span class="dv">1</span>], <span class="st">'ro'</span>, markersize<span class="op">=</span><span class="dv">8</span>, label<span class="op">=</span><span class="st">'End'</span>, zorder<span class="op">=</span><span class="dv">5</span>)</span>
-<span id="cb1-206"><a href="#cb1-206" aria-hidden="true" tabindex="-1"></a>    ax.plot(<span class="dv">0</span>, <span class="dv">0</span>, <span class="st">'k*'</span>, markersize<span class="op">=</span><span class="dv">15</span>, label<span class="op">=</span><span class="st">'Optimum'</span>, zorder<span class="op">=</span><span class="dv">5</span>)</span>
-<span id="cb1-207"><a href="#cb1-207" aria-hidden="true" tabindex="-1"></a>    </span>
-<span id="cb1-208"><a href="#cb1-208" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Add arrows to show direction (fewer arrows for clarity)</span></span>
-<span id="cb1-209"><a href="#cb1-209" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> <span class="bu">len</span>(path) <span class="op">&gt;</span> <span class="dv">5</span>:</span>
-<span id="cb1-210"><a href="#cb1-210" aria-hidden="true" tabindex="-1"></a>        arrow_indices <span class="op">=</span> np.linspace(<span class="dv">0</span>, <span class="bu">len</span>(path)<span class="op">-</span><span class="dv">2</span>, <span class="bu">min</span>(<span class="dv">6</span>, <span class="bu">len</span>(path)<span class="op">-</span><span class="dv">1</span>), dtype<span class="op">=</span><span class="bu">int</span>)</span>
-<span id="cb1-211"><a href="#cb1-211" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> j <span class="kw">in</span> arrow_indices:</span>
-<span id="cb1-212"><a href="#cb1-212" aria-hidden="true" tabindex="-1"></a>            dx <span class="op">=</span> path[j<span class="op">+</span><span class="dv">1</span>, <span class="dv">0</span>] <span class="op">-</span> path[j, <span class="dv">0</span>]</span>
-<span id="cb1-213"><a href="#cb1-213" aria-hidden="true" tabindex="-1"></a>            dy <span class="op">=</span> path[j<span class="op">+</span><span class="dv">1</span>, <span class="dv">1</span>] <span class="op">-</span> path[j, <span class="dv">1</span>]</span>
-<span id="cb1-214"><a href="#cb1-214" aria-hidden="true" tabindex="-1"></a>            <span class="co"># Only draw arrow if movement is significant</span></span>
-<span id="cb1-215"><a href="#cb1-215" aria-hidden="true" tabindex="-1"></a>            <span class="cf">if</span> np.sqrt(dx<span class="op">**</span><span class="dv">2</span> <span class="op">+</span> dy<span class="op">**</span><span class="dv">2</span>) <span class="op">&gt;</span> <span class="fl">0.1</span>:</span>
-<span id="cb1-216"><a href="#cb1-216" aria-hidden="true" tabindex="-1"></a>                ax.arrow(path[j, <span class="dv">0</span>], path[j, <span class="dv">1</span>], dx, dy, </span>
-<span id="cb1-217"><a href="#cb1-217" aria-hidden="true" tabindex="-1"></a>                        head_width<span class="op">=</span><span class="fl">0.3</span>, head_length<span class="op">=</span><span class="fl">0.2</span>, fc<span class="op">=</span><span class="st">'red'</span>, ec<span class="op">=</span><span class="st">'red'</span>, alpha<span class="op">=</span><span class="fl">0.7</span>)</span>
-<span id="cb1-218"><a href="#cb1-218" aria-hidden="true" tabindex="-1"></a>    </span>
-<span id="cb1-219"><a href="#cb1-219" aria-hidden="true" tabindex="-1"></a>    ax.set_aspect(<span class="st">'equal'</span>, adjustable<span class="op">=</span><span class="st">'box'</span>)</span>
-<span id="cb1-220"><a href="#cb1-220" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-221"><a href="#cb1-221" aria-hidden="true" tabindex="-1"></a>    ax.set_title(<span class="ss">f'</span><span class="sc">{</span>title<span class="sc">}</span><span class="ch">\n</span><span class="ss">(</span><span class="sc">{</span><span class="bu">len</span>(path)<span class="op">-</span><span class="dv">1</span><span class="sc">}</span><span class="ss"> steps)'</span>)</span>
-<span id="cb1-222"><a href="#cb1-222" aria-hidden="true" tabindex="-1"></a>    ax.set_xlabel(<span class="st">'θ₁'</span>)</span>
-<span id="cb1-223"><a href="#cb1-223" aria-hidden="true" tabindex="-1"></a>    ax.set_ylabel(<span class="st">'θ₂'</span>)</span>
-<span id="cb1-224"><a href="#cb1-224" aria-hidden="true" tabindex="-1"></a>    ax.legend(loc<span class="op">=</span><span class="st">'upper right'</span>)</span>
-<span id="cb1-225"><a href="#cb1-225" aria-hidden="true" tabindex="-1"></a>    ax.grid(<span class="va">True</span>, alpha<span class="op">=</span><span class="fl">0.3</span>)</span>
-<span id="cb1-226"><a href="#cb1-226" aria-hidden="true" tabindex="-1"></a>    ax.set_xlim(<span class="op">-</span><span class="dv">12</span>, <span class="dv">3</span>)</span>
-<span id="cb1-227"><a href="#cb1-227" aria-hidden="true" tabindex="-1"></a>    ax.set_ylim(<span class="op">-</span><span class="dv">2</span>, <span class="dv">6</span>)</span>
-<span id="cb1-228"><a href="#cb1-228" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-229"><a href="#cb1-229" aria-hidden="true" tabindex="-1"></a>plt.tight_layout()</span>
-<span id="cb1-230"><a href="#cb1-230" aria-hidden="true" tabindex="-1"></a>plt.show()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<span id="cb1-202"><a href="#cb1-202" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Add arrows to show direction (fewer arrows for clarity)</span></span>
+<span id="cb1-203"><a href="#cb1-203" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> <span class="bu">len</span>(path) <span class="op">&gt;</span> <span class="dv">5</span>:</span>
+<span id="cb1-204"><a href="#cb1-204" aria-hidden="true" tabindex="-1"></a>        arrow_indices <span class="op">=</span> np.linspace(<span class="dv">0</span>, <span class="bu">len</span>(path)<span class="op">-</span><span class="dv">2</span>, <span class="bu">min</span>(<span class="dv">6</span>, <span class="bu">len</span>(path)<span class="op">-</span><span class="dv">1</span>), dtype<span class="op">=</span><span class="bu">int</span>)</span>
+<span id="cb1-205"><a href="#cb1-205" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> j <span class="kw">in</span> arrow_indices:</span>
+<span id="cb1-206"><a href="#cb1-206" aria-hidden="true" tabindex="-1"></a>            dx <span class="op">=</span> path[j<span class="op">+</span><span class="dv">1</span>, <span class="dv">0</span>] <span class="op">-</span> path[j, <span class="dv">0</span>]</span>
+<span id="cb1-207"><a href="#cb1-207" aria-hidden="true" tabindex="-1"></a>            dy <span class="op">=</span> path[j<span class="op">+</span><span class="dv">1</span>, <span class="dv">1</span>] <span class="op">-</span> path[j, <span class="dv">1</span>]</span>
+<span id="cb1-208"><a href="#cb1-208" aria-hidden="true" tabindex="-1"></a>            <span class="co"># Only draw arrow if movement is significant</span></span>
+<span id="cb1-209"><a href="#cb1-209" aria-hidden="true" tabindex="-1"></a>            <span class="cf">if</span> np.sqrt(dx<span class="op">**</span><span class="dv">2</span> <span class="op">+</span> dy<span class="op">**</span><span class="dv">2</span>) <span class="op">&gt;</span> <span class="fl">0.1</span>:</span>
+<span id="cb1-210"><a href="#cb1-210" aria-hidden="true" tabindex="-1"></a>                ax.arrow(path[j, <span class="dv">0</span>], path[j, <span class="dv">1</span>], dx, dy, </span>
+<span id="cb1-211"><a href="#cb1-211" aria-hidden="true" tabindex="-1"></a>                        head_width<span class="op">=</span><span class="fl">0.3</span>, head_length<span class="op">=</span><span class="fl">0.2</span>, fc<span class="op">=</span><span class="st">'red'</span>, ec<span class="op">=</span><span class="st">'red'</span>, alpha<span class="op">=</span><span class="fl">0.7</span>)</span>
+<span id="cb1-212"><a href="#cb1-212" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb1-213"><a href="#cb1-213" aria-hidden="true" tabindex="-1"></a>    ax.set_aspect(<span class="st">'equal'</span>, adjustable<span class="op">=</span><span class="st">'box'</span>)</span>
+<span id="cb1-214"><a href="#cb1-214" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-215"><a href="#cb1-215" aria-hidden="true" tabindex="-1"></a>    ax.set_title(<span class="ss">f'</span><span class="sc">{</span>title<span class="sc">}</span><span class="ch">\n</span><span class="ss">(</span><span class="sc">{</span><span class="bu">len</span>(path)<span class="op">-</span><span class="dv">1</span><span class="sc">}</span><span class="ss"> steps)'</span>)</span>
+<span id="cb1-216"><a href="#cb1-216" aria-hidden="true" tabindex="-1"></a>    ax.set_xlabel(<span class="st">'θ₁'</span>)</span>
+<span id="cb1-217"><a href="#cb1-217" aria-hidden="true" tabindex="-1"></a>    ax.set_ylabel(<span class="st">'θ₂'</span>)</span>
+<span id="cb1-218"><a href="#cb1-218" aria-hidden="true" tabindex="-1"></a>    ax.legend(loc<span class="op">=</span><span class="st">'upper right'</span>)</span>
+<span id="cb1-219"><a href="#cb1-219" aria-hidden="true" tabindex="-1"></a>    ax.grid(<span class="va">True</span>, alpha<span class="op">=</span><span class="fl">0.3</span>)</span>
+<span id="cb1-220"><a href="#cb1-220" aria-hidden="true" tabindex="-1"></a>    ax.set_xlim(<span class="op">-</span><span class="dv">12</span>, <span class="dv">3</span>)</span>
+<span id="cb1-221"><a href="#cb1-221" aria-hidden="true" tabindex="-1"></a>    ax.set_ylim(<span class="op">-</span><span class="dv">2</span>, <span class="dv">6</span>)</span>
+<span id="cb1-222"><a href="#cb1-222" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-223"><a href="#cb1-223" aria-hidden="true" tabindex="-1"></a>plt.tight_layout()</span>
+<span id="cb1-224"><a href="#cb1-224" aria-hidden="true" tabindex="-1"></a>plt.show()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </details>
 <div class="cell-output cell-output-display">
 <div id="fig-optimizers" class="quarto-float quarto-figure quarto-figure-center anchored">
@@ -1073,6 +1073,7 @@ Figure&nbsp;4.1: Paths of six update rules on the ill-conditioned quadratic <spa
 </div>
 </div>
 </div>
+<p>The panels in <a href="#fig-optimizers" class="quarto-xref">Figure&nbsp;4.1</a> separate several effects. Batch Gradient Descent follows a smooth path, while the artificial gradient noise makes the neighboring path visibly more irregular. Momentum initially lags the current gradient and then overshoots across the steep direction, producing a curved, oscillatory route. AdaGrad’s ever-growing accumulator shortens later steps; RMSprop avoids carrying the entire gradient history and continues to adapt; and Adam combines a smoothed direction with coordinate-specific scaling. The step counts in the titles reinforce the main lesson: on this simple quadratic, no update rule dominates merely because it is more elaborate.</p>
 <div class="callout callout-style-default callout-note callout-titled">
 <div class="callout-header d-flex align-content-center">
 <div class="callout-icon-container">
@@ -1083,7 +1084,7 @@ Note on Algorithm Performance
 </div>
 </div>
 <div class="callout-body-container callout-body">
-<p>While Adam might not appear dramatically superior to other algorithms in this visualization, keep in mind that we’re using a <strong>very well-behaved quadratic function</strong> for demonstration purposes. In practice, neural network loss landscapes are:</p>
+<p>While Adam might not appear dramatically superior to other algorithms in this visualization, keep in mind that we are using a <strong>very well-behaved quadratic function</strong> for demonstration purposes. In practice, neural network loss landscapes are:</p>
 <ul>
 <li><strong>Highly non-convex</strong> with many local minima and saddle points</li>
 <li><strong>High-dimensional</strong> (often millions of parameters)</li>
@@ -1093,9 +1094,9 @@ Note on Algorithm Performance
 <p>In such landscapes, Adam’s adaptive scaling and momentum can make early training less sensitive to differences in gradient scale across coordinates than plain gradient descent with one global learning rate. This is a statement about the behavior of the update rule, not a guarantee of a lower final training loss or better out-of-sample performance. The simple two-dimensional example therefore illustrates behavioral differences between optimizers; it does not rank them for complex prediction problems.</p>
 </div>
 </div>
-<p>We can make the minimization problem more challenging by having multiple local minima and one global minimum. Of course, depending on the hyperparameters chosen, all algorithms may find the global minimum. The goal is to find an optimizer that is largely robust to different choices of hyperparameters.</p>
-<p>Two disclosures are needed to read the figure honestly. First, as in the quadratic comparison, the noisy-gradient panel adds artificial Gaussian noise to the exact gradient and is not literal SGD from sampled observations. Second, the raw-gradient methods use much smaller learning rates (0.01 for batch and noisy gradient descent, 0.001 for momentum) than the adaptive methods (0.3 for AdaGrad, RMSprop, and Adam). This is deliberate rather than an unfair handicap — adaptive methods normalize the gradient scale, so they tolerate, and need, a much larger nominal step size, while plain gradient descent diverges on this surface at 0.3. The panels therefore compare algorithm designs <em>at workable tunings</em>, not the algorithms at a common learning rate.</p>
-<div id="cell-fig-optimizers-nonconvex" class="cell" data-execution_count="3">
+<p>We can make the minimization problem more challenging by introducing several local minima alongside one global minimum. With several basins, the minimum an algorithm reaches depends on both its trajectory and its tuning. The practical question is therefore how sensitive each update rule is to the learning-rate choice, which is what the next comparison probes.</p>
+<p>Three disclosures are needed to read the figure honestly. First, as in the quadratic comparison, the noisy-gradient panel adds artificial Gaussian noise to the exact gradient and is not literal SGD from sampled observations. Second, the raw-gradient methods use much smaller learning rates (0.01 for batch and noisy gradient descent, 0.001 for momentum) than the adaptive methods (0.3 for AdaGrad, RMSprop, and Adam). This is deliberate rather than an unfair handicap — adaptive methods normalize the gradient scale, so they tolerate, and need, a much larger nominal step size, while plain gradient descent diverges on this surface at 0.3. Third, every panel stops when the loss falls below 1, after 200 iterations, or if a numerical failure produces a non-finite iterate; Adam uses <span class="math inline">\beta_2=0.999</span>, matching the quadratic comparison. The panels therefore compare algorithm designs <em>at workable tunings</em>, not the algorithms at a common learning rate.</p>
+<div id="cell-fig-optimizers-nonconvex" class="cell" data-execution_count="2">
 <details class="code-fold">
 <summary>Show the code</summary>
 <div class="sourceCode cell-code" id="cb2"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> numpy <span class="im">as</span> np</span>
@@ -1141,7 +1142,7 @@ Note on Algorithm Performance
 <span id="cb2-41"><a href="#cb2-41" aria-hidden="true" tabindex="-1"></a>            x <span class="op">-=</span> lr <span class="op">*</span> vx</span>
 <span id="cb2-42"><a href="#cb2-42" aria-hidden="true" tabindex="-1"></a>            y <span class="op">-=</span> lr <span class="op">*</span> vy</span>
 <span id="cb2-43"><a href="#cb2-43" aria-hidden="true" tabindex="-1"></a>            path.append((x, y))</span>
-<span id="cb2-44"><a href="#cb2-44" aria-hidden="true" tabindex="-1"></a>            <span class="cf">if</span> f_nonconvex(x, y) <span class="op">&lt;</span> <span class="dv">1</span> <span class="kw">or</span> np.isnan(x) <span class="kw">or</span> np.isnan(y):</span>
+<span id="cb2-44"><a href="#cb2-44" aria-hidden="true" tabindex="-1"></a>            <span class="cf">if</span> <span class="kw">not</span> np.isfinite(x) <span class="kw">or</span> <span class="kw">not</span> np.isfinite(y) <span class="kw">or</span> f_nonconvex(x, y) <span class="op">&lt;</span> <span class="dv">1</span>:</span>
 <span id="cb2-45"><a href="#cb2-45" aria-hidden="true" tabindex="-1"></a>                <span class="cf">break</span></span>
 <span id="cb2-46"><a href="#cb2-46" aria-hidden="true" tabindex="-1"></a>                </span>
 <span id="cb2-47"><a href="#cb2-47" aria-hidden="true" tabindex="-1"></a>    <span class="cf">elif</span> <span class="st">'adagrad'</span> <span class="kw">in</span> optimizer_func.<span class="va">__name__</span>:</span>
@@ -1150,7 +1151,7 @@ Note on Algorithm Performance
 <span id="cb2-50"><a href="#cb2-50" aria-hidden="true" tabindex="-1"></a>        eps <span class="op">=</span> kwargs.get(<span class="st">'eps'</span>, <span class="fl">1e-8</span>)</span>
 <span id="cb2-51"><a href="#cb2-51" aria-hidden="true" tabindex="-1"></a>        n_steps <span class="op">=</span> kwargs.get(<span class="st">'n_steps'</span>, <span class="dv">200</span>)</span>
 <span id="cb2-52"><a href="#cb2-52" aria-hidden="true" tabindex="-1"></a>        </span>
-<span id="cb2-53"><a href="#cb2-53" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> step <span class="kw">in</span> <span class="bu">range</span>(n_steps):</span>
+<span id="cb2-53"><a href="#cb2-53" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> _ <span class="kw">in</span> <span class="bu">range</span>(n_steps):</span>
 <span id="cb2-54"><a href="#cb2-54" aria-hidden="true" tabindex="-1"></a>            gx, gy <span class="op">=</span> df_nonconvex(x, y)</span>
 <span id="cb2-55"><a href="#cb2-55" aria-hidden="true" tabindex="-1"></a>            gx_sum_sq <span class="op">+=</span> gx<span class="op">**</span><span class="dv">2</span></span>
 <span id="cb2-56"><a href="#cb2-56" aria-hidden="true" tabindex="-1"></a>            gy_sum_sq <span class="op">+=</span> gy<span class="op">**</span><span class="dv">2</span></span>
@@ -1162,170 +1163,168 @@ Note on Algorithm Performance
 <span id="cb2-62"><a href="#cb2-62" aria-hidden="true" tabindex="-1"></a>            y <span class="op">-=</span> effective_lr_y <span class="op">*</span> gy</span>
 <span id="cb2-63"><a href="#cb2-63" aria-hidden="true" tabindex="-1"></a>            path.append((x, y))</span>
 <span id="cb2-64"><a href="#cb2-64" aria-hidden="true" tabindex="-1"></a>            </span>
-<span id="cb2-65"><a href="#cb2-65" aria-hidden="true" tabindex="-1"></a>            <span class="cf">if</span> f_nonconvex(x, y) <span class="op">&lt;</span> <span class="dv">1</span> <span class="kw">or</span> np.isnan(x) <span class="kw">or</span> np.isnan(y):</span>
+<span id="cb2-65"><a href="#cb2-65" aria-hidden="true" tabindex="-1"></a>            <span class="cf">if</span> <span class="kw">not</span> np.isfinite(x) <span class="kw">or</span> <span class="kw">not</span> np.isfinite(y) <span class="kw">or</span> f_nonconvex(x, y) <span class="op">&lt;</span> <span class="dv">1</span>:</span>
 <span id="cb2-66"><a href="#cb2-66" aria-hidden="true" tabindex="-1"></a>                <span class="cf">break</span></span>
-<span id="cb2-67"><a href="#cb2-67" aria-hidden="true" tabindex="-1"></a>            <span class="cf">if</span> step <span class="op">&gt;</span> <span class="dv">10</span> <span class="kw">and</span> effective_lr_x <span class="op">&lt;</span> <span class="fl">1e-6</span> <span class="kw">and</span> effective_lr_y <span class="op">&lt;</span> <span class="fl">1e-6</span>:</span>
-<span id="cb2-68"><a href="#cb2-68" aria-hidden="true" tabindex="-1"></a>                <span class="cf">break</span></span>
-<span id="cb2-69"><a href="#cb2-69" aria-hidden="true" tabindex="-1"></a>                </span>
-<span id="cb2-70"><a href="#cb2-70" aria-hidden="true" tabindex="-1"></a>    <span class="cf">elif</span> <span class="st">'rmsprop'</span> <span class="kw">in</span> optimizer_func.<span class="va">__name__</span>:</span>
-<span id="cb2-71"><a href="#cb2-71" aria-hidden="true" tabindex="-1"></a>        vx, vy <span class="op">=</span> <span class="dv">0</span>, <span class="dv">0</span></span>
-<span id="cb2-72"><a href="#cb2-72" aria-hidden="true" tabindex="-1"></a>        lr <span class="op">=</span> kwargs.get(<span class="st">'lr'</span>, <span class="fl">0.3</span>)</span>
-<span id="cb2-73"><a href="#cb2-73" aria-hidden="true" tabindex="-1"></a>        gamma <span class="op">=</span> kwargs.get(<span class="st">'gamma'</span>, <span class="fl">0.9</span>)</span>
-<span id="cb2-74"><a href="#cb2-74" aria-hidden="true" tabindex="-1"></a>        eps <span class="op">=</span> kwargs.get(<span class="st">'eps'</span>, <span class="fl">1e-8</span>)</span>
-<span id="cb2-75"><a href="#cb2-75" aria-hidden="true" tabindex="-1"></a>        n_steps <span class="op">=</span> kwargs.get(<span class="st">'n_steps'</span>, <span class="dv">200</span>)</span>
-<span id="cb2-76"><a href="#cb2-76" aria-hidden="true" tabindex="-1"></a>        </span>
-<span id="cb2-77"><a href="#cb2-77" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> _ <span class="kw">in</span> <span class="bu">range</span>(n_steps):</span>
-<span id="cb2-78"><a href="#cb2-78" aria-hidden="true" tabindex="-1"></a>            gx, gy <span class="op">=</span> df_nonconvex(x, y)</span>
-<span id="cb2-79"><a href="#cb2-79" aria-hidden="true" tabindex="-1"></a>            vx <span class="op">=</span> gamma <span class="op">*</span> vx <span class="op">+</span> (<span class="dv">1</span> <span class="op">-</span> gamma) <span class="op">*</span> gx<span class="op">**</span><span class="dv">2</span></span>
-<span id="cb2-80"><a href="#cb2-80" aria-hidden="true" tabindex="-1"></a>            vy <span class="op">=</span> gamma <span class="op">*</span> vy <span class="op">+</span> (<span class="dv">1</span> <span class="op">-</span> gamma) <span class="op">*</span> gy<span class="op">**</span><span class="dv">2</span></span>
-<span id="cb2-81"><a href="#cb2-81" aria-hidden="true" tabindex="-1"></a>            </span>
-<span id="cb2-82"><a href="#cb2-82" aria-hidden="true" tabindex="-1"></a>            x <span class="op">-=</span> lr <span class="op">*</span> gx <span class="op">/</span> (np.sqrt(vx) <span class="op">+</span> eps)</span>
-<span id="cb2-83"><a href="#cb2-83" aria-hidden="true" tabindex="-1"></a>            y <span class="op">-=</span> lr <span class="op">*</span> gy <span class="op">/</span> (np.sqrt(vy) <span class="op">+</span> eps)</span>
-<span id="cb2-84"><a href="#cb2-84" aria-hidden="true" tabindex="-1"></a>            path.append((x, y))</span>
-<span id="cb2-85"><a href="#cb2-85" aria-hidden="true" tabindex="-1"></a>            </span>
-<span id="cb2-86"><a href="#cb2-86" aria-hidden="true" tabindex="-1"></a>            <span class="cf">if</span> f_nonconvex(x, y) <span class="op">&lt;</span> <span class="dv">1</span> <span class="kw">or</span> np.isnan(x) <span class="kw">or</span> np.isnan(y):</span>
-<span id="cb2-87"><a href="#cb2-87" aria-hidden="true" tabindex="-1"></a>                <span class="cf">break</span></span>
-<span id="cb2-88"><a href="#cb2-88" aria-hidden="true" tabindex="-1"></a>                </span>
-<span id="cb2-89"><a href="#cb2-89" aria-hidden="true" tabindex="-1"></a>    <span class="cf">elif</span> <span class="st">'adam'</span> <span class="kw">in</span> optimizer_func.<span class="va">__name__</span>:</span>
-<span id="cb2-90"><a href="#cb2-90" aria-hidden="true" tabindex="-1"></a>        mx, my <span class="op">=</span> <span class="dv">0</span>, <span class="dv">0</span></span>
-<span id="cb2-91"><a href="#cb2-91" aria-hidden="true" tabindex="-1"></a>        vx, vy <span class="op">=</span> <span class="dv">0</span>, <span class="dv">0</span></span>
-<span id="cb2-92"><a href="#cb2-92" aria-hidden="true" tabindex="-1"></a>        lr <span class="op">=</span> kwargs.get(<span class="st">'lr'</span>, <span class="fl">0.3</span>)</span>
-<span id="cb2-93"><a href="#cb2-93" aria-hidden="true" tabindex="-1"></a>        beta1 <span class="op">=</span> kwargs.get(<span class="st">'beta1'</span>, <span class="fl">0.9</span>)</span>
-<span id="cb2-94"><a href="#cb2-94" aria-hidden="true" tabindex="-1"></a>        beta2 <span class="op">=</span> kwargs.get(<span class="st">'beta2'</span>, <span class="fl">0.99</span>)</span>
-<span id="cb2-95"><a href="#cb2-95" aria-hidden="true" tabindex="-1"></a>        eps <span class="op">=</span> kwargs.get(<span class="st">'eps'</span>, <span class="fl">1e-8</span>)</span>
-<span id="cb2-96"><a href="#cb2-96" aria-hidden="true" tabindex="-1"></a>        n_steps <span class="op">=</span> kwargs.get(<span class="st">'n_steps'</span>, <span class="dv">200</span>)</span>
-<span id="cb2-97"><a href="#cb2-97" aria-hidden="true" tabindex="-1"></a>        </span>
-<span id="cb2-98"><a href="#cb2-98" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> t <span class="kw">in</span> <span class="bu">range</span>(<span class="dv">1</span>, n_steps <span class="op">+</span> <span class="dv">1</span>):</span>
-<span id="cb2-99"><a href="#cb2-99" aria-hidden="true" tabindex="-1"></a>            gx, gy <span class="op">=</span> df_nonconvex(x, y)</span>
-<span id="cb2-100"><a href="#cb2-100" aria-hidden="true" tabindex="-1"></a>            </span>
-<span id="cb2-101"><a href="#cb2-101" aria-hidden="true" tabindex="-1"></a>            mx <span class="op">=</span> beta1 <span class="op">*</span> mx <span class="op">+</span> (<span class="dv">1</span> <span class="op">-</span> beta1) <span class="op">*</span> gx</span>
-<span id="cb2-102"><a href="#cb2-102" aria-hidden="true" tabindex="-1"></a>            my <span class="op">=</span> beta1 <span class="op">*</span> my <span class="op">+</span> (<span class="dv">1</span> <span class="op">-</span> beta1) <span class="op">*</span> gy</span>
-<span id="cb2-103"><a href="#cb2-103" aria-hidden="true" tabindex="-1"></a>            vx <span class="op">=</span> beta2 <span class="op">*</span> vx <span class="op">+</span> (<span class="dv">1</span> <span class="op">-</span> beta2) <span class="op">*</span> gx<span class="op">**</span><span class="dv">2</span></span>
-<span id="cb2-104"><a href="#cb2-104" aria-hidden="true" tabindex="-1"></a>            vy <span class="op">=</span> beta2 <span class="op">*</span> vy <span class="op">+</span> (<span class="dv">1</span> <span class="op">-</span> beta2) <span class="op">*</span> gy<span class="op">**</span><span class="dv">2</span></span>
-<span id="cb2-105"><a href="#cb2-105" aria-hidden="true" tabindex="-1"></a>            </span>
-<span id="cb2-106"><a href="#cb2-106" aria-hidden="true" tabindex="-1"></a>            mx_hat <span class="op">=</span> mx <span class="op">/</span> (<span class="dv">1</span> <span class="op">-</span> beta1<span class="op">**</span>t)</span>
-<span id="cb2-107"><a href="#cb2-107" aria-hidden="true" tabindex="-1"></a>            my_hat <span class="op">=</span> my <span class="op">/</span> (<span class="dv">1</span> <span class="op">-</span> beta1<span class="op">**</span>t)</span>
-<span id="cb2-108"><a href="#cb2-108" aria-hidden="true" tabindex="-1"></a>            vx_hat <span class="op">=</span> vx <span class="op">/</span> (<span class="dv">1</span> <span class="op">-</span> beta2<span class="op">**</span>t)</span>
-<span id="cb2-109"><a href="#cb2-109" aria-hidden="true" tabindex="-1"></a>            vy_hat <span class="op">=</span> vy <span class="op">/</span> (<span class="dv">1</span> <span class="op">-</span> beta2<span class="op">**</span>t)</span>
-<span id="cb2-110"><a href="#cb2-110" aria-hidden="true" tabindex="-1"></a>            </span>
-<span id="cb2-111"><a href="#cb2-111" aria-hidden="true" tabindex="-1"></a>            x <span class="op">-=</span> lr <span class="op">*</span> mx_hat <span class="op">/</span> (np.sqrt(vx_hat) <span class="op">+</span> eps)</span>
-<span id="cb2-112"><a href="#cb2-112" aria-hidden="true" tabindex="-1"></a>            y <span class="op">-=</span> lr <span class="op">*</span> my_hat <span class="op">/</span> (np.sqrt(vy_hat) <span class="op">+</span> eps)</span>
-<span id="cb2-113"><a href="#cb2-113" aria-hidden="true" tabindex="-1"></a>            path.append((x, y))</span>
-<span id="cb2-114"><a href="#cb2-114" aria-hidden="true" tabindex="-1"></a>            </span>
-<span id="cb2-115"><a href="#cb2-115" aria-hidden="true" tabindex="-1"></a>            <span class="cf">if</span> f_nonconvex(x, y) <span class="op">&lt;</span> <span class="dv">1</span> <span class="kw">or</span> np.isnan(x) <span class="kw">or</span> np.isnan(y):</span>
-<span id="cb2-116"><a href="#cb2-116" aria-hidden="true" tabindex="-1"></a>                <span class="cf">break</span></span>
-<span id="cb2-117"><a href="#cb2-117" aria-hidden="true" tabindex="-1"></a>                </span>
-<span id="cb2-118"><a href="#cb2-118" aria-hidden="true" tabindex="-1"></a>    <span class="cf">elif</span> <span class="st">'noisy_gd'</span> <span class="kw">in</span> optimizer_func.<span class="va">__name__</span>:</span>
-<span id="cb2-119"><a href="#cb2-119" aria-hidden="true" tabindex="-1"></a>        lr <span class="op">=</span> kwargs.get(<span class="st">'lr'</span>, <span class="fl">0.3</span>)</span>
-<span id="cb2-120"><a href="#cb2-120" aria-hidden="true" tabindex="-1"></a>        n_steps <span class="op">=</span> kwargs.get(<span class="st">'n_steps'</span>, <span class="dv">200</span>)</span>
-<span id="cb2-121"><a href="#cb2-121" aria-hidden="true" tabindex="-1"></a>        np.random.seed(<span class="dv">456</span>)</span>
-<span id="cb2-122"><a href="#cb2-122" aria-hidden="true" tabindex="-1"></a>        data_variance <span class="op">=</span> <span class="fl">0.2</span></span>
-<span id="cb2-123"><a href="#cb2-123" aria-hidden="true" tabindex="-1"></a>        </span>
-<span id="cb2-124"><a href="#cb2-124" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> _ <span class="kw">in</span> <span class="bu">range</span>(n_steps):</span>
-<span id="cb2-125"><a href="#cb2-125" aria-hidden="true" tabindex="-1"></a>            gx_base, gy_base <span class="op">=</span> df_nonconvex(x, y)</span>
-<span id="cb2-126"><a href="#cb2-126" aria-hidden="true" tabindex="-1"></a>            </span>
-<span id="cb2-127"><a href="#cb2-127" aria-hidden="true" tabindex="-1"></a>            gx_noise <span class="op">=</span> np.random.normal(<span class="dv">0</span>, data_variance <span class="op">*</span> <span class="bu">abs</span>(gx_base <span class="op">*</span> <span class="fl">5.3</span>))</span>
-<span id="cb2-128"><a href="#cb2-128" aria-hidden="true" tabindex="-1"></a>            gy_noise <span class="op">=</span> np.random.normal(<span class="dv">0</span>, data_variance <span class="op">*</span> <span class="bu">abs</span>(gy_base <span class="op">*</span> <span class="fl">5.3</span>))</span>
-<span id="cb2-129"><a href="#cb2-129" aria-hidden="true" tabindex="-1"></a>            </span>
-<span id="cb2-130"><a href="#cb2-130" aria-hidden="true" tabindex="-1"></a>            gx <span class="op">=</span> gx_base <span class="op">+</span> gx_noise</span>
-<span id="cb2-131"><a href="#cb2-131" aria-hidden="true" tabindex="-1"></a>            gy <span class="op">=</span> gy_base <span class="op">+</span> gy_noise</span>
-<span id="cb2-132"><a href="#cb2-132" aria-hidden="true" tabindex="-1"></a>            </span>
-<span id="cb2-133"><a href="#cb2-133" aria-hidden="true" tabindex="-1"></a>            x <span class="op">-=</span> lr <span class="op">*</span> gx</span>
-<span id="cb2-134"><a href="#cb2-134" aria-hidden="true" tabindex="-1"></a>            y <span class="op">-=</span> lr <span class="op">*</span> gy</span>
-<span id="cb2-135"><a href="#cb2-135" aria-hidden="true" tabindex="-1"></a>            path.append((x, y))</span>
-<span id="cb2-136"><a href="#cb2-136" aria-hidden="true" tabindex="-1"></a>            </span>
-<span id="cb2-137"><a href="#cb2-137" aria-hidden="true" tabindex="-1"></a>            <span class="cf">if</span> f_nonconvex(x, y) <span class="op">&lt;</span> <span class="dv">1</span> <span class="kw">or</span> np.isnan(x) <span class="kw">or</span> np.isnan(y):</span>
-<span id="cb2-138"><a href="#cb2-138" aria-hidden="true" tabindex="-1"></a>                <span class="cf">break</span></span>
-<span id="cb2-139"><a href="#cb2-139" aria-hidden="true" tabindex="-1"></a>                </span>
-<span id="cb2-140"><a href="#cb2-140" aria-hidden="true" tabindex="-1"></a>    <span class="cf">else</span>:  <span class="co"># Batch GD</span></span>
-<span id="cb2-141"><a href="#cb2-141" aria-hidden="true" tabindex="-1"></a>        lr <span class="op">=</span> kwargs.get(<span class="st">'lr'</span>, <span class="fl">0.3</span>)</span>
-<span id="cb2-142"><a href="#cb2-142" aria-hidden="true" tabindex="-1"></a>        n_steps <span class="op">=</span> kwargs.get(<span class="st">'n_steps'</span>, <span class="dv">200</span>)</span>
-<span id="cb2-143"><a href="#cb2-143" aria-hidden="true" tabindex="-1"></a>        </span>
-<span id="cb2-144"><a href="#cb2-144" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> _ <span class="kw">in</span> <span class="bu">range</span>(n_steps):</span>
-<span id="cb2-145"><a href="#cb2-145" aria-hidden="true" tabindex="-1"></a>            gx, gy <span class="op">=</span> df_nonconvex(x, y)</span>
-<span id="cb2-146"><a href="#cb2-146" aria-hidden="true" tabindex="-1"></a>            x <span class="op">-=</span> lr <span class="op">*</span> gx</span>
-<span id="cb2-147"><a href="#cb2-147" aria-hidden="true" tabindex="-1"></a>            y <span class="op">-=</span> lr <span class="op">*</span> gy</span>
-<span id="cb2-148"><a href="#cb2-148" aria-hidden="true" tabindex="-1"></a>            path.append((x, y))</span>
-<span id="cb2-149"><a href="#cb2-149" aria-hidden="true" tabindex="-1"></a>            </span>
-<span id="cb2-150"><a href="#cb2-150" aria-hidden="true" tabindex="-1"></a>            <span class="cf">if</span> f_nonconvex(x, y) <span class="op">&lt;</span> <span class="dv">1</span> <span class="kw">or</span> np.isnan(x) <span class="kw">or</span> np.isnan(y):</span>
-<span id="cb2-151"><a href="#cb2-151" aria-hidden="true" tabindex="-1"></a>                <span class="cf">break</span></span>
-<span id="cb2-152"><a href="#cb2-152" aria-hidden="true" tabindex="-1"></a>    </span>
-<span id="cb2-153"><a href="#cb2-153" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> np.array(path)</span>
-<span id="cb2-154"><a href="#cb2-154" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb2-155"><a href="#cb2-155" aria-hidden="true" tabindex="-1"></a><span class="co"># Define dummy functions for the wrapper</span></span>
-<span id="cb2-156"><a href="#cb2-156" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> run_batch_gd_nc(): <span class="cf">pass</span></span>
-<span id="cb2-157"><a href="#cb2-157" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> run_noisy_gd_nc(): <span class="cf">pass</span></span>
-<span id="cb2-158"><a href="#cb2-158" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> run_momentum_nc(): <span class="cf">pass</span></span>
-<span id="cb2-159"><a href="#cb2-159" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> run_adagrad_nc(): <span class="cf">pass</span></span>
-<span id="cb2-160"><a href="#cb2-160" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> run_rmsprop_nc(): <span class="cf">pass</span></span>
-<span id="cb2-161"><a href="#cb2-161" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> run_adam_nc(): <span class="cf">pass</span></span>
-<span id="cb2-162"><a href="#cb2-162" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb2-163"><a href="#cb2-163" aria-hidden="true" tabindex="-1"></a><span class="co"># Run all optimizers from the same challenging starting point</span></span>
-<span id="cb2-164"><a href="#cb2-164" aria-hidden="true" tabindex="-1"></a>start_x_nc, start_y_nc <span class="op">=</span> <span class="op">-</span><span class="dv">4</span>, <span class="dv">3</span>  <span class="co"># Start far from any minimum</span></span>
-<span id="cb2-165"><a href="#cb2-165" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb2-166"><a href="#cb2-166" aria-hidden="true" tabindex="-1"></a>path_batch_nc <span class="op">=</span> run_optimizer_nonconvex(run_batch_gd_nc, start_x_nc, start_y_nc, lr<span class="op">=</span><span class="fl">0.01</span>)</span>
-<span id="cb2-167"><a href="#cb2-167" aria-hidden="true" tabindex="-1"></a>path_noisy_nc <span class="op">=</span> run_optimizer_nonconvex(run_noisy_gd_nc, start_x_nc, start_y_nc, lr<span class="op">=</span><span class="fl">0.01</span>)</span>
-<span id="cb2-168"><a href="#cb2-168" aria-hidden="true" tabindex="-1"></a>path_momentum_nc <span class="op">=</span> run_optimizer_nonconvex(run_momentum_nc, start_x_nc, start_y_nc, lr<span class="op">=</span><span class="fl">0.001</span>, beta<span class="op">=</span><span class="fl">0.9</span>)</span>
-<span id="cb2-169"><a href="#cb2-169" aria-hidden="true" tabindex="-1"></a>path_adagrad_nc <span class="op">=</span> run_optimizer_nonconvex(run_adagrad_nc, start_x_nc, start_y_nc, lr<span class="op">=</span><span class="fl">0.3</span>)</span>
-<span id="cb2-170"><a href="#cb2-170" aria-hidden="true" tabindex="-1"></a>path_rmsprop_nc <span class="op">=</span> run_optimizer_nonconvex(run_rmsprop_nc, start_x_nc, start_y_nc, lr<span class="op">=</span><span class="fl">0.3</span>)</span>
-<span id="cb2-171"><a href="#cb2-171" aria-hidden="true" tabindex="-1"></a>path_adam_nc <span class="op">=</span> run_optimizer_nonconvex(run_adam_nc, start_x_nc, start_y_nc, lr<span class="op">=</span><span class="fl">0.3</span>)</span>
-<span id="cb2-172"><a href="#cb2-172" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb2-173"><a href="#cb2-173" aria-hidden="true" tabindex="-1"></a><span class="co"># Plot - using 2x3 grid for all 6 optimizers</span></span>
-<span id="cb2-174"><a href="#cb2-174" aria-hidden="true" tabindex="-1"></a>fig, axes <span class="op">=</span> plt.subplots(<span class="dv">3</span>, <span class="dv">2</span>, figsize<span class="op">=</span>(<span class="dv">10</span>, <span class="dv">10</span>))</span>
-<span id="cb2-175"><a href="#cb2-175" aria-hidden="true" tabindex="-1"></a>axes <span class="op">=</span> axes.flatten()</span>
-<span id="cb2-176"><a href="#cb2-176" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb2-177"><a href="#cb2-177" aria-hidden="true" tabindex="-1"></a>paths_and_titles_nc <span class="op">=</span> [</span>
-<span id="cb2-178"><a href="#cb2-178" aria-hidden="true" tabindex="-1"></a>    (path_batch_nc, <span class="st">'Batch Gradient Descent'</span>),</span>
-<span id="cb2-179"><a href="#cb2-179" aria-hidden="true" tabindex="-1"></a>    (path_noisy_nc, <span class="st">'Noisy Gradient Descent'</span>),</span>
-<span id="cb2-180"><a href="#cb2-180" aria-hidden="true" tabindex="-1"></a>    (path_momentum_nc, <span class="st">'Momentum'</span>),</span>
-<span id="cb2-181"><a href="#cb2-181" aria-hidden="true" tabindex="-1"></a>    (path_adagrad_nc, <span class="st">'AdaGrad'</span>),</span>
-<span id="cb2-182"><a href="#cb2-182" aria-hidden="true" tabindex="-1"></a>    (path_rmsprop_nc, <span class="st">'RMSprop'</span>),</span>
-<span id="cb2-183"><a href="#cb2-183" aria-hidden="true" tabindex="-1"></a>    (path_adam_nc, <span class="st">'Adam'</span>)</span>
-<span id="cb2-184"><a href="#cb2-184" aria-hidden="true" tabindex="-1"></a>]</span>
-<span id="cb2-185"><a href="#cb2-185" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb2-186"><a href="#cb2-186" aria-hidden="true" tabindex="-1"></a><span class="co"># Numerical global minimum of the modified objective plotted above</span></span>
-<span id="cb2-187"><a href="#cb2-187" aria-hidden="true" tabindex="-1"></a>global_minima <span class="op">=</span> [(<span class="fl">3.584728</span>, <span class="op">-</span><span class="fl">1.849960</span>)]</span>
-<span id="cb2-188"><a href="#cb2-188" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb2-189"><a href="#cb2-189" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> i, (path, title) <span class="kw">in</span> <span class="bu">enumerate</span>(paths_and_titles_nc):</span>
-<span id="cb2-190"><a href="#cb2-190" aria-hidden="true" tabindex="-1"></a>    ax <span class="op">=</span> axes[i]</span>
-<span id="cb2-191"><a href="#cb2-191" aria-hidden="true" tabindex="-1"></a>    </span>
-<span id="cb2-192"><a href="#cb2-192" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Create contour background - use log scale for better visualization</span></span>
-<span id="cb2-193"><a href="#cb2-193" aria-hidden="true" tabindex="-1"></a>    levels <span class="op">=</span> np.logspace(<span class="dv">0</span>, <span class="fl">3.4</span>, <span class="dv">20</span>)</span>
-<span id="cb2-194"><a href="#cb2-194" aria-hidden="true" tabindex="-1"></a>    ax.contour(X_nc, Y_nc, Z_nc, levels<span class="op">=</span>levels, alpha<span class="op">=</span><span class="fl">0.6</span>, colors<span class="op">=</span><span class="st">'gray'</span>, linewidths<span class="op">=</span><span class="fl">0.5</span>)</span>
-<span id="cb2-195"><a href="#cb2-195" aria-hidden="true" tabindex="-1"></a>    ax.contourf(X_nc, Y_nc, Z_nc, levels<span class="op">=</span>levels, alpha<span class="op">=</span><span class="fl">0.3</span>, cmap<span class="op">=</span><span class="st">'viridis'</span>)</span>
-<span id="cb2-196"><a href="#cb2-196" aria-hidden="true" tabindex="-1"></a>    </span>
-<span id="cb2-197"><a href="#cb2-197" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Plot the known global minimum once per panel</span></span>
-<span id="cb2-198"><a href="#cb2-198" aria-hidden="true" tabindex="-1"></a>    gm_x, gm_y <span class="op">=</span> global_minima[<span class="dv">0</span>]</span>
-<span id="cb2-199"><a href="#cb2-199" aria-hidden="true" tabindex="-1"></a>    ax.plot(gm_x, gm_y, <span class="st">'k*'</span>, markersize<span class="op">=</span><span class="dv">12</span>, alpha<span class="op">=</span><span class="fl">0.8</span>, label<span class="op">=</span><span class="st">'Global minimum'</span>)</span>
-<span id="cb2-200"><a href="#cb2-200" aria-hidden="true" tabindex="-1"></a>    </span>
-<span id="cb2-201"><a href="#cb2-201" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Plot optimization path</span></span>
-<span id="cb2-202"><a href="#cb2-202" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> <span class="bu">len</span>(path) <span class="op">&gt;</span> <span class="dv">1</span>:</span>
-<span id="cb2-203"><a href="#cb2-203" aria-hidden="true" tabindex="-1"></a>        ax.plot(path[:, <span class="dv">0</span>], path[:, <span class="dv">1</span>], <span class="st">'r-'</span>, linewidth<span class="op">=</span><span class="dv">2</span>, alpha<span class="op">=</span><span class="fl">0.8</span>)</span>
-<span id="cb2-204"><a href="#cb2-204" aria-hidden="true" tabindex="-1"></a>        ax.plot(path[<span class="dv">0</span>, <span class="dv">0</span>], path[<span class="dv">0</span>, <span class="dv">1</span>], <span class="st">'go'</span>, markersize<span class="op">=</span><span class="dv">10</span>, label<span class="op">=</span><span class="st">'Start'</span>, zorder<span class="op">=</span><span class="dv">5</span>)</span>
-<span id="cb2-205"><a href="#cb2-205" aria-hidden="true" tabindex="-1"></a>        ax.plot(path[<span class="op">-</span><span class="dv">1</span>, <span class="dv">0</span>], path[<span class="op">-</span><span class="dv">1</span>, <span class="dv">1</span>], <span class="st">'ro'</span>, markersize<span class="op">=</span><span class="dv">8</span>, label<span class="op">=</span><span class="st">'End'</span>, zorder<span class="op">=</span><span class="dv">5</span>)</span>
-<span id="cb2-206"><a href="#cb2-206" aria-hidden="true" tabindex="-1"></a>        </span>
-<span id="cb2-207"><a href="#cb2-207" aria-hidden="true" tabindex="-1"></a>        <span class="co"># Add arrows for direction (fewer for clarity)</span></span>
-<span id="cb2-208"><a href="#cb2-208" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span> <span class="bu">len</span>(path) <span class="op">&gt;</span> <span class="dv">5</span>:</span>
-<span id="cb2-209"><a href="#cb2-209" aria-hidden="true" tabindex="-1"></a>            arrow_indices <span class="op">=</span> np.linspace(<span class="dv">0</span>, <span class="bu">len</span>(path)<span class="op">-</span><span class="dv">2</span>, <span class="bu">min</span>(<span class="dv">5</span>, <span class="bu">len</span>(path)<span class="op">-</span><span class="dv">1</span>), dtype<span class="op">=</span><span class="bu">int</span>)</span>
-<span id="cb2-210"><a href="#cb2-210" aria-hidden="true" tabindex="-1"></a>            <span class="cf">for</span> j <span class="kw">in</span> arrow_indices:</span>
-<span id="cb2-211"><a href="#cb2-211" aria-hidden="true" tabindex="-1"></a>                dx <span class="op">=</span> path[j<span class="op">+</span><span class="dv">1</span>, <span class="dv">0</span>] <span class="op">-</span> path[j, <span class="dv">0</span>]</span>
-<span id="cb2-212"><a href="#cb2-212" aria-hidden="true" tabindex="-1"></a>                dy <span class="op">=</span> path[j<span class="op">+</span><span class="dv">1</span>, <span class="dv">1</span>] <span class="op">-</span> path[j, <span class="dv">1</span>]</span>
-<span id="cb2-213"><a href="#cb2-213" aria-hidden="true" tabindex="-1"></a>                <span class="cf">if</span> np.sqrt(dx<span class="op">**</span><span class="dv">2</span> <span class="op">+</span> dy<span class="op">**</span><span class="dv">2</span>) <span class="op">&gt;</span> <span class="fl">0.05</span>:</span>
-<span id="cb2-214"><a href="#cb2-214" aria-hidden="true" tabindex="-1"></a>                    ax.arrow(path[j, <span class="dv">0</span>], path[j, <span class="dv">1</span>], dx, dy, </span>
-<span id="cb2-215"><a href="#cb2-215" aria-hidden="true" tabindex="-1"></a>                            head_width<span class="op">=</span><span class="fl">0.1</span>, head_length<span class="op">=</span><span class="fl">0.08</span>, fc<span class="op">=</span><span class="st">'red'</span>, ec<span class="op">=</span><span class="st">'red'</span>, alpha<span class="op">=</span><span class="fl">0.7</span>)</span>
-<span id="cb2-216"><a href="#cb2-216" aria-hidden="true" tabindex="-1"></a>    </span>
-<span id="cb2-217"><a href="#cb2-217" aria-hidden="true" tabindex="-1"></a>    ax.set_aspect(<span class="st">'equal'</span>, adjustable<span class="op">=</span><span class="st">'box'</span>)</span>
-<span id="cb2-218"><a href="#cb2-218" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb2-219"><a href="#cb2-219" aria-hidden="true" tabindex="-1"></a>    ax.set_title(<span class="ss">f'</span><span class="sc">{</span>title<span class="sc">}</span><span class="ch">\n</span><span class="ss">(</span><span class="sc">{</span><span class="bu">len</span>(path)<span class="op">-</span><span class="dv">1</span><span class="sc">}</span><span class="ss"> steps)'</span>)</span>
-<span id="cb2-220"><a href="#cb2-220" aria-hidden="true" tabindex="-1"></a>    ax.set_xlabel(<span class="st">'θ₁'</span>)</span>
-<span id="cb2-221"><a href="#cb2-221" aria-hidden="true" tabindex="-1"></a>    ax.set_ylabel(<span class="st">'θ₂'</span>)</span>
-<span id="cb2-222"><a href="#cb2-222" aria-hidden="true" tabindex="-1"></a>    ax.legend(loc<span class="op">=</span><span class="st">'upper right'</span>)</span>
-<span id="cb2-223"><a href="#cb2-223" aria-hidden="true" tabindex="-1"></a>    ax.grid(<span class="va">True</span>, alpha<span class="op">=</span><span class="fl">0.3</span>)</span>
-<span id="cb2-224"><a href="#cb2-224" aria-hidden="true" tabindex="-1"></a>    ax.set_xlim(<span class="op">-</span><span class="fl">6.1</span>, <span class="fl">6.1</span>)</span>
-<span id="cb2-225"><a href="#cb2-225" aria-hidden="true" tabindex="-1"></a>    ax.set_ylim(<span class="op">-</span><span class="fl">6.1</span>, <span class="fl">6.1</span>)</span>
-<span id="cb2-226"><a href="#cb2-226" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb2-227"><a href="#cb2-227" aria-hidden="true" tabindex="-1"></a>plt.tight_layout()</span>
-<span id="cb2-228"><a href="#cb2-228" aria-hidden="true" tabindex="-1"></a>plt.show()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<span id="cb2-67"><a href="#cb2-67" aria-hidden="true" tabindex="-1"></a>                </span>
+<span id="cb2-68"><a href="#cb2-68" aria-hidden="true" tabindex="-1"></a>    <span class="cf">elif</span> <span class="st">'rmsprop'</span> <span class="kw">in</span> optimizer_func.<span class="va">__name__</span>:</span>
+<span id="cb2-69"><a href="#cb2-69" aria-hidden="true" tabindex="-1"></a>        vx, vy <span class="op">=</span> <span class="dv">0</span>, <span class="dv">0</span></span>
+<span id="cb2-70"><a href="#cb2-70" aria-hidden="true" tabindex="-1"></a>        lr <span class="op">=</span> kwargs.get(<span class="st">'lr'</span>, <span class="fl">0.3</span>)</span>
+<span id="cb2-71"><a href="#cb2-71" aria-hidden="true" tabindex="-1"></a>        rho <span class="op">=</span> kwargs.get(<span class="st">'rho'</span>, <span class="fl">0.9</span>)</span>
+<span id="cb2-72"><a href="#cb2-72" aria-hidden="true" tabindex="-1"></a>        eps <span class="op">=</span> kwargs.get(<span class="st">'eps'</span>, <span class="fl">1e-8</span>)</span>
+<span id="cb2-73"><a href="#cb2-73" aria-hidden="true" tabindex="-1"></a>        n_steps <span class="op">=</span> kwargs.get(<span class="st">'n_steps'</span>, <span class="dv">200</span>)</span>
+<span id="cb2-74"><a href="#cb2-74" aria-hidden="true" tabindex="-1"></a>        </span>
+<span id="cb2-75"><a href="#cb2-75" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> _ <span class="kw">in</span> <span class="bu">range</span>(n_steps):</span>
+<span id="cb2-76"><a href="#cb2-76" aria-hidden="true" tabindex="-1"></a>            gx, gy <span class="op">=</span> df_nonconvex(x, y)</span>
+<span id="cb2-77"><a href="#cb2-77" aria-hidden="true" tabindex="-1"></a>            vx <span class="op">=</span> rho <span class="op">*</span> vx <span class="op">+</span> (<span class="dv">1</span> <span class="op">-</span> rho) <span class="op">*</span> gx<span class="op">**</span><span class="dv">2</span></span>
+<span id="cb2-78"><a href="#cb2-78" aria-hidden="true" tabindex="-1"></a>            vy <span class="op">=</span> rho <span class="op">*</span> vy <span class="op">+</span> (<span class="dv">1</span> <span class="op">-</span> rho) <span class="op">*</span> gy<span class="op">**</span><span class="dv">2</span></span>
+<span id="cb2-79"><a href="#cb2-79" aria-hidden="true" tabindex="-1"></a>            </span>
+<span id="cb2-80"><a href="#cb2-80" aria-hidden="true" tabindex="-1"></a>            x <span class="op">-=</span> lr <span class="op">*</span> gx <span class="op">/</span> (np.sqrt(vx) <span class="op">+</span> eps)</span>
+<span id="cb2-81"><a href="#cb2-81" aria-hidden="true" tabindex="-1"></a>            y <span class="op">-=</span> lr <span class="op">*</span> gy <span class="op">/</span> (np.sqrt(vy) <span class="op">+</span> eps)</span>
+<span id="cb2-82"><a href="#cb2-82" aria-hidden="true" tabindex="-1"></a>            path.append((x, y))</span>
+<span id="cb2-83"><a href="#cb2-83" aria-hidden="true" tabindex="-1"></a>            </span>
+<span id="cb2-84"><a href="#cb2-84" aria-hidden="true" tabindex="-1"></a>            <span class="cf">if</span> <span class="kw">not</span> np.isfinite(x) <span class="kw">or</span> <span class="kw">not</span> np.isfinite(y) <span class="kw">or</span> f_nonconvex(x, y) <span class="op">&lt;</span> <span class="dv">1</span>:</span>
+<span id="cb2-85"><a href="#cb2-85" aria-hidden="true" tabindex="-1"></a>                <span class="cf">break</span></span>
+<span id="cb2-86"><a href="#cb2-86" aria-hidden="true" tabindex="-1"></a>                </span>
+<span id="cb2-87"><a href="#cb2-87" aria-hidden="true" tabindex="-1"></a>    <span class="cf">elif</span> <span class="st">'adam'</span> <span class="kw">in</span> optimizer_func.<span class="va">__name__</span>:</span>
+<span id="cb2-88"><a href="#cb2-88" aria-hidden="true" tabindex="-1"></a>        mx, my <span class="op">=</span> <span class="dv">0</span>, <span class="dv">0</span></span>
+<span id="cb2-89"><a href="#cb2-89" aria-hidden="true" tabindex="-1"></a>        vx, vy <span class="op">=</span> <span class="dv">0</span>, <span class="dv">0</span></span>
+<span id="cb2-90"><a href="#cb2-90" aria-hidden="true" tabindex="-1"></a>        lr <span class="op">=</span> kwargs.get(<span class="st">'lr'</span>, <span class="fl">0.3</span>)</span>
+<span id="cb2-91"><a href="#cb2-91" aria-hidden="true" tabindex="-1"></a>        beta1 <span class="op">=</span> kwargs.get(<span class="st">'beta1'</span>, <span class="fl">0.9</span>)</span>
+<span id="cb2-92"><a href="#cb2-92" aria-hidden="true" tabindex="-1"></a>        beta2 <span class="op">=</span> kwargs.get(<span class="st">'beta2'</span>, <span class="fl">0.999</span>)</span>
+<span id="cb2-93"><a href="#cb2-93" aria-hidden="true" tabindex="-1"></a>        eps <span class="op">=</span> kwargs.get(<span class="st">'eps'</span>, <span class="fl">1e-8</span>)</span>
+<span id="cb2-94"><a href="#cb2-94" aria-hidden="true" tabindex="-1"></a>        n_steps <span class="op">=</span> kwargs.get(<span class="st">'n_steps'</span>, <span class="dv">200</span>)</span>
+<span id="cb2-95"><a href="#cb2-95" aria-hidden="true" tabindex="-1"></a>        </span>
+<span id="cb2-96"><a href="#cb2-96" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> t <span class="kw">in</span> <span class="bu">range</span>(<span class="dv">1</span>, n_steps <span class="op">+</span> <span class="dv">1</span>):</span>
+<span id="cb2-97"><a href="#cb2-97" aria-hidden="true" tabindex="-1"></a>            gx, gy <span class="op">=</span> df_nonconvex(x, y)</span>
+<span id="cb2-98"><a href="#cb2-98" aria-hidden="true" tabindex="-1"></a>            </span>
+<span id="cb2-99"><a href="#cb2-99" aria-hidden="true" tabindex="-1"></a>            mx <span class="op">=</span> beta1 <span class="op">*</span> mx <span class="op">+</span> (<span class="dv">1</span> <span class="op">-</span> beta1) <span class="op">*</span> gx</span>
+<span id="cb2-100"><a href="#cb2-100" aria-hidden="true" tabindex="-1"></a>            my <span class="op">=</span> beta1 <span class="op">*</span> my <span class="op">+</span> (<span class="dv">1</span> <span class="op">-</span> beta1) <span class="op">*</span> gy</span>
+<span id="cb2-101"><a href="#cb2-101" aria-hidden="true" tabindex="-1"></a>            vx <span class="op">=</span> beta2 <span class="op">*</span> vx <span class="op">+</span> (<span class="dv">1</span> <span class="op">-</span> beta2) <span class="op">*</span> gx<span class="op">**</span><span class="dv">2</span></span>
+<span id="cb2-102"><a href="#cb2-102" aria-hidden="true" tabindex="-1"></a>            vy <span class="op">=</span> beta2 <span class="op">*</span> vy <span class="op">+</span> (<span class="dv">1</span> <span class="op">-</span> beta2) <span class="op">*</span> gy<span class="op">**</span><span class="dv">2</span></span>
+<span id="cb2-103"><a href="#cb2-103" aria-hidden="true" tabindex="-1"></a>            </span>
+<span id="cb2-104"><a href="#cb2-104" aria-hidden="true" tabindex="-1"></a>            mx_hat <span class="op">=</span> mx <span class="op">/</span> (<span class="dv">1</span> <span class="op">-</span> beta1<span class="op">**</span>t)</span>
+<span id="cb2-105"><a href="#cb2-105" aria-hidden="true" tabindex="-1"></a>            my_hat <span class="op">=</span> my <span class="op">/</span> (<span class="dv">1</span> <span class="op">-</span> beta1<span class="op">**</span>t)</span>
+<span id="cb2-106"><a href="#cb2-106" aria-hidden="true" tabindex="-1"></a>            vx_hat <span class="op">=</span> vx <span class="op">/</span> (<span class="dv">1</span> <span class="op">-</span> beta2<span class="op">**</span>t)</span>
+<span id="cb2-107"><a href="#cb2-107" aria-hidden="true" tabindex="-1"></a>            vy_hat <span class="op">=</span> vy <span class="op">/</span> (<span class="dv">1</span> <span class="op">-</span> beta2<span class="op">**</span>t)</span>
+<span id="cb2-108"><a href="#cb2-108" aria-hidden="true" tabindex="-1"></a>            </span>
+<span id="cb2-109"><a href="#cb2-109" aria-hidden="true" tabindex="-1"></a>            x <span class="op">-=</span> lr <span class="op">*</span> mx_hat <span class="op">/</span> (np.sqrt(vx_hat) <span class="op">+</span> eps)</span>
+<span id="cb2-110"><a href="#cb2-110" aria-hidden="true" tabindex="-1"></a>            y <span class="op">-=</span> lr <span class="op">*</span> my_hat <span class="op">/</span> (np.sqrt(vy_hat) <span class="op">+</span> eps)</span>
+<span id="cb2-111"><a href="#cb2-111" aria-hidden="true" tabindex="-1"></a>            path.append((x, y))</span>
+<span id="cb2-112"><a href="#cb2-112" aria-hidden="true" tabindex="-1"></a>            </span>
+<span id="cb2-113"><a href="#cb2-113" aria-hidden="true" tabindex="-1"></a>            <span class="cf">if</span> <span class="kw">not</span> np.isfinite(x) <span class="kw">or</span> <span class="kw">not</span> np.isfinite(y) <span class="kw">or</span> f_nonconvex(x, y) <span class="op">&lt;</span> <span class="dv">1</span>:</span>
+<span id="cb2-114"><a href="#cb2-114" aria-hidden="true" tabindex="-1"></a>                <span class="cf">break</span></span>
+<span id="cb2-115"><a href="#cb2-115" aria-hidden="true" tabindex="-1"></a>                </span>
+<span id="cb2-116"><a href="#cb2-116" aria-hidden="true" tabindex="-1"></a>    <span class="cf">elif</span> <span class="st">'noisy_gd'</span> <span class="kw">in</span> optimizer_func.<span class="va">__name__</span>:</span>
+<span id="cb2-117"><a href="#cb2-117" aria-hidden="true" tabindex="-1"></a>        lr <span class="op">=</span> kwargs.get(<span class="st">'lr'</span>, <span class="fl">0.3</span>)</span>
+<span id="cb2-118"><a href="#cb2-118" aria-hidden="true" tabindex="-1"></a>        n_steps <span class="op">=</span> kwargs.get(<span class="st">'n_steps'</span>, <span class="dv">200</span>)</span>
+<span id="cb2-119"><a href="#cb2-119" aria-hidden="true" tabindex="-1"></a>        np.random.seed(<span class="dv">456</span>)</span>
+<span id="cb2-120"><a href="#cb2-120" aria-hidden="true" tabindex="-1"></a>        data_variance <span class="op">=</span> <span class="fl">0.2</span></span>
+<span id="cb2-121"><a href="#cb2-121" aria-hidden="true" tabindex="-1"></a>        </span>
+<span id="cb2-122"><a href="#cb2-122" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> _ <span class="kw">in</span> <span class="bu">range</span>(n_steps):</span>
+<span id="cb2-123"><a href="#cb2-123" aria-hidden="true" tabindex="-1"></a>            gx_base, gy_base <span class="op">=</span> df_nonconvex(x, y)</span>
+<span id="cb2-124"><a href="#cb2-124" aria-hidden="true" tabindex="-1"></a>            </span>
+<span id="cb2-125"><a href="#cb2-125" aria-hidden="true" tabindex="-1"></a>            gx_noise <span class="op">=</span> np.random.normal(<span class="dv">0</span>, data_variance <span class="op">*</span> <span class="bu">abs</span>(gx_base <span class="op">*</span> <span class="fl">5.3</span>))</span>
+<span id="cb2-126"><a href="#cb2-126" aria-hidden="true" tabindex="-1"></a>            gy_noise <span class="op">=</span> np.random.normal(<span class="dv">0</span>, data_variance <span class="op">*</span> <span class="bu">abs</span>(gy_base <span class="op">*</span> <span class="fl">5.3</span>))</span>
+<span id="cb2-127"><a href="#cb2-127" aria-hidden="true" tabindex="-1"></a>            </span>
+<span id="cb2-128"><a href="#cb2-128" aria-hidden="true" tabindex="-1"></a>            gx <span class="op">=</span> gx_base <span class="op">+</span> gx_noise</span>
+<span id="cb2-129"><a href="#cb2-129" aria-hidden="true" tabindex="-1"></a>            gy <span class="op">=</span> gy_base <span class="op">+</span> gy_noise</span>
+<span id="cb2-130"><a href="#cb2-130" aria-hidden="true" tabindex="-1"></a>            </span>
+<span id="cb2-131"><a href="#cb2-131" aria-hidden="true" tabindex="-1"></a>            x <span class="op">-=</span> lr <span class="op">*</span> gx</span>
+<span id="cb2-132"><a href="#cb2-132" aria-hidden="true" tabindex="-1"></a>            y <span class="op">-=</span> lr <span class="op">*</span> gy</span>
+<span id="cb2-133"><a href="#cb2-133" aria-hidden="true" tabindex="-1"></a>            path.append((x, y))</span>
+<span id="cb2-134"><a href="#cb2-134" aria-hidden="true" tabindex="-1"></a>            </span>
+<span id="cb2-135"><a href="#cb2-135" aria-hidden="true" tabindex="-1"></a>            <span class="cf">if</span> <span class="kw">not</span> np.isfinite(x) <span class="kw">or</span> <span class="kw">not</span> np.isfinite(y) <span class="kw">or</span> f_nonconvex(x, y) <span class="op">&lt;</span> <span class="dv">1</span>:</span>
+<span id="cb2-136"><a href="#cb2-136" aria-hidden="true" tabindex="-1"></a>                <span class="cf">break</span></span>
+<span id="cb2-137"><a href="#cb2-137" aria-hidden="true" tabindex="-1"></a>                </span>
+<span id="cb2-138"><a href="#cb2-138" aria-hidden="true" tabindex="-1"></a>    <span class="cf">else</span>:  <span class="co"># Batch GD</span></span>
+<span id="cb2-139"><a href="#cb2-139" aria-hidden="true" tabindex="-1"></a>        lr <span class="op">=</span> kwargs.get(<span class="st">'lr'</span>, <span class="fl">0.3</span>)</span>
+<span id="cb2-140"><a href="#cb2-140" aria-hidden="true" tabindex="-1"></a>        n_steps <span class="op">=</span> kwargs.get(<span class="st">'n_steps'</span>, <span class="dv">200</span>)</span>
+<span id="cb2-141"><a href="#cb2-141" aria-hidden="true" tabindex="-1"></a>        </span>
+<span id="cb2-142"><a href="#cb2-142" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> _ <span class="kw">in</span> <span class="bu">range</span>(n_steps):</span>
+<span id="cb2-143"><a href="#cb2-143" aria-hidden="true" tabindex="-1"></a>            gx, gy <span class="op">=</span> df_nonconvex(x, y)</span>
+<span id="cb2-144"><a href="#cb2-144" aria-hidden="true" tabindex="-1"></a>            x <span class="op">-=</span> lr <span class="op">*</span> gx</span>
+<span id="cb2-145"><a href="#cb2-145" aria-hidden="true" tabindex="-1"></a>            y <span class="op">-=</span> lr <span class="op">*</span> gy</span>
+<span id="cb2-146"><a href="#cb2-146" aria-hidden="true" tabindex="-1"></a>            path.append((x, y))</span>
+<span id="cb2-147"><a href="#cb2-147" aria-hidden="true" tabindex="-1"></a>            </span>
+<span id="cb2-148"><a href="#cb2-148" aria-hidden="true" tabindex="-1"></a>            <span class="cf">if</span> <span class="kw">not</span> np.isfinite(x) <span class="kw">or</span> <span class="kw">not</span> np.isfinite(y) <span class="kw">or</span> f_nonconvex(x, y) <span class="op">&lt;</span> <span class="dv">1</span>:</span>
+<span id="cb2-149"><a href="#cb2-149" aria-hidden="true" tabindex="-1"></a>                <span class="cf">break</span></span>
+<span id="cb2-150"><a href="#cb2-150" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb2-151"><a href="#cb2-151" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> np.array(path)</span>
+<span id="cb2-152"><a href="#cb2-152" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-153"><a href="#cb2-153" aria-hidden="true" tabindex="-1"></a><span class="co"># Define dummy functions for the wrapper</span></span>
+<span id="cb2-154"><a href="#cb2-154" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> run_batch_gd_nc(): <span class="cf">pass</span></span>
+<span id="cb2-155"><a href="#cb2-155" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> run_noisy_gd_nc(): <span class="cf">pass</span></span>
+<span id="cb2-156"><a href="#cb2-156" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> run_momentum_nc(): <span class="cf">pass</span></span>
+<span id="cb2-157"><a href="#cb2-157" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> run_adagrad_nc(): <span class="cf">pass</span></span>
+<span id="cb2-158"><a href="#cb2-158" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> run_rmsprop_nc(): <span class="cf">pass</span></span>
+<span id="cb2-159"><a href="#cb2-159" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> run_adam_nc(): <span class="cf">pass</span></span>
+<span id="cb2-160"><a href="#cb2-160" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-161"><a href="#cb2-161" aria-hidden="true" tabindex="-1"></a><span class="co"># Run all optimizers from the same challenging starting point</span></span>
+<span id="cb2-162"><a href="#cb2-162" aria-hidden="true" tabindex="-1"></a>start_x_nc, start_y_nc <span class="op">=</span> <span class="op">-</span><span class="dv">4</span>, <span class="dv">3</span>  <span class="co"># Start far from any minimum</span></span>
+<span id="cb2-163"><a href="#cb2-163" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-164"><a href="#cb2-164" aria-hidden="true" tabindex="-1"></a>path_batch_nc <span class="op">=</span> run_optimizer_nonconvex(run_batch_gd_nc, start_x_nc, start_y_nc, lr<span class="op">=</span><span class="fl">0.01</span>)</span>
+<span id="cb2-165"><a href="#cb2-165" aria-hidden="true" tabindex="-1"></a>path_noisy_nc <span class="op">=</span> run_optimizer_nonconvex(run_noisy_gd_nc, start_x_nc, start_y_nc, lr<span class="op">=</span><span class="fl">0.01</span>)</span>
+<span id="cb2-166"><a href="#cb2-166" aria-hidden="true" tabindex="-1"></a>path_momentum_nc <span class="op">=</span> run_optimizer_nonconvex(run_momentum_nc, start_x_nc, start_y_nc, lr<span class="op">=</span><span class="fl">0.001</span>, beta<span class="op">=</span><span class="fl">0.9</span>)</span>
+<span id="cb2-167"><a href="#cb2-167" aria-hidden="true" tabindex="-1"></a>path_adagrad_nc <span class="op">=</span> run_optimizer_nonconvex(run_adagrad_nc, start_x_nc, start_y_nc, lr<span class="op">=</span><span class="fl">0.3</span>)</span>
+<span id="cb2-168"><a href="#cb2-168" aria-hidden="true" tabindex="-1"></a>path_rmsprop_nc <span class="op">=</span> run_optimizer_nonconvex(run_rmsprop_nc, start_x_nc, start_y_nc, lr<span class="op">=</span><span class="fl">0.3</span>)</span>
+<span id="cb2-169"><a href="#cb2-169" aria-hidden="true" tabindex="-1"></a>path_adam_nc <span class="op">=</span> run_optimizer_nonconvex(run_adam_nc, start_x_nc, start_y_nc, lr<span class="op">=</span><span class="fl">0.3</span>)</span>
+<span id="cb2-170"><a href="#cb2-170" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-171"><a href="#cb2-171" aria-hidden="true" tabindex="-1"></a><span class="co"># Plot - using a 3x2 grid for all 6 optimizers</span></span>
+<span id="cb2-172"><a href="#cb2-172" aria-hidden="true" tabindex="-1"></a>fig, axes <span class="op">=</span> plt.subplots(<span class="dv">3</span>, <span class="dv">2</span>, figsize<span class="op">=</span>(<span class="dv">10</span>, <span class="dv">10</span>))</span>
+<span id="cb2-173"><a href="#cb2-173" aria-hidden="true" tabindex="-1"></a>axes <span class="op">=</span> axes.flatten()</span>
+<span id="cb2-174"><a href="#cb2-174" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-175"><a href="#cb2-175" aria-hidden="true" tabindex="-1"></a>paths_and_titles_nc <span class="op">=</span> [</span>
+<span id="cb2-176"><a href="#cb2-176" aria-hidden="true" tabindex="-1"></a>    (path_batch_nc, <span class="st">'Batch Gradient Descent'</span>),</span>
+<span id="cb2-177"><a href="#cb2-177" aria-hidden="true" tabindex="-1"></a>    (path_noisy_nc, <span class="st">'Noisy Gradient Descent'</span>),</span>
+<span id="cb2-178"><a href="#cb2-178" aria-hidden="true" tabindex="-1"></a>    (path_momentum_nc, <span class="st">'Momentum'</span>),</span>
+<span id="cb2-179"><a href="#cb2-179" aria-hidden="true" tabindex="-1"></a>    (path_adagrad_nc, <span class="st">'AdaGrad'</span>),</span>
+<span id="cb2-180"><a href="#cb2-180" aria-hidden="true" tabindex="-1"></a>    (path_rmsprop_nc, <span class="st">'RMSprop'</span>),</span>
+<span id="cb2-181"><a href="#cb2-181" aria-hidden="true" tabindex="-1"></a>    (path_adam_nc, <span class="st">'Adam'</span>)</span>
+<span id="cb2-182"><a href="#cb2-182" aria-hidden="true" tabindex="-1"></a>]</span>
+<span id="cb2-183"><a href="#cb2-183" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-184"><a href="#cb2-184" aria-hidden="true" tabindex="-1"></a><span class="co"># Numerical global minimum of the modified objective plotted above</span></span>
+<span id="cb2-185"><a href="#cb2-185" aria-hidden="true" tabindex="-1"></a>global_minima <span class="op">=</span> [(<span class="fl">3.584728</span>, <span class="op">-</span><span class="fl">1.849960</span>)]</span>
+<span id="cb2-186"><a href="#cb2-186" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-187"><a href="#cb2-187" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> i, (path, title) <span class="kw">in</span> <span class="bu">enumerate</span>(paths_and_titles_nc):</span>
+<span id="cb2-188"><a href="#cb2-188" aria-hidden="true" tabindex="-1"></a>    ax <span class="op">=</span> axes[i]</span>
+<span id="cb2-189"><a href="#cb2-189" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb2-190"><a href="#cb2-190" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Create contour background - use log scale for better visualization</span></span>
+<span id="cb2-191"><a href="#cb2-191" aria-hidden="true" tabindex="-1"></a>    levels <span class="op">=</span> np.logspace(<span class="dv">0</span>, <span class="fl">3.4</span>, <span class="dv">20</span>)</span>
+<span id="cb2-192"><a href="#cb2-192" aria-hidden="true" tabindex="-1"></a>    ax.contour(X_nc, Y_nc, Z_nc, levels<span class="op">=</span>levels, alpha<span class="op">=</span><span class="fl">0.6</span>, colors<span class="op">=</span><span class="st">'gray'</span>, linewidths<span class="op">=</span><span class="fl">0.5</span>)</span>
+<span id="cb2-193"><a href="#cb2-193" aria-hidden="true" tabindex="-1"></a>    ax.contourf(X_nc, Y_nc, Z_nc, levels<span class="op">=</span>levels, alpha<span class="op">=</span><span class="fl">0.3</span>, cmap<span class="op">=</span><span class="st">'viridis'</span>)</span>
+<span id="cb2-194"><a href="#cb2-194" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb2-195"><a href="#cb2-195" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Plot the known global minimum once per panel</span></span>
+<span id="cb2-196"><a href="#cb2-196" aria-hidden="true" tabindex="-1"></a>    gm_x, gm_y <span class="op">=</span> global_minima[<span class="dv">0</span>]</span>
+<span id="cb2-197"><a href="#cb2-197" aria-hidden="true" tabindex="-1"></a>    ax.plot(gm_x, gm_y, <span class="st">'k*'</span>, markersize<span class="op">=</span><span class="dv">12</span>, alpha<span class="op">=</span><span class="fl">0.8</span>, label<span class="op">=</span><span class="st">'Global minimum'</span>)</span>
+<span id="cb2-198"><a href="#cb2-198" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb2-199"><a href="#cb2-199" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Plot optimization path</span></span>
+<span id="cb2-200"><a href="#cb2-200" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> <span class="bu">len</span>(path) <span class="op">&gt;</span> <span class="dv">1</span>:</span>
+<span id="cb2-201"><a href="#cb2-201" aria-hidden="true" tabindex="-1"></a>        ax.plot(path[:, <span class="dv">0</span>], path[:, <span class="dv">1</span>], <span class="st">'r-'</span>, linewidth<span class="op">=</span><span class="dv">2</span>, alpha<span class="op">=</span><span class="fl">0.8</span>)</span>
+<span id="cb2-202"><a href="#cb2-202" aria-hidden="true" tabindex="-1"></a>        ax.plot(path[<span class="dv">0</span>, <span class="dv">0</span>], path[<span class="dv">0</span>, <span class="dv">1</span>], <span class="st">'go'</span>, markersize<span class="op">=</span><span class="dv">10</span>, label<span class="op">=</span><span class="st">'Start'</span>, zorder<span class="op">=</span><span class="dv">5</span>)</span>
+<span id="cb2-203"><a href="#cb2-203" aria-hidden="true" tabindex="-1"></a>        ax.plot(path[<span class="op">-</span><span class="dv">1</span>, <span class="dv">0</span>], path[<span class="op">-</span><span class="dv">1</span>, <span class="dv">1</span>], <span class="st">'ro'</span>, markersize<span class="op">=</span><span class="dv">8</span>, label<span class="op">=</span><span class="st">'End'</span>, zorder<span class="op">=</span><span class="dv">5</span>)</span>
+<span id="cb2-204"><a href="#cb2-204" aria-hidden="true" tabindex="-1"></a>        </span>
+<span id="cb2-205"><a href="#cb2-205" aria-hidden="true" tabindex="-1"></a>        <span class="co"># Add arrows for direction (fewer for clarity)</span></span>
+<span id="cb2-206"><a href="#cb2-206" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span> <span class="bu">len</span>(path) <span class="op">&gt;</span> <span class="dv">5</span>:</span>
+<span id="cb2-207"><a href="#cb2-207" aria-hidden="true" tabindex="-1"></a>            arrow_indices <span class="op">=</span> np.linspace(<span class="dv">0</span>, <span class="bu">len</span>(path)<span class="op">-</span><span class="dv">2</span>, <span class="bu">min</span>(<span class="dv">5</span>, <span class="bu">len</span>(path)<span class="op">-</span><span class="dv">1</span>), dtype<span class="op">=</span><span class="bu">int</span>)</span>
+<span id="cb2-208"><a href="#cb2-208" aria-hidden="true" tabindex="-1"></a>            <span class="cf">for</span> j <span class="kw">in</span> arrow_indices:</span>
+<span id="cb2-209"><a href="#cb2-209" aria-hidden="true" tabindex="-1"></a>                dx <span class="op">=</span> path[j<span class="op">+</span><span class="dv">1</span>, <span class="dv">0</span>] <span class="op">-</span> path[j, <span class="dv">0</span>]</span>
+<span id="cb2-210"><a href="#cb2-210" aria-hidden="true" tabindex="-1"></a>                dy <span class="op">=</span> path[j<span class="op">+</span><span class="dv">1</span>, <span class="dv">1</span>] <span class="op">-</span> path[j, <span class="dv">1</span>]</span>
+<span id="cb2-211"><a href="#cb2-211" aria-hidden="true" tabindex="-1"></a>                <span class="cf">if</span> np.sqrt(dx<span class="op">**</span><span class="dv">2</span> <span class="op">+</span> dy<span class="op">**</span><span class="dv">2</span>) <span class="op">&gt;</span> <span class="fl">0.05</span>:</span>
+<span id="cb2-212"><a href="#cb2-212" aria-hidden="true" tabindex="-1"></a>                    ax.arrow(path[j, <span class="dv">0</span>], path[j, <span class="dv">1</span>], dx, dy, </span>
+<span id="cb2-213"><a href="#cb2-213" aria-hidden="true" tabindex="-1"></a>                            head_width<span class="op">=</span><span class="fl">0.1</span>, head_length<span class="op">=</span><span class="fl">0.08</span>, fc<span class="op">=</span><span class="st">'red'</span>, ec<span class="op">=</span><span class="st">'red'</span>, alpha<span class="op">=</span><span class="fl">0.7</span>)</span>
+<span id="cb2-214"><a href="#cb2-214" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb2-215"><a href="#cb2-215" aria-hidden="true" tabindex="-1"></a>    ax.set_aspect(<span class="st">'equal'</span>, adjustable<span class="op">=</span><span class="st">'box'</span>)</span>
+<span id="cb2-216"><a href="#cb2-216" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-217"><a href="#cb2-217" aria-hidden="true" tabindex="-1"></a>    ax.set_title(<span class="ss">f'</span><span class="sc">{</span>title<span class="sc">}</span><span class="ch">\n</span><span class="ss">(</span><span class="sc">{</span><span class="bu">len</span>(path)<span class="op">-</span><span class="dv">1</span><span class="sc">}</span><span class="ss"> steps)'</span>)</span>
+<span id="cb2-218"><a href="#cb2-218" aria-hidden="true" tabindex="-1"></a>    ax.set_xlabel(<span class="st">'θ₁'</span>)</span>
+<span id="cb2-219"><a href="#cb2-219" aria-hidden="true" tabindex="-1"></a>    ax.set_ylabel(<span class="st">'θ₂'</span>)</span>
+<span id="cb2-220"><a href="#cb2-220" aria-hidden="true" tabindex="-1"></a>    ax.legend(loc<span class="op">=</span><span class="st">'upper right'</span>)</span>
+<span id="cb2-221"><a href="#cb2-221" aria-hidden="true" tabindex="-1"></a>    ax.grid(<span class="va">True</span>, alpha<span class="op">=</span><span class="fl">0.3</span>)</span>
+<span id="cb2-222"><a href="#cb2-222" aria-hidden="true" tabindex="-1"></a>    ax.set_xlim(<span class="op">-</span><span class="fl">6.1</span>, <span class="fl">6.1</span>)</span>
+<span id="cb2-223"><a href="#cb2-223" aria-hidden="true" tabindex="-1"></a>    ax.set_ylim(<span class="op">-</span><span class="fl">6.1</span>, <span class="fl">6.1</span>)</span>
+<span id="cb2-224"><a href="#cb2-224" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-225"><a href="#cb2-225" aria-hidden="true" tabindex="-1"></a>plt.tight_layout()</span>
+<span id="cb2-226"><a href="#cb2-226" aria-hidden="true" tabindex="-1"></a>plt.show()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </details>
 <div class="cell-output cell-output-display">
 <div id="fig-optimizers-nonconvex" class="quarto-float quarto-figure quarto-figure-center anchored">
@@ -1334,7 +1333,7 @@ Note on Algorithm Performance
 <img src="optimization_files/figure-html/fig-optimizers-nonconvex-output-1.png" class="img-fluid figure-img">
 </div>
 <figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-optimizers-nonconvex-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Figure&nbsp;4.2: Comparison of optimization algorithms on a non-convex loss landscape with multiple local minima. In each panel the red line traces the path from the common start (green dot) to the final iterate (red dot); the black star marks the global minimum and gray contours show loss levels. The noisy-gradient panel adds artificial Gaussian noise to the exact gradient rather than sampling observations from an empirical loss. Learning rates differ by design: 0.01 for batch and noisy gradient descent, 0.001 for momentum, and 0.3 for the adaptive methods (AdaGrad, RMSprop, Adam), whose gradient normalization requires a larger nominal step size.
+Figure&nbsp;4.2: Comparison of optimization algorithms on a non-convex loss landscape with multiple local minima. In each panel the red line traces the path from the common start (green dot) to the final iterate (red dot); the black star marks the global minimum and gray contours show loss levels. The noisy-gradient panel adds artificial Gaussian noise to the exact gradient rather than sampling observations from an empirical loss. Learning rates differ by design: 0.01 for batch and noisy gradient descent, 0.001 for momentum, and 0.3 for the adaptive methods (AdaGrad, RMSprop, Adam), whose gradient normalization requires a larger nominal step size. Every path stops when the loss falls below 1, after 200 iterations, or if an iterate becomes non-finite; Adam uses <span class="math inline">\beta_2=0.999</span>.
 </figcaption>
 </figure>
 </div>
@@ -1496,7 +1495,7 @@ Solution
 |1-\eta \lambda_{\min}|&lt;1.
 </span></p>
 </div>
-<p> These are equivalent to </p>
+<p> These two conditions are equivalent to </p>
 <div class="display-math-block">
 <p><span class="math display">
 0&lt;\eta&lt;\frac{2}{\lambda_{\max}}
@@ -1574,7 +1573,7 @@ g(\boldsymbol{\theta}) = \frac{1}{N}\sum_{i=1}^N \nabla_{\boldsymbol{\theta}} \e
 \operatorname{Var}\left(\frac{1}{b}\sum_{s=t_0+1}^{t_0+b}z_s\right)
 =\frac{1}{b}\left[\gamma_0+2\sum_{\ell=1}^{b-1}\left(1-\frac{\ell}{b}\right)\gamma_\ell\right].
 </span> The dispersed design is an explicit uncorrelated benchmark, not a claim that every randomly drawn batch from a time series has this variance.</li>
-<li>If <span class="math inline">\gamma_1,\dots,\gamma_{b-1}</span> are all positive, compute the difference between the two variances in Part 4. Explain why the contiguous-block batch-gradient estimator then has higher variance — yet may still be the right batching choice.</li>
+<li>Suppose, in addition, that the estimation routine must process observations in calendar order because it carries an internal state from each observation to the next, and the final state of one batch initializes the first observation of the next batch. If <span class="math inline">\gamma_1,\dots,\gamma_{b-1}</span> are all positive, compute the difference between the two variances in Part 4. Explain why the contiguous-block batch-gradient estimator has higher variance, and why the stated order requirement nevertheless makes contiguous batching necessary.</li>
 </ol>
 <p><em>Exam level. Parts 1–3 study randomness from drawing a batch out of one realized finite sample. Parts 4–5 deliberately switch to superpopulation randomness and compare two batching designs under a common variance target.</em></p>
 </div>
@@ -1754,7 +1753,7 @@ S_N^2 = \frac{1}{N}\sum_{i=1}^N (z_i-\bar z)^2,
 =\frac{1}{b}\left[\gamma_0+2\sum_{\ell=1}^{b-1}\left(1-\frac{\ell}{b}\right)\gamma_\ell\right].
 </span></p>
 </div>
-<p><strong>Part 5: Noisier but Sometimes Right</strong></p>
+<p><strong>Part 5: The Variance–Ordering Tradeoff</strong></p>
 <p>Both variances in Part 4 are unconditional variances under the same stationary process, so their difference is directly meaningful: </p>
 <div class="display-math-block">
 <p><span class="math display">
@@ -1762,7 +1761,7 @@ S_N^2 = \frac{1}{N}\sum_{i=1}^N (z_i-\bar z)^2,
 =\frac{2}{b}\sum_{\ell=1}^{b-1}\left(1-\frac{\ell}{b}\right)\gamma_\ell&gt;0,
 </span></p>
 </div>
-<p> where the sum is nonempty because <span class="math inline">b\ge2</span>; at <span class="math inline">b=1</span> the two designs coincide and the difference is zero. Positive autocovariances make neighboring gradients duplicate information, so a contiguous block contains fewer effectively distinct observations than the uncorrelated benchmark. The block scheme can still be the right choice, though the condition is narrower than it looks: it is needed when state is carried from one segment into the next, so that consecutive segments must arrive in order, rather than for every model with a sequential structure. Under the fixed-window scheme of the <a href="./recurrent_neural_networks.html">recurrent-networks chapter</a>, where the state is re-initialized at the start of each window, whole windows may be batched in any order. When contiguity is genuinely required, the extra gradient noise computed above is the price of preserving that structure. Preprocessing leakage is a separate matter and is not controlled by batch construction: it is controlled by estimating every transformation on the training split alone, or at the relevant forecast origin. Notice what this comparison does <em>not</em> do: it does not identify the conditional finite-population variance in Part 2 with <span class="math inline">\gamma_0/b</span> or require an unstated law of large numbers for the realized dispersion <span class="math inline">S_N^2</span>.</p>
+<p> where the sum is nonempty because <span class="math inline">b\ge2</span>; at <span class="math inline">b=1</span> the two designs coincide and the difference is zero. Positive autocovariances make neighboring gradients duplicate information, so a contiguous block contains fewer effectively distinct observations than the uncorrelated benchmark. Under the stated update rule, however, a dispersed batch would present observations out of order and would break the required state transition from one observation to the next. Contiguous batching is therefore necessary for this estimation routine, and the additional gradient variance computed above is the price of preserving its ordering requirement. The conclusion is conditional on that requirement: if the routine re-initialized its state before each independent segment, whole segments could be shuffled without violating their internal order. Notice what this comparison does <em>not</em> do: it does not identify the conditional finite-population variance in Part 2 with <span class="math inline">\gamma_0/b</span> or require an unstated law of large numbers for the realized dispersion <span class="math inline">S_N^2</span>.</p>
 </div>
 </div>
 </div>
@@ -1791,7 +1790,7 @@ u_t=\delta u_{t-1}+(1-\delta)a\theta^{(t-1)},
 \theta^{(t)}=\theta^{(t-1)}-\eta u_t,
 </span></p>
 </div>
-<p> where <span class="math inline">\eta&gt;0</span> is the learning rate and <span class="math inline">\delta\in[0,1)</span> is the momentum parameter. As in the main text, the gradient used for update <span class="math inline">t</span> is evaluated at <span class="math inline">\theta^{(t-1)}</span>, and that update produces <span class="math inline">\theta^{(t)}</span>.</p>
+<p> where <span class="math inline">\eta&gt;0</span> is the learning rate and <span class="math inline">\delta\in[0,1)</span> is the momentum coefficient. As in the main text, the gradient used for update <span class="math inline">t</span> is evaluated at <span class="math inline">\theta^{(t-1)}</span>, and that update produces <span class="math inline">\theta^{(t)}</span>.</p>
 <ol type="1">
 <li>Eliminate <span class="math inline">u_t</span> and show that <span class="math inline">\theta^{(t)}</span> satisfies the second-order recursion <span class="math display">
 \theta^{(t)}
@@ -1802,7 +1801,7 @@ u_t=\delta u_{t-1}+(1-\delta)a\theta^{(t-1)},
 <li>Show that when <span class="math inline">\delta=0</span> this reduces to the gradient descent recursion of Exercise 4.1, with the single curvature <span class="math inline">a</span> here playing the role of <span class="math inline">\lambda_{\max}</span> there. For the general case, use the following Schur-Cohn stability criterion <span class="citation" data-cites="Hamilton1994TimeSeries">(see, e.g., <a href="#ref-Hamilton1994TimeSeries" role="doc-biblioref">Hamilton 1994</a>)</span>: a second-order linear recursion <span class="math inline">x_t=cx_{t-1}+dx_{t-2}</span> with characteristic polynomial <span class="math inline">p(r)=r^2-cr-d</span> converges to zero from every initial state if and only if <span class="math inline">p(1)&gt;0</span>, <span class="math inline">p(-1)&gt;0</span>, and <span class="math inline">|d|&lt;1</span>. Apply this to show that, for general <span class="math inline">\delta\in[0,1)</span>, the recursion converges to zero from every initial state <span class="math inline">(\theta^{(0)},u_0)</span> if and only if <span class="math display">
 \eta&lt;\frac{2(1+\delta)}{(1-\delta)\,a}.
 </span></li>
-<li>Compare this stability bound with the vanilla gradient descent bound <span class="math inline">\eta&lt;2/a</span>. Explain why momentum widens the range of stable learning rates and why, despite this, momentum can still produce oscillatory transient behavior.</li>
+<li>Compare this stability bound with the vanilla gradient descent bound <span class="math inline">\eta&lt;2/a</span>. For the normalized Momentum convention stated in the exercise, explain why momentum widens the range of stable learning rates and why, despite this, momentum can still produce oscillatory transient behavior.</li>
 </ol>
 <p><em>Exam level. The exercise turns momentum into a concrete dynamic system, derives its stability region, and compares it with vanilla gradient descent.</em></p>
 </div>
@@ -1905,8 +1904,168 @@ p(r)=r^2-cr+\delta.
 </ol>
 <p>Conditions (i) and (iii) hold automatically for <span class="math inline">\eta&gt;0</span> and <span class="math inline">\delta\in[0,1)</span>, so the criterion reduces to (ii) alone. Therefore the recursion converges to zero from every initial state if and only if <span class="math inline">\eta&lt;\frac{2(1+\delta)}{(1-\delta)\,a}</span>.</p>
 <p><strong>Part 3: Wider Stability but Possible Oscillation</strong></p>
-<p>At <span class="math inline">\delta=0</span> the bound is <span class="math inline">\eta&lt;2/a</span>. For <span class="math inline">\delta&gt;0</span> the bound becomes <span class="math inline">2(1+\delta)/((1-\delta)a)&gt;2/a</span>, so momentum widens the range of stable learning rates.</p>
+<p>At <span class="math inline">\delta=0</span> the bound is <span class="math inline">\eta&lt;2/a</span>. For <span class="math inline">\delta&gt;0</span> the bound becomes <span class="math inline">2(1+\delta)/((1-\delta)a)&gt;2/a</span>, so the normalized Momentum convention widens the range of stable learning rates.</p>
 <p>However, the characteristic roots are complex when the discriminant <span class="math inline">c^2-4\delta&lt;0</span>. Complex roots mean the iterates oscillate even while converging: the algorithm overshoots and corrects, cycling around the optimum before settling down. This explains why momentum can accelerate convergence in directions of persistent gradient but produces oscillatory transient behavior when the effective step size is aggressive.</p>
+</div>
+</div>
+</div>
+<div class="callout callout-style-default callout-note callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+Exercise 4.4: Bias Correction in Adam
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>Consider the scalar versions of Adam’s moment recursions, </p>
+<div class="display-math-block">
+<p><span class="math display">
+m_t=\beta_1m_{t-1}+(1-\beta_1)g_t,
+\qquad
+v_t=\beta_2v_{t-1}+(1-\beta_2)g_t^2,
+</span></p>
+</div>
+<p> with <span class="math inline">m_0=v_0=0</span> and <span class="math inline">\beta_1,\beta_2\in[0,1)</span>. Define </p>
+<div class="display-math-block">
+<p><span class="math display">
+\hat m_t=\frac{m_t}{1-\beta_1^t},
+\qquad
+\hat v_t=\frac{v_t}{1-\beta_2^t}.
+</span></p>
+</div>
+<ol type="1">
+<li>Suppose <span class="math inline">\mathbb E[g_t]=\mu</span> and <span class="math inline">\mathbb E[g_t^2]=\nu&lt;\infty</span> for every <span class="math inline">t</span>. Unroll both recursions and show that <span class="math inline">\mathbb E[\hat m_t]=\mu</span> and <span class="math inline">\mathbb E[\hat v_t]=\nu</span>.</li>
+<li>For two realized gradients <span class="math inline">g_1=a</span> and <span class="math inline">g_2=b</span>, compute <span class="math inline">\hat m_1</span>, <span class="math inline">\hat v_1</span>, <span class="math inline">\hat m_2</span>, and <span class="math inline">\hat v_2</span>. Identify how the two decay rates weight the more recent gradient relative to the earlier one at <span class="math inline">t=2</span>.</li>
+<li>Now allow the gradient mean to change, with <span class="math inline">\mathbb E[g_1]=\mu_1</span> and <span class="math inline">\mathbb E[g_2]=\mu_2</span>. Derive <span class="math inline">\mathbb E[\hat m_2]</span> and give the condition under which it equals the current mean <span class="math inline">\mu_2</span>. Explain what this result says about the distinction between correcting zero initialization and tracking a changing gradient distribution.</li>
+</ol>
+<p><em>Exam level. The exercise derives Adam’s bias correction, applies it to a short gradient sequence, and shows exactly which constant-moment condition the correction uses.</em></p>
+</div>
+</div>
+<div class="callout callout-style-default callout-warning callout-titled">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-28-contents" aria-controls="callout-28" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+Hint for Part 1
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-28" class="callout-28-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
+<p>Iterate each recursion backward to time 1 and use the finite geometric sum <span class="math inline">\sum_{j=0}^{t-1}\beta^j=(1-\beta^t)/(1-\beta)</span>.</p>
+</div>
+</div>
+</div>
+<div class="callout callout-style-default callout-warning callout-titled">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-29-contents" aria-controls="callout-29" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+Hint for Part 3
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-29" class="callout-29-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
+<p>Use the expression for <span class="math inline">\hat m_2</span> from Part 2 and take expectations term by term; independence between <span class="math inline">g_1</span> and <span class="math inline">g_2</span> is not required.</p>
+</div>
+</div>
+</div>
+<div class="callout callout-style-default callout-tip callout-titled">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-30-contents" aria-controls="callout-30" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+Solution
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-30" class="callout-30-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
+<p><strong>Part 1: Removing the Zero-Initialization Factors</strong></p>
+<p>Iterating the first recursion backward gives </p>
+<div class="display-math-block">
+<p><span class="math display">
+m_t=(1-\beta_1)\sum_{\tau=1}^t\beta_1^{t-\tau}g_\tau.
+</span></p>
+</div>
+<p> Therefore </p>
+<div class="display-math-block">
+<p><span class="math display">
+\mathbb E[m_t]
+=(1-\beta_1)\mu\sum_{\tau=1}^t\beta_1^{t-\tau}
+=(1-\beta_1^t)\mu,
+</span></p>
+</div>
+<p> and division by <span class="math inline">1-\beta_1^t</span> yields <span class="math inline">\mathbb E[\hat m_t]=\mu</span>. Similarly, </p>
+<div class="display-math-block">
+<p><span class="math display">
+v_t=(1-\beta_2)\sum_{\tau=1}^t\beta_2^{t-\tau}g_\tau^2,
+</span></p>
+</div>
+<p> so </p>
+<div class="display-math-block">
+<p><span class="math display">
+\mathbb E[v_t]
+=(1-\beta_2)\nu\sum_{\tau=1}^t\beta_2^{t-\tau}
+=(1-\beta_2^t)\nu
+</span></p>
+</div>
+<p> and <span class="math inline">\mathbb E[\hat v_t]=\nu</span>.</p>
+<p><strong>Part 2: Two Realized Gradients</strong></p>
+<p>At the first update, </p>
+<div class="display-math-block">
+<p><span class="math display">
+m_1=(1-\beta_1)a,
+\qquad
+v_1=(1-\beta_2)a^2,
+</span></p>
+</div>
+<p> and hence </p>
+<div class="display-math-block">
+<p><span class="math display">
+\hat m_1=a,
+\qquad
+\hat v_1=a^2.
+</span></p>
+</div>
+<p> At the second update, </p>
+<div class="display-math-block">
+<p><span class="math display">
+m_2=(1-\beta_1)(\beta_1a+b),
+\qquad
+v_2=(1-\beta_2)(\beta_2a^2+b^2).
+</span></p>
+</div>
+<p> Using <span class="math inline">1-\beta^2=(1-\beta)(1+\beta)</span> gives </p>
+<div class="display-math-block">
+<p><span class="math display">
+\hat m_2=\frac{\beta_1a+b}{1+\beta_1},
+\qquad
+\hat v_2=\frac{\beta_2a^2+b^2}{1+\beta_2}.
+</span></p>
+</div>
+<p> Thus the current gradient receives weight <span class="math inline">1/(1+\beta_1)</span> in <span class="math inline">\hat m_2</span>, while the earlier gradient receives weight <span class="math inline">\beta_1/(1+\beta_1)</span>. The corresponding weights in <span class="math inline">\hat v_2</span> are <span class="math inline">1/(1+\beta_2)</span> and <span class="math inline">\beta_2/(1+\beta_2)</span> for the current and earlier squared gradients.</p>
+<p><strong>Part 3: Changing Gradient Means</strong></p>
+<p>Taking expectations in the expression from Part 2, </p>
+<div class="display-math-block">
+<p><span class="math display">
+\mathbb E[\hat m_2]
+=\frac{\beta_1\mu_1+\mu_2}{1+\beta_1}.
+</span></p>
+</div>
+<p> This expectation equals the current mean <span class="math inline">\mu_2</span> if and only if </p>
+<div class="display-math-block">
+<p><span class="math display">
+\beta_1(\mu_1-\mu_2)=0.
+</span></p>
+</div>
+<p> Thus equality holds when <span class="math inline">\beta_1=0</span> or when the mean is unchanged, <span class="math inline">\mu_1=\mu_2</span>. Bias correction removes the deterministic attenuation caused by starting the moving average at zero. It does not remove the deliberate lag created by averaging gradients from different stages of training when their distribution changes.</p>
 </div>
 </div>
 </div>
@@ -1914,9 +2073,6 @@ p(r)=r^2-cr+\delta.
 <section id="references" class="level2" data-number="4.11">
 <h2 data-number="4.11" class="anchored" data-anchor-id="references"><span class="header-section-number">4.11</span> References</h2>
 <div id="refs" class="references csl-bib-body hanging-indent" data-entry-spacing="0" role="list">
-<div id="ref-BerndtHallHallHausman1974" class="csl-entry" role="listitem">
-Berndt, Ernst R., Bronwyn H. Hall, Robert E. Hall, and Jerry A. Hausman. 1974. <span>“Estimation and Inference in Nonlinear Structural Models.”</span> <em>Annals of Economic and Social Measurement</em> 3 (4): 653–65.
-</div>
 <div id="ref-DauphinPascanuGulcehreChoBengioGanguli2014" class="csl-entry" role="listitem">
 Dauphin, Yann N., Razvan Pascanu, Caglar Gulcehre, Kyunghyun Cho, Surya Ganguli, and Yoshua Bengio. 2014. <span>“Identifying and Attacking the Saddle Point Problem in High-Dimensional Non-Convex Optimization.”</span> In <em>Advances in Neural Information Processing Systems</em>. Vol. 27. Curran Associates.
 </div>
