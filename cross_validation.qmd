@@ -663,6 +663,157 @@ For deep neural networks with many hyperparameters, consider:
 We treat these search strategies systematically in the [chapter on advanced hyperparameter optimization](hpo.qmd).
 :::
 
+## Nested Cross-Validation {#sec-cv-nested}
+
+The practical example used cross-validation to answer a **selection question**: which candidate architecture and learning rate should we choose? A different question remains: how well will the procedure that performs this search predict on new data? Reporting the smallest inner-CV error as the answer reuses the same validation scores for selection and assessment. Because the minimum favors configurations that received unusually favorable validation draws, the reported error is generally optimistic even if each candidate's CV score is unbiased before selection [@VarmaSimon2006; @CawleyTalbot2010].
+
+@fig-nested-cv visualizes how nested cross-validation prevents that reuse. The left panel shows the outer loop that produces the final assessment scores. The right panel zooms into the first outer split and shows the separate inner loop used for tuning.
+
+```{python}
+#| label: fig-nested-cv
+#| fig-cap: "Nested cross-validation with five outer folds and, within outer split 1, four inner folds. Left panel: each outer fold serves once as the outer validation fold (red), while the other folds form the outer training sample (blue). Right panel: the observations in the outer training sample are repartitioned into four inner folds, which rotate between inner training (blue) and inner validation (orange). The outer validation fold remains red and never enters tuning. After the inner loop selects a configuration, the model is refitted on the full outer training sample and evaluated once on the outer validation fold."
+#| echo: true
+import matplotlib.pyplot as plt
+from matplotlib.patches import Patch, Rectangle
+
+outer_folds = 5
+inner_folds = outer_folds - 1
+row_height = 0.68
+
+training_color = 'tab:blue'
+outer_validation_color = 'tab:red'
+inner_validation_color = 'tab:orange'
+
+fig, (ax_outer, ax_inner) = plt.subplots(
+    1, 2, figsize=(12, 5.2),
+    gridspec_kw={'width_ratios': [1.0, 1.15]}
+)
+
+# Outer loop: rotate which fold is held out for final assessment.
+for split in range(outer_folds):
+    for fold in range(outer_folds):
+        color = (
+            outer_validation_color if fold == split else training_color
+        )
+        ax_outer.add_patch(Rectangle(
+            (fold, split - row_height / 2), 0.96, row_height,
+            facecolor=color, edgecolor='white'
+        ))
+
+# Outline the outer split expanded in the right panel.
+ax_outer.add_patch(Rectangle(
+    (-0.08, -row_height / 2 - 0.08),
+    outer_folds + 0.04, row_height + 0.16,
+    fill=False, edgecolor='black', linewidth=1.4
+))
+ax_outer.set_xlim(-0.15, outer_folds + 0.05)
+ax_outer.set_ylim(outer_folds - 0.45, -0.65)
+ax_outer.set_xticks(
+    [fold + 0.48 for fold in range(outer_folds)],
+    [fr'$D_{{{fold + 1}}}^{{\mathrm{{out}}}}$'
+     for fold in range(outer_folds)]
+)
+ax_outer.set_yticks(
+    range(outer_folds),
+    [f'Outer split {split + 1}' for split in range(outer_folds)]
+)
+ax_outer.set_title('(a) Outer loop: assessment')
+ax_outer.tick_params(length=0)
+
+# Inner loop for outer split 1. The outer validation fold is displayed
+# separately as a reminder that it never enters tuning.
+outer_box_x = 0.0
+inner_start_x = 1.35
+for split in range(inner_folds):
+    ax_inner.add_patch(Rectangle(
+        (outer_box_x, split - row_height / 2), 0.82, row_height,
+        facecolor=outer_validation_color, edgecolor='white', hatch='//'
+    ))
+    for fold in range(inner_folds):
+        color = (
+            inner_validation_color if fold == split else training_color
+        )
+        ax_inner.add_patch(Rectangle(
+            (inner_start_x + fold, split - row_height / 2),
+            0.96, row_height, facecolor=color, edgecolor='white'
+        ))
+
+ax_inner.axvline(1.08, color='0.5', linewidth=1, linestyle='--')
+ax_inner.text(
+    outer_box_x + 0.41, -0.57, 'untouched',
+    ha='center', va='bottom', fontsize=9
+)
+ax_inner.set_xlim(-0.12, inner_start_x + inner_folds + 0.05)
+ax_inner.set_ylim(inner_folds - 0.45, -0.65)
+ax_inner.set_xticks(
+    [outer_box_x + 0.41]
+    + [inner_start_x + fold + 0.48 for fold in range(inner_folds)],
+    [r'$D_1^{\mathrm{out}}$']
+    + [fr'$D_{{{fold + 1}}}^{{\mathrm{{in}}}}$'
+       for fold in range(inner_folds)]
+)
+ax_inner.set_yticks(
+    range(inner_folds),
+    [f'Inner split {split + 1}' for split in range(inner_folds)]
+)
+ax_inner.set_title('(b) Inner loop within outer split 1: tuning')
+ax_inner.tick_params(length=0)
+
+for ax in (ax_outer, ax_inner):
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+
+legend_handles = [
+    Patch(facecolor=training_color, label='Training in current loop'),
+    Patch(facecolor=inner_validation_color, label='Inner validation'),
+    Patch(facecolor=outer_validation_color, hatch='//',
+          label='Outer validation'),
+]
+fig.legend(
+    handles=legend_handles, loc='lower center', ncol=3,
+    frameon=False, bbox_to_anchor=(0.5, -0.01)
+)
+fig.tight_layout(rect=[0, 0.08, 1, 1])
+plt.show()
+```
+
+The right panel of @fig-nested-cv makes the separation operational. The four inner folds rotate between training and validation, but $D_1^{\mathrm{out}}$ never changes role. After the inner scores select $\hat\lambda_1$, the procedure refits on the complete outer training sample and evaluates once on $D_1^{\mathrm{out}}$. Repeating the same sequence for the other four outer splits produces one honest outer score for every observation.
+
+Nested cross-validation separates the two questions. Let $\Lambda$ denote the set of candidate hyperparameter configurations. In ordinary nested K-fold CV, the full sample is first partitioned into $K_{\mathrm{out}}$ **outer folds**. Then:
+
+1. Hold out outer fold $D_k^{\mathrm{out}}$ and keep it completely untouched while making modeling decisions.
+2. Using only the remaining outer training observations, run an **inner cross-validation** search over $\lambda\in\Lambda$. Every data-dependent step — including imputation, standardization, feature selection, and early stopping — must be repeated within the inner training folds.
+3. Select the configuration $\hat\lambda_k$ with the best inner-CV criterion.
+4. Refit the complete pipeline with $\hat\lambda_k$ on all observations in the outer training sample.
+5. Evaluate that fitted pipeline once on $D_k^{\mathrm{out}}$. Repeat Steps 1--5 for every outer fold and pool the outer-fold losses.
+
+For outer folds that partition the $N$ observations, the resulting estimate is
+
+$$
+\widehat R_{\mathrm{nested}}
+=
+\frac{1}{N}
+\sum_{k=1}^{K_{\mathrm{out}}}
+\sum_{i\in D_k^{\mathrm{out}}}
+L\!\left(y_i,\hat f_k^{\mathrm{tuned}}(x_i)\right),
+$$
+
+where $\hat f_k^{\mathrm{tuned}}$ denotes the entire rule produced from outer training sample $k$: inner-loop preprocessing and tuning, selection of $\hat\lambda_k$, and refitting with that selected configuration. The outer-fold outcome $y_i$ has no role in constructing this rule. This separation is what makes the outer loss an assessment rather than another tuning criterion.
+
+**What does nested CV estimate?** It estimates the expected performance of the complete tuning-and-fitting procedure when that procedure is trained on an outer training sample of size approximately $N(K_{\mathrm{out}}-1)/K_{\mathrm{out}}$. It does not estimate the risk of one prespecified configuration, nor exactly the risk of the final model fitted on all $N$ observations. The selected configurations $\hat\lambda_k$ may legitimately differ across outer folds: the object being evaluated is the rule *choose a configuration from the available training data and then refit*, not any one value of $\lambda$.
+
+**What happens after assessment?** Once the nested estimate has been recorded, rerun the inner tuning procedure on the full development sample, choose a final configuration, and refit the pipeline on all available development observations for deployment. The nested outer score remains the performance estimate for that workflow. Do not replace it with the smaller inner-CV score obtained during the final full-sample search. If a genuinely untouched test set is available, it can instead provide the final assessment, but it must not become another dataset consulted repeatedly during tuning.
+
+**What changes with dependent data?** Both layers must respect the dependence and information structure described in @sec-cv-time-series. For time series, each outer validation block must lie after its outer training window, and every inner split must preserve chronology *within that outer training window*. For clustered data, clusters rather than individual observations should remain intact in both layers. A time-aware outer loop cannot repair leakage created by random or otherwise invalid inner folds.
+
+:::{.callout-important}
+## Keep the Three Roles Separate
+
+1. **Inner CV selects** preprocessing choices, model classes, and hyperparameters.
+2. **Outer CV assesses** the full procedure that performs that selection and then refits.
+3. **The final full-sample refit produces** the model used for deployment; it does not produce a new honest performance estimate.
+:::
+
 ## Summary
 
 :::{.callout-important}
