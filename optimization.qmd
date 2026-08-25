@@ -69,7 +69,7 @@ which leads us to the update rule
 $$\boldsymbol{\theta}^{(t)} = \boldsymbol{\theta}^{(t-1)} - \eta \frac{1}{N} \sum_{i=1}^N \nabla_{\boldsymbol{\theta}}\ell_i(\boldsymbol{\theta}^{(t-1)})$$
 
 :::{.callout-note}
--   **Pros**: The gradient is the exact training-set gradient, giving a smooth, deterministic path; see the convergence callout below for the conditions under which this path actually converges.
+-   **Pros**: The gradient is the exact training-set gradient, giving a smooth, deterministic path. Exactness does not by itself guarantee convergence, which also depends on the shape of the loss and the learning rate.
 -   **Cons**: Each parameter update requires processing the entire training sample, which makes updates computationally intensive, especially on large datasets.
 :::
 
@@ -87,10 +87,6 @@ Using only one data point per update instead of all $i = 1, \dots, N$ is a coars
 :::
 
 [^sgd-convergence]: Under standard stochastic-approximation assumptions — including conditionally unbiased or suitably controlled gradients, bounded conditional second moments, and appropriate regularity and convexity or stability conditions — diminishing step sizes satisfying the Robbins–Monro conditions $\sum_t \eta_t = \infty$ and $\sum_t \eta_t^2 < \infty$ can yield convergence [@RobbinsMonro1951]. The exact mode and rate of convergence depend on the assumptions imposed on the objective and gradient noise.
-
-:::{.callout-note title="What Do Convergence Guarantees Actually Say?"}
-Convergence statements for gradient methods always carry conditions, and it is worth fixing them once. Consider deterministic batch gradient descent on a differentiable objective $L$ that is bounded below and has a Lipschitz-continuous gradient with constant $C$, using a fixed step size $0<\eta\leq 1/C$. If $L$ is also convex and attains its minimum at $\boldsymbol\theta^\star$, the objective gap $L(\boldsymbol\theta^{(t)})-L(\boldsymbol\theta^\star)$ decreases at rate $O(1/t)$. Without convexity, the same smoothness, lower-bound, and step-size conditions imply only that the gradient norm tends to zero, $\|\nabla L(\boldsymbol\theta^{(t)})\|\to 0$; any finite limit point of the iterates is therefore stationary and may be a saddle or local maximum rather than a local minimum. These deterministic guarantees do not automatically carry over to stochastic or mini-batch gradients, whose convergence requires additional assumptions on gradient noise and the step-size schedule [@GoodfellowBengioCourville2016, chap. 8]. A step size that is too large can diverge even on a quadratic objective; Exercise 4.1 derives the exact stability threshold.
-:::
 
 **Mini-Batch Gradient Descent**
 
@@ -122,12 +118,12 @@ The two limiting choices recover the earlier methods:
 
 :::{.callout-note title="Question for Reflection"}
 
-Suppose observations are ordered over time or clustered by firm. Does random mini-batch sampling bias the gradient? What does the dependence change about the batch gradient — and in which situations does the *construction* of batches (time blocks, firm clusters) genuinely matter?
+Suppose the training observations are ordered over time or clustered by firm, so that they are dependent rather than independent draws. If we hold the realized training sample fixed and draw a mini-batch uniformly at random, is the batch gradient still unbiased for the full-sample gradient $\nabla_{\boldsymbol\theta} L(\boldsymbol\theta)$? If dependence does not create bias, what property of the batch gradient can it affect, and through which choice?
 :::
 
 :::{.callout-tip collapse="true" title="Suggested Answer"}
 
-Three points matter. First, hold $\boldsymbol{\theta}$ and the realized training sample fixed and draw a fresh batch uniformly: its gradient is unbiased for the full-sample gradient. Second, temporal or within-firm dependence changes the *unconditional variance* of that gradient, not this conditional sampling result; the variance depends on whether a batch groups neighboring dates or observations from the same firm. Third, batch construction is essential when the loss or update itself must process related observations together or in order. For example, an estimation routine may carry an internal state from one date to the next, or a loss may be defined for an entire firm-level group. If the loss remains a sum of separate observation-level terms and the update carries no information across observations, grouping changes the gradient noise but not the full-sample target.
+Two points matter. First, hold $\boldsymbol{\theta}$ and the realized training sample fixed and draw a fresh batch uniformly at random: the batch gradient averages a random subset of the fixed per-observation gradients, so it is unbiased for the full-sample gradient no matter how the observations are related over time or across firms — dependence in the data never enters this conditional sampling argument. Second, what dependence does affect is the *noise* of the batch gradient once we change how batches are built: if a batch is a contiguous time block or a whole-firm cluster, its per-observation gradients are correlated, so the batch average diversifies less and is a noisier estimate of the full-sample gradient than a uniformly drawn batch of the same size.
 :::
 
 :::{.callout-note title="Definition: Epoch"}
@@ -189,7 +185,7 @@ Two versions appear in the literature. The **full-matrix** version accumulates t
 $$
 \boldsymbol{\mathcal{G}}_t = \sum_{\tau=1}^{t} \boldsymbol g_\tau \boldsymbol g_\tau^\top + \varepsilon \boldsymbol I_m
 $$
-where $\varepsilon>0$ ensures that $\boldsymbol{\mathcal G}_t$ is positive definite and therefore has an inverse square root. Without this adjustment, the sum of outer products has rank at most $t$ and is singular whenever $t<m$.
+where $m$ is the number of parameters, $\boldsymbol I_m$ is the $m \times m$ identity matrix, and $\varepsilon>0$ ensures that $\boldsymbol{\mathcal G}_t$ is positive definite and therefore has an inverse square root. Without this adjustment, the sum of outer products has rank at most $t$ and is singular whenever $t<m$.
 
 The full-matrix AdaGrad update is
 $$
@@ -252,11 +248,7 @@ The correction restores unbiasedness under stationarity; during actual training,
 4. **Parameter update**:
    $$ \boldsymbol{\theta}^{(t)} = \boldsymbol{\theta}^{(t-1)} - \eta \frac{\hat{\boldsymbol m}_t}{\sqrt{\hat{\boldsymbol v}_t} + \varepsilon}. $$
 
-Adam is a common default starting point: it usually reduces training loss quickly across a wide range of problems without per-problem tuning. Whether it delivers the best final training loss or out-of-sample performance is problem-dependent, so optimizer choice and tuning remain part of the validation exercise. A modern variant is **AdamW** [@LoshchilovHutter2019AdamW], which decouples **weight decay** from the adaptive gradient update. With decay rate $\omega\geq0$ and Adam update direction $\boldsymbol d_t$ computed from the unpenalized training loss, direct weight decay applies
-$$
-\boldsymbol\theta^{(t)}=(1-\eta\omega)\boldsymbol\theta^{(t-1)}-\eta\boldsymbol d_t.
-$$
-For ordinary gradient descent, this multiplicative shrinkage is algebraically equivalent to adding the penalty $\omega\|\boldsymbol\theta\|_2^2/2$ to the loss. In vanilla Adam, feeding the penalty gradient $\omega\boldsymbol\theta$ through the coordinate-specific moment and scaling calculations breaks that equivalence. AdamW instead applies the shrinkage outside the adaptive transformation, so $\omega$ directly controls the strength of parameter shrinkage.
+Adam is a common default starting point: it usually reduces training loss quickly across a wide range of problems without per-problem tuning. Whether it delivers the best final training loss or out-of-sample performance is problem-dependent, so optimizer choice and tuning remain part of the validation exercise.
 
 ## Optimizer Comparison
 
@@ -272,7 +264,7 @@ Having derived the update rules one by one, we now place their computational tra
 | **RMSprop** [@hinton2012rmsprop] | 1 (moving average of squared gradients) | $\eta$, $\rho$, $\varepsilon$ | Avoids AdaGrad's monotonically growing accumulator | Vanilla form has no first-moment momentum term |
 | **Adam** [@KingmaBa2015] | 2 (first and second moments) | $\eta$, $\beta_1$, $\beta_2$, $\varepsilon$ | Combines momentum with coordinate-specific scaling | Highest optimizer-state memory; adaptive scaling does not eliminate learning-rate tuning |
 
-The advantage and limitation entries describe typical behavior at reasonable tunings; none is unconditional. Actual performance depends on the objective's geometry, the noise induced by mini-batching, and the learning-rate choice — the conditions the convergence callout above spells out — and settling at a suboptimal stationary point is a risk every method on this list shares on non-convex objectives.
+The advantage and limitation entries describe typical behavior at reasonable tunings; none is unconditional. Actual performance depends on the objective's geometry, the noise induced by mini-batching, and the learning-rate choice. On non-convex objectives, no method on this list is guaranteed to reach a global minimum.
 
 ## Visualizing Optimizers
 
@@ -821,7 +813,7 @@ $$
 
 :::{.callout-warning collapse="true"}
 ## Hint for Part 2
-A scalar recursion $x_{t+1}=cx_t$ converges to zero if and only if $|c|<1$.
+A scalar recursion $x_{t+1}=cx_t$ converges to zero from every starting value $x_0$ if and only if $|c|<1$.
 :::
 
 :::{.callout-warning collapse="true"}
@@ -905,7 +897,7 @@ $$
 
 (Note the sampling scheme: the training algorithm in this chapter forms batches as a random *partition* of the data, whereas here a single batch is drawn by simple random sampling without replacement. The first batch of a freshly shuffled partition has exactly this distribution, so the calculations below describe it as well.)
 
-In Parts 1–3, expectations and variances are over the draw of $B$, conditional on the realized observation-level gradients.
+Throughout, expectations and variances are over the draw of $B$, conditional on the realized observation-level gradients.
 
 1. Show that
    $$
@@ -920,19 +912,8 @@ In Parts 1–3, expectations and variances are over the draw of $B$, conditional
    $$
    where $\bar z = \frac{1}{N}\sum_{i=1}^N z_i$.
 3. Use Part 2 to explain why smaller mini-batches (smaller $b$) produce noisier updates. Then explain one reason why such noise may nevertheless be useful in optimization.
-4. Now switch from the conditional finite-population sampling variance in Parts 1–3 to an unconditional superpopulation comparison. In Parts 4 and 5, assume $b\ge2$, and let the subscript $t$ index calendar time rather than the optimization iteration of the main text. Suppose the scalar gradients $\{z_t\}$ are covariance stationary with autocovariances $\gamma_\ell=\operatorname{Cov}(z_t,z_{t-\ell})$. Compare two idealized batch designs of size $b$: a dispersed batch at dates $t_1,\dots,t_b$ satisfying $\operatorname{Cov}(z_{t_j},z_{t_k})=0$ for $j\neq k$, and a contiguous block $\{t_0+1,\dots,t_0+b\}$. Show that
-   $$
-   \operatorname{Var}\left(\frac{1}{b}\sum_{j=1}^{b}z_{t_j}\right)=\frac{\gamma_0}{b}
-   $$
-   and
-   $$
-   \operatorname{Var}\left(\frac{1}{b}\sum_{s=t_0+1}^{t_0+b}z_s\right)
-   =\frac{1}{b}\left[\gamma_0+2\sum_{\ell=1}^{b-1}\left(1-\frac{\ell}{b}\right)\gamma_\ell\right].
-   $$
-   The dispersed design is an explicit uncorrelated benchmark, not a claim that every randomly drawn batch from a time series has this variance.
-5. Suppose, in addition, that the estimation routine must process observations in calendar order because it carries an internal state from each observation to the next, and the final state of one batch initializes the first observation of the next batch. If $\gamma_1,\dots,\gamma_{b-1}$ are all positive, compute the difference between the two variances in Part 4. Explain why the contiguous-block batch-gradient estimator has higher variance, and why the stated order requirement nevertheless makes contiguous batching necessary.
 
-*Exam level. Parts 1–3 study randomness from drawing a batch out of one realized finite sample. Parts 4–5 deliberately switch to superpopulation randomness and compare two batching designs under a common variance target.*
+*Exam level. The exercise studies the randomness that comes from drawing a batch out of one realized finite sample.*
 :::
 
 :::{.callout-warning collapse="true"}
@@ -943,11 +924,6 @@ Write the mini-batch estimator as an average of terms multiplied by inclusion in
 :::{.callout-warning collapse="true"}
 ## Hint for Part 2
 Use the standard variance formula for sampling without replacement, or derive it from inclusion probabilities.
-:::
-
-:::{.callout-warning collapse="true"}
-## Hint for Part 4
-For the dispersed batch, expand the variance and use the assumed zero pairwise covariances. For the contiguous block, the double-sum computation parallels Exercise 3.4 in the [previous chapter](evaluating_distributions.qmd): count the pairs $(t,s)$ at each lag $|t-s|=\ell$.
 :::
 
 :::{.callout-tip collapse="true"}
@@ -1007,7 +983,7 @@ $$
 $$
 where the covariance is negative because drawing $i$ leaves one fewer slot for $j$.
 
-Subtracting the constant $\bar z$ from every $z_i$ shifts the estimator by exactly $\bar z$ (every sample contains $b$ terms) and leaves its variance unchanged, so we may assume $\bar z = 0$ without loss of generality; then $\sum_{i\ne j} z_i z_j = \big(\sum_i z_i\big)^2 - \sum_i z_i^2 = -\sum_i z_i^2$. Expanding the variance of the weighted sum of indicators,
+Subtracting the constant $\bar z$ from every $z_i$ shifts the estimator by exactly $\bar z$ (every sample contains $b$ terms) and leaves its variance unchanged, so we may assume $\bar z = 0$ without loss of generality; then $\sum_{i\neq j} z_i z_j = \big(\sum_{i=1}^N z_i\big)^2 - \sum_{i=1}^N z_i^2 = -\sum_{i=1}^N z_i^2$, where $\sum_{i\neq j}$ runs over all ordered pairs $i,j\in\{1,\dots,N\}$ with $i\neq j$. Expanding the variance of the weighted sum of indicators,
 $$
 \mathrm{Var}\left(\frac{1}{b}\sum_{i\in B} z_i\right)
 =
@@ -1017,7 +993,7 @@ $$
 \frac{1}{b^2}\left[\frac{b(N-b)}{N^2}
 + \frac{b(N-b)}{N^2(N-1)}\right]\sum_{i=1}^N z_i^2,
 $$
-using the sign flip from $\sum_{i\ne j} z_i z_j = -\sum_i z_i^2$ in the second term. The bracket simplifies to $\frac{b(N-b)}{N^2}\cdot\frac{N}{N-1} = \frac{b(N-b)}{N(N-1)}$, so
+using the sign flip from $\sum_{i\neq j} z_i z_j = -\sum_{i=1}^N z_i^2$ in the second term. The bracket simplifies to $\frac{b(N-b)}{N^2}\cdot\frac{N}{N-1} = \frac{b(N-b)}{N(N-1)}$, so
 $$
 \mathrm{Var}\left(\frac{1}{b}\sum_{i\in B} z_i\right)
 =
@@ -1038,31 +1014,6 @@ $$
 falls as $b$ increases. Therefore smaller mini-batches produce noisier gradient estimators and hence noisier parameter updates.
 
 That noise can nevertheless be useful because it can prevent the algorithm from following a rigid deterministic path. In non-convex problems, moderate noise may help the optimizer move away from poor local geometries such as narrow basins or saddle regions.
-
-**Part 4: A Common Superpopulation Comparison**
-
-For the dispersed batch, covariance stationarity gives $\operatorname{Var}(z_{t_j})=\gamma_0$ for every $j$, while the design assumption makes every off-diagonal covariance zero. Hence
-$$
-\operatorname{Var}\left(\frac{1}{b}\sum_{j=1}^{b}z_{t_j}\right)
-=\frac{1}{b^2}\left[\sum_{j=1}^{b}\gamma_0+2\sum_{j<k}0\right]
-=\frac{\gamma_0}{b}.
-$$
-
-By stationarity, $\operatorname{Cov}(z_t,z_s)=\gamma_{|t-s|}$, and the double sum over the block contains $b$ diagonal pairs and $2(b-\ell)$ pairs at each lag $\ell=1,\dots,b-1$:
-$$
-\operatorname{Var}\left(\frac{1}{b}\sum_{s=t_0+1}^{t_0+b} z_s\right)
-=\frac{1}{b^2}\left[b\gamma_0+2\sum_{\ell=1}^{b-1}(b-\ell)\gamma_\ell\right]
-=\frac{1}{b}\left[\gamma_0+2\sum_{\ell=1}^{b-1}\left(1-\frac{\ell}{b}\right)\gamma_\ell\right].
-$$
-
-**Part 5: The Variance--Ordering Tradeoff**
-
-Both variances in Part 4 are unconditional variances under the same stationary process, so their difference is directly meaningful:
-$$
-\operatorname{Var}(\text{contiguous average})-\operatorname{Var}(\text{dispersed average})
-=\frac{2}{b}\sum_{\ell=1}^{b-1}\left(1-\frac{\ell}{b}\right)\gamma_\ell>0,
-$$
-where the sum is nonempty because $b\ge2$; at $b=1$ the two designs coincide and the difference is zero. Positive autocovariances make neighboring gradients duplicate information, so a contiguous block contains fewer effectively distinct observations than the uncorrelated benchmark. Under the stated update rule, however, a dispersed batch would present observations out of order and would break the required state transition from one observation to the next. Contiguous batching is therefore necessary for this estimation routine, and the additional gradient variance computed above is the price of preserving its ordering requirement. The conclusion is conditional on that requirement: if the routine re-initialized its state before each independent segment, whole segments could be shuffled without violating their internal order. Notice what this comparison does *not* do: it does not identify the conditional finite-population variance in Part 2 with $\gamma_0/b$ or require an unstated law of large numbers for the realized dispersion $S_N^2$.
 :::
 
 :::{.callout-note}
@@ -1081,7 +1032,7 @@ u_t=\delta u_{t-1}+(1-\delta)a\theta^{(t-1)},
 $$
 where $\eta>0$ is the learning rate and $\delta\in[0,1)$ is the momentum coefficient. As in the main text, the gradient used for update $t$ is evaluated at $\theta^{(t-1)}$, and that update produces $\theta^{(t)}$.
 
-1. Eliminate $u_t$ and show that $\theta^{(t)}$ satisfies the second-order recursion
+1. Show that $\theta^{(t)}$ satisfies the second-order recursion
    $$
    \theta^{(t)}
    =
@@ -1092,9 +1043,9 @@ where $\eta>0$ is the learning rate and $\delta\in[0,1)$ is the momentum coeffic
    $$
    \eta<\frac{2(1+\delta)}{(1-\delta)\,a}.
    $$
-3. Compare this stability bound with the vanilla gradient descent bound $\eta<2/a$. For the normalized Momentum convention stated in the exercise, explain why momentum widens the range of stable learning rates and why, despite this, momentum can still produce oscillatory transient behavior.
+3. Compare this stability bound with the vanilla gradient descent bound $\eta<2/a$. For the normalized Momentum convention stated in the exercise, give some intuition for what the difference between the bounds — and the possibility of oscillatory convergence — means for using momentum in practice.
 
-*Exam level. The exercise turns momentum into a concrete dynamic system, derives its stability region, and compares it with vanilla gradient descent.*
+*Exam level. The exercise turns momentum into a concrete dynamic system, derives its stability region, and interprets what that region implies for practical tuning.*
 :::
 
 :::{.callout-warning collapse="true"}
@@ -1163,7 +1114,7 @@ Conditions (i) and (iii) hold automatically for $\eta>0$ and $\delta\in[0,1)$, s
 
 At $\delta=0$ the bound is $\eta<2/a$. For $\delta>0$ the bound becomes $2(1+\delta)/((1-\delta)a)>2/a$, so the normalized Momentum convention widens the range of stable learning rates.
 
-However, the characteristic roots are complex when the discriminant $c^2-4\delta<0$. Complex roots mean the iterates oscillate even while converging: the algorithm overshoots and corrects, cycling around the optimum before settling down. This explains why momentum can accelerate convergence in directions of persistent gradient but produces oscillatory transient behavior when the effective step size is aggressive.
+Momentum averages current and past gradients. After the iterate crosses the optimum, the velocity may still point in the previous downhill direction because it retains earlier gradients. The next update can therefore carry the parameter farther past the optimum before the new gradients reverse the velocity; repeated overshooting appears as oscillation. In practice, the wider stability bound means that momentum may remain stable at learning rates that would make vanilla gradient descent diverge. Stability alone, however, does not imply smooth or fast progress, so the learning rate and momentum coefficient still require tuning.
 :::
 
 :::{.callout-note}
