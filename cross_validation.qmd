@@ -465,11 +465,15 @@ Scikit-learn's `TimeSeriesSplit` implements the expanding window by default; set
 
 We now show how to use cross-validation to select hyperparameters for a simple neural network. No knowledge of neural networks is needed here: treat the network as a flexible nonlinear regression model whose fitting procedure comes with two tuning constants — the **hidden-layer architecture** (which controls how rich the fitted function class is) and the **learning rate** (a step-size constant of the estimation algorithm). We study these objects properly in the [chapter on feed-forward neural networks](feed_forward_nns.qmd); in this example the network simply provides a realistic tuning problem with multiple hyperparameters, all tuned using scikit-learn. As data we simulate a single-year cross-section of $1{,}000$ firms: annual excess returns, in percent, generated from ten firm characteristics measured on deliberately heterogeneous scales, with an interaction and a quadratic term that a purely linear model would miss. Because the observations are independently simulated — with no cluster, spatial, or time-series dependence — the K-fold design of @sec-cv-kfold is appropriate here. A real firm-year panel would instead require folds that respect firm-level clustering and time.
 
-To keep the example reliable, we put standardization and model fitting into a single `Pipeline`. The heterogeneous characteristic scales make standardization consequential, and the pipeline learns it separately inside each training fold rather than on the full dataset. We also define the fitting procedure honestly as at most 1,000 optimization iterations per fold. Instead of suppressing convergence warnings, the code records how many of the five fold fits reach that cap for every configuration; a capped fit is a valid fixed-budget procedure, but its score can reflect incomplete optimization as well as architecture and learning rate. Within the manual grid-search loop, scikit-learn's `cross_validate` function evaluates one fixed pipeline configuration: it refits the pipeline on each of the five training folds and returns the corresponding held-out fold scores. The surrounding `ParameterGrid` loop repeats this evaluation for every configuration, after which the code selects the configuration with the smallest mean cross-validated MSE. @fig-nn-cv-tuning summarizes the search: each point is one configuration in the grid, plotted against the learning rate in the left panel and against the architecture in the right panel, with the red star marking the selected configuration. Scikit-learn follows a higher-is-better scoring convention, so `neg_mean_squared_error` returns the negative of each fold's MSE; the minus sign in the code converts the average back to ordinary MSE before comparison and plotting.
+The architecture labels below report how many computational units (often called neurons) each hidden layer contains. Thus, `50` denotes one hidden layer with 50 units, while `100-50` denotes two hidden layers with 100 and 50 units, in that order. For the present example, these labels simply index model flexibility.
+
+Because the firm characteristics are measured on heterogeneous scales, we standardize them before fitting the network. Scikit-learn's `Pipeline` object combines these two ordered steps — standardization followed by model fitting — and treats them as one fitting procedure. Within each CV split, the pipeline estimates the means and standard deviations only from the training fold, fits the network on the standardized training predictors, and applies those same training-fold scaling constants to the validation predictors. The validation observations therefore do not influence standardization.
+
+We also define the fitting procedure honestly as at most 1,000 optimization iterations per fold. Instead of suppressing convergence warnings, the code records how many of the five fold fits reach that cap for every configuration; a capped fit is a valid fixed-budget procedure, but its score can reflect incomplete optimization as well as architecture and learning rate. Within the manual grid-search loop, scikit-learn's `cross_validate` function evaluates one fixed pipeline configuration: it refits the pipeline on each of the five training folds and returns the corresponding held-out fold scores. The surrounding `ParameterGrid` loop repeats this evaluation for every configuration, after which the code selects the configuration with the smallest mean cross-validated MSE. @fig-nn-cv-tuning summarizes the search: each point is one configuration in the grid, plotted against the learning rate in the left panel and against the architecture in the right panel, with the red star marking the selected configuration. Scikit-learn follows a higher-is-better scoring convention, so `neg_mean_squared_error` returns the negative of each fold's MSE; the minus sign in the code converts the average back to ordinary MSE before comparison and plotting.
 
 ```{python}
 #| label: fig-nn-cv-tuning
-#| fig-cap: "Cross-validated MSE for every fixed-budget hyperparameter configuration in the grid search. Left panel: mean CV MSE against the learning rate (log scale), with marker color indicating the hidden-layer architecture. Right panel: the same configurations against the architecture, with color indicating the learning rate and horizontal jitter added for visibility. In both panels the red star marks the configuration with the lowest mean CV MSE; the printed diagnostics report how many fold fits reached the 1,000-iteration cap."
+#| fig-cap: "Cross-validated MSE for every fixed-budget hyperparameter configuration in the grid search. Left panel: mean CV MSE against the learning rate (log scale), with marker color indicating the number of hidden units by layer. Right panel: the same configurations against those architecture labels, with color indicating the learning rate and horizontal jitter added for visibility. For example, 100-50 means two hidden layers with 100 and 50 units. In both panels the red star marks the configuration with the lowest mean CV MSE; the printed diagnostics report how many fold fits reached the 1,000-iteration cap."
 #| echo: true
 import numpy as np
 import matplotlib.pyplot as plt
@@ -503,9 +507,17 @@ y = 10.0 * (
     + rng.standard_normal(n_obs) * 2.0
 )
 
+# Define concise labels: each number gives the units in one hidden layer
+architecture_labels = {
+    (50,): '50',
+    (100,): '100',
+    (50, 50): '50-50',
+    (100, 50): '100-50',
+}
+
 # Define hyperparameter grid
 param_grid = {
-    'hidden_layer_sizes': [(50,), (100,), (50, 50), (100, 50)],
+    'hidden_layer_sizes': list(architecture_labels),
     'learning_rate_init': [0.001, 0.01, 0.1],
 }
 
@@ -549,7 +561,7 @@ for params in ParameterGrid(param_grid):
     )
     
     results.append({
-        'hidden_layers': str(params['hidden_layer_sizes']),
+        'architecture': architecture_labels[params['hidden_layer_sizes']],
         'learning_rate': params['learning_rate_init'],
         'mean_cv_mse': -cv_scores.mean(),
         'fold_mse_sd': (-cv_scores).std(ddof=1),
@@ -565,7 +577,7 @@ best_idx = results_df['mean_cv_mse'].idxmin()
 best_config = results_df.iloc[best_idx]
 
 print("Best Configuration:")
-print(f"Hidden Layers: {best_config['hidden_layers']}")
+print(f"Hidden units by layer: {best_config['architecture']}")
 print(f"Learning Rate: {best_config['learning_rate']}")
 print(f"Mean CV MSE: {best_config['mean_cv_mse']:.4f}")
 print(f"Fold-score SD (ddof=1): {best_config['fold_mse_sd']:.4f}")
@@ -576,8 +588,8 @@ print(f"Captured convergence warnings: {int(best_config['n_convergence_warnings'
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
 
 # Plot 1: Learning rate vs performance (all configurations)
-for arch_val in results_df['hidden_layers'].unique():
-    subset = results_df[results_df['hidden_layers'] == arch_val]
+for arch_val in results_df['architecture'].unique():
+    subset = results_df[results_df['architecture'] == arch_val]
     ax1.scatter(subset['learning_rate'], subset['mean_cv_mse'], 
                label=arch_val, alpha=0.7, s=50)
 
@@ -586,13 +598,13 @@ ax1.set_ylabel('CV MSE')
 ax1.set_title('Performance vs Learning Rate')
 ax1.set_xscale('log')
 ax1.grid(True, alpha=0.3)
-ax1.legend(title='Architecture')
+ax1.legend(title='Hidden units\nby layer')
 
 # Plot 2: Architecture vs performance (all configurations)
 # Create a mapping for architectures to x-positions
-arch_names = results_df['hidden_layers'].unique()
+arch_names = results_df['architecture'].unique()
 arch_mapping = {arch: i for i, arch in enumerate(arch_names)}
-results_df['arch_pos'] = results_df['hidden_layers'].map(arch_mapping)
+results_df['arch_pos'] = results_df['architecture'].map(arch_mapping)
 
 # Add small random jitter to x-position for better visibility
 np.random.seed(42)
@@ -603,17 +615,17 @@ for lr_val in results_df['learning_rate'].unique():
     ax2.scatter(subset['arch_pos'] + jitter[subset.index], subset['mean_cv_mse'], 
                label=f'LR={lr_val}', alpha=0.7, s=50)
 
-ax2.set_xlabel('Architecture')
+ax2.set_xlabel('Hidden units by layer')
 ax2.set_ylabel('CV MSE')
-ax2.set_title('Performance vs Architecture')
+ax2.set_title('Performance vs Hidden-Layer Architecture')
 ax2.set_xticks(range(len(arch_names)))
-ax2.set_xticklabels(arch_names, rotation=45)
+ax2.set_xticklabels(arch_names)
 ax2.grid(True, alpha=0.3)
 ax2.legend(title='Learning Rate')
 
 # Highlight best configuration
 best_lr = best_config['learning_rate']
-best_arch_pos = arch_mapping[best_config['hidden_layers']]
+best_arch_pos = arch_mapping[best_config['architecture']]
 best_score = best_config['mean_cv_mse']
 
 ax1.scatter([best_lr], [best_score], color='red', s=100, marker='*', 
@@ -622,50 +634,54 @@ ax2.scatter([best_arch_pos], [best_score], color='red', s=100, marker='*',
            edgecolors='black', linewidth=1, label='Best Config', zorder=5)
 
 # Update legends to include best config
-ax1.legend(title='Architecture')
+ax1.legend(title='Hidden units\nby layer')
 ax2.legend(title='Learning Rate')
 
 plt.tight_layout()
 plt.show()
+```
 
-# Show top 5 configurations
-print("\nTop 5 Configurations:")
+The five best-scoring configurations are reported separately in @tbl-nn-cv-top-five. Its first column uses exactly the same hidden-units-by-layer labels as the right panel of @fig-nn-cv-tuning.
+
+```{python}
+#| label: tbl-nn-cv-top-five
+#| tbl-cap: "Five configurations with the lowest mean cross-validated MSE. Hidden units by layer uses the same architecture labels as @fig-nn-cv-tuning; capped folds counts the fold fits that reached the 1,000-iteration limit."
+#| echo: true
 top_five = results_df.nsmallest(5, 'mean_cv_mse')[[
-    'hidden_layers', 'learning_rate', 'mean_cv_mse',
+    'architecture', 'learning_rate', 'mean_cv_mse',
     'fold_mse_sd', 'n_capped_folds'
-]]
-display(top_five)
+]].rename(columns={
+    'architecture': 'Hidden units by layer',
+    'learning_rate': 'Learning rate',
+    'mean_cv_mse': 'Mean CV MSE',
+    'fold_mse_sd': 'Fold-score SD',
+    'n_capped_folds': 'Capped folds',
+})
+display(
+    top_five.style
+    .hide(axis='index')
+    .format({
+        'Learning rate': '{:.3g}',
+        'Mean CV MSE': '{:.2f}',
+        'Fold-score SD': '{:.2f}',
+        'Capped folds': '{:.0f}',
+    })
+)
 ```
 
 :::{.callout-note}
-## Key Insights from the Example
+## How to Read the Diagnostics
 
-1. **Systematic Search**: We test multiple combinations of hyperparameters systematically rather than guessing.
-2. **Evaluation with diagnostics**: Each configuration is evaluated using 5-fold cross-validation, which reports its mean validation performance, the fold-to-fold dispersion, and the number of fold fits that reached the iteration cap.
-3. **Leakage Prevention**: The `Pipeline` ensures that standardization is re-estimated inside each fold.
-4. **Fair Comparison**: The fixed `random_state` gives every configuration the same shuffled data splits, making the results directly comparable.
-
-The reported mean CV MSE ranks the candidate configurations, while the sample standard deviation of the $K$ fold scores — the `fold_mse_sd` column above, computed with `ddof=1` — describes how much the score fluctuates from fold to fold. This dispersion is a useful descriptive stability check, but it is *not* a standard error for the cross-validated risk: the fold scores are correlated because their training sets overlap, so no simple rescaling of their standard deviation delivers a valid uncertainty estimate [@BatesHastieTibshirani2024]. Informally, a configuration with a slightly lower mean but a much larger fold-to-fold dispersion should not be declared the winner outright; a formal comparison would require an inferential procedure beyond the scope of this chapter. The `n_capped_folds` column supplies a separate optimization diagnostic. If it is positive, score differences may reflect unequal optimization progress under the fixed budget, not only differences in architecture or learning rate. In the plots, vertical separation across learning rates or architectures indicates which hyperparameters matter most for this synthetic example; clusters of nearly equal points should be read as practically tied rather than as precise rankings.
+The mean CV MSE ranks the candidate configurations. The **Fold-score SD** column — computed in the code as `fold_mse_sd` with `ddof=1` — describes how much the $K$ scores fluctuate across folds, but it is *not* a standard error for the cross-validated risk: the fold scores are correlated because their training sets overlap [@BatesHastieTibshirani2024]. The **Capped folds** column provides a separate optimization diagnostic. A positive value means that score differences may reflect incomplete optimization under the fixed iteration budget, not only differences in architecture or learning rate. Small differences in mean CV MSE should therefore not be read as precise rankings, especially when fold-score dispersion is large or the number of capped fits differs.
 :::
 
 The grid search above uses a single level of cross-validation. For each fixed configuration, `cross_validate` produces five validation scores. The `ParameterGrid` loop repeats that call for every configuration, and the subsequent `idxmin` step selects the configuration with the smallest mean CV MSE. This entire selection step plays the role of the **inner tuning loop** in the nested procedure developed next. Using the same splits for every configuration makes their scores directly comparable, but the ranking remains noisy, as the dispersion and convergence diagnostics emphasize. Moreover, the cross-validated score of the *selected* configuration is optimistically biased, for exactly the reason formalized in Exercise 2.2 below: taking the best of many noisy validation scores favors lucky draws. @sec-cv-nested develops the separate outer layer needed to assess the tuning procedure without reusing its inner validation scores.
 
-:::{.callout-tip}
-## For Larger Networks
-
-For deep neural networks with many hyperparameters, consider:
-
-- **Random Search**: Sample hyperparameters randomly instead of using an exhaustive grid search
-- **Bayesian Optimization**: A sequential search that uses the configurations already evaluated to decide which configuration to try next — more efficient per evaluation when each model fit is expensive; implemented in libraries such as `optuna` and `hyperopt`
-- **Early Stopping**: Monitor validation performance during training to avoid overfitting
-- **Nested Cross-Validation**: Use an outer loop for final performance assessment when the hyperparameter search itself is extensive, as developed in @sec-cv-nested
-
-We treat these search strategies systematically in the [chapter on advanced hyperparameter optimization](hpo.qmd).
-:::
+Exhaustive grid search becomes costly as the number of hyperparameters grows. Random and sequential search methods provide alternatives, which we study in the [chapter on advanced hyperparameter optimization](hpo.qmd). Regardless of how the candidates are searched, using the same validation scores for selection and assessment remains a separate problem.
 
 ## Nested Cross-Validation {#sec-cv-nested}
 
-The practical example used cross-validation to answer a **selection question**: which candidate architecture and learning rate should we choose? A different question remains: how well will the procedure that performs this search predict on new data? Reporting the smallest inner-CV error as the answer reuses the same validation scores for selection and assessment. Because the minimum favors configurations that received unusually favorable validation draws, the reported error is generally optimistic even if each candidate's CV score is unbiased before selection [@VarmaSimon2006; @CawleyTalbot2010].
+The practical example used cross-validation to answer a **selection question**: which candidate architecture and learning rate should we choose? Nested cross-validation adds an assessment layer for a second question: how well will the entire selection procedure predict on new data? Reporting the smallest inner-CV error as the answer reuses the same validation scores for both tasks. Because the minimum favors configurations that received unusually favorable validation draws, the reported error is generally optimistic even if each candidate's CV score is unbiased before selection [@VarmaSimon2006; @CawleyTalbot2010].
 
 @fig-nested-cv visualizes how nested cross-validation prevents that reuse. The left panel shows the outer loop that produces the final assessment scores. The right panel zooms into the first outer split and shows the separate inner loop used for tuning.
 
@@ -829,6 +845,8 @@ where $\hat f_k^{\mathrm{tuned}}$ denotes the entire rule produced from outer tr
 :::{.callout-warning}
 ## Common Pitfalls
 - Using the test set repeatedly while tuning hyperparameters or architectures.
+- Reporting the best inner-CV score as the final performance estimate after searching over many configurations.
+- Allowing an outer validation fold to influence preprocessing, the hyperparameter search, or early stopping.
 - Standardizing, imputing, or selecting predictors on the full sample before cross-validation.
 - Treating random K-fold as automatically valid for time-series forecasting problems.
 - Forgetting that revised or delayed-release predictors may not belong to the real-time information set.
@@ -1027,7 +1045,7 @@ $$
 \qquad
 \hat{R}_B = R_0+\eta_B,
 $$
-where $\eta_A$ and $\eta_B$ have mean zero and $\Pr(\eta_A\neq\eta_B)>0$, so the two estimates do not coincide with certainty. They need not be independent: candidate models evaluated on the same validation observations will generally have dependent score errors.
+where $\eta_A$ and $\eta_B$ have mean zero and $\mathbb{P}(\eta_A\neq\eta_B)>0$, so the two estimates do not coincide with certainty. They need not be independent: candidate models evaluated on the same validation observations will generally have dependent score errors.
 
 The researcher selects the model with the smaller validation estimate.
 
@@ -1119,7 +1137,7 @@ $$
 =
 R_0-\frac{1}{2}\mathbb{E}[|\eta_A-\eta_B|].
 $$
-Because $|\eta_A-\eta_B|\ge 0$ and, by the assumption $\Pr(\eta_A\neq\eta_B)>0$, is strictly positive with positive probability,
+Because $|\eta_A-\eta_B|\ge 0$ and, by the assumption $\mathbb{P}(\eta_A\neq\eta_B)>0$, it is strictly positive with positive probability,
 $$
 \mathbb{E}\big[\min(\hat{R}_A,\hat{R}_B)\big] < R_0.
 $$
@@ -1303,91 +1321,6 @@ where strict positivity follows from $\beta\neq0$ and $\sigma_\xi^2>0$. The gap 
 The final-vintage feature $z_t$ is not $\mathcal F_t$-measurable because its publication occurs only after forecast origin $t$. A protocol that places it in the row dated $t$ therefore evaluates performance for an infeasible forecasting setup and understates achievable real-time MSPE by $\beta^2\sigma_\xi^2$ in this data-generating process.
 
 Switching from random to chronological splits changes which dated rows are used for estimation, but it cannot repair the contents of a row whose feature availability was recorded incorrectly. The feature-timing correction is to replace the final-vintage $z_t$ by the value actually observable at origin $t$, namely $z_{t-1}$ here, and to preserve the appropriate real-time vintage for revised data. The split correction is to train only on observations available by each forecast origin and validate on a subsequent block, as in an expanding or sliding pseudo-out-of-sample design. Both corrections are necessary: feasible rows do not excuse future training data, and chronological rows do not excuse infeasible features.
-:::
-
-:::{.callout-note}
-## Exercise 2.4: Unequal Folds and the K-Fold Estimand
-
-Suppose $N=qK+r$ with integers $q\geq1$ and $0<r<K$. A K-fold implementation therefore creates $r$ validation folds of size $q+1$ and $K-r$ validation folds of size $q$. Let
-$$
-\bar L_k=\frac{1}{|D_k|}\sum_{i\in D_k}
-L\big(y_i,\hat f^{-k}(x_i)\big)
-$$
-be the mean loss in fold $k$. Write $\bar L_{+}$ for the average of $\bar L_k$ over the $r$ larger folds and $\bar L_{-}$ for the average over the $K-r$ smaller folds.
-
-1. Express the pooled per-observation estimator $\widehat{\mathrm{CV}}_K$ and the unweighted mean of fold means $\widetilde{\mathrm{CV}}_K$ in terms of $q$, $r$, $K$, $\bar L_{+}$, and $\bar L_{-}$.
-2. Show that
-   $$
-   \widehat{\mathrm{CV}}_K-\widetilde{\mathrm{CV}}_K
-   =\frac{r(K-r)}{NK}\big(\bar L_{+}-\bar L_{-}\big).
-   $$
-   Determine which estimator is larger when the larger folds have the higher average loss, and explain why the pooled estimator gives the correct per-observation weighting.
-3. Now suppose the observations are i.i.d. and $r=0$. Let $\hat f_m$ denote the output of the fitting procedure trained on an independent sample of size $m$. Derive the risk targeted by $\widehat{\mathrm{CV}}_K$ in expectation, and contrast it with the conditional risk $R(\hat f_N)$ of the model refitted on all $N$ observations. Finally, state how the target changes when $r>0$.
-
-*Exam level. The exercise separates an implementation detail — weighting unequal folds — from the estimand question created by fitting each fold model on fewer than $N$ observations.*
-:::
-
-:::{.callout-warning collapse="true"}
-## Hint for Part 2
-Use $N=qK+r$ to simplify the coefficient on each of the two group means.
-:::
-
-:::{.callout-warning collapse="true"}
-## Hint for Part 3
-Condition on a fold's training sample first. Its held-out losses average to that fitted model's risk; then average over training samples of the relevant size.
-:::
-
-:::{.callout-tip collapse="true"}
-## Solution
-
-**Part 1: The Two Weighting Rules**
-
-The pooled estimator weights each fold mean by its share of the $N$ held-out observations:
-$$
-\widehat{\mathrm{CV}}_K
-=\frac{r(q+1)}{N}\bar L_{+}
-+\frac{(K-r)q}{N}\bar L_{-}.
-$$
-The unweighted mean gives every fold weight $1/K$, so
-$$
-\widetilde{\mathrm{CV}}_K
-=\frac{r}{K}\bar L_{+}
-+\frac{K-r}{K}\bar L_{-}.
-$$
-
-**Part 2: Difference and Interpretation**
-
-Subtracting the second expression from the first, the coefficient on $\bar L_{+}$ is
-$$
-r\left(\frac{q+1}{N}-\frac{1}{K}\right)
-=\frac{r(K-r)}{NK},
-$$
-because $N=qK+r$. The coefficient on $\bar L_{-}$ is
-$$
-(K-r)\left(\frac{q}{N}-\frac{1}{K}\right)
-=-\frac{r(K-r)}{NK}.
-$$
-Therefore
-$$
-\widehat{\mathrm{CV}}_K-\widetilde{\mathrm{CV}}_K
-=\frac{r(K-r)}{NK}\big(\bar L_{+}-\bar L_{-}\big).
-$$
-If $\bar L_{+}>\bar L_{-}$, the pooled estimator is larger. This direction is appropriate because each larger fold contains one more held-out observation: its mean must receive proportionally more weight if the target is the average loss over all $N$ observations.
-
-**Part 3: The Training-Size Estimand**
-
-When $r=0$, every validation fold has size $N/K$ and every fold model is trained on
-$$
-m=N-\frac{N}{K}=\frac{N(K-1)}{K}
-$$
-observations. Conditional on a fold's fitted model, the expected held-out loss is $R(\hat f_m)$. Averaging first over held-out observations and then over training samples gives
-$$
-\mathbb E[\widehat{\mathrm{CV}}_K]
-=\mathbb E\big[R(\hat f_{N(K-1)/K})\big].
-$$
-The right-hand side is the expected risk of the *procedure* at the fold-induced training size. It is not the conditional risk $R(\hat f_N)$ of the particular full-sample fit, which conditions on the realized model and uses $N$ training observations.
-
-When $r>0$, a larger validation fold leaves $N-q-1$ training observations and a smaller validation fold leaves $N-q$. The pooled estimator targets the corresponding observation-weighted mixture of the procedure risks at these two training sizes.
 :::
 
 :::: {.content-visible when-format="html"}

@@ -406,9 +406,10 @@ window.Quarto = {
   <li><a href="#sec-cv-kfold" id="toc-sec-cv-kfold" class="nav-link" data-scroll-target="#sec-cv-kfold"><span class="header-section-number">2.5</span> K-Fold Cross-Validation</a></li>
   <li><a href="#sec-cv-time-series" id="toc-sec-cv-time-series" class="nav-link" data-scroll-target="#sec-cv-time-series"><span class="header-section-number">2.6</span> Time Series Cross-Validation</a></li>
   <li><a href="#practical-example-tuning-a-neural-network-with-cross-validation" id="toc-practical-example-tuning-a-neural-network-with-cross-validation" class="nav-link" data-scroll-target="#practical-example-tuning-a-neural-network-with-cross-validation"><span class="header-section-number">2.7</span> Practical Example: Tuning a Neural Network with Cross-Validation</a></li>
-  <li><a href="#summary" id="toc-summary" class="nav-link" data-scroll-target="#summary"><span class="header-section-number">2.8</span> Summary</a></li>
-  <li><a href="#exercises" id="toc-exercises" class="nav-link" data-scroll-target="#exercises"><span class="header-section-number">2.9</span> Exercises</a></li>
-  <li><a href="#references" id="toc-references" class="nav-link" data-scroll-target="#references"><span class="header-section-number">2.10</span> References</a></li>
+  <li><a href="#sec-cv-nested" id="toc-sec-cv-nested" class="nav-link" data-scroll-target="#sec-cv-nested"><span class="header-section-number">2.8</span> Nested Cross-Validation</a></li>
+  <li><a href="#summary" id="toc-summary" class="nav-link" data-scroll-target="#summary"><span class="header-section-number">2.9</span> Summary</a></li>
+  <li><a href="#exercises" id="toc-exercises" class="nav-link" data-scroll-target="#exercises"><span class="header-section-number">2.10</span> Exercises</a></li>
+  <li><a href="#references" id="toc-references" class="nav-link" data-scroll-target="#references"><span class="header-section-number">2.11</span> References</a></li>
   </ul></li>
   </ul>
 </nav>
@@ -436,41 +437,41 @@ window.Quarto = {
 <li>We introduce a <strong>reliable workflow</strong> — separating training, validation, and test sets — and explain when each set should be touched.</li>
 <li>We define <strong>K-fold cross-validation</strong> — partitioning the sample into <span class="math inline">K</span> groups and rotating which group is held out — discuss common choices of <span class="math inline">K</span>, and explain why letting information from held-out observations slip into the training step typically makes estimated predictive performance look better than it is.</li>
 <li>We extend to <strong>time-series cross-validation</strong> — designs in which the training sample either grows over time or moves forward at a fixed length — and explain why standard K-fold is often invalid for dependent data, and when it can survive.</li>
-<li>We close with a <strong>practical example</strong> of hyperparameter tuning, in which cross-validation selects among candidate model configurations, and explain why a reliable performance estimate for the selected configuration requires a second, outer layer of validation around the selection step (<strong>nested cross-validation</strong>).</li>
+<li>We close with a <strong>practical example</strong> of hyperparameter tuning, in which cross-validation selects among candidate model configurations, and then develop <strong>nested cross-validation</strong> as a two-loop procedure for assessing the entire tuning-and-fitting workflow.</li>
 </ol>
 </section>
 <section id="a-simple-illustration-of-overfitting" class="level2" data-number="2.3">
 <h2 data-number="2.3" class="anchored" data-anchor-id="a-simple-illustration-of-overfitting"><span class="header-section-number">2.3</span> A Simple Illustration of Overfitting</h2>
-<p>Our running example throughout this chapter is polynomial regression, and the choice is deliberate. Fitting a polynomial of degree <span class="math inline">d</span> in a single predictor is just ordinary least squares (OLS) on the regressors <span class="math inline">x, x^2, \dots, x^d</span> — no new estimation machinery is involved, and everything you know about least squares carries over unchanged. Yet the degree <span class="math inline">d</span> is a genuine hyperparameter: a single dial that moves the model from rigid to extremely flexible. Every issue this chapter treats — overfitting, reliable data splits, cross-validated model selection — already arises in full force in this familiar setting; the richer model classes of later chapters, such as <a href="./feed_forward_nns.html">neural networks</a> and <a href="./decision_trees.html">tree-based methods</a>, add more dials but no new logic.</p>
-<p>Consider a regression model whose errors are independent and identically distributed (i.i.d.) Gaussian given the regressors:</p>
+<p>Our running example throughout this chapter is polynomial regression. The example is deliberately familiar: it isolates overfitting and model selection without introducing new estimation machinery. Richer model classes in later chapters, such as <a href="./feed_forward_nns.html">neural networks</a> and <a href="./decision_trees.html">tree-based methods</a>, add more choices but do not change the validation logic.</p>
+<p><strong>Model and flexibility.</strong> Let <span class="math inline">x_i</span> denote the scalar predictor observed for unit <span class="math inline">i</span>, and let <span class="math inline">y_i</span> be the corresponding outcome. Consider a regression model whose errors are independent and identically distributed (i.i.d.) Gaussian conditional on the predictor:</p>
 <div class="display-math-block">
 <p><span class="math display">
 y_i = f(x_i) + \varepsilon_i, \qquad \varepsilon_i \mid x_i \stackrel{\text{iid}}{\sim} \mathcal{N}(0,\sigma^2),
 </span></p>
 </div>
-<p>so that <span class="math inline">f(x) = \mathbb{E}[Y \mid X = x]</span> is the conditional mean function. Suppose we approximate <span class="math inline">f</span> by a polynomial of degree <span class="math inline">d</span>,</p>
+<p>so that <span class="math inline">f(x) = \mathbb{E}[Y \mid X = x]</span> is the conditional mean function at a generic predictor value <span class="math inline">x</span>. Suppose we approximate <span class="math inline">f</span> by a polynomial of degree <span class="math inline">d</span>,</p>
 <div class="display-math-block">
 <p><span class="math display">
 \mu_d(x) = \beta_0 + \beta_1 x + \cdots + \beta_d x^d,
 </span></p>
 </div>
-<p>and write <span class="math inline">\hat{\mu}_d</span> for the fit obtained by least squares on the training sample. This is the fitted model denoted generically by <span class="math inline">\hat{f}</span> below.</p>
-<p>In the illustration below we simulate <span class="math inline">N = 25</span> training observations and, separately, <span class="math inline">200</span> test observations drawn independently from the same process. The test sample is therefore not a split of the training data; it plays the role of the “fresh draw” in the definition of generalization risk given next. Think of <span class="math inline">x</span> as a single standardized predictor and <span class="math inline">y</span> as an economic outcome whose conditional mean varies smoothly but nonlinearly in <span class="math inline">x</span> — the kind of shape that arises, for example, in Engel curves or in the response of output growth to financial conditions.</p>
-<p>Recall from the <a href="./information_theory.html">previous chapter</a> that maximizing the likelihood is the same as minimizing the sample average negative log-likelihood. Under Gaussian errors with fixed variance, the negative log-likelihood is, up to an additive constant, proportional to the sum of squared errors, so maximum likelihood amounts to minimizing the training sum of squared errors — equivalently the training mean squared error, which differs only by the factor <span class="math inline">1/N</span>. This makes the overfitting problem transparent: if the degree <span class="math inline">d</span> is too large, the model can improve <strong>in-sample fit</strong> by chasing noise in the training data.</p>
-<p><strong>Loss, empirical risk, and generalization risk.</strong> To make the two error curves in <a href="#fig-overfitting-example" class="quarto-xref">Figure&nbsp;2.1</a> precise, fix a <strong>loss function</strong> <span class="math inline">L(y,\hat{y})</span> that measures the cost of predicting <span class="math inline">\hat{y}</span> when the outcome is <span class="math inline">y</span>; our running example is <strong>squared loss</strong> <span class="math inline">L(y,\hat{y})=(y-\hat{y})^2</span>. For a fitted model <span class="math inline">\hat{f}</span> and a sample <span class="math inline">(x_i,y_i)_{i=1}^N</span>, the <strong>empirical risk</strong> is the average loss on that sample, </p>
+<p>Fitting this polynomial is ordinary least squares (OLS) on an intercept and the constructed regressors <span class="math inline">x_i,x_i^2,\dots,x_i^d</span>. Each <span class="math inline">x_i^j</span> is the <span class="math inline">j</span>th power of the same observed predictor for unit <span class="math inline">i</span>, not a separate variable. We write <span class="math inline">\hat{\mu}_d</span> for the fitted polynomial and use <span class="math inline">\hat f</span> as generic notation for a fitted prediction rule. The degree <span class="math inline">d</span> is a hyperparameter: increasing it moves the model from rigid to increasingly flexible.</p>
+<p><strong>Training objective.</strong> Fix a <strong>loss function</strong> <span class="math inline">L(y,\hat y)</span> that measures the cost of predicting <span class="math inline">\hat y</span> when the outcome is <span class="math inline">y</span>. Here we use <strong>squared loss</strong>, <span class="math inline">L(y,\hat y)=(y-\hat y)^2</span>. For a fitted model <span class="math inline">\hat f</span> and a sample <span class="math inline">(x_i,y_i)_{i=1}^N</span>, the <strong>empirical risk</strong> is the average loss</p>
 <div class="display-math-block">
 <p><span class="math display">
 \frac{1}{N}\sum_{i=1}^{N}L\big(y_i,\hat{f}(x_i)\big),
 </span></p>
 </div>
-<p> which under squared loss is the MSE on that sample. Evaluating this average on the training data gives the <strong>training MSE</strong>; evaluating the same fitted model on the held-out sample gives the <strong>test MSE</strong>. These are the two quantities plotted against polynomial degree in the right panel below.</p>
-<p>The <strong>generalization (prediction) risk</strong> is the expected loss on a fresh draw <span class="math inline">(X,Y)</span> from the same distribution, independent of the data used to fit <span class="math inline">\hat{f}</span>, </p>
+<p> which under squared loss is the MSE on that sample. Recall from the <a href="./information_theory.html">previous chapter</a> that maximizing a likelihood is equivalent to minimizing the sample average negative log-likelihood. Under Gaussian errors with fixed variance, that objective is, up to an additive constant and a positive scale factor, the training MSE. Thus least squares and maximum likelihood select the same polynomial coefficients.</p>
+<p>Evaluating the empirical risk on the data used for fitting gives the <strong>training MSE</strong>. Because <span class="math inline">\hat f</span> is chosen to make this quantity small, a sufficiently flexible polynomial can reduce it by following sample noise rather than the conditional mean.</p>
+<p><strong>Generalization target.</strong> The <strong>generalization (prediction) risk</strong> is the expected loss on a fresh draw <span class="math inline">(X,Y)</span> from the same distribution, independent of the data used to fit <span class="math inline">\hat f</span>:</p>
 <div class="display-math-block">
 <p><span class="math display">
 R(\hat{f})=\mathbb{E}_{(X,Y)}\big[L\big(Y,\hat{f}(X)\big)\,\big|\,\hat{f}\big].
 </span></p>
 </div>
-<p> The conditioning bar is not decoration: <span class="math inline">\hat{f}</span> is held fixed and the expectation runs only over the new observation <span class="math inline">(X,Y)</span>. The training MSE is optimistic for <span class="math inline">R(\hat{f})</span> because <span class="math inline">\hat{f}</span> was chosen to make it small; the test MSE, computed on data not used for fitting, is a reliable estimate of <span class="math inline">R(\hat{f})</span>. Cross-validation is designed to estimate this kind of out-of-sample risk without sacrificing a one-time held-out evaluation sample. However, as we describe below, its estimand is not exactly <span class="math inline">R(\hat{f})</span> for the final fitted model.</p>
+<p> The conditioning bar holds the fitted rule <span class="math inline">\hat f</span> fixed; the expectation runs only over the new observation. The training MSE is optimistic for this risk because the same observations helped determine <span class="math inline">\hat f</span>. By contrast, the <strong>test MSE</strong> evaluates the fitted rule on observations excluded from estimation and therefore provides an out-of-sample estimate of <span class="math inline">R(\hat f)</span>, with accuracy that depends on the size of the test sample. Cross-validation pursues the same out-of-sample target without committing a large part of the available sample to one validation split. As we explain later, however, K-fold cross-validation targets the risk of a fitting procedure trained on the fold-induced sample size rather than exactly <span class="math inline">R(\hat f)</span> for the final full-sample fit.</p>
+<p><strong>Simulation design.</strong> For <a href="#fig-overfitting-example" class="quarto-xref">Figure&nbsp;2.1</a>, we simulate <span class="math inline">N=25</span> training observations and, separately, <span class="math inline">200</span> test observations from the same data-generating process. The test observations are independent fresh draws, not a subset removed from the training sample. We draw the predictor on <span class="math inline">[-1,1]</span> and interpret <span class="math inline">y</span> as an economic outcome whose conditional mean varies smoothly but nonlinearly with <span class="math inline">x</span>, as in an Engel curve or a response of output growth to financial conditions. The left panel compares a rigid linear fit with a flexible degree-12 fit; the right panel plots their underlying training and test criteria across polynomial degrees.</p>
 <div id="cell-fig-overfitting-example" class="cell" data-execution_count="2">
 <details class="code-fold">
 <summary>Show the code</summary>
@@ -550,7 +551,7 @@ Figure&nbsp;2.1: Overfitting in polynomial regression. Left panel: the <span cla
 </div>
 </div>
 </div>
-<p>The left panel shows the fitted mean functions. The high-degree polynomial is flexible enough to follow noise in the training sample, while the linear model is too rigid. The right panel shows the classic overfitting pattern: as model complexity rises, the training MSE falls monotonically, but the test MSE eventually rises again. Cross-validation is designed to detect exactly this problem before we commit to a model.</p>
+<p>The left panel of <a href="#fig-overfitting-example" class="quarto-xref">Figure&nbsp;2.1</a> shows the fitted mean functions. The degree-12 polynomial follows local noise in the training sample, while the linear model cannot reproduce the nonlinear signal. The right panel shows the resulting overfitting pattern: as the degree rises, the training MSE falls monotonically, but the test MSE eventually rises. The independent test sample reveals this divergence, but repeatedly using its scores to choose <span class="math inline">d</span> would turn the test set into a model-selection device rather than a final evaluation sample. This tension motivates the train-test workflow in the next section.</p>
 </section>
 <section id="the-problem-with-simple-train-test-splits" class="level2" data-number="2.4">
 <h2 data-number="2.4" class="anchored" data-anchor-id="the-problem-with-simple-train-test-splits"><span class="header-section-number">2.4</span> The Problem with Simple Train-Test Splits</h2>
@@ -620,7 +621,7 @@ Two Uses of Cross-Validation
 </ol></li>
 <li><strong>Average</strong> the performance scores from the <span class="math inline">K</span> folds to obtain a single performance estimate.</li>
 </ol>
-<p>Formally, let <span class="math inline">D_k</span> be the index set of the observations in fold <span class="math inline">k</span>, let <span class="math inline">|D_k|</span> be its size, and let <span class="math inline">\hat{f}^{-k}</span> denote the model <strong>refit from scratch on all data except fold <span class="math inline">k</span></strong> — that is, trained only on the <span class="math inline">K-1</span> remaining folds, including any data-dependent preprocessing re-estimated on those folds alone. The pooled K-fold cross-validation (CV) estimate of the risk is </p>
+<p>Formally, write the dataset as <span class="math inline">\{(x_i,y_i)\}_{i=1}^N</span>, where <span class="math inline">i</span> indexes observations, <span class="math inline">x_i</span> denotes all predictor information supplied to the model for observation <span class="math inline">i</span>, and <span class="math inline">y_i</span> is the corresponding observed outcome. Thus <span class="math inline">x_i</span> is the scalar predictor in the polynomial example of <a href="#fig-overfitting-example" class="quarto-xref">Figure&nbsp;2.1</a>, but it may be a vector of predictors more generally. Let <span class="math inline">D_k</span> be the index set of the observations in fold <span class="math inline">k</span>, let <span class="math inline">|D_k|</span> be its size, and let <span class="math inline">\hat{f}^{-k}</span> denote the model <strong>refit from scratch on all data except fold <span class="math inline">k</span></strong> — that is, trained only on the <span class="math inline">K-1</span> remaining folds, including any data-dependent preprocessing re-estimated on those folds alone. Consequently, <span class="math inline">\hat f^{-k}(x_i)</span> is the prediction for held-out observation <span class="math inline">i\in D_k</span>, obtained without using any observation in <span class="math inline">D_k</span> during fitting or preprocessing. The pooled K-fold cross-validation (CV) estimate of the risk is </p>
 <div class="display-math-block">
 <p><span class="math display">
 \widehat{\mathrm{CV}}_K
@@ -635,7 +636,7 @@ Two Uses of Cross-Validation
 </span></p>
 </div>
 <p> When <span class="math inline">K</span> does not divide <span class="math inline">N</span>, the folds differ slightly in size and an unweighted average of their means is not exactly the pooled per-observation average; the pooled form above uses weights <span class="math inline">|D_k|/N</span> on the fold means.</p>
-<p><strong>What does <span class="math inline">\widehat{\mathrm{CV}}_K</span> estimate?</strong> Each fold model <span class="math inline">\hat{f}^{-k}</span> is trained on <span class="math inline">N-|D_k|</span> observations — approximately <span class="math inline">N(K-1)/K</span>, and exactly that many when the folds have equal size — and the <span class="math inline">K</span> fold models all differ from the model <span class="math inline">\hat{f}</span> refit on the full sample. The pooled average above therefore estimates the <strong>expected risk of the fitting procedure at the training-set sizes induced by the fold design</strong>; with equal folds, that size is <span class="math inline">N(K-1)/K</span>. This estimand is an expectation over the draw of the training data rather than the risk <span class="math inline">R(\hat{f})</span> of the one model we actually deploy. Because the fold models are trained on fewer observations, <span class="math inline">\widehat{\mathrm{CV}}_K</span> is typically mildly pessimistic for the full-sample model; this training-size effect is exactly the bias referred to in the callout below. <span class="citation" data-cites="BatesHastieTibshirani2024">Bates, Hastie, and Tibshirani (<a href="#ref-BatesHastieTibshirani2024" role="doc-biblioref">2024</a>)</span> make the distinction precise: they prove it for linear models fitted by OLS and document it empirically more broadly.</p>
+<p><strong>What does <span class="math inline">\widehat{\mathrm{CV}}_K</span> estimate?</strong> With equal folds, each fold model is trained on <span class="math inline">N(K-1)/K</span> observations. Under the independent sampling assumed here, <span class="math inline">\widehat{\mathrm{CV}}_K</span> estimates the average out-of-sample risk of the fitting procedure at that training-sample size, where the average is over hypothetical training samples and fresh test observations. It therefore does not estimate exactly the risk <span class="math inline">R(\hat f)</span> of the particular model refitted on the observed full sample. If prediction risk decreases as the training sample grows, the smaller fold-training samples make CV pessimistic for the full-sample fit, although this direction is not guaranteed for every fitting procedure. <span class="citation" data-cites="BatesHastieTibshirani2024">Bates, Hastie, and Tibshirani (<a href="#ref-BatesHastieTibshirani2024" role="doc-biblioref">2024</a>)</span> analyze this distinction formally for OLS and provide broader empirical evidence.</p>
 <div class="callout callout-style-default callout-note callout-titled">
 <div class="callout-header d-flex align-content-center">
 <div class="callout-icon-container">
@@ -646,7 +647,7 @@ Common Choices for K
 </div>
 </div>
 <div class="callout-body-container callout-body">
-<p>A common choice for <span class="math inline">K</span> is 5 or 10; the extreme case <span class="math inline">K=N</span>, in which each validation fold contains a single observation, is called <strong>leave-one-out cross-validation</strong>. A higher <span class="math inline">K</span> means each fold model is trained on close to the full sample, so the training-size bias described above is smaller at a higher computational cost. How the <em>variance</em> of <span class="math inline">\widehat{\mathrm{CV}}_K</span> moves with <span class="math inline">K</span> has no universal answer: it depends on the stability of the fitting algorithm and on the correlation between fold estimates, and either direction can occur <span class="citation" data-cites="ArlotCelisse2010">(<a href="#ref-ArlotCelisse2010" role="doc-biblioref">Arlot and Celisse 2010</a>)</span>.</p>
+<p>A common choice for <span class="math inline">K</span> is 5 or 10; the extreme case <span class="math inline">K=N</span>, in which each validation fold contains a single observation, is called <strong>leave-one-out cross-validation</strong>. A higher <span class="math inline">K</span> means each fold model is trained on a sample closer in size to the full sample. When prediction risk decreases with training-sample size, this reduces the training-size bias, but it also raises the computational cost. How the <em>variance</em> of <span class="math inline">\widehat{\mathrm{CV}}_K</span> moves with <span class="math inline">K</span> has no universal answer: it depends on the stability of the fitting algorithm and on the correlation between fold estimates, and either direction can occur <span class="citation" data-cites="ArlotCelisse2010">(<a href="#ref-ArlotCelisse2010" role="doc-biblioref">Arlot and Celisse 2010</a>)</span>.</p>
 <p>The number of folds <span class="math inline">K</span> is a design choice, not a hyperparameter of the fitted model: <span class="math inline">K</span> determines the validation criterion but is not selected by minimizing that same criterion.</p>
 </div>
 </div>
@@ -970,9 +971,11 @@ Figure&nbsp;2.3: Time-series cross-validation designs over 100 ordered observati
 </section>
 <section id="practical-example-tuning-a-neural-network-with-cross-validation" class="level2" data-number="2.7">
 <h2 data-number="2.7" class="anchored" data-anchor-id="practical-example-tuning-a-neural-network-with-cross-validation"><span class="header-section-number">2.7</span> Practical Example: Tuning a Neural Network with Cross-Validation</h2>
-<p>We now show how to use cross-validation to select hyperparameters for a simple neural network. No knowledge of neural networks is needed here: treat the network as a flexible nonlinear regression model whose fitting procedure comes with several tuning constants — the <strong>hidden-layer architecture</strong> (which controls how rich the fitted function class is), the <strong>learning rate</strong> (a step-size constant of the estimation algorithm), and the <strong>L2 penalty</strong> (the weight on a penalty proportional to the squared magnitude of the coefficients). We study these objects properly in the <a href="./feed_forward_nns.html">chapter on feed-forward neural networks</a>; in this example the network simply provides a realistic tuning problem with several hyperparameters, all tuned using scikit-learn. As data we simulate a single-year cross-section of <span class="math inline">1{,}000</span> firms: annual excess returns, in percent, generated from ten firm characteristics measured on deliberately heterogeneous scales, with an interaction and a quadratic term that a purely linear model would miss. Because the observations are independently simulated — with no cluster, spatial, or time-series dependence — the K-fold design of <a href="#sec-cv-kfold" class="quarto-xref">Section&nbsp;2.5</a> is appropriate here. A real firm-year panel would instead require folds that respect firm-level clustering and time.</p>
-<p>To keep the example reliable, we put standardization and model fitting into a single <code>Pipeline</code>. The heterogeneous characteristic scales make standardization consequential, and the pipeline learns it separately inside each training fold rather than on the full dataset. We also define the fitting procedure honestly as at most 1,000 optimization iterations per fold. Instead of suppressing convergence warnings, the code records how many of the five fold fits reach that cap for every configuration; a capped fit is a valid fixed-budget procedure, but its score can reflect incomplete optimization as well as architecture and regularization. <a href="#fig-nn-cv-tuning" class="quarto-xref">Figure&nbsp;2.4</a> summarizes the search: each point is one configuration in the grid, plotted against the learning rate in the left panel and against the architecture in the right panel, with the red star marking the configuration attaining the lowest cross-validated MSE. Scikit-learn follows a higher-is-better scoring convention, so <code>neg_mean_squared_error</code> returns the negative of each fold’s MSE; the minus sign in the code converts the average back to ordinary MSE before comparison and plotting.</p>
-<div class="cell" data-execution_count="5">
+<p>We now show how to use cross-validation to select hyperparameters for a simple neural network. No knowledge of neural networks is needed here: treat the network as a flexible nonlinear regression model whose fitting procedure comes with two tuning constants — the <strong>hidden-layer architecture</strong> (which controls how rich the fitted function class is) and the <strong>learning rate</strong> (a step-size constant of the estimation algorithm). We study these objects properly in the <a href="./feed_forward_nns.html">chapter on feed-forward neural networks</a>; in this example the network simply provides a realistic tuning problem with multiple hyperparameters, all tuned using scikit-learn. As data we simulate a single-year cross-section of <span class="math inline">1{,}000</span> firms: annual excess returns, in percent, generated from ten firm characteristics measured on deliberately heterogeneous scales, with an interaction and a quadratic term that a purely linear model would miss. Because the observations are independently simulated — with no cluster, spatial, or time-series dependence — the K-fold design of <a href="#sec-cv-kfold" class="quarto-xref">Section&nbsp;2.5</a> is appropriate here. A real firm-year panel would instead require folds that respect firm-level clustering and time.</p>
+<p>The architecture labels below report how many computational units (often called neurons) each hidden layer contains. Thus, <code>50</code> denotes one hidden layer with 50 units, while <code>100-50</code> denotes two hidden layers with 100 and 50 units, in that order. For the present example, these labels simply index model flexibility.</p>
+<p>Because the firm characteristics are measured on heterogeneous scales, we standardize them before fitting the network. Scikit-learn’s <code>Pipeline</code> object combines these two ordered steps — standardization followed by model fitting — and treats them as one fitting procedure. Within each CV split, the pipeline estimates the means and standard deviations only from the training fold, fits the network on the standardized training predictors, and applies those same training-fold scaling constants to the validation predictors. The validation observations therefore do not influence standardization.</p>
+<p>We also define the fitting procedure honestly as at most 1,000 optimization iterations per fold. Instead of suppressing convergence warnings, the code records how many of the five fold fits reach that cap for every configuration; a capped fit is a valid fixed-budget procedure, but its score can reflect incomplete optimization as well as architecture and learning rate. Within the manual grid-search loop, scikit-learn’s <code>cross_validate</code> function evaluates one fixed pipeline configuration: it refits the pipeline on each of the five training folds and returns the corresponding held-out fold scores. The surrounding <code>ParameterGrid</code> loop repeats this evaluation for every configuration, after which the code selects the configuration with the smallest mean cross-validated MSE. <a href="#fig-nn-cv-tuning" class="quarto-xref">Figure&nbsp;2.4</a> summarizes the search: each point is one configuration in the grid, plotted against the learning rate in the left panel and against the architecture in the right panel, with the red star marking the selected configuration. Scikit-learn follows a higher-is-better scoring convention, so <code>neg_mean_squared_error</code> returns the negative of each fold’s MSE; the minus sign in the code converts the average back to ordinary MSE before comparison and plotting.</p>
+<div id="cell-fig-nn-cv-tuning" class="cell" data-execution_count="5">
 <details class="code-fold">
 <summary>Show the code</summary>
 <div class="sourceCode cell-code" id="cb4"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> numpy <span class="im">as</span> np</span>
@@ -1007,247 +1010,246 @@ Figure&nbsp;2.3: Time-series cross-validation designs over 100 ordered observati
 <span id="cb4-30"><a href="#cb4-30" aria-hidden="true" tabindex="-1"></a>    <span class="op">+</span> rng.standard_normal(n_obs) <span class="op">*</span> <span class="fl">2.0</span></span>
 <span id="cb4-31"><a href="#cb4-31" aria-hidden="true" tabindex="-1"></a>)</span>
 <span id="cb4-32"><a href="#cb4-32" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb4-33"><a href="#cb4-33" aria-hidden="true" tabindex="-1"></a><span class="co"># Define hyperparameter grid</span></span>
-<span id="cb4-34"><a href="#cb4-34" aria-hidden="true" tabindex="-1"></a>param_grid <span class="op">=</span> {</span>
-<span id="cb4-35"><a href="#cb4-35" aria-hidden="true" tabindex="-1"></a>    <span class="st">'hidden_layer_sizes'</span>: [(<span class="dv">50</span>,), (<span class="dv">100</span>,), (<span class="dv">50</span>, <span class="dv">50</span>), (<span class="dv">100</span>, <span class="dv">50</span>)],</span>
-<span id="cb4-36"><a href="#cb4-36" aria-hidden="true" tabindex="-1"></a>    <span class="st">'learning_rate_init'</span>: [<span class="fl">0.001</span>, <span class="fl">0.01</span>, <span class="fl">0.1</span>],</span>
-<span id="cb4-37"><a href="#cb4-37" aria-hidden="true" tabindex="-1"></a>    <span class="st">'alpha'</span>: [<span class="fl">0.0001</span>, <span class="fl">0.001</span>, <span class="fl">0.01</span>]  <span class="co"># L2 regularization</span></span>
-<span id="cb4-38"><a href="#cb4-38" aria-hidden="true" tabindex="-1"></a>}</span>
-<span id="cb4-39"><a href="#cb4-39" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb4-40"><a href="#cb4-40" aria-hidden="true" tabindex="-1"></a><span class="co"># Create pipeline with scaling</span></span>
-<span id="cb4-41"><a href="#cb4-41" aria-hidden="true" tabindex="-1"></a>pipeline <span class="op">=</span> Pipeline([</span>
-<span id="cb4-42"><a href="#cb4-42" aria-hidden="true" tabindex="-1"></a>    (<span class="st">'scaler'</span>, StandardScaler()),</span>
-<span id="cb4-43"><a href="#cb4-43" aria-hidden="true" tabindex="-1"></a>    (<span class="st">'mlp'</span>, MLPRegressor(max_iter<span class="op">=</span><span class="dv">1000</span>, random_state<span class="op">=</span><span class="dv">42</span>))</span>
-<span id="cb4-44"><a href="#cb4-44" aria-hidden="true" tabindex="-1"></a>])</span>
-<span id="cb4-45"><a href="#cb4-45" aria-hidden="true" tabindex="-1"></a>cv <span class="op">=</span> KFold(n_splits<span class="op">=</span><span class="dv">5</span>, shuffle<span class="op">=</span><span class="va">True</span>, random_state<span class="op">=</span><span class="dv">0</span>)</span>
+<span id="cb4-33"><a href="#cb4-33" aria-hidden="true" tabindex="-1"></a><span class="co"># Define concise labels: each number gives the units in one hidden layer</span></span>
+<span id="cb4-34"><a href="#cb4-34" aria-hidden="true" tabindex="-1"></a>architecture_labels <span class="op">=</span> {</span>
+<span id="cb4-35"><a href="#cb4-35" aria-hidden="true" tabindex="-1"></a>    (<span class="dv">50</span>,): <span class="st">'50'</span>,</span>
+<span id="cb4-36"><a href="#cb4-36" aria-hidden="true" tabindex="-1"></a>    (<span class="dv">100</span>,): <span class="st">'100'</span>,</span>
+<span id="cb4-37"><a href="#cb4-37" aria-hidden="true" tabindex="-1"></a>    (<span class="dv">50</span>, <span class="dv">50</span>): <span class="st">'50-50'</span>,</span>
+<span id="cb4-38"><a href="#cb4-38" aria-hidden="true" tabindex="-1"></a>    (<span class="dv">100</span>, <span class="dv">50</span>): <span class="st">'100-50'</span>,</span>
+<span id="cb4-39"><a href="#cb4-39" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb4-40"><a href="#cb4-40" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-41"><a href="#cb4-41" aria-hidden="true" tabindex="-1"></a><span class="co"># Define hyperparameter grid</span></span>
+<span id="cb4-42"><a href="#cb4-42" aria-hidden="true" tabindex="-1"></a>param_grid <span class="op">=</span> {</span>
+<span id="cb4-43"><a href="#cb4-43" aria-hidden="true" tabindex="-1"></a>    <span class="st">'hidden_layer_sizes'</span>: <span class="bu">list</span>(architecture_labels),</span>
+<span id="cb4-44"><a href="#cb4-44" aria-hidden="true" tabindex="-1"></a>    <span class="st">'learning_rate_init'</span>: [<span class="fl">0.001</span>, <span class="fl">0.01</span>, <span class="fl">0.1</span>],</span>
+<span id="cb4-45"><a href="#cb4-45" aria-hidden="true" tabindex="-1"></a>}</span>
 <span id="cb4-46"><a href="#cb4-46" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb4-47"><a href="#cb4-47" aria-hidden="true" tabindex="-1"></a><span class="co"># Perform grid search with cross-validation</span></span>
-<span id="cb4-48"><a href="#cb4-48" aria-hidden="true" tabindex="-1"></a>results <span class="op">=</span> []</span>
-<span id="cb4-49"><a href="#cb4-49" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> params <span class="kw">in</span> ParameterGrid(param_grid):</span>
-<span id="cb4-50"><a href="#cb4-50" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Update pipeline parameters</span></span>
-<span id="cb4-51"><a href="#cb4-51" aria-hidden="true" tabindex="-1"></a>    pipeline_params <span class="op">=</span> {<span class="ss">f'mlp__</span><span class="sc">{</span>key<span class="sc">}</span><span class="ss">'</span>: value <span class="cf">for</span> key, value <span class="kw">in</span> params.items()}</span>
-<span id="cb4-52"><a href="#cb4-52" aria-hidden="true" tabindex="-1"></a>    pipeline.set_params(<span class="op">**</span>pipeline_params)</span>
-<span id="cb4-53"><a href="#cb4-53" aria-hidden="true" tabindex="-1"></a>    </span>
-<span id="cb4-54"><a href="#cb4-54" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Perform the same reproducible 5-fold split for every configuration.</span></span>
-<span id="cb4-55"><a href="#cb4-55" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Capture convergence warnings and expose them through diagnostics below.</span></span>
-<span id="cb4-56"><a href="#cb4-56" aria-hidden="true" tabindex="-1"></a>    <span class="cf">with</span> warnings.catch_warnings(record<span class="op">=</span><span class="va">True</span>) <span class="im">as</span> caught:</span>
-<span id="cb4-57"><a href="#cb4-57" aria-hidden="true" tabindex="-1"></a>        warnings.simplefilter(<span class="st">"always"</span>, ConvergenceWarning)</span>
-<span id="cb4-58"><a href="#cb4-58" aria-hidden="true" tabindex="-1"></a>        cv_result <span class="op">=</span> cross_validate(</span>
-<span id="cb4-59"><a href="#cb4-59" aria-hidden="true" tabindex="-1"></a>            pipeline,</span>
-<span id="cb4-60"><a href="#cb4-60" aria-hidden="true" tabindex="-1"></a>            X,</span>
-<span id="cb4-61"><a href="#cb4-61" aria-hidden="true" tabindex="-1"></a>            y,</span>
-<span id="cb4-62"><a href="#cb4-62" aria-hidden="true" tabindex="-1"></a>            cv<span class="op">=</span>cv,</span>
-<span id="cb4-63"><a href="#cb4-63" aria-hidden="true" tabindex="-1"></a>            scoring<span class="op">=</span><span class="st">'neg_mean_squared_error'</span>,</span>
-<span id="cb4-64"><a href="#cb4-64" aria-hidden="true" tabindex="-1"></a>            return_estimator<span class="op">=</span><span class="va">True</span>,</span>
-<span id="cb4-65"><a href="#cb4-65" aria-hidden="true" tabindex="-1"></a>        )</span>
-<span id="cb4-66"><a href="#cb4-66" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb4-67"><a href="#cb4-67" aria-hidden="true" tabindex="-1"></a>    cv_scores <span class="op">=</span> cv_result[<span class="st">'test_score'</span>]</span>
-<span id="cb4-68"><a href="#cb4-68" aria-hidden="true" tabindex="-1"></a>    n_capped <span class="op">=</span> <span class="bu">sum</span>(</span>
-<span id="cb4-69"><a href="#cb4-69" aria-hidden="true" tabindex="-1"></a>        estimator.named_steps[<span class="st">'mlp'</span>].n_iter_ <span class="op">&gt;=</span> <span class="dv">1000</span></span>
-<span id="cb4-70"><a href="#cb4-70" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> estimator <span class="kw">in</span> cv_result[<span class="st">'estimator'</span>]</span>
-<span id="cb4-71"><a href="#cb4-71" aria-hidden="true" tabindex="-1"></a>    )</span>
-<span id="cb4-72"><a href="#cb4-72" aria-hidden="true" tabindex="-1"></a>    n_convergence_warnings <span class="op">=</span> <span class="bu">sum</span>(</span>
-<span id="cb4-73"><a href="#cb4-73" aria-hidden="true" tabindex="-1"></a>        <span class="bu">issubclass</span>(warning.category, ConvergenceWarning)</span>
-<span id="cb4-74"><a href="#cb4-74" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> warning <span class="kw">in</span> caught</span>
-<span id="cb4-75"><a href="#cb4-75" aria-hidden="true" tabindex="-1"></a>    )</span>
-<span id="cb4-76"><a href="#cb4-76" aria-hidden="true" tabindex="-1"></a>    </span>
-<span id="cb4-77"><a href="#cb4-77" aria-hidden="true" tabindex="-1"></a>    results.append({</span>
-<span id="cb4-78"><a href="#cb4-78" aria-hidden="true" tabindex="-1"></a>        <span class="st">'hidden_layers'</span>: <span class="bu">str</span>(params[<span class="st">'hidden_layer_sizes'</span>]),</span>
-<span id="cb4-79"><a href="#cb4-79" aria-hidden="true" tabindex="-1"></a>        <span class="st">'learning_rate'</span>: params[<span class="st">'learning_rate_init'</span>],</span>
-<span id="cb4-80"><a href="#cb4-80" aria-hidden="true" tabindex="-1"></a>        <span class="st">'alpha'</span>: params[<span class="st">'alpha'</span>],</span>
-<span id="cb4-81"><a href="#cb4-81" aria-hidden="true" tabindex="-1"></a>        <span class="st">'mean_cv_mse'</span>: <span class="op">-</span>cv_scores.mean(),</span>
-<span id="cb4-82"><a href="#cb4-82" aria-hidden="true" tabindex="-1"></a>        <span class="st">'fold_mse_sd'</span>: (<span class="op">-</span>cv_scores).std(ddof<span class="op">=</span><span class="dv">1</span>),</span>
-<span id="cb4-83"><a href="#cb4-83" aria-hidden="true" tabindex="-1"></a>        <span class="st">'n_capped_folds'</span>: n_capped,</span>
-<span id="cb4-84"><a href="#cb4-84" aria-hidden="true" tabindex="-1"></a>        <span class="st">'n_convergence_warnings'</span>: n_convergence_warnings,</span>
-<span id="cb4-85"><a href="#cb4-85" aria-hidden="true" tabindex="-1"></a>    })</span>
-<span id="cb4-86"><a href="#cb4-86" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb4-87"><a href="#cb4-87" aria-hidden="true" tabindex="-1"></a><span class="co"># Convert to DataFrame for easier analysis</span></span>
-<span id="cb4-88"><a href="#cb4-88" aria-hidden="true" tabindex="-1"></a>results_df <span class="op">=</span> pd.DataFrame(results)</span>
-<span id="cb4-89"><a href="#cb4-89" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb4-90"><a href="#cb4-90" aria-hidden="true" tabindex="-1"></a><span class="co"># Find best configuration</span></span>
-<span id="cb4-91"><a href="#cb4-91" aria-hidden="true" tabindex="-1"></a>best_idx <span class="op">=</span> results_df[<span class="st">'mean_cv_mse'</span>].idxmin()</span>
-<span id="cb4-92"><a href="#cb4-92" aria-hidden="true" tabindex="-1"></a>best_config <span class="op">=</span> results_df.iloc[best_idx]</span>
-<span id="cb4-93"><a href="#cb4-93" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb4-94"><a href="#cb4-94" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">"Best Configuration:"</span>)</span>
-<span id="cb4-95"><a href="#cb4-95" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Hidden Layers: </span><span class="sc">{</span>best_config[<span class="st">'hidden_layers'</span>]<span class="sc">}</span><span class="ss">"</span>)</span>
-<span id="cb4-96"><a href="#cb4-96" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Learning Rate: </span><span class="sc">{</span>best_config[<span class="st">'learning_rate'</span>]<span class="sc">}</span><span class="ss">"</span>)</span>
-<span id="cb4-97"><a href="#cb4-97" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Alpha (L2 reg): </span><span class="sc">{</span>best_config[<span class="st">'alpha'</span>]<span class="sc">}</span><span class="ss">"</span>)</span>
-<span id="cb4-98"><a href="#cb4-98" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Mean CV MSE: </span><span class="sc">{</span>best_config[<span class="st">'mean_cv_mse'</span>]<span class="sc">:.4f}</span><span class="ss">"</span>)</span>
-<span id="cb4-99"><a href="#cb4-99" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Fold-score SD (ddof=1): </span><span class="sc">{</span>best_config[<span class="st">'fold_mse_sd'</span>]<span class="sc">:.4f}</span><span class="ss">"</span>)</span>
-<span id="cb4-100"><a href="#cb4-100" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Folds reaching 1,000 iterations: </span><span class="sc">{</span><span class="bu">int</span>(best_config[<span class="st">'n_capped_folds'</span>])<span class="sc">}</span><span class="ss">/5"</span>)</span>
-<span id="cb4-101"><a href="#cb4-101" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Captured convergence warnings: </span><span class="sc">{</span><span class="bu">int</span>(best_config[<span class="st">'n_convergence_warnings'</span>])<span class="sc">}</span><span class="ss">"</span>)</span>
-<span id="cb4-102"><a href="#cb4-102" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb4-103"><a href="#cb4-103" aria-hidden="true" tabindex="-1"></a><span class="co"># Visualize results</span></span>
-<span id="cb4-104"><a href="#cb4-104" aria-hidden="true" tabindex="-1"></a>fig, (ax1, ax2) <span class="op">=</span> plt.subplots(<span class="dv">1</span>, <span class="dv">2</span>, figsize<span class="op">=</span>(<span class="dv">12</span>, <span class="dv">5</span>))</span>
-<span id="cb4-105"><a href="#cb4-105" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb4-106"><a href="#cb4-106" aria-hidden="true" tabindex="-1"></a><span class="co"># Plot 1: Learning rate vs performance (all configurations)</span></span>
-<span id="cb4-107"><a href="#cb4-107" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> alpha_val <span class="kw">in</span> results_df[<span class="st">'alpha'</span>].unique():</span>
-<span id="cb4-108"><a href="#cb4-108" aria-hidden="true" tabindex="-1"></a>    subset <span class="op">=</span> results_df[results_df[<span class="st">'alpha'</span>] <span class="op">==</span> alpha_val]</span>
-<span id="cb4-109"><a href="#cb4-109" aria-hidden="true" tabindex="-1"></a>    ax1.scatter(subset[<span class="st">'learning_rate'</span>], subset[<span class="st">'mean_cv_mse'</span>], </span>
-<span id="cb4-110"><a href="#cb4-110" aria-hidden="true" tabindex="-1"></a>               label<span class="op">=</span><span class="ss">f'α=</span><span class="sc">{</span>alpha_val<span class="sc">}</span><span class="ss">'</span>, alpha<span class="op">=</span><span class="fl">0.7</span>, s<span class="op">=</span><span class="dv">50</span>)</span>
-<span id="cb4-111"><a href="#cb4-111" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb4-112"><a href="#cb4-112" aria-hidden="true" tabindex="-1"></a>ax1.set_xlabel(<span class="st">'Learning Rate'</span>)</span>
-<span id="cb4-113"><a href="#cb4-113" aria-hidden="true" tabindex="-1"></a>ax1.set_ylabel(<span class="st">'CV MSE'</span>)</span>
-<span id="cb4-114"><a href="#cb4-114" aria-hidden="true" tabindex="-1"></a>ax1.set_title(<span class="st">'Performance vs Learning Rate'</span>)</span>
-<span id="cb4-115"><a href="#cb4-115" aria-hidden="true" tabindex="-1"></a>ax1.set_xscale(<span class="st">'log'</span>)</span>
-<span id="cb4-116"><a href="#cb4-116" aria-hidden="true" tabindex="-1"></a>ax1.grid(<span class="va">True</span>, alpha<span class="op">=</span><span class="fl">0.3</span>)</span>
-<span id="cb4-117"><a href="#cb4-117" aria-hidden="true" tabindex="-1"></a>ax1.legend(title<span class="op">=</span><span class="st">'L2 Regularization'</span>)</span>
+<span id="cb4-47"><a href="#cb4-47" aria-hidden="true" tabindex="-1"></a><span class="co"># Create pipeline with scaling</span></span>
+<span id="cb4-48"><a href="#cb4-48" aria-hidden="true" tabindex="-1"></a>pipeline <span class="op">=</span> Pipeline([</span>
+<span id="cb4-49"><a href="#cb4-49" aria-hidden="true" tabindex="-1"></a>    (<span class="st">'scaler'</span>, StandardScaler()),</span>
+<span id="cb4-50"><a href="#cb4-50" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Switch off the coefficient penalty: this example tunes only the</span></span>
+<span id="cb4-51"><a href="#cb4-51" aria-hidden="true" tabindex="-1"></a>    <span class="co"># architecture and learning rate.</span></span>
+<span id="cb4-52"><a href="#cb4-52" aria-hidden="true" tabindex="-1"></a>    (<span class="st">'mlp'</span>, MLPRegressor(max_iter<span class="op">=</span><span class="dv">1000</span>, alpha<span class="op">=</span><span class="fl">0.0</span>, random_state<span class="op">=</span><span class="dv">42</span>))</span>
+<span id="cb4-53"><a href="#cb4-53" aria-hidden="true" tabindex="-1"></a>])</span>
+<span id="cb4-54"><a href="#cb4-54" aria-hidden="true" tabindex="-1"></a>cv <span class="op">=</span> KFold(n_splits<span class="op">=</span><span class="dv">5</span>, shuffle<span class="op">=</span><span class="va">True</span>, random_state<span class="op">=</span><span class="dv">0</span>)</span>
+<span id="cb4-55"><a href="#cb4-55" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-56"><a href="#cb4-56" aria-hidden="true" tabindex="-1"></a><span class="co"># Perform grid search with cross-validation</span></span>
+<span id="cb4-57"><a href="#cb4-57" aria-hidden="true" tabindex="-1"></a>results <span class="op">=</span> []</span>
+<span id="cb4-58"><a href="#cb4-58" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> params <span class="kw">in</span> ParameterGrid(param_grid):</span>
+<span id="cb4-59"><a href="#cb4-59" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Update pipeline parameters</span></span>
+<span id="cb4-60"><a href="#cb4-60" aria-hidden="true" tabindex="-1"></a>    pipeline_params <span class="op">=</span> {<span class="ss">f'mlp__</span><span class="sc">{</span>key<span class="sc">}</span><span class="ss">'</span>: value <span class="cf">for</span> key, value <span class="kw">in</span> params.items()}</span>
+<span id="cb4-61"><a href="#cb4-61" aria-hidden="true" tabindex="-1"></a>    pipeline.set_params(<span class="op">**</span>pipeline_params)</span>
+<span id="cb4-62"><a href="#cb4-62" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb4-63"><a href="#cb4-63" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Perform the same reproducible 5-fold split for every configuration.</span></span>
+<span id="cb4-64"><a href="#cb4-64" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Capture convergence warnings and expose them through diagnostics below.</span></span>
+<span id="cb4-65"><a href="#cb4-65" aria-hidden="true" tabindex="-1"></a>    <span class="cf">with</span> warnings.catch_warnings(record<span class="op">=</span><span class="va">True</span>) <span class="im">as</span> caught:</span>
+<span id="cb4-66"><a href="#cb4-66" aria-hidden="true" tabindex="-1"></a>        warnings.simplefilter(<span class="st">"always"</span>, ConvergenceWarning)</span>
+<span id="cb4-67"><a href="#cb4-67" aria-hidden="true" tabindex="-1"></a>        cv_result <span class="op">=</span> cross_validate(</span>
+<span id="cb4-68"><a href="#cb4-68" aria-hidden="true" tabindex="-1"></a>            pipeline,</span>
+<span id="cb4-69"><a href="#cb4-69" aria-hidden="true" tabindex="-1"></a>            X,</span>
+<span id="cb4-70"><a href="#cb4-70" aria-hidden="true" tabindex="-1"></a>            y,</span>
+<span id="cb4-71"><a href="#cb4-71" aria-hidden="true" tabindex="-1"></a>            cv<span class="op">=</span>cv,</span>
+<span id="cb4-72"><a href="#cb4-72" aria-hidden="true" tabindex="-1"></a>            scoring<span class="op">=</span><span class="st">'neg_mean_squared_error'</span>,</span>
+<span id="cb4-73"><a href="#cb4-73" aria-hidden="true" tabindex="-1"></a>            return_estimator<span class="op">=</span><span class="va">True</span>,</span>
+<span id="cb4-74"><a href="#cb4-74" aria-hidden="true" tabindex="-1"></a>        )</span>
+<span id="cb4-75"><a href="#cb4-75" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-76"><a href="#cb4-76" aria-hidden="true" tabindex="-1"></a>    cv_scores <span class="op">=</span> cv_result[<span class="st">'test_score'</span>]</span>
+<span id="cb4-77"><a href="#cb4-77" aria-hidden="true" tabindex="-1"></a>    n_capped <span class="op">=</span> <span class="bu">sum</span>(</span>
+<span id="cb4-78"><a href="#cb4-78" aria-hidden="true" tabindex="-1"></a>        estimator.named_steps[<span class="st">'mlp'</span>].n_iter_ <span class="op">&gt;=</span> <span class="dv">1000</span></span>
+<span id="cb4-79"><a href="#cb4-79" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> estimator <span class="kw">in</span> cv_result[<span class="st">'estimator'</span>]</span>
+<span id="cb4-80"><a href="#cb4-80" aria-hidden="true" tabindex="-1"></a>    )</span>
+<span id="cb4-81"><a href="#cb4-81" aria-hidden="true" tabindex="-1"></a>    n_convergence_warnings <span class="op">=</span> <span class="bu">sum</span>(</span>
+<span id="cb4-82"><a href="#cb4-82" aria-hidden="true" tabindex="-1"></a>        <span class="bu">issubclass</span>(warning.category, ConvergenceWarning)</span>
+<span id="cb4-83"><a href="#cb4-83" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> warning <span class="kw">in</span> caught</span>
+<span id="cb4-84"><a href="#cb4-84" aria-hidden="true" tabindex="-1"></a>    )</span>
+<span id="cb4-85"><a href="#cb4-85" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb4-86"><a href="#cb4-86" aria-hidden="true" tabindex="-1"></a>    results.append({</span>
+<span id="cb4-87"><a href="#cb4-87" aria-hidden="true" tabindex="-1"></a>        <span class="st">'architecture'</span>: architecture_labels[params[<span class="st">'hidden_layer_sizes'</span>]],</span>
+<span id="cb4-88"><a href="#cb4-88" aria-hidden="true" tabindex="-1"></a>        <span class="st">'learning_rate'</span>: params[<span class="st">'learning_rate_init'</span>],</span>
+<span id="cb4-89"><a href="#cb4-89" aria-hidden="true" tabindex="-1"></a>        <span class="st">'mean_cv_mse'</span>: <span class="op">-</span>cv_scores.mean(),</span>
+<span id="cb4-90"><a href="#cb4-90" aria-hidden="true" tabindex="-1"></a>        <span class="st">'fold_mse_sd'</span>: (<span class="op">-</span>cv_scores).std(ddof<span class="op">=</span><span class="dv">1</span>),</span>
+<span id="cb4-91"><a href="#cb4-91" aria-hidden="true" tabindex="-1"></a>        <span class="st">'n_capped_folds'</span>: n_capped,</span>
+<span id="cb4-92"><a href="#cb4-92" aria-hidden="true" tabindex="-1"></a>        <span class="st">'n_convergence_warnings'</span>: n_convergence_warnings,</span>
+<span id="cb4-93"><a href="#cb4-93" aria-hidden="true" tabindex="-1"></a>    })</span>
+<span id="cb4-94"><a href="#cb4-94" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-95"><a href="#cb4-95" aria-hidden="true" tabindex="-1"></a><span class="co"># Convert to DataFrame for easier analysis</span></span>
+<span id="cb4-96"><a href="#cb4-96" aria-hidden="true" tabindex="-1"></a>results_df <span class="op">=</span> pd.DataFrame(results)</span>
+<span id="cb4-97"><a href="#cb4-97" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-98"><a href="#cb4-98" aria-hidden="true" tabindex="-1"></a><span class="co"># Find best configuration</span></span>
+<span id="cb4-99"><a href="#cb4-99" aria-hidden="true" tabindex="-1"></a>best_idx <span class="op">=</span> results_df[<span class="st">'mean_cv_mse'</span>].idxmin()</span>
+<span id="cb4-100"><a href="#cb4-100" aria-hidden="true" tabindex="-1"></a>best_config <span class="op">=</span> results_df.iloc[best_idx]</span>
+<span id="cb4-101"><a href="#cb4-101" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-102"><a href="#cb4-102" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">"Best Configuration:"</span>)</span>
+<span id="cb4-103"><a href="#cb4-103" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Hidden units by layer: </span><span class="sc">{</span>best_config[<span class="st">'architecture'</span>]<span class="sc">}</span><span class="ss">"</span>)</span>
+<span id="cb4-104"><a href="#cb4-104" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Learning Rate: </span><span class="sc">{</span>best_config[<span class="st">'learning_rate'</span>]<span class="sc">}</span><span class="ss">"</span>)</span>
+<span id="cb4-105"><a href="#cb4-105" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Mean CV MSE: </span><span class="sc">{</span>best_config[<span class="st">'mean_cv_mse'</span>]<span class="sc">:.4f}</span><span class="ss">"</span>)</span>
+<span id="cb4-106"><a href="#cb4-106" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Fold-score SD (ddof=1): </span><span class="sc">{</span>best_config[<span class="st">'fold_mse_sd'</span>]<span class="sc">:.4f}</span><span class="ss">"</span>)</span>
+<span id="cb4-107"><a href="#cb4-107" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Folds reaching 1,000 iterations: </span><span class="sc">{</span><span class="bu">int</span>(best_config[<span class="st">'n_capped_folds'</span>])<span class="sc">}</span><span class="ss">/5"</span>)</span>
+<span id="cb4-108"><a href="#cb4-108" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Captured convergence warnings: </span><span class="sc">{</span><span class="bu">int</span>(best_config[<span class="st">'n_convergence_warnings'</span>])<span class="sc">}</span><span class="ss">"</span>)</span>
+<span id="cb4-109"><a href="#cb4-109" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-110"><a href="#cb4-110" aria-hidden="true" tabindex="-1"></a><span class="co"># Visualize results</span></span>
+<span id="cb4-111"><a href="#cb4-111" aria-hidden="true" tabindex="-1"></a>fig, (ax1, ax2) <span class="op">=</span> plt.subplots(<span class="dv">1</span>, <span class="dv">2</span>, figsize<span class="op">=</span>(<span class="dv">12</span>, <span class="dv">5</span>))</span>
+<span id="cb4-112"><a href="#cb4-112" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-113"><a href="#cb4-113" aria-hidden="true" tabindex="-1"></a><span class="co"># Plot 1: Learning rate vs performance (all configurations)</span></span>
+<span id="cb4-114"><a href="#cb4-114" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> arch_val <span class="kw">in</span> results_df[<span class="st">'architecture'</span>].unique():</span>
+<span id="cb4-115"><a href="#cb4-115" aria-hidden="true" tabindex="-1"></a>    subset <span class="op">=</span> results_df[results_df[<span class="st">'architecture'</span>] <span class="op">==</span> arch_val]</span>
+<span id="cb4-116"><a href="#cb4-116" aria-hidden="true" tabindex="-1"></a>    ax1.scatter(subset[<span class="st">'learning_rate'</span>], subset[<span class="st">'mean_cv_mse'</span>], </span>
+<span id="cb4-117"><a href="#cb4-117" aria-hidden="true" tabindex="-1"></a>               label<span class="op">=</span>arch_val, alpha<span class="op">=</span><span class="fl">0.7</span>, s<span class="op">=</span><span class="dv">50</span>)</span>
 <span id="cb4-118"><a href="#cb4-118" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb4-119"><a href="#cb4-119" aria-hidden="true" tabindex="-1"></a><span class="co"># Plot 2: Architecture vs performance (all configurations)</span></span>
-<span id="cb4-120"><a href="#cb4-120" aria-hidden="true" tabindex="-1"></a><span class="co"># Create a mapping for architectures to x-positions</span></span>
-<span id="cb4-121"><a href="#cb4-121" aria-hidden="true" tabindex="-1"></a>arch_names <span class="op">=</span> results_df[<span class="st">'hidden_layers'</span>].unique()</span>
-<span id="cb4-122"><a href="#cb4-122" aria-hidden="true" tabindex="-1"></a>arch_mapping <span class="op">=</span> {arch: i <span class="cf">for</span> i, arch <span class="kw">in</span> <span class="bu">enumerate</span>(arch_names)}</span>
-<span id="cb4-123"><a href="#cb4-123" aria-hidden="true" tabindex="-1"></a>results_df[<span class="st">'arch_pos'</span>] <span class="op">=</span> results_df[<span class="st">'hidden_layers'</span>].<span class="bu">map</span>(arch_mapping)</span>
-<span id="cb4-124"><a href="#cb4-124" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb4-125"><a href="#cb4-125" aria-hidden="true" tabindex="-1"></a><span class="co"># Add small random jitter to x-position for better visibility</span></span>
-<span id="cb4-126"><a href="#cb4-126" aria-hidden="true" tabindex="-1"></a>np.random.seed(<span class="dv">42</span>)</span>
-<span id="cb4-127"><a href="#cb4-127" aria-hidden="true" tabindex="-1"></a>jitter <span class="op">=</span> np.random.normal(<span class="dv">0</span>, <span class="fl">0.05</span>, <span class="bu">len</span>(results_df))</span>
-<span id="cb4-128"><a href="#cb4-128" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb4-129"><a href="#cb4-129" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> lr_val <span class="kw">in</span> results_df[<span class="st">'learning_rate'</span>].unique():</span>
-<span id="cb4-130"><a href="#cb4-130" aria-hidden="true" tabindex="-1"></a>    subset <span class="op">=</span> results_df[results_df[<span class="st">'learning_rate'</span>] <span class="op">==</span> lr_val]</span>
-<span id="cb4-131"><a href="#cb4-131" aria-hidden="true" tabindex="-1"></a>    ax2.scatter(subset[<span class="st">'arch_pos'</span>] <span class="op">+</span> jitter[subset.index], subset[<span class="st">'mean_cv_mse'</span>], </span>
-<span id="cb4-132"><a href="#cb4-132" aria-hidden="true" tabindex="-1"></a>               label<span class="op">=</span><span class="ss">f'LR=</span><span class="sc">{</span>lr_val<span class="sc">}</span><span class="ss">'</span>, alpha<span class="op">=</span><span class="fl">0.7</span>, s<span class="op">=</span><span class="dv">50</span>)</span>
-<span id="cb4-133"><a href="#cb4-133" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb4-134"><a href="#cb4-134" aria-hidden="true" tabindex="-1"></a>ax2.set_xlabel(<span class="st">'Architecture'</span>)</span>
-<span id="cb4-135"><a href="#cb4-135" aria-hidden="true" tabindex="-1"></a>ax2.set_ylabel(<span class="st">'CV MSE'</span>)</span>
-<span id="cb4-136"><a href="#cb4-136" aria-hidden="true" tabindex="-1"></a>ax2.set_title(<span class="st">'Performance vs Architecture'</span>)</span>
-<span id="cb4-137"><a href="#cb4-137" aria-hidden="true" tabindex="-1"></a>ax2.set_xticks(<span class="bu">range</span>(<span class="bu">len</span>(arch_names)))</span>
-<span id="cb4-138"><a href="#cb4-138" aria-hidden="true" tabindex="-1"></a>ax2.set_xticklabels(arch_names, rotation<span class="op">=</span><span class="dv">45</span>)</span>
-<span id="cb4-139"><a href="#cb4-139" aria-hidden="true" tabindex="-1"></a>ax2.grid(<span class="va">True</span>, alpha<span class="op">=</span><span class="fl">0.3</span>)</span>
-<span id="cb4-140"><a href="#cb4-140" aria-hidden="true" tabindex="-1"></a>ax2.legend(title<span class="op">=</span><span class="st">'Learning Rate'</span>)</span>
-<span id="cb4-141"><a href="#cb4-141" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb4-142"><a href="#cb4-142" aria-hidden="true" tabindex="-1"></a><span class="co"># Highlight best configuration</span></span>
-<span id="cb4-143"><a href="#cb4-143" aria-hidden="true" tabindex="-1"></a>best_lr <span class="op">=</span> best_config[<span class="st">'learning_rate'</span>]</span>
-<span id="cb4-144"><a href="#cb4-144" aria-hidden="true" tabindex="-1"></a>best_arch_pos <span class="op">=</span> arch_mapping[best_config[<span class="st">'hidden_layers'</span>]]</span>
-<span id="cb4-145"><a href="#cb4-145" aria-hidden="true" tabindex="-1"></a>best_score <span class="op">=</span> best_config[<span class="st">'mean_cv_mse'</span>]</span>
-<span id="cb4-146"><a href="#cb4-146" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb4-147"><a href="#cb4-147" aria-hidden="true" tabindex="-1"></a>ax1.scatter([best_lr], [best_score], color<span class="op">=</span><span class="st">'red'</span>, s<span class="op">=</span><span class="dv">100</span>, marker<span class="op">=</span><span class="st">'*'</span>, </span>
-<span id="cb4-148"><a href="#cb4-148" aria-hidden="true" tabindex="-1"></a>           edgecolors<span class="op">=</span><span class="st">'black'</span>, linewidth<span class="op">=</span><span class="dv">1</span>, label<span class="op">=</span><span class="st">'Best Config'</span>, zorder<span class="op">=</span><span class="dv">5</span>)</span>
-<span id="cb4-149"><a href="#cb4-149" aria-hidden="true" tabindex="-1"></a>ax2.scatter([best_arch_pos], [best_score], color<span class="op">=</span><span class="st">'red'</span>, s<span class="op">=</span><span class="dv">100</span>, marker<span class="op">=</span><span class="st">'*'</span>, </span>
-<span id="cb4-150"><a href="#cb4-150" aria-hidden="true" tabindex="-1"></a>           edgecolors<span class="op">=</span><span class="st">'black'</span>, linewidth<span class="op">=</span><span class="dv">1</span>, label<span class="op">=</span><span class="st">'Best Config'</span>, zorder<span class="op">=</span><span class="dv">5</span>)</span>
-<span id="cb4-151"><a href="#cb4-151" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb4-152"><a href="#cb4-152" aria-hidden="true" tabindex="-1"></a><span class="co"># Update legends to include best config</span></span>
-<span id="cb4-153"><a href="#cb4-153" aria-hidden="true" tabindex="-1"></a>ax1.legend(title<span class="op">=</span><span class="st">'L2 Regularization'</span>)</span>
-<span id="cb4-154"><a href="#cb4-154" aria-hidden="true" tabindex="-1"></a>ax2.legend(title<span class="op">=</span><span class="st">'Learning Rate'</span>)</span>
-<span id="cb4-155"><a href="#cb4-155" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb4-156"><a href="#cb4-156" aria-hidden="true" tabindex="-1"></a>plt.tight_layout()</span>
-<span id="cb4-157"><a href="#cb4-157" aria-hidden="true" tabindex="-1"></a>plt.show()</span>
+<span id="cb4-119"><a href="#cb4-119" aria-hidden="true" tabindex="-1"></a>ax1.set_xlabel(<span class="st">'Learning Rate'</span>)</span>
+<span id="cb4-120"><a href="#cb4-120" aria-hidden="true" tabindex="-1"></a>ax1.set_ylabel(<span class="st">'CV MSE'</span>)</span>
+<span id="cb4-121"><a href="#cb4-121" aria-hidden="true" tabindex="-1"></a>ax1.set_title(<span class="st">'Performance vs Learning Rate'</span>)</span>
+<span id="cb4-122"><a href="#cb4-122" aria-hidden="true" tabindex="-1"></a>ax1.set_xscale(<span class="st">'log'</span>)</span>
+<span id="cb4-123"><a href="#cb4-123" aria-hidden="true" tabindex="-1"></a>ax1.grid(<span class="va">True</span>, alpha<span class="op">=</span><span class="fl">0.3</span>)</span>
+<span id="cb4-124"><a href="#cb4-124" aria-hidden="true" tabindex="-1"></a>ax1.legend(title<span class="op">=</span><span class="st">'Hidden units</span><span class="ch">\n</span><span class="st">by layer'</span>)</span>
+<span id="cb4-125"><a href="#cb4-125" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-126"><a href="#cb4-126" aria-hidden="true" tabindex="-1"></a><span class="co"># Plot 2: Architecture vs performance (all configurations)</span></span>
+<span id="cb4-127"><a href="#cb4-127" aria-hidden="true" tabindex="-1"></a><span class="co"># Create a mapping for architectures to x-positions</span></span>
+<span id="cb4-128"><a href="#cb4-128" aria-hidden="true" tabindex="-1"></a>arch_names <span class="op">=</span> results_df[<span class="st">'architecture'</span>].unique()</span>
+<span id="cb4-129"><a href="#cb4-129" aria-hidden="true" tabindex="-1"></a>arch_mapping <span class="op">=</span> {arch: i <span class="cf">for</span> i, arch <span class="kw">in</span> <span class="bu">enumerate</span>(arch_names)}</span>
+<span id="cb4-130"><a href="#cb4-130" aria-hidden="true" tabindex="-1"></a>results_df[<span class="st">'arch_pos'</span>] <span class="op">=</span> results_df[<span class="st">'architecture'</span>].<span class="bu">map</span>(arch_mapping)</span>
+<span id="cb4-131"><a href="#cb4-131" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-132"><a href="#cb4-132" aria-hidden="true" tabindex="-1"></a><span class="co"># Add small random jitter to x-position for better visibility</span></span>
+<span id="cb4-133"><a href="#cb4-133" aria-hidden="true" tabindex="-1"></a>np.random.seed(<span class="dv">42</span>)</span>
+<span id="cb4-134"><a href="#cb4-134" aria-hidden="true" tabindex="-1"></a>jitter <span class="op">=</span> np.random.normal(<span class="dv">0</span>, <span class="fl">0.05</span>, <span class="bu">len</span>(results_df))</span>
+<span id="cb4-135"><a href="#cb4-135" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-136"><a href="#cb4-136" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> lr_val <span class="kw">in</span> results_df[<span class="st">'learning_rate'</span>].unique():</span>
+<span id="cb4-137"><a href="#cb4-137" aria-hidden="true" tabindex="-1"></a>    subset <span class="op">=</span> results_df[results_df[<span class="st">'learning_rate'</span>] <span class="op">==</span> lr_val]</span>
+<span id="cb4-138"><a href="#cb4-138" aria-hidden="true" tabindex="-1"></a>    ax2.scatter(subset[<span class="st">'arch_pos'</span>] <span class="op">+</span> jitter[subset.index], subset[<span class="st">'mean_cv_mse'</span>], </span>
+<span id="cb4-139"><a href="#cb4-139" aria-hidden="true" tabindex="-1"></a>               label<span class="op">=</span><span class="ss">f'LR=</span><span class="sc">{</span>lr_val<span class="sc">}</span><span class="ss">'</span>, alpha<span class="op">=</span><span class="fl">0.7</span>, s<span class="op">=</span><span class="dv">50</span>)</span>
+<span id="cb4-140"><a href="#cb4-140" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-141"><a href="#cb4-141" aria-hidden="true" tabindex="-1"></a>ax2.set_xlabel(<span class="st">'Hidden units by layer'</span>)</span>
+<span id="cb4-142"><a href="#cb4-142" aria-hidden="true" tabindex="-1"></a>ax2.set_ylabel(<span class="st">'CV MSE'</span>)</span>
+<span id="cb4-143"><a href="#cb4-143" aria-hidden="true" tabindex="-1"></a>ax2.set_title(<span class="st">'Performance vs Hidden-Layer Architecture'</span>)</span>
+<span id="cb4-144"><a href="#cb4-144" aria-hidden="true" tabindex="-1"></a>ax2.set_xticks(<span class="bu">range</span>(<span class="bu">len</span>(arch_names)))</span>
+<span id="cb4-145"><a href="#cb4-145" aria-hidden="true" tabindex="-1"></a>ax2.set_xticklabels(arch_names)</span>
+<span id="cb4-146"><a href="#cb4-146" aria-hidden="true" tabindex="-1"></a>ax2.grid(<span class="va">True</span>, alpha<span class="op">=</span><span class="fl">0.3</span>)</span>
+<span id="cb4-147"><a href="#cb4-147" aria-hidden="true" tabindex="-1"></a>ax2.legend(title<span class="op">=</span><span class="st">'Learning Rate'</span>)</span>
+<span id="cb4-148"><a href="#cb4-148" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-149"><a href="#cb4-149" aria-hidden="true" tabindex="-1"></a><span class="co"># Highlight best configuration</span></span>
+<span id="cb4-150"><a href="#cb4-150" aria-hidden="true" tabindex="-1"></a>best_lr <span class="op">=</span> best_config[<span class="st">'learning_rate'</span>]</span>
+<span id="cb4-151"><a href="#cb4-151" aria-hidden="true" tabindex="-1"></a>best_arch_pos <span class="op">=</span> arch_mapping[best_config[<span class="st">'architecture'</span>]]</span>
+<span id="cb4-152"><a href="#cb4-152" aria-hidden="true" tabindex="-1"></a>best_score <span class="op">=</span> best_config[<span class="st">'mean_cv_mse'</span>]</span>
+<span id="cb4-153"><a href="#cb4-153" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-154"><a href="#cb4-154" aria-hidden="true" tabindex="-1"></a>ax1.scatter([best_lr], [best_score], color<span class="op">=</span><span class="st">'red'</span>, s<span class="op">=</span><span class="dv">100</span>, marker<span class="op">=</span><span class="st">'*'</span>, </span>
+<span id="cb4-155"><a href="#cb4-155" aria-hidden="true" tabindex="-1"></a>           edgecolors<span class="op">=</span><span class="st">'black'</span>, linewidth<span class="op">=</span><span class="dv">1</span>, label<span class="op">=</span><span class="st">'Best Config'</span>, zorder<span class="op">=</span><span class="dv">5</span>)</span>
+<span id="cb4-156"><a href="#cb4-156" aria-hidden="true" tabindex="-1"></a>ax2.scatter([best_arch_pos], [best_score], color<span class="op">=</span><span class="st">'red'</span>, s<span class="op">=</span><span class="dv">100</span>, marker<span class="op">=</span><span class="st">'*'</span>, </span>
+<span id="cb4-157"><a href="#cb4-157" aria-hidden="true" tabindex="-1"></a>           edgecolors<span class="op">=</span><span class="st">'black'</span>, linewidth<span class="op">=</span><span class="dv">1</span>, label<span class="op">=</span><span class="st">'Best Config'</span>, zorder<span class="op">=</span><span class="dv">5</span>)</span>
 <span id="cb4-158"><a href="#cb4-158" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb4-159"><a href="#cb4-159" aria-hidden="true" tabindex="-1"></a><span class="co"># Show top 5 configurations</span></span>
-<span id="cb4-160"><a href="#cb4-160" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">"</span><span class="ch">\n</span><span class="st">Top 5 Configurations:"</span>)</span>
-<span id="cb4-161"><a href="#cb4-161" aria-hidden="true" tabindex="-1"></a>top_five <span class="op">=</span> results_df.nsmallest(<span class="dv">5</span>, <span class="st">'mean_cv_mse'</span>)[[</span>
-<span id="cb4-162"><a href="#cb4-162" aria-hidden="true" tabindex="-1"></a>    <span class="st">'hidden_layers'</span>, <span class="st">'learning_rate'</span>, <span class="st">'alpha'</span>, <span class="st">'mean_cv_mse'</span>,</span>
-<span id="cb4-163"><a href="#cb4-163" aria-hidden="true" tabindex="-1"></a>    <span class="st">'fold_mse_sd'</span>, <span class="st">'n_capped_folds'</span></span>
-<span id="cb4-164"><a href="#cb4-164" aria-hidden="true" tabindex="-1"></a>]]</span>
-<span id="cb4-165"><a href="#cb4-165" aria-hidden="true" tabindex="-1"></a>display(top_five)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<span id="cb4-159"><a href="#cb4-159" aria-hidden="true" tabindex="-1"></a><span class="co"># Update legends to include best config</span></span>
+<span id="cb4-160"><a href="#cb4-160" aria-hidden="true" tabindex="-1"></a>ax1.legend(title<span class="op">=</span><span class="st">'Hidden units</span><span class="ch">\n</span><span class="st">by layer'</span>)</span>
+<span id="cb4-161"><a href="#cb4-161" aria-hidden="true" tabindex="-1"></a>ax2.legend(title<span class="op">=</span><span class="st">'Learning Rate'</span>)</span>
+<span id="cb4-162"><a href="#cb4-162" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-163"><a href="#cb4-163" aria-hidden="true" tabindex="-1"></a>plt.tight_layout()</span>
+<span id="cb4-164"><a href="#cb4-164" aria-hidden="true" tabindex="-1"></a>plt.show()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </details>
 <div class="cell-output cell-output-stdout">
 <pre><code>Best Configuration:
-Hidden Layers: (50,)
+Hidden units by layer: 50
 Learning Rate: 0.001
-Alpha (L2 reg): 0.0001
-Mean CV MSE: 448.2767
-Fold-score SD (ddof=1): 38.7491
+Mean CV MSE: 448.4086
+Fold-score SD (ddof=1): 38.5992
 Folds reaching 1,000 iterations: 5/5
 Captured convergence warnings: 5</code></pre>
 </div>
-<div class="cell-output cell-output-stdout">
-<pre><code>
-Top 5 Configurations:</code></pre>
-</div>
-<div id="fig-nn-cv-tuning" class="cell quarto-float quarto-figure quarto-figure-center anchored" data-execution_count="5">
+<div class="cell-output cell-output-display">
+<div id="fig-nn-cv-tuning" class="quarto-float quarto-figure quarto-figure-center anchored">
 <figure class="quarto-float quarto-float-fig figure">
 <div aria-describedby="fig-nn-cv-tuning-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-<div class="cell-output cell-output-display">
-<div id="fig-nn-cv-tuning-1" class="quarto-float quarto-figure quarto-figure-center anchored">
-<figure class="quarto-float quarto-subfloat-fig figure">
-<div aria-describedby="fig-nn-cv-tuning-1-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-<img src="cross_validation_files/figure-html/fig-nn-cv-tuning-output-2.png" class="img-fluid figure-img" data-ref-parent="fig-nn-cv-tuning">
+<img src="cross_validation_files/figure-html/fig-nn-cv-tuning-output-2.png" class="img-fluid figure-img">
 </div>
-<figcaption class="quarto-float-caption-bottom quarto-subfloat-caption quarto-subfloat-fig" id="fig-nn-cv-tuning-1-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-(a) Cross-validated MSE for every fixed-budget hyperparameter configuration in the grid search. Left panel: mean CV MSE against the learning rate (log scale), with marker color indicating the L2 penalty. Right panel: the same configurations against the hidden-layer architecture, with color indicating the learning rate and horizontal jitter added for visibility. In both panels the red star marks the configuration with the lowest mean CV MSE; the printed diagnostics report how many fold fits reached the 1,000-iteration cap.
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-nn-cv-tuning-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;2.4: Cross-validated MSE for every fixed-budget hyperparameter configuration in the grid search. Left panel: mean CV MSE against the learning rate (log scale), with marker color indicating the number of hidden units by layer. Right panel: the same configurations against those architecture labels, with color indicating the learning rate and horizontal jitter added for visibility. For example, 100-50 means two hidden layers with 100 and 50 units. In both panels the red star marks the configuration with the lowest mean CV MSE; the printed diagnostics report how many fold fits reached the 1,000-iteration cap.
 </figcaption>
 </figure>
 </div>
 </div>
-<div id="fig-nn-cv-tuning-2" class="cell-output cell-output-display quarto-float quarto-figure quarto-figure-center anchored">
-<figure class="quarto-float quarto-subfloat-fig figure">
-<div aria-describedby="fig-nn-cv-tuning-2-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-<div>
+</div>
+<p>The five best-scoring configurations are reported separately in <a href="#tbl-nn-cv-top-five" class="quarto-xref">Table&nbsp;2.1</a>. Its first column uses exactly the same hidden-units-by-layer labels as the right panel of <a href="#fig-nn-cv-tuning" class="quarto-xref">Figure&nbsp;2.4</a>.</p>
+<div class="cell" data-execution_count="6">
+<details class="code-fold">
+<summary>Show the code</summary>
+<div class="sourceCode cell-code" id="cb6"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a>top_five <span class="op">=</span> results_df.nsmallest(<span class="dv">5</span>, <span class="st">'mean_cv_mse'</span>)[[</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>    <span class="st">'architecture'</span>, <span class="st">'learning_rate'</span>, <span class="st">'mean_cv_mse'</span>,</span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>    <span class="st">'fold_mse_sd'</span>, <span class="st">'n_capped_folds'</span></span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a>]].rename(columns<span class="op">=</span>{</span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a>    <span class="st">'architecture'</span>: <span class="st">'Hidden units by layer'</span>,</span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a>    <span class="st">'learning_rate'</span>: <span class="st">'Learning rate'</span>,</span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a>    <span class="st">'mean_cv_mse'</span>: <span class="st">'Mean CV MSE'</span>,</span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a>    <span class="st">'fold_mse_sd'</span>: <span class="st">'Fold-score SD'</span>,</span>
+<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a>    <span class="st">'n_capped_folds'</span>: <span class="st">'Capped folds'</span>,</span>
+<span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb6-11"><a href="#cb6-11" aria-hidden="true" tabindex="-1"></a>display(</span>
+<span id="cb6-12"><a href="#cb6-12" aria-hidden="true" tabindex="-1"></a>    top_five.style</span>
+<span id="cb6-13"><a href="#cb6-13" aria-hidden="true" tabindex="-1"></a>    .hide(axis<span class="op">=</span><span class="st">'index'</span>)</span>
+<span id="cb6-14"><a href="#cb6-14" aria-hidden="true" tabindex="-1"></a>    .<span class="bu">format</span>({</span>
+<span id="cb6-15"><a href="#cb6-15" aria-hidden="true" tabindex="-1"></a>        <span class="st">'Learning rate'</span>: <span class="st">'</span><span class="sc">{:.3g}</span><span class="st">'</span>,</span>
+<span id="cb6-16"><a href="#cb6-16" aria-hidden="true" tabindex="-1"></a>        <span class="st">'Mean CV MSE'</span>: <span class="st">'</span><span class="sc">{:.2f}</span><span class="st">'</span>,</span>
+<span id="cb6-17"><a href="#cb6-17" aria-hidden="true" tabindex="-1"></a>        <span class="st">'Fold-score SD'</span>: <span class="st">'</span><span class="sc">{:.2f}</span><span class="st">'</span>,</span>
+<span id="cb6-18"><a href="#cb6-18" aria-hidden="true" tabindex="-1"></a>        <span class="st">'Capped folds'</span>: <span class="st">'</span><span class="sc">{:.0f}</span><span class="st">'</span>,</span>
+<span id="cb6-19"><a href="#cb6-19" aria-hidden="true" tabindex="-1"></a>    })</span>
+<span id="cb6-20"><a href="#cb6-20" aria-hidden="true" tabindex="-1"></a>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</details>
+<div id="tbl-nn-cv-top-five" class="cell quarto-float quarto-figure quarto-figure-center anchored" data-execution_count="6">
+<figure class="quarto-float quarto-float-tbl figure">
+<figcaption class="quarto-float-caption-top quarto-float-caption quarto-float-tbl" id="tbl-nn-cv-top-five-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Table&nbsp;2.1: Five configurations with the lowest mean cross-validated MSE. Hidden units by layer uses the same architecture labels as <a href="#fig-nn-cv-tuning" class="quarto-xref">Figure&nbsp;2.4</a>; capped folds counts the fold fits that reached the 1,000-iteration limit.
+</figcaption>
+<div aria-describedby="tbl-nn-cv-top-five-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<div class="cell-output cell-output-display">
+<style type="text/css">
+</style>
 
-
-<table class="dataframe do-not-create-environment caption-top table table-sm table-striped small" data-quarto-postprocess="true" data-border="1">
+<table id="T_9b041" class="do-not-create-environment cell caption-top table table-sm table-striped small" data-quarto-postprocess="true">
 <thead>
 <tr class="header">
-<th data-quarto-table-cell-role="th"></th>
-<th data-quarto-table-cell-role="th">hidden_layers</th>
-<th data-quarto-table-cell-role="th">learning_rate</th>
-<th data-quarto-table-cell-role="th">alpha</th>
-<th data-quarto-table-cell-role="th">mean_cv_mse</th>
-<th data-quarto-table-cell-role="th">fold_mse_sd</th>
-<th data-quarto-table-cell-role="th">n_capped_folds</th>
+<th id="T_9b041_level0_col0" class="col_heading level0 col0" data-quarto-table-cell-role="th">Hidden units by layer</th>
+<th id="T_9b041_level0_col1" class="col_heading level0 col1" data-quarto-table-cell-role="th">Learning rate</th>
+<th id="T_9b041_level0_col2" class="col_heading level0 col2" data-quarto-table-cell-role="th">Mean CV MSE</th>
+<th id="T_9b041_level0_col3" class="col_heading level0 col3" data-quarto-table-cell-role="th">Fold-score SD</th>
+<th id="T_9b041_level0_col4" class="col_heading level0 col4" data-quarto-table-cell-role="th">Capped folds</th>
 </tr>
 </thead>
 <tbody>
 <tr class="odd">
-<td data-quarto-table-cell-role="th">0</td>
-<td>(50,)</td>
-<td>0.001</td>
-<td>0.0001</td>
-<td>448.276662</td>
-<td>38.749089</td>
-<td>5</td>
+<td id="T_9b041_row0_col0" class="data row0 col0">50</td>
+<td id="T_9b041_row0_col1" class="data row0 col1">0.001</td>
+<td id="T_9b041_row0_col2" class="data row0 col2">448.41</td>
+<td id="T_9b041_row0_col3" class="data row0 col3">38.60</td>
+<td id="T_9b041_row0_col4" class="data row0 col4">5</td>
 </tr>
 <tr class="even">
-<td data-quarto-table-cell-role="th">24</td>
-<td>(50,)</td>
-<td>0.001</td>
-<td>0.0100</td>
-<td>448.630070</td>
-<td>39.013913</td>
-<td>5</td>
+<td id="T_9b041_row1_col0" class="data row1 col0">100</td>
+<td id="T_9b041_row1_col1" class="data row1 col1">0.001</td>
+<td id="T_9b041_row1_col2" class="data row1 col2">454.40</td>
+<td id="T_9b041_row1_col3" class="data row1 col3">36.12</td>
+<td id="T_9b041_row1_col4" class="data row1 col4">5</td>
 </tr>
 <tr class="odd">
-<td data-quarto-table-cell-role="th">12</td>
-<td>(50,)</td>
-<td>0.001</td>
-<td>0.0010</td>
-<td>448.880247</td>
-<td>38.819832</td>
-<td>5</td>
+<td id="T_9b041_row2_col0" class="data row2 col0">100</td>
+<td id="T_9b041_row2_col1" class="data row2 col1">0.1</td>
+<td id="T_9b041_row2_col2" class="data row2 col2">612.38</td>
+<td id="T_9b041_row2_col3" class="data row2 col3">52.91</td>
+<td id="T_9b041_row2_col4" class="data row2 col4">0</td>
 </tr>
 <tr class="even">
-<td data-quarto-table-cell-role="th">27</td>
-<td>(100,)</td>
-<td>0.001</td>
-<td>0.0100</td>
-<td>454.162083</td>
-<td>35.780799</td>
-<td>5</td>
+<td id="T_9b041_row3_col0" class="data row3 col0">50</td>
+<td id="T_9b041_row3_col1" class="data row3 col1">0.1</td>
+<td id="T_9b041_row3_col2" class="data row3 col2">637.94</td>
+<td id="T_9b041_row3_col3" class="data row3 col3">72.81</td>
+<td id="T_9b041_row3_col4" class="data row3 col4">0</td>
 </tr>
 <tr class="odd">
-<td data-quarto-table-cell-role="th">3</td>
-<td>(100,)</td>
-<td>0.001</td>
-<td>0.0001</td>
-<td>454.576785</td>
-<td>36.599301</td>
-<td>5</td>
+<td id="T_9b041_row4_col0" class="data row4 col0">50</td>
+<td id="T_9b041_row4_col1" class="data row4 col1">0.01</td>
+<td id="T_9b041_row4_col2" class="data row4 col2">643.34</td>
+<td id="T_9b041_row4_col3" class="data row4 col3">97.46</td>
+<td id="T_9b041_row4_col4" class="data row4 col4">4</td>
 </tr>
 </tbody>
 </table>
-
 </div>
 </div>
-<figcaption class="quarto-float-caption-bottom quarto-subfloat-caption quarto-subfloat-fig" id="fig-nn-cv-tuning-2-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-(b)
-</figcaption>
-</figure>
-</div>
-</div>
-<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig quarto-uncaptioned" id="fig-nn-cv-tuning-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Figure&nbsp;2.4
-</figcaption>
 </figure>
 </div>
 </div>
@@ -1257,44 +1259,183 @@ Figure&nbsp;2.4
 <i class="callout-icon"></i>
 </div>
 <div class="callout-title-container flex-fill">
-Key Insights from the Example
+How to Read the Diagnostics
 </div>
 </div>
 <div class="callout-body-container callout-body">
+<p>The mean CV MSE ranks the candidate configurations. The <strong>Fold-score SD</strong> column — computed in the code as <code>fold_mse_sd</code> with <code>ddof=1</code> — describes how much the <span class="math inline">K</span> scores fluctuate across folds, but it is <em>not</em> a standard error for the cross-validated risk: the fold scores are correlated because their training sets overlap <span class="citation" data-cites="BatesHastieTibshirani2024">(<a href="#ref-BatesHastieTibshirani2024" role="doc-biblioref">Bates, Hastie, and Tibshirani 2024</a>)</span>. The <strong>Capped folds</strong> column provides a separate optimization diagnostic. A positive value means that score differences may reflect incomplete optimization under the fixed iteration budget, not only differences in architecture or learning rate. Small differences in mean CV MSE should therefore not be read as precise rankings, especially when fold-score dispersion is large or the number of capped fits differs.</p>
+</div>
+</div>
+<p>The grid search above uses a single level of cross-validation. For each fixed configuration, <code>cross_validate</code> produces five validation scores. The <code>ParameterGrid</code> loop repeats that call for every configuration, and the subsequent <code>idxmin</code> step selects the configuration with the smallest mean CV MSE. This entire selection step plays the role of the <strong>inner tuning loop</strong> in the nested procedure developed next. Using the same splits for every configuration makes their scores directly comparable, but the ranking remains noisy, as the dispersion and convergence diagnostics emphasize. Moreover, the cross-validated score of the <em>selected</em> configuration is optimistically biased, for exactly the reason formalized in Exercise 2.2 below: taking the best of many noisy validation scores favors lucky draws. <a href="#sec-cv-nested" class="quarto-xref">Section&nbsp;2.8</a> develops the separate outer layer needed to assess the tuning procedure without reusing its inner validation scores.</p>
+<p>Exhaustive grid search becomes costly as the number of hyperparameters grows. Random and sequential search methods provide alternatives, which we study in the <a href="./hpo.html">chapter on advanced hyperparameter optimization</a>. Regardless of how the candidates are searched, using the same validation scores for selection and assessment remains a separate problem.</p>
+</section>
+<section id="sec-cv-nested" class="level2" data-number="2.8">
+<h2 data-number="2.8" class="anchored" data-anchor-id="sec-cv-nested"><span class="header-section-number">2.8</span> Nested Cross-Validation</h2>
+<p>The practical example used cross-validation to answer a <strong>selection question</strong>: which candidate architecture and learning rate should we choose? Nested cross-validation adds an assessment layer for a second question: how well will the entire selection procedure predict on new data? Reporting the smallest inner-CV error as the answer reuses the same validation scores for both tasks. Because the minimum favors configurations that received unusually favorable validation draws, the reported error is generally optimistic even if each candidate’s CV score is unbiased before selection <span class="citation" data-cites="VarmaSimon2006 CawleyTalbot2010">(<a href="#ref-VarmaSimon2006" role="doc-biblioref">Varma and Simon 2006</a>; <a href="#ref-CawleyTalbot2010" role="doc-biblioref">Cawley and Talbot 2010</a>)</span>.</p>
+<p><a href="#fig-nested-cv" class="quarto-xref">Figure&nbsp;2.5</a> visualizes how nested cross-validation prevents that reuse. The left panel shows the outer loop that produces the final assessment scores. The right panel zooms into the first outer split and shows the separate inner loop used for tuning.</p>
+<div id="cell-fig-nested-cv" class="cell" data-execution_count="7">
+<details class="code-fold">
+<summary>Show the code</summary>
+<div class="sourceCode cell-code" id="cb7"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> matplotlib.pyplot <span class="im">as</span> plt</span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> matplotlib.patches <span class="im">import</span> Patch, Rectangle</span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a>outer_folds <span class="op">=</span> <span class="dv">5</span></span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a>inner_folds <span class="op">=</span> outer_folds <span class="op">-</span> <span class="dv">1</span></span>
+<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a>row_height <span class="op">=</span> <span class="fl">0.68</span></span>
+<span id="cb7-7"><a href="#cb7-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-8"><a href="#cb7-8" aria-hidden="true" tabindex="-1"></a>training_color <span class="op">=</span> <span class="st">'tab:blue'</span></span>
+<span id="cb7-9"><a href="#cb7-9" aria-hidden="true" tabindex="-1"></a>outer_validation_color <span class="op">=</span> <span class="st">'tab:red'</span></span>
+<span id="cb7-10"><a href="#cb7-10" aria-hidden="true" tabindex="-1"></a>inner_validation_color <span class="op">=</span> <span class="st">'tab:orange'</span></span>
+<span id="cb7-11"><a href="#cb7-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-12"><a href="#cb7-12" aria-hidden="true" tabindex="-1"></a>fig, (ax_outer, ax_inner) <span class="op">=</span> plt.subplots(</span>
+<span id="cb7-13"><a href="#cb7-13" aria-hidden="true" tabindex="-1"></a>    <span class="dv">1</span>, <span class="dv">2</span>, figsize<span class="op">=</span>(<span class="dv">12</span>, <span class="fl">5.2</span>),</span>
+<span id="cb7-14"><a href="#cb7-14" aria-hidden="true" tabindex="-1"></a>    gridspec_kw<span class="op">=</span>{<span class="st">'width_ratios'</span>: [<span class="fl">1.0</span>, <span class="fl">1.15</span>]}</span>
+<span id="cb7-15"><a href="#cb7-15" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb7-16"><a href="#cb7-16" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-17"><a href="#cb7-17" aria-hidden="true" tabindex="-1"></a><span class="co"># Outer loop: rotate which fold is held out for final assessment.</span></span>
+<span id="cb7-18"><a href="#cb7-18" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> split <span class="kw">in</span> <span class="bu">range</span>(outer_folds):</span>
+<span id="cb7-19"><a href="#cb7-19" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> fold <span class="kw">in</span> <span class="bu">range</span>(outer_folds):</span>
+<span id="cb7-20"><a href="#cb7-20" aria-hidden="true" tabindex="-1"></a>        color <span class="op">=</span> (</span>
+<span id="cb7-21"><a href="#cb7-21" aria-hidden="true" tabindex="-1"></a>            outer_validation_color <span class="cf">if</span> fold <span class="op">==</span> split <span class="cf">else</span> training_color</span>
+<span id="cb7-22"><a href="#cb7-22" aria-hidden="true" tabindex="-1"></a>        )</span>
+<span id="cb7-23"><a href="#cb7-23" aria-hidden="true" tabindex="-1"></a>        ax_outer.add_patch(Rectangle(</span>
+<span id="cb7-24"><a href="#cb7-24" aria-hidden="true" tabindex="-1"></a>            (fold, split <span class="op">-</span> row_height <span class="op">/</span> <span class="dv">2</span>), <span class="fl">0.96</span>, row_height,</span>
+<span id="cb7-25"><a href="#cb7-25" aria-hidden="true" tabindex="-1"></a>            facecolor<span class="op">=</span>color, edgecolor<span class="op">=</span><span class="st">'white'</span></span>
+<span id="cb7-26"><a href="#cb7-26" aria-hidden="true" tabindex="-1"></a>        ))</span>
+<span id="cb7-27"><a href="#cb7-27" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-28"><a href="#cb7-28" aria-hidden="true" tabindex="-1"></a><span class="co"># Outline the outer split expanded in the right panel.</span></span>
+<span id="cb7-29"><a href="#cb7-29" aria-hidden="true" tabindex="-1"></a>ax_outer.add_patch(Rectangle(</span>
+<span id="cb7-30"><a href="#cb7-30" aria-hidden="true" tabindex="-1"></a>    (<span class="op">-</span><span class="fl">0.08</span>, <span class="op">-</span>row_height <span class="op">/</span> <span class="dv">2</span> <span class="op">-</span> <span class="fl">0.08</span>),</span>
+<span id="cb7-31"><a href="#cb7-31" aria-hidden="true" tabindex="-1"></a>    outer_folds <span class="op">+</span> <span class="fl">0.04</span>, row_height <span class="op">+</span> <span class="fl">0.16</span>,</span>
+<span id="cb7-32"><a href="#cb7-32" aria-hidden="true" tabindex="-1"></a>    fill<span class="op">=</span><span class="va">False</span>, edgecolor<span class="op">=</span><span class="st">'black'</span>, linewidth<span class="op">=</span><span class="fl">1.4</span></span>
+<span id="cb7-33"><a href="#cb7-33" aria-hidden="true" tabindex="-1"></a>))</span>
+<span id="cb7-34"><a href="#cb7-34" aria-hidden="true" tabindex="-1"></a>ax_outer.set_xlim(<span class="op">-</span><span class="fl">0.15</span>, outer_folds <span class="op">+</span> <span class="fl">0.05</span>)</span>
+<span id="cb7-35"><a href="#cb7-35" aria-hidden="true" tabindex="-1"></a>ax_outer.set_ylim(outer_folds <span class="op">-</span> <span class="fl">0.45</span>, <span class="op">-</span><span class="fl">0.65</span>)</span>
+<span id="cb7-36"><a href="#cb7-36" aria-hidden="true" tabindex="-1"></a>ax_outer.set_xticks(</span>
+<span id="cb7-37"><a href="#cb7-37" aria-hidden="true" tabindex="-1"></a>    [fold <span class="op">+</span> <span class="fl">0.48</span> <span class="cf">for</span> fold <span class="kw">in</span> <span class="bu">range</span>(outer_folds)],</span>
+<span id="cb7-38"><a href="#cb7-38" aria-hidden="true" tabindex="-1"></a>    [<span class="vs">fr'</span><span class="dv">$</span><span class="vs">D_</span><span class="ch">{{</span><span class="sc">{</span>fold <span class="op">+</span> <span class="dv">1</span><span class="sc">}</span><span class="ch">}}</span><span class="dv">^</span><span class="ch">{{</span><span class="dv">\m</span><span class="vs">athrm</span><span class="ch">{{</span><span class="vs">out</span><span class="ch">}}}}</span><span class="dv">$</span><span class="vs">'</span></span>
+<span id="cb7-39"><a href="#cb7-39" aria-hidden="true" tabindex="-1"></a>     <span class="cf">for</span> fold <span class="kw">in</span> <span class="bu">range</span>(outer_folds)]</span>
+<span id="cb7-40"><a href="#cb7-40" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb7-41"><a href="#cb7-41" aria-hidden="true" tabindex="-1"></a>ax_outer.set_yticks(</span>
+<span id="cb7-42"><a href="#cb7-42" aria-hidden="true" tabindex="-1"></a>    <span class="bu">range</span>(outer_folds),</span>
+<span id="cb7-43"><a href="#cb7-43" aria-hidden="true" tabindex="-1"></a>    [<span class="ss">f'Outer split </span><span class="sc">{</span>split <span class="op">+</span> <span class="dv">1</span><span class="sc">}</span><span class="ss">'</span> <span class="cf">for</span> split <span class="kw">in</span> <span class="bu">range</span>(outer_folds)]</span>
+<span id="cb7-44"><a href="#cb7-44" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb7-45"><a href="#cb7-45" aria-hidden="true" tabindex="-1"></a>ax_outer.set_title(<span class="st">'(a) Outer loop: assessment'</span>)</span>
+<span id="cb7-46"><a href="#cb7-46" aria-hidden="true" tabindex="-1"></a>ax_outer.tick_params(length<span class="op">=</span><span class="dv">0</span>)</span>
+<span id="cb7-47"><a href="#cb7-47" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-48"><a href="#cb7-48" aria-hidden="true" tabindex="-1"></a><span class="co"># Inner loop for outer split 1. The outer validation fold is displayed</span></span>
+<span id="cb7-49"><a href="#cb7-49" aria-hidden="true" tabindex="-1"></a><span class="co"># separately as a reminder that it never enters tuning.</span></span>
+<span id="cb7-50"><a href="#cb7-50" aria-hidden="true" tabindex="-1"></a>outer_box_x <span class="op">=</span> <span class="fl">0.0</span></span>
+<span id="cb7-51"><a href="#cb7-51" aria-hidden="true" tabindex="-1"></a>inner_start_x <span class="op">=</span> <span class="fl">1.35</span></span>
+<span id="cb7-52"><a href="#cb7-52" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> split <span class="kw">in</span> <span class="bu">range</span>(inner_folds):</span>
+<span id="cb7-53"><a href="#cb7-53" aria-hidden="true" tabindex="-1"></a>    ax_inner.add_patch(Rectangle(</span>
+<span id="cb7-54"><a href="#cb7-54" aria-hidden="true" tabindex="-1"></a>        (outer_box_x, split <span class="op">-</span> row_height <span class="op">/</span> <span class="dv">2</span>), <span class="fl">0.82</span>, row_height,</span>
+<span id="cb7-55"><a href="#cb7-55" aria-hidden="true" tabindex="-1"></a>        facecolor<span class="op">=</span>outer_validation_color, edgecolor<span class="op">=</span><span class="st">'white'</span>, hatch<span class="op">=</span><span class="st">'//'</span></span>
+<span id="cb7-56"><a href="#cb7-56" aria-hidden="true" tabindex="-1"></a>    ))</span>
+<span id="cb7-57"><a href="#cb7-57" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> fold <span class="kw">in</span> <span class="bu">range</span>(inner_folds):</span>
+<span id="cb7-58"><a href="#cb7-58" aria-hidden="true" tabindex="-1"></a>        color <span class="op">=</span> (</span>
+<span id="cb7-59"><a href="#cb7-59" aria-hidden="true" tabindex="-1"></a>            inner_validation_color <span class="cf">if</span> fold <span class="op">==</span> split <span class="cf">else</span> training_color</span>
+<span id="cb7-60"><a href="#cb7-60" aria-hidden="true" tabindex="-1"></a>        )</span>
+<span id="cb7-61"><a href="#cb7-61" aria-hidden="true" tabindex="-1"></a>        ax_inner.add_patch(Rectangle(</span>
+<span id="cb7-62"><a href="#cb7-62" aria-hidden="true" tabindex="-1"></a>            (inner_start_x <span class="op">+</span> fold, split <span class="op">-</span> row_height <span class="op">/</span> <span class="dv">2</span>),</span>
+<span id="cb7-63"><a href="#cb7-63" aria-hidden="true" tabindex="-1"></a>            <span class="fl">0.96</span>, row_height, facecolor<span class="op">=</span>color, edgecolor<span class="op">=</span><span class="st">'white'</span></span>
+<span id="cb7-64"><a href="#cb7-64" aria-hidden="true" tabindex="-1"></a>        ))</span>
+<span id="cb7-65"><a href="#cb7-65" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-66"><a href="#cb7-66" aria-hidden="true" tabindex="-1"></a>ax_inner.axvline(<span class="fl">1.08</span>, color<span class="op">=</span><span class="st">'0.5'</span>, linewidth<span class="op">=</span><span class="dv">1</span>, linestyle<span class="op">=</span><span class="st">'--'</span>)</span>
+<span id="cb7-67"><a href="#cb7-67" aria-hidden="true" tabindex="-1"></a>ax_inner.text(</span>
+<span id="cb7-68"><a href="#cb7-68" aria-hidden="true" tabindex="-1"></a>    outer_box_x <span class="op">+</span> <span class="fl">0.41</span>, <span class="op">-</span><span class="fl">0.57</span>, <span class="st">'untouched'</span>,</span>
+<span id="cb7-69"><a href="#cb7-69" aria-hidden="true" tabindex="-1"></a>    ha<span class="op">=</span><span class="st">'center'</span>, va<span class="op">=</span><span class="st">'bottom'</span>, fontsize<span class="op">=</span><span class="dv">9</span></span>
+<span id="cb7-70"><a href="#cb7-70" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb7-71"><a href="#cb7-71" aria-hidden="true" tabindex="-1"></a>ax_inner.set_xlim(<span class="op">-</span><span class="fl">0.12</span>, inner_start_x <span class="op">+</span> inner_folds <span class="op">+</span> <span class="fl">0.05</span>)</span>
+<span id="cb7-72"><a href="#cb7-72" aria-hidden="true" tabindex="-1"></a>ax_inner.set_ylim(inner_folds <span class="op">-</span> <span class="fl">0.45</span>, <span class="op">-</span><span class="fl">0.65</span>)</span>
+<span id="cb7-73"><a href="#cb7-73" aria-hidden="true" tabindex="-1"></a>ax_inner.set_xticks(</span>
+<span id="cb7-74"><a href="#cb7-74" aria-hidden="true" tabindex="-1"></a>    [outer_box_x <span class="op">+</span> <span class="fl">0.41</span>]</span>
+<span id="cb7-75"><a href="#cb7-75" aria-hidden="true" tabindex="-1"></a>    <span class="op">+</span> [inner_start_x <span class="op">+</span> fold <span class="op">+</span> <span class="fl">0.48</span> <span class="cf">for</span> fold <span class="kw">in</span> <span class="bu">range</span>(inner_folds)],</span>
+<span id="cb7-76"><a href="#cb7-76" aria-hidden="true" tabindex="-1"></a>    [<span class="vs">r'</span><span class="dv">$</span><span class="vs">D_1</span><span class="dv">^</span><span class="vs">{</span><span class="dv">\m</span><span class="vs">athrm{out}}</span><span class="dv">$</span><span class="vs">'</span>]</span>
+<span id="cb7-77"><a href="#cb7-77" aria-hidden="true" tabindex="-1"></a>    <span class="op">+</span> [<span class="vs">fr'</span><span class="dv">$</span><span class="vs">D_</span><span class="ch">{{</span><span class="sc">{</span>fold <span class="op">+</span> <span class="dv">1</span><span class="sc">}</span><span class="ch">}}</span><span class="dv">^</span><span class="ch">{{</span><span class="dv">\m</span><span class="vs">athrm</span><span class="ch">{{</span><span class="vs">in</span><span class="ch">}}}}</span><span class="dv">$</span><span class="vs">'</span></span>
+<span id="cb7-78"><a href="#cb7-78" aria-hidden="true" tabindex="-1"></a>       <span class="cf">for</span> fold <span class="kw">in</span> <span class="bu">range</span>(inner_folds)]</span>
+<span id="cb7-79"><a href="#cb7-79" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb7-80"><a href="#cb7-80" aria-hidden="true" tabindex="-1"></a>ax_inner.set_yticks(</span>
+<span id="cb7-81"><a href="#cb7-81" aria-hidden="true" tabindex="-1"></a>    <span class="bu">range</span>(inner_folds),</span>
+<span id="cb7-82"><a href="#cb7-82" aria-hidden="true" tabindex="-1"></a>    [<span class="ss">f'Inner split </span><span class="sc">{</span>split <span class="op">+</span> <span class="dv">1</span><span class="sc">}</span><span class="ss">'</span> <span class="cf">for</span> split <span class="kw">in</span> <span class="bu">range</span>(inner_folds)]</span>
+<span id="cb7-83"><a href="#cb7-83" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb7-84"><a href="#cb7-84" aria-hidden="true" tabindex="-1"></a>ax_inner.set_title(<span class="st">'(b) Inner loop within outer split 1: tuning'</span>)</span>
+<span id="cb7-85"><a href="#cb7-85" aria-hidden="true" tabindex="-1"></a>ax_inner.tick_params(length<span class="op">=</span><span class="dv">0</span>)</span>
+<span id="cb7-86"><a href="#cb7-86" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-87"><a href="#cb7-87" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> ax <span class="kw">in</span> (ax_outer, ax_inner):</span>
+<span id="cb7-88"><a href="#cb7-88" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> spine <span class="kw">in</span> ax.spines.values():</span>
+<span id="cb7-89"><a href="#cb7-89" aria-hidden="true" tabindex="-1"></a>        spine.set_visible(<span class="va">False</span>)</span>
+<span id="cb7-90"><a href="#cb7-90" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-91"><a href="#cb7-91" aria-hidden="true" tabindex="-1"></a>legend_handles <span class="op">=</span> [</span>
+<span id="cb7-92"><a href="#cb7-92" aria-hidden="true" tabindex="-1"></a>    Patch(facecolor<span class="op">=</span>training_color, label<span class="op">=</span><span class="st">'Training in current loop'</span>),</span>
+<span id="cb7-93"><a href="#cb7-93" aria-hidden="true" tabindex="-1"></a>    Patch(facecolor<span class="op">=</span>inner_validation_color, label<span class="op">=</span><span class="st">'Inner validation'</span>),</span>
+<span id="cb7-94"><a href="#cb7-94" aria-hidden="true" tabindex="-1"></a>    Patch(facecolor<span class="op">=</span>outer_validation_color, hatch<span class="op">=</span><span class="st">'//'</span>,</span>
+<span id="cb7-95"><a href="#cb7-95" aria-hidden="true" tabindex="-1"></a>          label<span class="op">=</span><span class="st">'Outer validation'</span>),</span>
+<span id="cb7-96"><a href="#cb7-96" aria-hidden="true" tabindex="-1"></a>]</span>
+<span id="cb7-97"><a href="#cb7-97" aria-hidden="true" tabindex="-1"></a>fig.legend(</span>
+<span id="cb7-98"><a href="#cb7-98" aria-hidden="true" tabindex="-1"></a>    handles<span class="op">=</span>legend_handles, loc<span class="op">=</span><span class="st">'lower center'</span>, ncol<span class="op">=</span><span class="dv">3</span>,</span>
+<span id="cb7-99"><a href="#cb7-99" aria-hidden="true" tabindex="-1"></a>    frameon<span class="op">=</span><span class="va">False</span>, bbox_to_anchor<span class="op">=</span>(<span class="fl">0.5</span>, <span class="op">-</span><span class="fl">0.01</span>)</span>
+<span id="cb7-100"><a href="#cb7-100" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb7-101"><a href="#cb7-101" aria-hidden="true" tabindex="-1"></a>fig.tight_layout(rect<span class="op">=</span>[<span class="dv">0</span>, <span class="fl">0.08</span>, <span class="dv">1</span>, <span class="dv">1</span>])</span>
+<span id="cb7-102"><a href="#cb7-102" aria-hidden="true" tabindex="-1"></a>plt.show()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</details>
+<div class="cell-output cell-output-display">
+<div id="fig-nested-cv" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-nested-cv-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="cross_validation_files/figure-html/fig-nested-cv-output-1.png" class="img-fluid figure-img">
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-nested-cv-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;2.5: Nested cross-validation with five outer folds and, within outer split 1, four inner folds. Left panel: each outer fold serves once as the outer validation fold (red), while the other folds form the outer training sample (blue). Right panel: the observations in the outer training sample are repartitioned into four inner folds, which rotate between inner training (blue) and inner validation (orange). The outer validation fold remains red and never enters tuning. After the inner loop selects a configuration, the model is refitted on the full outer training sample and evaluated once on the outer validation fold.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>The right panel of <a href="#fig-nested-cv" class="quarto-xref">Figure&nbsp;2.5</a> makes the separation operational. The four inner folds rotate between training and validation, but <span class="math inline">D_1^{\mathrm{out}}</span> never changes role. After the inner scores select <span class="math inline">\hat\lambda_1</span>, the procedure refits on the complete outer training sample and evaluates once on <span class="math inline">D_1^{\mathrm{out}}</span>. Repeating the same sequence for the other four outer splits produces one honest outer score for every observation.</p>
+<p>Nested cross-validation separates the two questions. Let <span class="math inline">\Lambda</span> denote the set of candidate hyperparameter configurations. In ordinary nested K-fold CV, the full sample is first partitioned into <span class="math inline">K_{\mathrm{out}}</span> <strong>outer folds</strong>. Then:</p>
 <ol type="1">
-<li><strong>Systematic Search</strong>: We test multiple combinations of hyperparameters systematically rather than guessing.</li>
-<li><strong>Evaluation with diagnostics</strong>: Each configuration is evaluated using 5-fold cross-validation, which reports its mean validation performance, the fold-to-fold dispersion, and the number of fold fits that reached the iteration cap.</li>
-<li><strong>Leakage Prevention</strong>: The <code>Pipeline</code> ensures that standardization is re-estimated inside each fold.</li>
-<li><strong>Fair Comparison</strong>: The fixed <code>random_state</code> gives every configuration the same shuffled data splits, making the results directly comparable.</li>
+<li>Hold out outer fold <span class="math inline">D_k^{\mathrm{out}}</span> and keep it completely untouched while making modeling decisions.</li>
+<li>Using only the remaining outer training observations, run an <strong>inner cross-validation</strong> search over <span class="math inline">\lambda\in\Lambda</span>. Every data-dependent step — including imputation, standardization, feature selection, and early stopping — must be repeated within the inner training folds.</li>
+<li>Select the configuration <span class="math inline">\hat\lambda_k</span> with the best inner-CV criterion.</li>
+<li>Refit the complete pipeline with <span class="math inline">\hat\lambda_k</span> on all observations in the outer training sample.</li>
+<li>Evaluate that fitted pipeline once on <span class="math inline">D_k^{\mathrm{out}}</span>. Repeat Steps 1–5 for every outer fold and pool the outer-fold losses.</li>
 </ol>
-<p>The reported mean CV MSE ranks the candidate configurations, while the sample standard deviation of the <span class="math inline">K</span> fold scores — the <code>fold_mse_sd</code> column above, computed with <code>ddof=1</code> — describes how much the score fluctuates from fold to fold. This dispersion is a useful descriptive stability check, but it is <em>not</em> a standard error for the cross-validated risk: the fold scores are correlated because their training sets overlap, so no simple rescaling of their standard deviation delivers a valid uncertainty estimate <span class="citation" data-cites="BatesHastieTibshirani2024">(<a href="#ref-BatesHastieTibshirani2024" role="doc-biblioref">Bates, Hastie, and Tibshirani 2024</a>)</span>. Informally, a configuration with a slightly lower mean but a much larger fold-to-fold dispersion should not be declared the winner outright; a formal comparison would require an inferential procedure beyond the scope of this chapter. The <code>n_capped_folds</code> column supplies a separate optimization diagnostic. If it is positive, score differences may reflect unequal optimization progress under the fixed budget, not only differences in model flexibility or regularization. In the plots, vertical separation across learning rates or architectures indicates which hyperparameters matter most for this synthetic example; clusters of nearly equal points should be read as practically tied rather than as precise rankings.</p>
+<p>For outer folds that partition the <span class="math inline">N</span> observations, the resulting estimate is</p>
+<div class="display-math-block">
+<p><span class="math display">
+\widehat R_{\mathrm{nested}}
+=
+\frac{1}{N}
+\sum_{k=1}^{K_{\mathrm{out}}}
+\sum_{i\in D_k^{\mathrm{out}}}
+L\!\left(y_i,\hat f_k^{\mathrm{tuned}}(x_i)\right),
+</span></p>
 </div>
-</div>
-<p>The grid search above uses a single level of cross-validation: <code>cross_validate</code> plays the role of the <strong>inner tuning loop</strong>, comparing configurations and selecting the best. By itself this gives a fair comparison <em>across</em> configurations because every score targets the same estimand on the same splits, but the ranking remains noisy, as the dispersion and convergence diagnostics emphasize. Moreover, the cross-validated score of the <em>selected</em> configuration is optimistically biased, for exactly the reason formalized in Exercise 2.2 below: taking the best of many noisy validation scores favors lucky draws. <strong>Nested cross-validation</strong> removes this contamination by wrapping the tuning procedure in a second loop. An <strong>outer CV loop</strong> is used to estimate generalization performance, while an <strong>inner CV loop</strong> — run separately within each outer training fold — selects the hyperparameters; because tuning happens only inside the outer training folds, the outer evaluation folds never enter the selection step, so the performance estimate is not contaminated by tuning.</p>
-<p>Nested cross-validation therefore estimates the expected out-of-sample performance of the complete learning procedure — inner-loop tuning followed by refitting on the outer training sample — not the risk of one fixed hyperparameter configuration. The selected configuration may differ across outer folds because each inner loop receives a different outer training sample.</p>
-<div class="callout callout-style-default callout-tip callout-titled">
+<p>where <span class="math inline">\hat f_k^{\mathrm{tuned}}</span> denotes the entire rule produced from outer training sample <span class="math inline">k</span>: inner-loop preprocessing and tuning, selection of <span class="math inline">\hat\lambda_k</span>, and refitting with that selected configuration. The outer-fold outcome <span class="math inline">y_i</span> has no role in constructing this rule. This separation is what makes the outer loss an assessment rather than another tuning criterion.</p>
+<p><strong>What does nested CV estimate?</strong> It estimates the expected performance of the complete tuning-and-fitting procedure when that procedure is trained on an outer training sample of size approximately <span class="math inline">N(K_{\mathrm{out}}-1)/K_{\mathrm{out}}</span>. It does not estimate the risk of one prespecified configuration, nor exactly the risk of the final model fitted on all <span class="math inline">N</span> observations. The selected configurations <span class="math inline">\hat\lambda_k</span> may legitimately differ across outer folds: the object being evaluated is the rule <em>choose a configuration from the available training data and then refit</em>, not any one value of <span class="math inline">\lambda</span>.</p>
+<p><strong>What happens after assessment?</strong> Once the nested estimate has been recorded, rerun the inner tuning procedure on the full development sample, choose a final configuration, and refit the pipeline on all available development observations for deployment. The nested outer score remains the performance estimate for that workflow. Do not replace it with the smaller inner-CV score obtained during the final full-sample search. If a genuinely untouched test set is available, it can instead provide the final assessment, but it must not become another dataset consulted repeatedly during tuning.</p>
+<p><strong>What changes with dependent data?</strong> Both layers must respect the dependence and information structure described in <a href="#sec-cv-time-series" class="quarto-xref">Section&nbsp;2.6</a>. For time series, each outer validation block must lie after its outer training window, and every inner split must preserve chronology <em>within that outer training window</em>. For clustered data, clusters rather than individual observations should remain intact in both layers. A time-aware outer loop cannot repair leakage created by random or otherwise invalid inner folds.</p>
+<div class="callout callout-style-default callout-important callout-titled">
 <div class="callout-header d-flex align-content-center">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
 <div class="callout-title-container flex-fill">
-For Larger Networks
+Keep the Three Roles Separate
 </div>
 </div>
 <div class="callout-body-container callout-body">
-<p>For deep neural networks with many hyperparameters, consider:</p>
-<ul>
-<li><strong>Random Search</strong>: Sample hyperparameters randomly instead of using an exhaustive grid search</li>
-<li><strong>Bayesian Optimization</strong>: A sequential search that uses the configurations already evaluated to decide which configuration to try next — more efficient per evaluation when each model fit is expensive; implemented in libraries such as <code>optuna</code> and <code>hyperopt</code></li>
-<li><strong>Early Stopping</strong>: Monitor validation performance during training to avoid overfitting</li>
-<li><strong>Nested Cross-Validation</strong>: Use an outer loop for final performance assessment when the hyperparameter search itself is extensive, as described just above</li>
-</ul>
-<p>We treat these search strategies systematically in the <a href="./hpo.html">chapter on advanced hyperparameter optimization</a>.</p>
+<ol type="1">
+<li><strong>Inner CV selects</strong> preprocessing choices, model classes, and hyperparameters.</li>
+<li><strong>Outer CV assesses</strong> the full procedure that performs that selection and then refits.</li>
+<li><strong>The final full-sample refit produces</strong> the model used for deployment; it does not produce a new honest performance estimate.</li>
+</ol>
 </div>
 </div>
 </section>
-<section id="summary" class="level2" data-number="2.8">
-<h2 data-number="2.8" class="anchored" data-anchor-id="summary"><span class="header-section-number">2.8</span> Summary</h2>
+<section id="summary" class="level2" data-number="2.9">
+<h2 data-number="2.9" class="anchored" data-anchor-id="summary"><span class="header-section-number">2.9</span> Summary</h2>
 <div class="callout callout-style-default callout-important callout-titled">
 <div class="callout-header d-flex align-content-center">
 <div class="callout-icon-container">
@@ -1327,6 +1468,8 @@ Common Pitfalls
 <div class="callout-body-container callout-body">
 <ul>
 <li>Using the test set repeatedly while tuning hyperparameters or architectures.</li>
+<li>Reporting the best inner-CV score as the final performance estimate after searching over many configurations.</li>
+<li>Allowing an outer validation fold to influence preprocessing, the hyperparameter search, or early stopping.</li>
 <li>Standardizing, imputing, or selecting predictors on the full sample before cross-validation.</li>
 <li>Treating random K-fold as automatically valid for time-series forecasting problems.</li>
 <li>Forgetting that revised or delayed-release predictors may not belong to the real-time information set.</li>
@@ -1334,8 +1477,8 @@ Common Pitfalls
 </div>
 </div>
 </section>
-<section id="exercises" class="level2" data-number="2.9">
-<h2 data-number="2.9" class="anchored" data-anchor-id="exercises"><span class="header-section-number">2.9</span> Exercises</h2>
+<section id="exercises" class="level2" data-number="2.10">
+<h2 data-number="2.10" class="anchored" data-anchor-id="exercises"><span class="header-section-number">2.10</span> Exercises</h2>
 <div class="callout callout-style-default callout-note callout-titled">
 <div class="callout-header d-flex align-content-center">
 <div class="callout-icon-container">
@@ -1595,7 +1738,7 @@ R(\hat{f}_A)=R(\hat{f}_B)=R_0.
 \hat{R}_B = R_0+\eta_B,
 </span></p>
 </div>
-<p> where <span class="math inline">\eta_A</span> and <span class="math inline">\eta_B</span> have mean zero and <span class="math inline">\Pr(\eta_A\neq\eta_B)&gt;0</span>, so the two estimates do not coincide with certainty. They need not be independent: candidate models evaluated on the same validation observations will generally have dependent score errors.</p>
+<p> where <span class="math inline">\eta_A</span> and <span class="math inline">\eta_B</span> have mean zero and <span class="math inline">\mathbb{P}(\eta_A\neq\eta_B)&gt;0</span>, so the two estimates do not coincide with certainty. They need not be independent: candidate models evaluated on the same validation observations will generally have dependent score errors.</p>
 <p>The researcher selects the model with the smaller validation estimate.</p>
 <ol type="1">
 <li>Show that <span class="math display">
@@ -1729,7 +1872,7 @@ R_0+\frac{\mathbb{E}[\eta_A]+\mathbb{E}[\eta_B]-\mathbb{E}[|\eta_A-\eta_B|]}{2}.
 R_0-\frac{1}{2}\mathbb{E}[|\eta_A-\eta_B|].
 </span></p>
 </div>
-<p> Because <span class="math inline">|\eta_A-\eta_B|\ge 0</span> and, by the assumption <span class="math inline">\Pr(\eta_A\neq\eta_B)&gt;0</span>, is strictly positive with positive probability, </p>
+<p> Because <span class="math inline">|\eta_A-\eta_B|\ge 0</span> and, by the assumption <span class="math inline">\mathbb{P}(\eta_A\neq\eta_B)&gt;0</span>, it is strictly positive with positive probability, </p>
 <div class="display-math-block">
 <p><span class="math display">
 \mathbb{E}\big[\min(\hat{R}_A,\hat{R}_B)\big] &lt; R_0.
@@ -1979,141 +2122,9 @@ u_{t+1}.
 </div>
 </div>
 </div>
-<div class="callout callout-style-default callout-note callout-titled">
-<div class="callout-header d-flex align-content-center">
-<div class="callout-icon-container">
-<i class="callout-icon"></i>
-</div>
-<div class="callout-title-container flex-fill">
-Exercise 2.4: Unequal Folds and the K-Fold Estimand
-</div>
-</div>
-<div class="callout-body-container callout-body">
-<p>Suppose <span class="math inline">N=qK+r</span> with integers <span class="math inline">q\geq1</span> and <span class="math inline">0&lt;r&lt;K</span>. A K-fold implementation therefore creates <span class="math inline">r</span> validation folds of size <span class="math inline">q+1</span> and <span class="math inline">K-r</span> validation folds of size <span class="math inline">q</span>. Let </p>
-<div class="display-math-block">
-<p><span class="math display">
-\bar L_k=\frac{1}{|D_k|}\sum_{i\in D_k}
-L\big(y_i,\hat f^{-k}(x_i)\big)
-</span></p>
-</div>
-<p> be the mean loss in fold <span class="math inline">k</span>. Write <span class="math inline">\bar L_{+}</span> for the average of <span class="math inline">\bar L_k</span> over the <span class="math inline">r</span> larger folds and <span class="math inline">\bar L_{-}</span> for the average over the <span class="math inline">K-r</span> smaller folds.</p>
-<ol type="1">
-<li>Express the pooled per-observation estimator <span class="math inline">\widehat{\mathrm{CV}}_K</span> and the unweighted mean of fold means <span class="math inline">\widetilde{\mathrm{CV}}_K</span> in terms of <span class="math inline">q</span>, <span class="math inline">r</span>, <span class="math inline">K</span>, <span class="math inline">\bar L_{+}</span>, and <span class="math inline">\bar L_{-}</span>.</li>
-<li>Show that <span class="math display">
-\widehat{\mathrm{CV}}_K-\widetilde{\mathrm{CV}}_K
-=\frac{r(K-r)}{NK}\big(\bar L_{+}-\bar L_{-}\big).
-</span> Determine which estimator is larger when the larger folds have the higher average loss, and explain why the pooled estimator gives the correct per-observation weighting.</li>
-<li>Now suppose the observations are i.i.d. and <span class="math inline">r=0</span>. Let <span class="math inline">\hat f_m</span> denote the output of the fitting procedure trained on an independent sample of size <span class="math inline">m</span>. Derive the risk targeted by <span class="math inline">\widehat{\mathrm{CV}}_K</span> in expectation, and contrast it with the conditional risk <span class="math inline">R(\hat f_N)</span> of the model refitted on all <span class="math inline">N</span> observations. Finally, state how the target changes when <span class="math inline">r&gt;0</span>.</li>
-</ol>
-<p><em>Exam level. The exercise separates an implementation detail — weighting unequal folds — from the estimand question created by fitting each fold model on fewer than <span class="math inline">N</span> observations.</em></p>
-</div>
-</div>
-<div class="callout callout-style-default callout-warning callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-28-contents" aria-controls="callout-28" aria-expanded="false" aria-label="Toggle callout">
-<div class="callout-icon-container">
-<i class="callout-icon"></i>
-</div>
-<div class="callout-title-container flex-fill">
-Hint for Part 2
-</div>
-<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
-</div>
-<div id="callout-28" class="callout-28-contents callout-collapse collapse">
-<div class="callout-body-container callout-body">
-<p>Use <span class="math inline">N=qK+r</span> to simplify the coefficient on each of the two group means.</p>
-</div>
-</div>
-</div>
-<div class="callout callout-style-default callout-warning callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-29-contents" aria-controls="callout-29" aria-expanded="false" aria-label="Toggle callout">
-<div class="callout-icon-container">
-<i class="callout-icon"></i>
-</div>
-<div class="callout-title-container flex-fill">
-Hint for Part 3
-</div>
-<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
-</div>
-<div id="callout-29" class="callout-29-contents callout-collapse collapse">
-<div class="callout-body-container callout-body">
-<p>Condition on a fold’s training sample first. Its held-out losses average to that fitted model’s risk; then average over training samples of the relevant size.</p>
-</div>
-</div>
-</div>
-<div class="callout callout-style-default callout-tip callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-30-contents" aria-controls="callout-30" aria-expanded="false" aria-label="Toggle callout">
-<div class="callout-icon-container">
-<i class="callout-icon"></i>
-</div>
-<div class="callout-title-container flex-fill">
-Solution
-</div>
-<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
-</div>
-<div id="callout-30" class="callout-30-contents callout-collapse collapse">
-<div class="callout-body-container callout-body">
-<p><strong>Part 1: The Two Weighting Rules</strong></p>
-<p>The pooled estimator weights each fold mean by its share of the <span class="math inline">N</span> held-out observations: </p>
-<div class="display-math-block">
-<p><span class="math display">
-\widehat{\mathrm{CV}}_K
-=\frac{r(q+1)}{N}\bar L_{+}
-+\frac{(K-r)q}{N}\bar L_{-}.
-</span></p>
-</div>
-<p> The unweighted mean gives every fold weight <span class="math inline">1/K</span>, so </p>
-<div class="display-math-block">
-<p><span class="math display">
-\widetilde{\mathrm{CV}}_K
-=\frac{r}{K}\bar L_{+}
-+\frac{K-r}{K}\bar L_{-}.
-</span></p>
-</div>
-<p><strong>Part 2: Difference and Interpretation</strong></p>
-<p>Subtracting the second expression from the first, the coefficient on <span class="math inline">\bar L_{+}</span> is </p>
-<div class="display-math-block">
-<p><span class="math display">
-r\left(\frac{q+1}{N}-\frac{1}{K}\right)
-=\frac{r(K-r)}{NK},
-</span></p>
-</div>
-<p> because <span class="math inline">N=qK+r</span>. The coefficient on <span class="math inline">\bar L_{-}</span> is </p>
-<div class="display-math-block">
-<p><span class="math display">
-(K-r)\left(\frac{q}{N}-\frac{1}{K}\right)
-=-\frac{r(K-r)}{NK}.
-</span></p>
-</div>
-<p> Therefore </p>
-<div class="display-math-block">
-<p><span class="math display">
-\widehat{\mathrm{CV}}_K-\widetilde{\mathrm{CV}}_K
-=\frac{r(K-r)}{NK}\big(\bar L_{+}-\bar L_{-}\big).
-</span></p>
-</div>
-<p> If <span class="math inline">\bar L_{+}&gt;\bar L_{-}</span>, the pooled estimator is larger. This direction is appropriate because each larger fold contains one more held-out observation: its mean must receive proportionally more weight if the target is the average loss over all <span class="math inline">N</span> observations.</p>
-<p><strong>Part 3: The Training-Size Estimand</strong></p>
-<p>When <span class="math inline">r=0</span>, every validation fold has size <span class="math inline">N/K</span> and every fold model is trained on </p>
-<div class="display-math-block">
-<p><span class="math display">
-m=N-\frac{N}{K}=\frac{N(K-1)}{K}
-</span></p>
-</div>
-<p> observations. Conditional on a fold’s fitted model, the expected held-out loss is <span class="math inline">R(\hat f_m)</span>. Averaging first over held-out observations and then over training samples gives </p>
-<div class="display-math-block">
-<p><span class="math display">
-\mathbb E[\widehat{\mathrm{CV}}_K]
-=\mathbb E\big[R(\hat f_{N(K-1)/K})\big].
-</span></p>
-</div>
-<p> The right-hand side is the expected risk of the <em>procedure</em> at the fold-induced training size. It is not the conditional risk <span class="math inline">R(\hat f_N)</span> of the particular full-sample fit, which conditions on the realized model and uses <span class="math inline">N</span> training observations.</p>
-<p>When <span class="math inline">r&gt;0</span>, a larger validation fold leaves <span class="math inline">N-q-1</span> training observations and a smaller validation fold leaves <span class="math inline">N-q</span>. The pooled estimator targets the corresponding observation-weighted mixture of the procedure risks at these two training sizes.</p>
-</div>
-</div>
-</div>
 </section>
-<section id="references" class="level2" data-number="2.10">
-<h2 data-number="2.10" class="anchored" data-anchor-id="references"><span class="header-section-number">2.10</span> References</h2>
+<section id="references" class="level2" data-number="2.11">
+<h2 data-number="2.11" class="anchored" data-anchor-id="references"><span class="header-section-number">2.11</span> References</h2>
 <div id="refs" class="references csl-bib-body hanging-indent" data-entry-spacing="0" role="list">
 <div id="ref-ArlotCelisse2010" class="csl-entry" role="listitem">
 Arlot, Sylvain, and Alain Celisse. 2010. <span>“A Survey of Cross-Validation Procedures for Model Selection.”</span> <em>Statistics Surveys</em> 4: 40–79. <a href="https://doi.org/10.1214/09-SS054">https://doi.org/10.1214/09-SS054</a>.
