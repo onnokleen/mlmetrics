@@ -432,8 +432,8 @@ window.Quarto = {
 <li>We first contrast point-prediction networks with distributional networks.</li>
 <li>We then connect negative log-likelihood training to cross-entropy, Kullback–Leibler (KL) divergence, and proper scoring rules.</li>
 <li>Next, we study Gaussian distributional networks and the instability that arises when mean and variance are trained jointly.</li>
-<li>We use Hemisphere Neural Networks as a case study for stabilizing distributional estimation in macro-financial settings.</li>
-<li>We then turn to Mixture Density Networks for richer conditional distributions.</li>
+<li>We use Hemisphere Neural Networks (HNNs) — networks with a shared representation and separate mean and variance branches — as a case study for stabilizing distributional estimation in macro-financial settings.</li>
+<li>We then turn to Mixture Density Networks (MDNs), which output the weights and component parameters of a mixture distribution, for richer conditional distributions.</li>
 <li>We close with an empirical application — Gaussian density forecasts for equity realized variance, evaluated with proper scoring rules on a held-out test block — followed by key takeaways, common pitfalls, and exercises.</li>
 </ol>
 </section>
@@ -466,10 +466,10 @@ Information-theoretic interpretation
 </div>
 <div class="callout-body-container callout-body">
 <p>This NLL objective is the cross-entropy loss encountered in the <a href="./information_theory.html#sec-mle-kl-divergence">likelihood and KL-divergence discussion</a>: maximum likelihood estimation (MLE) minimizes sample cross-entropy. At the population level, expected conditional NLL differs from the expected conditional Kullback–Leibler (KL) divergence from the true conditional distribution to the model by a term that does not depend on the model parameters. Provided the relevant expectations are finite, both criteria therefore have the same population minimizer: the KL projection of the true conditional distribution onto the represented model family. Convergence of the empirical estimator to that target additionally requires identification within the density family, dependence-appropriate control of model complexity, a uniform law of large numbers, and sufficiently accurate optimization.</p>
-<p>The score and the model family play different roles. A <em>realized</em> LogS is local: it evaluates only the density assigned to the outcome that occurred. Its <em>expected</em> value is strictly proper and is uniquely minimized by the true density when that density belongs to the admissible class and the expectations are finite. A Gaussian network can adjust only its represented conditional mean and variance functions, so its population target under misspecification is the closest represented Gaussian in KL divergence. Student-<span class="math inline">t</span> and mixture outputs enlarge the family of distributions to which the expected score can respond.</p>
+<p>The score and the model family play different roles. A <em>realized</em> logarithmic score (LogS) is local: it evaluates only the density assigned to the outcome that occurred. Its <em>expected</em> value is strictly proper and is uniquely minimized by the true density when that density belongs to the admissible class and the expectations are finite. A Gaussian network can adjust only its represented conditional mean and variance functions, so its population target under misspecification is the closest represented Gaussian in KL divergence. Student-<span class="math inline">t</span> and mixture outputs enlarge the family of distributions to which the expected score can respond.</p>
 </div>
 </div>
-<p>The same logic can be stated in the language of proper scoring rules. The negative log-likelihood corresponds to the logarithmic score (LogS): after observing <span class="math inline">y_i</span>, the model is rewarded for assigning high density to the realized outcome. Minimizing average NLL is therefore the training analogue of minimizing the out-of-sample log score; see the discussion of LogS and CRPS in the <a href="./evaluating_distributions.html">Evaluating Predictive Distributions chapter</a>.</p>
+<p>The same logic can be stated in the language of proper scoring rules. The negative log-likelihood corresponds to LogS: after observing <span class="math inline">y_i</span>, the model is rewarded for assigning high density to the realized outcome. Minimizing average NLL is therefore the training analogue of minimizing the out-of-sample log score; see the discussion of LogS and CRPS in the <a href="./evaluating_distributions.html">Evaluating Predictive Distributions chapter</a>.</p>
 <p>Other proper scoring rules can also be used as training losses if they are computable and differentiable for the chosen predictive family. For example, the CRPS compares the full predictive cumulative distribution function (CDF) to the realized outcome. The choice of training score should match the forecasting object: log-likelihood is very sensitive to tail misspecification and extreme observations, while CRPS often behaves more like an integrated distributional error.</p>
 <div class="callout callout-style-default callout-note callout-titled" title="Question for Reflection">
 <div class="callout-header d-flex align-content-center">
@@ -538,7 +538,7 @@ y_{t+1}\,|\,\mathbf{x}_t \sim \mathcal{N}\big(\mu_t, \sigma_t^2\big),\quad
 </div>
 <p> the form analyzed in Exercise 9.1. Econometricians have met this objective before: it is exactly the Gaussian quasi-likelihood of a generalized autoregressive conditional heteroskedasticity (GARCH) model, with the parametric variance recursion replaced by the network map <span class="math inline">g_{\phi_\sigma}(\mathbf{x}_t)</span>. The quasi-maximum-likelihood theory of <span class="citation" data-cites="BollerslevWooldridge1992">Bollerslev and Wooldridge (<a href="#ref-BollerslevWooldridge1992" role="doc-biblioref">1992</a>)</span> also explains why this objective is a sensible target even when the true conditional distribution is not Gaussian: the criterion identifies the conditional mean and the conditional variance as long as those two moments are correctly specified.</p>
 <p>In overparameterized models, jointly training the mean and variance heads by maximum likelihood can be unstable. The model can achieve a low loss by letting the mean network overfit, which drives residuals and therefore the fitted variance toward zero, or by letting the variance network absorb too much variation. This is a distributional overfitting problem: the model has to learn both the location and the uncertainty, and the two tasks can interfere with each other.</p>
-<p>The <strong>Hemisphere Neural Network (HNN)</strong> architecture, proposed by <span class="citation" data-cites="GouletCoulombeFrenetteKlieber2026">Goulet Coulombe, Frenette, and Klieber (<a href="#ref-GouletCoulombeFrenetteKlieber2026" role="doc-biblioref">2026</a>)</span>, is designed to stabilize this process.</p>
+<p>The <strong>HNN architecture</strong>, proposed by <span class="citation" data-cites="GouletCoulombeFrenetteKlieber2026">Goulet Coulombe, Frenette, and Klieber (<a href="#ref-GouletCoulombeFrenetteKlieber2026" role="doc-biblioref">2026</a>)</span>, is designed to stabilize this process.</p>
 <p><strong>HNN architecture.</strong> The architecture splits the network after a shared <em>common core</em> into two specialized <em>hemispheres</em>. The core is a set of shared layers that learn a common representation of the inputs; because latent drivers can influence both moments through this shared representation, the two heads draw on common predictors — a <em>representation-level</em> link between mean and variance. Genuine autoregressive conditional heteroskedasticity (ARCH)-type dynamics, in which the variance is driven by past innovations, or volatility-in-mean effects, in which the conditional variance enters the mean equation, do not follow from shared layers alone: they arise only if the corresponding variables — lagged residuals, lagged variance, or an explicit cross-head connection — enter the model, as in the Temporal Dynamics extension below. The mean hemisphere is a dedicated stack of layers ending in a linear output head that predicts <span class="math inline">\mu_t</span>. The variance hemisphere mirrors it with a <code>softplus</code> output head — the softplus transform <span class="math inline">\zeta(z)=\log(1+e^{z})&gt;0</span> (introduced in the <a href="./feed_forward_nns.html#sec-def-multilayer-nn">Feed-Forward Neural Networks chapter</a>) maps any real pre-activation to a positive value — so that the predicted variance <span class="math inline">\sigma_t^2</span> is always positive.</p>
 <p>The resulting architecture is illustrated in <a href="#fig-hnn" class="quarto-xref">Figure&nbsp;9.1</a>.</p>
 <div class="cell" data-layout-align="center">
@@ -546,10 +546,10 @@ y_{t+1}\,|\,\mathbf{x}_t \sim \mathcal{N}\big(\mu_t, \sigma_t^2\big),\quad
 <div id="fig-hnn" class="quarto-float quarto-figure quarto-figure-center anchored" data-fig-align="center">
 <figure class="quarto-float quarto-float-fig figure">
 <div aria-describedby="fig-hnn-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-<img src="figures/hemispheres.png" class="img-fluid quarto-figure quarto-figure-center figure-img" width="874">
+<img src="figures/hemispheres.png" class="img-fluid quarto-figure quarto-figure-center figure-img" width="404">
 </div>
 <figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-hnn-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Figure&nbsp;9.1: Architecture of a Hemisphere Neural Network. The input vector <span class="math inline">\mathbf{x}_t</span> (left) passes through a shared common core of <span class="math inline">L_c</span> layers, after which the network splits into two dedicated hemispheres: a mean hemisphere of <span class="math inline">L_m</span> layers ending in a linear head that outputs <span class="math inline">\mu_t = f_{\phi_\mu}(\mathbf{x}_t)</span> (top), and a variance hemisphere of <span class="math inline">L_v</span> layers ending in a softplus head that outputs <span class="math inline">\sigma_t^2 = g_{\phi_\sigma}(\mathbf{x}_t) &gt; 0</span> (bottom). Arrows show the flow of computation.
+Figure&nbsp;9.1: Architecture of a Hemisphere Neural Network. The input vector <span class="math inline">\mathbf{x}_t</span> (top) passes through a shared common core of <span class="math inline">L_c</span> layers, after which the network splits into two dedicated branches: a mean hemisphere of <span class="math inline">L_m</span> layers ending in a linear head that outputs <span class="math inline">\mu_t = f_{\phi_\mu}(\mathbf{x}_t)</span> (lower left), and a variance hemisphere of <span class="math inline">L_v</span> layers ending in a softplus head that outputs <span class="math inline">\sigma_t^2 = g_{\phi_\sigma}(\mathbf{x}_t) &gt; 0</span> (lower right). Arrows show the flow of computation.
 </figcaption>
 </figure>
 </div>
@@ -588,7 +588,7 @@ Figure&nbsp;9.1: Architecture of a Hemisphere Neural Network. The input vector <
 </section>
 <section id="sec-mdn" class="level2" data-number="9.6">
 <h2 data-number="9.6" class="anchored" data-anchor-id="sec-mdn"><span class="header-section-number">9.6</span> Handling Complex Distributions: Mixture Density Networks (MDNs)</h2>
-<p>For distributions that are skewed, multimodal, or heavier-tailed over empirically relevant ranges than a single Gaussian, one parametric component can be too restrictive. <strong>Mixture Density Networks (MDNs)</strong>, proposed by <span class="citation" data-cites="Bishop1994MDN">Bishop (<a href="#ref-Bishop1994MDN" role="doc-biblioref">1994</a>)</span>, address this by modeling the conditional distribution as a mixture of simpler ones, such as Gaussians: </p>
+<p>For distributions that are skewed, multimodal, or heavier-tailed over empirically relevant ranges than a single Gaussian, one parametric component can be too restrictive. <strong>MDNs</strong>, proposed by <span class="citation" data-cites="Bishop1994MDN">Bishop (<a href="#ref-Bishop1994MDN" role="doc-biblioref">1994</a>)</span>, address this by modeling the conditional distribution as a mixture of simpler ones, such as Gaussians: </p>
 <div class="display-math-block">
 <p><span class="math display">
 p(y \mid \mathbf{x})=\sum_{k=1}^K \pi_k(\mathbf{x})\,\mathcal{N}\!\big(y;\,\mu_k(\mathbf{x}),\,\sigma_k^2(\mathbf{x})\big).
@@ -608,7 +608,14 @@ p(y \mid \mathbf{x})=\sum_{k=1}^K \pi_k(\mathbf{x})\,\mathcal{N}\!\big(y;\,\mu_k
 <li>Labor market dynamics that might feature multiple equilibria.</li>
 </ul>
 <p>MDN training has two transparent difficulties <span class="citation" data-cites="Bishop1994MDN">(<a href="#ref-Bishop1994MDN" role="doc-biblioref">Bishop 1994</a>)</span>. First, component labels are not identified and a subset of components can receive almost all the weight. Second, the likelihood is unbounded if a sufficiently flexible component centers on an observation while its scale approaches zero and its mixing weight does not vanish quickly enough. Careful initialization, penalties on extreme mixing weights, and a positive scale floor are possible safeguards, although the latter two change the criterion or parameter space.</p>
-<p>A different route to flexible distributional output is to train separate network heads with the pinball loss at several quantile levels. Unless the architecture or loss imposes an ordering restriction, those estimated quantiles can cross. A parametric density head avoids crossing because all quantiles come from one cumulative distribution function.</p>
+<p>A different route to flexible distributional output is to train separate network heads with the quantile, or pinball, loss </p>
+<div class="display-math-block">
+<p><span class="math display">
+\rho_\tau(y-q)=(y-q)\bigl(\tau-\mathbf{1}\{y&lt;q\}\bigr),
+\qquad \tau\in(0,1),
+</span></p>
+</div>
+<p> at several quantile levels. The conditional expected loss is minimized by a conditional <span class="math inline">\tau</span>-quantile <span class="math inline">q_\tau(\mathbf{x})</span>. Unless the architecture or loss imposes an ordering restriction, the estimated quantiles can cross. A parametric density head avoids crossing because all quantiles come from one cumulative distribution function.</p>
 <div class="callout callout-style-default callout-important callout-titled">
 <div class="callout-header d-flex align-content-center">
 <div class="callout-icon-container">
@@ -745,7 +752,7 @@ Econometric Interpretation
 <span id="cb6-24"><a href="#cb6-24" aria-hidden="true" tabindex="-1"></a>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </details>
 <div class="cell-output cell-output-stdout">
-<pre><code>&lt;keras.src.callbacks.history.History object at 0x16ddec440&gt;</code></pre>
+<pre><code>&lt;keras.src.callbacks.history.History object at 0x1720ec440&gt;</code></pre>
 </div>
 <details class="code-fold">
 <summary>Show the code</summary>
@@ -764,7 +771,7 @@ Econometric Interpretation
 =s_y^2\operatorname{Var}(\tilde y_{t+1}\mid \mathbf{x}_t).
 </span></p>
 </div>
-<p> Thus, the back-transformed predictive variance is <span class="math inline">[c+\operatorname{softplus}(a_\phi(\mathbf{x}_t))]s_y^2</span>, exactly as implemented. This identity is specific to linear scaling. If the target were instead modeled on the log scale, a Gaussian predictive density for <span class="math inline">\log RV</span> would imply a lognormal density for <span class="math inline">RV</span> through a change of variables, and its level-scale mean would be <span class="math inline">\mathbb{E}[RV]=\exp(\mu+\sigma^2/2)</span>. The present application stays on the log-<span class="math inline">RV</span> scale throughout. Under the scores considered here, consistent linear rescaling preserves model rankings <span class="citation" data-cites="Kleen2024">(<a href="#ref-Kleen2024" role="doc-biblioref">Kleen 2024</a>)</span>, although absolute numerical score levels generally change. Forecasts and outcomes must therefore be placed on one common scale before their scores are compared.</p>
+<p> Thus, the back-transformed predictive variance is <span class="math inline">[c+\operatorname{softplus}(a_\phi(\mathbf{x}_t))]s_y^2</span>, exactly as implemented. This back-transformation reverses only the linear standardization and leaves the forecast on the log-<span class="math inline">RV</span> scale. Obtaining a predictive distribution for <span class="math inline">RV</span> instead requires the nonlinear transformation <span class="math inline">RV=\exp(\log RV)</span>: a Gaussian predictive density for <span class="math inline">\log RV</span> implies a lognormal density for <span class="math inline">RV</span>, whose level-scale mean is <span class="math inline">\mathbb{E}[RV]=\exp(\mu+\sigma^2/2)</span>. The present application evaluates forecasts and outcomes on the log-<span class="math inline">RV</span> scale and does not perform this level-scale transformation. Under the scores considered here, consistent linear rescaling preserves model rankings <span class="citation" data-cites="Kleen2024">(<a href="#ref-Kleen2024" role="doc-biblioref">Kleen 2024</a>)</span>, although absolute numerical score levels generally change. Forecasts and outcomes must therefore be placed on one common scale before their scores are compared.</p>
 <div class="cell">
 <details class="code-fold">
 <summary>Show the code</summary>
