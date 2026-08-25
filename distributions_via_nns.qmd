@@ -44,7 +44,7 @@ Here, $y_i$ is the observed outcome, $\mathbf{x}_i$ is the feature vector, $\bol
 :::{.callout-important}
 ## Information-theoretic interpretation
 
-This NLL objective is the cross-entropy loss encountered in the [likelihood and KL-divergence discussion](information_theory.qmd#sec-mle-kl-divergence): maximum likelihood estimation (MLE) minimizes sample cross-entropy. At the population level, expected conditional NLL differs from the expected conditional Kullback--Leibler (KL) divergence from the true conditional distribution to the model by a term that does not depend on the model parameters. Provided the relevant expectations are finite, both criteria therefore have the same population minimizer: the KL projection of the true conditional distribution onto the represented model family. Convergence of the empirical estimator to that target additionally requires identification within the density family, dependence-appropriate control of model complexity, a uniform law of large numbers, and sufficiently accurate optimization.
+This NLL objective is the cross-entropy loss encountered in the [likelihood and KL-divergence discussion](information_theory.qmd#sec-mle-kl-divergence): maximum likelihood estimation (MLE) minimizes sample cross-entropy. At the population level, expected conditional NLL differs from the expected conditional Kullback–Leibler (KL) divergence from the true conditional distribution to the model by a term that does not depend on the model parameters. Provided the relevant expectations are finite, both criteria therefore have the same population minimizer: the KL projection of the true conditional distribution onto the represented model family. Convergence of the empirical estimator to that target additionally requires identification within the density family, dependence-appropriate control of model complexity, a uniform law of large numbers, and sufficiently accurate optimization.
 
 The score and the model family play different roles. A *realized* logarithmic score (LogS) is local: it evaluates only the density assigned to the outcome that occurred. Its *expected* value is strictly proper and is uniquely minimized by the true density when that density belongs to the admissible class and the expectations are finite. A Gaussian network can adjust only its represented conditional mean and variance functions, so its population target under misspecification is the closest represented Gaussian in KL divergence. Student-$t$ and mixture outputs enlarge the family of distributions to which the expected score can respond.
 :::
@@ -79,7 +79,7 @@ Training a distributional neural network and evaluating a distributional forecas
 
 A key challenge in distributional modeling is reliably estimating multiple distribution parameters at once. Consider the Gaussian case where we want to learn both the conditional mean and variance:
 $$
-y_{t+1}\,|\,\mathbf{x}_t \sim \mathcal{N}\big(\mu_t, \sigma_t^2\big),\quad
+y_{t+1}\mid\mathbf{x}_t \sim \mathcal{N}\big(\mu_t, \sigma_t^2\big),\quad
 \mu_t = f_{\phi_\mu}(\mathbf{x}_t),\ \ \sigma_t^2 = g_{\phi_\sigma}(\mathbf{x}_t)>0.
 $$
 The subscript $t$ on $\mu_t$ and $\sigma_t^2$ records the forecast origin: both are functions of $\mathbf{x}_t$ and describe the distribution of $y_{t+1}$, consistent with the two-index convention $\hat{y}_{t+1\mid t}$ used elsewhere in the book. The per-time-step negative log-likelihood loss is, up to an additive constant,
@@ -194,7 +194,7 @@ An MDN is a flexible way to approximate a conditional density with latent regime
 
 ## Empirical Application: Distributional Network for SPY Realized Variance {#sec-distnn-empirical}
 
-The realized-variance illustration of the [previous chapter](nn_example.qmd) produced point forecasts of daily $\log RV_{t+1}$ for SPY, the S&P 500 exchange-traded fund, and evaluated them with squared and absolute losses. A Gaussian predictive distribution also requires a conditional variance. We therefore compare two such distributions using the same SPY data, log-transformed heterogeneous autoregressive (HAR) features, and final 20% test block. Because all hyperparameters are fixed in advance, this chapter combines the previous chapter's training and validation blocks into one estimation sample.[^distnn-data]
+The realized-variance illustration of the [previous chapter](nn_example.qmd) produced point forecasts of daily log realized variance, $\log RV_{t+1}$, for SPY, the S&P 500 exchange-traded fund, and evaluated them with squared and absolute losses. A Gaussian predictive distribution also requires a conditional variance. We therefore compare two such distributions using the same SPY data, log-transformed heterogeneous autoregressive (HAR) features, and the final 20% test block. Because all hyperparameters are fixed in advance, this chapter combines the previous chapter's training and validation blocks into one estimation sample.[^distnn-data]
 
 [^distnn-data]: The data file `data/taq_spy/SPY_daily_measures.csv` covers 2015-01-02 through 2024-12-31 and is documented in [the dataset appendix](datasets.qmd#sec-spy-taq-realized). The longest HAR component averages 21 trading days. The pipeline nevertheless begins forecasting only after 22 lagged observations so that its forecast origins and final 20% test block match those in the previous chapter.
 
@@ -224,13 +224,16 @@ random.seed(0)
 np.random.seed(0)
 keras.utils.set_random_seed(0)
 
-rv = (
+rv_source = (
     pd.read_csv("data/taq_spy/SPY_daily_measures.csv", parse_dates=["date"])
     .sort_values("date")
     .loc[:, ["date", "rv"]]
-    .dropna()
 )
+rv = rv_source.dropna(subset=["rv"])
 rv = rv.loc[rv["rv"] > 0].reset_index(drop=True)
+
+usable = rv_source["date"] <= rv["date"].max()
+assert (rv_source.loc[usable, "rv"] > 0).all(), "gap inside the usable sample"
 
 window = 22
 
@@ -268,7 +271,7 @@ print(f"forecast origins: {n}, train+validation: {split_valid}, test: {n - split
 print(f"test window: {dates_te.iloc[0].date()} to {dates_te.iloc[-1].date()}")
 ```
 
-The `make_log_har` helper builds the same three HAR averages used in the [chapter 8 illustration](nn_example.qmd) but applies $\log(\cdot)$ before standardization, so the linear baseline is a log-log HAR regression and the FNN inputs are on the same scale. We standardize features and the target on the train-plus-validation block, which avoids leaking test-block information into the scaling constants.
+The `make_log_har` helper builds the same three HAR averages used in the [Chapter 8 illustration](nn_example.qmd) but applies $\log(\cdot)$ before standardization, so the linear baseline is a log-log HAR regression and the FNN inputs are on the same scale. We standardize features and the target on the train-plus-validation block, which avoids leaking test-block information into the scaling constants.
 
 The Gaussian baseline is just OLS plus an in-sample residual variance.
 
@@ -285,7 +288,7 @@ sigma_ols_te = np.full_like(mu_ols_te, sigma_ols)
 
 The distributional HAR-FNN has two heads on top of a shared hidden layer. The custom loss implements the per-observation Gaussian NLL of @sec-hnn, with a smooth positive variance parameterization that prevents a degenerate density when residuals are near zero (the pathology analyzed in Exercise 9.1). Exercise 9.1 derives the optimum under a hard inequality constraint; the implementation uses a smooth map because applying a hard maximum to a network output would give zero derivative whenever the floor binds.
 
-Two protocol notes distinguish this workflow from the previous chapter's. First, we fix all hyperparameters *a priori*---32 hidden units, learning rate $10^{-3}$, 200 epochs, and batch size 32---without a data-driven tuning step. We therefore use the first 80% of forecast origins as one estimation sample; the variable names `X_trva` and `Xs_trva` record that this block combines the earlier training and validation samples. Second, standardizing on this full block is appropriate because no validation sample needs to remain protected, while the test block still never enters the scaling constants. The [chapter 8](nn_example.qmd) warning about scaling beyond the training block applies when validation data guide model selection. The results below describe one fixed configuration and one seeded training run, not a stable architecture ranking; repeated seeds or resamples would be needed to quantify optimization variability.
+Two protocol notes distinguish this workflow from the previous chapter's. First, we fix all hyperparameters *a priori* — 32 hidden units, learning rate $10^{-3}$, 200 epochs, and batch size 32 — without a data-driven tuning step. We therefore use the first 80% of forecast origins as one estimation sample; the variable names `X_trva` and `Xs_trva` record that this block combines the earlier training and validation samples. Second, standardizing on this full block is appropriate because no validation sample needs to remain protected, while the test block still never enters the scaling constants. The [Chapter 8](nn_example.qmd) warning about scaling beyond the training block applies when validation data guide model selection. The results below describe one fixed configuration and a single training run with a fixed random seed, not a stable architecture ranking; repeated seeds or resamples would be needed to quantify optimization variability.
 
 ```{python}
 #| label: distnn-model
