@@ -25,7 +25,7 @@ This chapter introduces the basic RNN architecture in a forecasting setting, int
 
 ## Forecasting Setup and the Information Set
 
-Suppose we want to forecast a scalar outcome $y_{t+1}$ using information available at time $t$. Recall the forecast-origin information set $\mathcal{F}_t$ from the [time-series cross-validation discussion](cross_validation.qmd#sec-cv-time-series): it contains the variables in the form in which they were actually available at the forecast origin. In a macroeconomic or financial application, $\mathcal{F}_t$ may contain past values of the target variable, lagged predictors, realized returns, volatility measures, survey variables, text-based indicators, and other signals known at time $t$.
+Suppose we want to forecast a scalar outcome $Y_{t+1}$ using information available at time $t$. Recall the forecast-origin information set $\mathcal{F}_t$ from the [time-series cross-validation discussion](cross_validation.qmd#sec-cv-time-series): it contains the variables in the form in which they were actually available at the forecast origin. In a macroeconomic or financial application, $\mathcal{F}_t$ may contain past values of the target variable, lagged predictors, realized returns, volatility measures, survey variables, text-based indicators, and other signals known at time $t$.
 
 A lagged feed-forward network uses a fixed window of this information, for example
 
@@ -33,7 +33,7 @@ $$
 \hat{y}_{t+1\mid t} = f_\theta(y_t, y_{t-1}, \ldots, y_{t-L+1}, \mathbf{x}_t, \mathbf{x}_{t-1}, \ldots, \mathbf{x}_{t-L+1}).
 $$
 
-Here $\hat{y}_{t+1\mid t}$ denotes a forecast of $y_{t+1}$ formed at the origin $t$; the two-index subscript records both dates. This is a reasonable baseline. It is close to how econometricians build distributed-lag or autoregressive forecasting models. The limitation is that the window length $L$ must be chosen before estimation, and the model does not update an internal state as new observations arrive.
+Here $\hat{y}_{t+1\mid t}$ denotes a forecast of $Y_{t+1}$ formed at the origin $t$; the two-index subscript records both dates, and the forecast itself is built from the realized history, following the book's case convention. This is a reasonable baseline. It is close to how econometricians build distributed-lag or autoregressive forecasting models. The limitation is that the window length $L$ must be chosen before estimation, and the model does not update an internal state as new observations arrive.
 
 From this point onward, $\mathbf{x}_t$ denotes the complete per-period input to the RNN. It may include $y_t$ together with any other predictors known at time $t$. With this convention, an RNN replaces the fixed lag window by a recursively updated summary:
 
@@ -123,7 +123,7 @@ knitr::include_graphics(paths)
 
 The left panel in @fig-rnn-side-by-side shows the compact representation: a recurrent link feeds the previous hidden state back into the model. The right panel shows the same model unrolled through time. Unrolling is mainly a computational device for training; it does not mean that the model has different parameters at different dates.
 
-Throughout this section, an output subscript records the forecast origin. Thus, in a scalar one-step-ahead application, $\hat{\mathbf{y}}_t$ plays the role of $\hat{y}_{t+1\mid t}$, or gives parameters of the predictive distribution for $y_{t+1}\mid\mathcal{F}_t$. An unhatted $y_s$ denotes the outcome realized at calendar time $s$.
+Throughout this section, an output subscript records the forecast origin. Thus, in a scalar one-step-ahead application, $\hat{\mathbf{y}}_t$ plays the role of $\hat{y}_{t+1\mid t}$, or gives parameters of the predictive distribution of $Y_{t+1}$ given $\mathcal{F}_t$. As everywhere in the book, an unhatted lowercase $y_s$ denotes the outcome realized at calendar time $s$, and uppercase $Y_s$ the corresponding random variable.
 
 At each time step $t$, define:
 
@@ -161,7 +161,7 @@ We use $\tanh$ as the activation $g$. Its range is bounded between $-1$ and $1$,
 
 An RNN can be viewed as a flexible nonlinear generalization of classical time-series models with recursively updated states. A useful benchmark is the GARCH model of @Bollerslev1986.
 
-In the **GARCH(1,1)** model, the return at $t$ is decomposed as $r_t = \mu_t + \varepsilon_t$, where $\mu_t=\mathbb{E}[r_t\mid\mathcal{F}_{t-1}]$ and $\varepsilon_t=\sigma_t z_t$. The innovations $z_t$ are independent and identically distributed, independent of $\mathcal{F}_{t-1}$, and normalized so that $\mathbb{E}[z_t]=0$ and $\mathbb{E}[z_t^2]=1$. Under these conditions, $\sigma_t^2=\operatorname{Var}(\varepsilon_t\mid\mathcal{F}_{t-1})$, and the conditional variance follows the recursion
+In the **GARCH(1,1)** model, the return at $t$ is decomposed as $R_t = \mu_t + \varepsilon_t$, where $\mu_t=\mathbb{E}[R_t\mid\mathcal{F}_{t-1}]$ and $\varepsilon_t=\sigma_t Z_t$. The innovations $Z_t$ are independent and identically distributed, independent of $\mathcal{F}_{t-1}$, and normalized so that $\mathbb{E}[Z_t]=0$ and $\mathbb{E}[Z_t^2]=1$. Under these conditions, $\sigma_t^2=\operatorname{Var}(\varepsilon_t\mid\mathcal{F}_{t-1})$, and the conditional variance follows the recursion
 $$
 \sigma_t^2 = \omega + \alpha \varepsilon_{t-1}^2 + \beta \sigma_{t-1}^2,
 $$
@@ -255,7 +255,7 @@ For econometric forecasting, this is the central limitation of a plain RNN. The 
 
 The same recurrent-state Jacobian product can also grow, in which case gradients **explode** rather than vanish. Since $g' \leq 1$ for the $\tanh$ activation, each one-step Jacobian is bounded in norm by $\lVert\mathbf{W}_{hh}\rVert$, so $\lVert\mathbf{W}_{hh}\rVert > 1$ is necessary for this upper bound to permit exponential pathwise growth. It is not sufficient: whether the product actually grows depends on the entire trajectory of factors $\operatorname{diag}(g'(\mathbf{z}_i))\,\mathbf{W}_{hh}$. A per-factor bound below one forces decay, but individual factors with norms above one do not by themselves force growth. Nor does $\lVert\mathbf{W}_{hh}\rVert\leq 1$ uniformly bound every total parameter gradient, because contributions from many loss terms can still accumulate with sequence length.
 
-In the scalar case, the pathwise picture is transparent: the product is $\prod_i |W_{hh}|\,g'(z_i)$ and grows geometrically whenever the factors stay above some $\gamma > 1$ along the trajectory. Exploding gradients show up as numerical overflow or parameter updates that jump erratically between iterations, rather than as a silent failure to learn long-run dependence.
+In the scalar case, the pathwise picture is transparent: the product is $\prod_{i=t+1}^{T} |W_{hh}|\,g'(z_i)$ and grows geometrically whenever the factors stay above some $\gamma > 1$ along the trajectory. Exploding gradients show up as numerical overflow or parameter updates that jump erratically between iterations, rather than as a silent failure to learn long-run dependence.
 
 The standard remedy is **gradient clipping** [@PascanuMikolovBengio2013]: if the norm of the stacked raw gradient vector $\mathbf{g}$ exceeds a threshold $c$, replace $\mathbf{g}$ by $c\,\mathbf{g}/\lVert\mathbf{g}\rVert$ before the optimizer sees it. This transformation caps the raw gradient norm and preserves the raw gradient direction. Under plain stochastic gradient descent, it also caps the norm of the immediate parameter step, up to the learning rate; with momentum or adaptive optimizers, the eventual update also depends on stored optimizer state. Clipping stabilizes the exploding case but does nothing for vanishing gradients, whose problem is the loss of signal across a long credit-assignment path.
 
@@ -317,10 +317,10 @@ In this exercise, we examine the vanishing gradient problem in RNNs. Consider a 
 1. **Derive the gradient formula for backpropagation through time.** Using the chain rule, derive the expression for $\frac{\partial L_T}{\partial W_{hh}}$. Show that it involves the term $\frac{\partial h_T}{\partial h_t}$ for each time step $t = 1, 2, \ldots, T$ and express it as a product of derivatives.
 2. **Prove gradient vanishing conditions.** Show that $\left|\frac{\partial h_T}{\partial h_t}\right| \leq |W_{hh}|^{T-t}$ and explain why this leads to exponentially vanishing gradients when $|W_{hh}| < 1$.
 3. **Analyze learning implications.** Explain why vanishing gradients weaken parameter updates associated with early time steps. Then explain why the bound does not imply a universal maximum sequence length and identify what determines how quickly the contribution of a distant state fades.
-4. **Derive data memory in an AR(1).** Consider a stationary first-order autoregressive (AR(1)) process $y_t = \phi y_{t-1} + u_t$ with $|\phi| < 1$ and independent and identically distributed (i.i.d.) mean-zero innovations $u_t$. Derive the impulse response $\partial y_{t+k} / \partial u_t$ and show that it decays geometrically in $k$, formally paralleling the bound from Part 2.
+4. **Derive data memory in an AR(1).** Consider a stationary first-order autoregressive (AR(1)) process $Y_t = \phi Y_{t-1} + U_t$ with $|\phi| < 1$ and independent and identically distributed (i.i.d.) mean-zero innovations $U_t$. Derive the impulse response $\partial Y_{t+k} / \partial U_t$ and show that it decays geometrically in $k$, formally paralleling the bound from Part 2.
 5. **Separate data memory from model memory.** Explain which object's memory is described by the AR(1) impulse response and which object's memory is described by the bound from Part 2.
 6. **Locate the learning signal.** An RNN is trained to forecast the AR(1) process one step ahead, observing the current value as its input at each step ($x_t = y_t$), with a one-step-ahead loss at each forecast origin. Explain why the vanishing-gradient bound does *not* prevent this network from learning the AR(1) dynamics, identifying the time gap across which the loss-relevant signal about $\phi$ must travel and whether $W_{hh}$ must equal $\phi$.
-7. **Trace a genuinely long-gap signal.** Now let the data-generating process be $y_{t+1} = \psi x_{t-k} + u_{t+1}$ for a large delay $k$, where the network observes the scalar input sequence $\{x_t\}$, the intermediate inputs $x_{t-k+1}, \ldots, x_t$ carry no information about $y_{t+1}$, and training again uses a one-step-ahead loss at each origin. Explain why the only gradient path connecting the loss to the relevant input bridges $k$ recurrence steps.
+7. **Trace a genuinely long-gap signal.** Now let the data-generating process be $Y_{t+1} = \psi X_{t-k} + U_{t+1}$ for a large delay $k$, where the network observes the realized scalar input sequence $\{x_t\}$, the intermediate inputs $X_{t-k+1}, \ldots, X_t$ carry no information about $Y_{t+1}$, and training again uses a one-step-ahead loss at each origin. Explain why the only gradient path connecting the loss to the relevant input bridges $k$ recurrence steps.
 8. **Explain the lock-in mechanism.** Using the dual role of $\partial h_T/\partial h_t$ as a measure of fitted-state sensitivity and as a factor in the parameter gradient, explain why a contractive network can remain in a short-memory regime during training in the delayed-signal design of Part 7.
 
 *Exam level, deliberately long as a whole. Parts 1–3 form one exam question. Parts 4–8 form a second only if the decomposition and bound from Parts 1–2 are supplied with the question.*
@@ -338,7 +338,7 @@ You need to bound the absolute value of a product of derivatives; use $|ab| = |a
 
 :::{.callout-warning collapse="true"}
 ## Hint for Part 4
-Substitute the AR(1) recursion forward $k$ times to express $y_{t+k}$ in terms of $y_t$ and the innovations $u_{t+1}, \ldots, u_{t+k}$.
+Substitute the AR(1) recursion forward $k$ times to express $Y_{t+k}$ in terms of $Y_t$ and the innovations $U_{t+1}, \ldots, U_{t+k}$.
 :::
 
 :::{.callout-warning collapse="true"}
@@ -432,11 +432,11 @@ The fundamental issue is that learning requires non-negligible gradients to upda
 
 Iterating the AR(1) recursion forward $k$ times gives
 $$
-y_{t+k} = \phi^k y_t + \sum_{j=0}^{k-1} \phi^j u_{t+k-j}.
+Y_{t+k} = \phi^k Y_t + \sum_{j=0}^{k-1} \phi^j U_{t+k-j}.
 $$
-Since $y_t = \phi y_{t-1} + u_t$ implies $\partial y_t / \partial u_t = 1$, the impulse response is
+Since $Y_t = \phi Y_{t-1} + U_t$ implies $\partial Y_t / \partial U_t = 1$, the impulse response is
 $$
-\frac{\partial y_{t+k}}{\partial u_t} = \phi^k,
+\frac{\partial Y_{t+k}}{\partial U_t} = \phi^k,
 $$
 which decays geometrically in $k$ because $|\phi| < 1$—formally the same geometric decay as the bound $|W_{hh}|^{T-t}$ from Part 2.
 
@@ -446,7 +446,7 @@ The impulse response $\phi^k$ is a property of the *data-generating process*: it
 
 **Part 6: Why local learning suffices for the AR(1)**
 
-By Part 1, $\partial h_T / \partial h_t$ is also the factor that carries the training signal from the loss back to early time steps—yet for the AR(1) this does not prevent learning. The one-step conditional mean is $\mathbb{E}[y_{t+1} \mid \mathcal{F}_t] = \phi y_t$: everything the network needs in order to forecast is contained in its current input $x_t = y_t$. The relevant path is therefore $x_t \to h_t \to \widehat y_{t+1\mid t}$, which crosses no recurrent transition after $x_t$ enters the state. The input and output weights can encode the coefficient $\phi$; $W_{hh}$ need not equal or directly represent it. Adjacent-observation forecast errors thus provide a local learning signal without long-range credit assignment.
+By Part 1, $\partial h_T / \partial h_t$ is also the factor that carries the training signal from the loss back to early time steps—yet for the AR(1) this does not prevent learning. The one-step conditional mean is $\mathbb{E}[Y_{t+1} \mid \mathcal{F}_t] = \phi Y_t$: everything the network needs in order to forecast is contained in its current input, the realized value $x_t = y_t$. The relevant path is therefore $x_t \to h_t \to \widehat y_{t+1\mid t}$, which crosses no recurrent transition after $x_t$ enters the state. The input and output weights can encode the coefficient $\phi$; $W_{hh}$ need not equal or directly represent it. Adjacent-observation forecast errors thus provide a local learning signal without long-range credit assignment.
 
 **Part 7: The long-gap gradient path**
 
@@ -472,7 +472,7 @@ The parameters are:
 - Weight for hidden-to-output: $W_{hy} = 1.2$
 - Bias for output: $b_y = 0.0$
 
-The input sequence is $\mathbf{x} = [0.2, -0.5, 0.3]$ and the initial hidden state is $h_0 = 0$. Use the approximations $\tanh(0.2) \approx 0.197$, $\tanh(0.008) \approx 0.008$, $\tanh(0.256) \approx 0.251$, $\tanh'(0.2) \approx 0.961$, and $\tanh'(0.008) \approx 1.000$.
+The input sequence is $(x_1, x_2, x_3) = (0.2, -0.5, 0.3)$ and the initial hidden state is $h_0 = 0$. Use the approximations $\tanh(0.2) \approx 0.197$, $\tanh(0.008) \approx 0.008$, $\tanh(0.256) \approx 0.251$, $\tanh'(0.2) \approx 0.961$, and $\tanh'(0.008) \approx 1.000$.
 
 1. **Compute the forward pass.** For $t = 1, 2, 3$, compute the hidden state $h_t$ and the output $\hat{y}_t$.
 2. **Separate value from sensitivity.** Your forward pass shows that the second input $x_2 = -0.5$ is large and negative, yet $h_2 \approx 0.008$ is nearly zero. Explain why the memory term $W_{hh} h_1$ and the bias $b_h$ together almost exactly cancel the input contribution at $t=2$. Then compute the sensitivity $\partial h_2/\partial x_1$ and use it to discuss what a near-zero *value* of the hidden state does and does not imply about the memory of $x_1$, connecting your answer to the geometric decay factor from Exercise 6.1.

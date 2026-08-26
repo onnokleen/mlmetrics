@@ -68,7 +68,7 @@ $$
 
 The factor $\frac{1}{2}$ is algebraically convenient and does not affect the minimizer.
 
-Two conventions in this display are worth flagging, since they differ from earlier chapters. First, $L$ here is the *total* training loss, summed and not averaged over observations—the convention of the boosting literature, and the one that makes the pseudo-residuals below come out as $y_i - F(x_i)$ without a trailing $1/N$. The [optimization chapter](optimization.qmd) instead wrote $L(\boldsymbol\theta) = N^{-1}\sum_i \ell_i(\boldsymbol\theta)$ for the sample average; the two differ by the constant factor $N$, which changes neither the minimizer nor the direction of the gradient. Second, the per-observation loss is written outcome first, $\ell(y_i, F(x_i))$, as in the [feed-forward networks chapter](feed_forward_nns.qmd).
+Two conventions in this display are worth flagging, since they differ from earlier chapters. First, $L$ here is the *total* training loss, summed and not averaged over observations—the convention of the boosting literature, and the one that makes the pseudo-residuals below come out as $y_i - F(x_i)$ without a trailing $1/N$. The [optimization chapter](optimization.qmd) instead wrote $L(\boldsymbol\theta) = N^{-1}\sum_{i=1}^N \ell_i(\boldsymbol\theta)$ for the sample average; the two differ by the constant factor $N$, which changes neither the minimizer nor the direction of the gradient. Second, the per-observation loss is written outcome first, $\ell(y_i, F(x_i))$, as in the [feed-forward networks chapter](feed_forward_nns.qmd).
 
 **Step 0: Initial Model**
 
@@ -236,7 +236,7 @@ $$
 \end{cases}
 $$
 
-The loss penalizes underprediction at rate $\tau$ and overprediction at rate $1-\tau$. Minimizing its conditional expected value targets a conditional $\tau$-quantile. If the conditional quantile is not unique, any $q$ satisfying $\mathbb{P}(Y<q\mid X=x)\leq\tau\leq\mathbb{P}(Y\leq q\mid X=x)$ is a valid minimizer. When $\tau=0.5$, the loss is proportional to absolute error and targets a conditional median. The two linear pieces meet at $u_i=0$, where the ordinary derivative does not exist. Away from that kink, the negative derivative with respect to $F(x_i)$ is
+The loss penalizes underprediction at rate $\tau$ and overprediction at rate $1-\tau$. In population—for a random draw $(X,Y)$ whose realizations the training pairs $(x_i,y_i)$ represent—minimizing the conditional expected value of $\rho_\tau(Y-F(x))$ targets a conditional $\tau$-quantile. If the conditional quantile is not unique, any $q$ satisfying $\mathbb{P}(Y<q\mid X=x)\leq\tau\leq\mathbb{P}(Y\leq q\mid X=x)$ is a valid minimizer. When $\tau=0.5$, the loss is proportional to absolute error and targets a conditional median. The two linear pieces meet at $u_i=0$, where the ordinary derivative does not exist. Away from that kink, the negative derivative with respect to $F(x_i)$ is
 
 $$
 r_{im}
@@ -260,12 +260,12 @@ H_\delta(u_i)
 \end{cases}
 $$
 
-Its negative loss gradient with respect to $F(x_i)$ is the clipped residual $\max\{-\delta,\min(u_i,\delta)\}$. Large forecast errors therefore cannot generate arbitrarily large pseudo-residuals. The threshold $\delta$ is measured on the outcome scale: smaller values create more clipping and a more median-like Huber location target, while larger values approach squared loss and a more mean-like target. It should therefore be fixed or selected in a scale-aware, validation-safe way. The general lesson is that gradient boosting is not tied to squared, Bernoulli, or exponential loss: the chosen loss and its tuning constants determine the population target, the pseudo-residuals, and the loss-optimal leaf values.
+Its negative loss gradient with respect to $F(x_i)$ is the clipped residual $\max\{-\delta,\min(u_i,\delta)\}$. Large forecast errors therefore cannot generate arbitrarily large pseudo-residuals. The threshold $\delta$ is measured on the outcome scale: smaller values create more clipping and a more median-like Huber location target, while larger values approach squared loss and a more mean-like target. It should therefore be fixed or selected in a scale-aware, validation-safe way. The general lesson is that gradient boosting is not tied to squared, Bernoulli, or exponential loss: the chosen loss and its tuning constants determine the population target—the minimizer of the population risk $\mathbb{E}[\ell(Y, F(X))]$ over the random draw $(X,Y)$—as well as the pseudo-residuals and the loss-optimal leaf values.
 :::
 
 To see the gradient structure precisely, think of $F$ as a vector $(F(x_1), \ldots, F(x_N))^\top \in \mathbb{R}^N$, where each coordinate is the fitted value at one training observation. The total loss is a function of this vector, $L(F) = \sum_{i=1}^N \ell(y_i, F(x_i))$—the same training objective introduced for squared loss in @sec-gb-squared-error, now written for a general $\ell$—and the $i$-th coordinate of its negative gradient at $\hat F_{m-1}$ is exactly $r_{im}$. Boosting cannot step directly in this direction, because the result would be $N$ numbers with no way to generalize to new observations. Instead, each tree $\hat{h}_m$ approximates the negative gradient within a structured, tree-shaped function class. Fitting a tree to the pseudo-residuals is therefore fitting a generalizable approximation to the steepest-descent direction.
 
-**Refining the leaf values.** Fitting a least-squares tree to the pseudo-residuals serves to determine the *split structure*—the partition of the predictor space into leaves $R_{jm}$ (the $j$-th leaf of the tree fitted at iteration $m$)—but the least-squares leaf means need not be the loss-optimal constants on the scale of $\ell$. The loss-optimal leaf values are obtained by a separate one-dimensional minimization within each leaf,
+**Refining the leaf values.** Fitting a least-squares tree to the pseudo-residuals serves to determine the *split structure*—the partition of the predictor space into leaves $R_{jm}$, $j=1,\dots,J_m$ (the $j$-th of the $J_m$ leaves of the tree fitted at iteration $m$)—but the least-squares leaf means need not be the loss-optimal constants on the scale of $\ell$. The loss-optimal leaf values are obtained by a separate one-dimensional minimization within each leaf,
 
 $$
 \gamma_{jm}^{\star}
@@ -273,7 +273,7 @@ $$
 \arg\min_{\gamma} \sum_{i:\, x_i \in R_{jm}} \ell\big(y_i,\, \hat F_{m-1}(x_i) + \gamma\big),
 $$
 
-after which the update becomes $\hat F_m = \hat F_{m-1} + \nu \sum_j \gamma_{jm}^{\star} \mathbf{1}\{x \in R_{jm}\}$ rather than $\hat F_{m-1} + \nu \hat h_m$. For squared error, $\gamma_{jm}^{\star}$ is the mean pseudo-residual in the leaf, so the two updates coincide. For pinball loss, the minimizer can be set-valued; an implementation selects one empirical quantile according to its tie convention. The distinction between the tree's least-squares leaf means and the loss-optimal values matters for general losses such as the Bernoulli loss introduced next. This per-leaf line search is the TreeBoost refinement proposed by @Friedman2001Greedy.
+after which the update becomes $\hat F_m = \hat F_{m-1} + \nu \sum_{j=1}^{J_m} \gamma_{jm}^{\star} \mathbf{1}\{x \in R_{jm}\}$ rather than $\hat F_{m-1} + \nu \hat h_m$. For squared error, $\gamma_{jm}^{\star}$ is the mean pseudo-residual in the leaf, so the two updates coincide. For pinball loss, the minimizer can be set-valued; an implementation selects one empirical quantile according to its tie convention. The distinction between the tree's least-squares leaf means and the loss-optimal values matters for general losses such as the Bernoulli loss introduced next. This per-leaf line search is the TreeBoost refinement proposed by @Friedman2001Greedy.
 
 **Classification with Bernoulli Log-Loss**
 
@@ -643,7 +643,7 @@ The design exactly reuses the stratified 60% training, 20% validation, and 20% t
 
 The single-tree, random-forest, and boosting settings are chosen by validation log loss from small candidate sets declared in the code. The comparison uses the same transformed predictors for every model: continuous variables are standardized and categorical variables are one-hot encoded. Standardization is needed by logistic regression and the network. It does not change a tree's available split order because it is a strictly increasing transformation, but using one representation removes an incidental difference between the model pipelines. All transformations are estimated without the test observations.
 
-We evaluate the final probability forecasts by log loss, by the Brier score $N_{\mathrm{test}}^{-1}\sum_i(y_i-\hat p_i)^2$, and by accuracy after applying a 0.5 threshold. The first two columns evaluate the probabilities themselves; the last evaluates one particular binary decision rule.
+We evaluate the final probability forecasts by log loss, by the Brier score $N_{\mathrm{test}}^{-1}\sum_{i=1}^{N_{\mathrm{test}}}(y_i-\hat p_i)^2$, and by accuracy after applying a 0.5 threshold. The first two columns evaluate the probabilities themselves; the last evaluates one particular binary decision rule.
 
 ```{python}
 #| label: tbl-gb-credit-comparison
@@ -1129,9 +1129,9 @@ $$
 5. A Bernoulli leaf contains two observations with outcomes $(1,0)$. Compute the one-step Newton leaf update when their current probabilities are $(0.6,0.6)$ and again when they are $(0.9,0.9)$. Use
    $$
    \widetilde\gamma
-   =\frac{\sum_i(y_i-p_i)}{\sum_i p_i(1-p_i)}.
+   =\frac{\sum_i(y_i-p_i)}{\sum_i p_i(1-p_i)},
    $$
-   Explain why the second update has larger magnitude even though every pseudo-residual remains between $-1$ and $1$.
+   where both sums run over the observations in the leaf. Explain why the second update has larger magnitude even though every pseudo-residual remains between $-1$ and $1$.
 
 *Exam level: suitable as-is. Parts 1--2 derive the classification gradients, Part 3 checks the boundary, Part 4 applies the initialization, and Part 5 distinguishes bounded pseudo-residuals from a potentially large Newton leaf correction.*
 :::

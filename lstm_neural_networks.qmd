@@ -28,7 +28,7 @@ For optional visual intuition, [Christopher Olah's illustrated LSTM tutorial](ht
 
 LSTM networks, introduced by @HochreiterSchmidhuber1997, extend plain RNNs by adding a gating mechanism that controls long-term information flow; the forget gate, central to the modern form of the cell, was added later by @GersSchmidhuberCummins2000. The notation below lists the quantities that the LSTM tracks at each time step.
 
-At each time step $t$, an LSTM cell maintains the following quantities, where $H$ is the number of hidden units and $p$ the input dimension. To keep the gate equations light, we drop the boldface used for vectors in the [RNN chapter](recurrent_neural_networks.qmd): $x_t$, $h_t$, $C_t$, and the gates below are all vectors of the stated dimensions, and the weight matrices $W_f, W_i, W_c, W_o$ are likewise set without boldface.
+At each time step $t$, an LSTM cell maintains the following quantities, where $H$ is the number of hidden units and $p$ the input dimension. To keep the gate equations light, we drop the boldface used for vectors in the [RNN chapter](recurrent_neural_networks.qmd): $x_t$, $h_t$, $C_t$, and the gates below are all vectors of the stated dimensions, and the weight matrices $W_f, W_i, W_c, W_o$ are likewise set without boldface. The uppercase $C_t$ is the LSTM literature's standard symbol for the cell state; like every architecture quantity here, it is a deterministic function of the inputs and weights, so the capital letter does not mark a random variable.
 
 - **Input**: $x_t \in \mathbb{R}^p$, the current input vector
 - **Hidden state**: $h_t \in \mathbb{R}^H$, the output of the LSTM cell, similar to RNN hidden states
@@ -195,18 +195,18 @@ Two practical differences deserve mention. First, the parameter count roughly qu
 
 To see how LSTMs are used in current econometric research, consider two closely related lines of work in empirical asset pricing: the return-prediction approach of @GuKellyXiu2020 and the no-arbitrage approach of @ChenPelgerZhu2024, which embeds an LSTM at its core.
 
-**Two research objectives.** Both papers ask whether neural networks can improve on linear specifications of the relation between firm characteristics, macroeconomic information, and stock returns, but they target different objects. @GuKellyXiu2020 predict returns, whereas @ChenPelgerZhu2024 estimate a no-arbitrage **stochastic discount factor (SDF)**, the pricing kernel implied by the absence of arbitrage. Let $\mathcal{I}_{i,t}$ denote the macroeconomic and firm-specific predictors available for stock $i$ at time $t$, and define the conditional-mean target
+**Two research objectives.** Both papers ask whether neural networks can improve on linear specifications of the relation between firm characteristics, macroeconomic information, and stock returns, but they target different objects. @GuKellyXiu2020 predict returns, whereas @ChenPelgerZhu2024 estimate a no-arbitrage **stochastic discount factor (SDF)**, the pricing kernel implied by the absence of arbitrage. Let $\mathcal{I}_{i,t}$ denote the macroeconomic and firm-specific predictors available for stock $i$ at time $t$, write $R^e_{i,t+1}$ for the random next-month excess return of stock $i$ and $r^e_{i,t+1}$ for its realization, and define the conditional-mean target
 $$
-m_{i,t}=\mathbb{E}[r_{i,t+1}\mid\mathcal{I}_{i,t}].
+m_{i,t}=\mathbb{E}[R^e_{i,t+1}\mid\mathcal{I}_{i,t}].
 $$
 A linear characteristic model restricts this target to $m_{i,t}=\beta_0+\sum_{k=1}^{K}\beta_k\,\text{characteristic}_{i,t,k}$, whereas a neural network uses a flexible function $m_{i,t}=f_\theta(\mathcal{I}_{i,t})$. The latter permits nonlinearities and interactions that would otherwise have to be chosen manually. The two papers differ in whether that flexibility is disciplined by a prediction loss or by asset-pricing moment restrictions.
 
 **Return prediction with a feed-forward network.** @GuKellyXiu2020 frame the task as a large-scale supervised prediction problem: a panel regression with a flexible functional form.
 
 -   **Inputs ($\mathbf{x}_{i,t}$):** In the paper's baseline, 94 firm-specific characteristics for stock $i$ at time $t$ (e.g., size, value, momentum, profitability), which are further interacted with eight aggregate time-series predictors and combined with industry indicators—over 900 baseline signals in total. The illustration below uses the 94 characteristics alone.
--   **Target ($y_{i,t+1}$):** The realized excess return of stock $i$ in the next month.
+-   **Target ($r^e_{i,t+1}$):** The realized excess return of stock $i$ in the next month.
 -   **Objective:** Train a neural network $f_\theta$ to minimize the mean squared error (MSE) between predicted and realized returns over a large dataset of all U.S. stocks from 1957 to 2016.
-    $$ \min_\theta \frac{1}{N \cdot T} \sum_{i,t} (r_{i,t+1} - f_\theta(\mathbf{x}_{i,t}))^2 $$
+    $$ \min_\theta \frac{1}{N \cdot T} \sum_{i,t} (r^e_{i,t+1} - f_\theta(\mathbf{x}_{i,t}))^2 $$
     The display is schematic: the U.S. stock panel is unbalanced, so the actual average runs over the observed stock-month pairs rather than all $N \cdot T$ combinations.
 
 The trained network is a **return forecaster**: economics enters primarily through the target, predictors, and portfolio evaluation, rather than through a no-arbitrage estimating equation. A natural architecture is a plain feed-forward network for the cross-sectional relationship; @fig-gkx-architecture sketches its shape.
@@ -231,10 +231,10 @@ The depth of the network allows it to learn a **hierarchy of features**. For exa
 
 **From prediction to a no-arbitrage objective.** @ChenPelgerZhu2024 take a deliberately different route. Rather than forecasting returns, they estimate $M_{t+1}$ directly, and they replace the MSE objective with Euler-equation restrictions that characterize admissible SDFs:
 $$
-\mathbb{E}\big[M_{t+1}\, R^e_{i,t+1}\, g(I_t, I_{i,t})\big] = 0
+\mathbb{E}\big[M_{t+1}\, R^e_{i,t+1}\, g(\mathcal{I}_t, \mathcal{I}_{i,t})\big] = 0
 \quad \text{for all conditioning functions } g,
 $$
-where $R^e_{i,t+1}$ is the excess return on stock $i$, $I_t$ and $I_{i,t}$ collect the macroeconomic and firm-specific information available at time $t$, and $g(\cdot)$ provides test assets, or instruments. In generalized method of moments (GMM), parameters are chosen to make sample analogues of model-implied moment restrictions as close to zero as possible. Conditional GMM allows those restrictions to be multiplied by functions of information available at time $t$; here, $g$ creates those functions. Their sample covers U.S. stocks from 1967 to 2016 and includes 46 firm characteristics and 178 macroeconomic time series. The estimation principle is therefore conditional GMM, not least-squares prediction. The authors argue that this distinction carries real weight: in their comparisons, machine-learning models trained on a pure prediction objective can perform *worse* than linear models that impose no-arbitrage.
+where $R^e_{i,t+1}$ is the excess return on stock $i$ as above, $\mathcal{I}_t$ and $\mathcal{I}_{i,t}$ collect the macroeconomic and firm-specific information available at time $t$, and $g(\cdot)$ provides test assets, or instruments. In generalized method of moments (GMM), parameters are chosen to make sample analogues of model-implied moment restrictions as close to zero as possible. Conditional GMM allows those restrictions to be multiplied by functions of information available at time $t$; here, $g$ creates those functions. Their sample covers U.S. stocks from 1967 to 2016 and includes 46 firm characteristics and 178 macroeconomic time series. The estimation principle is therefore conditional GMM, not least-squares prediction. The authors argue that this distinction carries real weight: in their comparisons, machine-learning models trained on a pure prediction objective can perform *worse* than linear models that impose no-arbitrage.
 
 **A recurrent macro state.** Motivated by time-varying risk premia and a persistent macroeconomic state, @ChenPelgerZhu2024 use an LSTM to process the macroeconomic sequence and compress it into a small hidden state $h_t$. Feeding all 178 raw macro series into the SDF network each month would treat the latest releases as the complete state, whereas $h_t$ is a learned, low-dimensional summary of macroeconomic *history*. This state vector enters the SDF network alongside the firm characteristics.
 
@@ -274,10 +274,10 @@ knitr::include_graphics(paths)
 This architecture allows the model to learn a state-dependent SDF: the discount factor is built from portfolio weights $\omega$ that depend on both firm-level and macro information,
 
 $$
-M_{t+1} = 1 - \sum_{i} \omega\big(\text{characteristics}_{i,t},\, h_t\big)\, R^e_{i,t+1},
+M_{t+1} = 1 - \sum_{i=1}^{N_t} \omega\big(\text{characteristics}_{i,t},\, h_t\big)\, R^e_{i,t+1},
 $$
 
-where the weight function $\omega$ is a feed-forward network and $h_t$ is the LSTM's macro state.
+where $N_t$ is the number of stocks observed at time $t$, the weight function $\omega$ is a feed-forward network, and $h_t$ is the LSTM's macro state.
 
 To see identification within this restricted class, collect the excess returns in a vector $R^e_{t+1}$ and write $M_{t+1}=1-\omega_t^{\top}R^e_{t+1}$. The conditional Euler equation implies
 $$

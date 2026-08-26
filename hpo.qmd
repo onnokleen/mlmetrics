@@ -341,7 +341,7 @@ $$
 \mathbb{E}\left[\max\{c_{\min,t} - C(\lambda), 0\} \mid \mathcal{D}_t\right],
 $$
 
-where $C(\lambda)$ denotes the surrogate's random prediction of the latent risk at $\lambda$, with $C(\lambda)\mid \mathcal{D}_t \sim \mathcal{N}(m_t(\lambda), s_t(\lambda)^2)$.
+where $C(\lambda)$ denotes the surrogate's random prediction of the latent risk at $\lambda$, with $C(\lambda)\mid \mathcal{D}_t \sim \mathcal{N}(m_t(\lambda), s_t(\lambda)^2)$. The three symbols fit the book's case convention: $c(\lambda)$ is the fixed unknown risk, $\hat c_j$ its noisy observed evaluation, and the uppercase $C(\lambda)$ the surrogate's random belief about $c(\lambda)$ given the archive $\mathcal{D}_t$.
 
 Defining the incumbent is straightforward only for noiseless evaluations. The classical choice $c_{\min,t} = \min_{1 \le j \le t} \hat c_j$ uses the smallest observed validation loss. With noisy validation, however, that minimum tends to select a favorable noise realization. Treating it as the latent benchmark can therefore distort acquisition values and candidate rankings; the direction of the ranking change need not be the same for every candidate. One practical plug-in choice is
 $$
@@ -445,12 +445,12 @@ GP BO is most attractive when each evaluation is expensive and the search dimens
 - noisy validation scores can make the surrogate unstable
 - the algorithm is more sequential than plain random search
 
-**Tree-structured Parzen estimator (TPE).** TPE is often used as a practical Bayesian-optimization alternative. Instead of modeling the loss as a function of $\lambda$ directly, TPE splits past trials into a good set and a bad set using a loss threshold $y^\ast$. Let $y$ denote the observed validation loss of a trial. In an idealized continuous setting without ties, $y^\ast$ can be chosen as the $\gamma$-quantile so that a fraction $\gamma$ of past trials falls into the good set. With a finite archive and tied losses, an implementation also needs a deterministic rank or tie-breaking rule. TPE then fits two regularized densities:
+**Tree-structured Parzen estimator (TPE).** TPE is often used as a practical Bayesian-optimization alternative. Instead of modeling the loss as a function of $\lambda$ directly, TPE splits past trials into a good set and a bad set using a loss threshold $c^\ast$. As in the surrogate notation above, $C$ denotes the random validation loss of a trial and $c$ an observed value. In an idealized continuous setting without ties, $c^\ast$ can be chosen as the $\gamma$-quantile so that a fraction $\gamma$ of past trials falls into the good set. With a finite archive and tied losses, an implementation also needs a deterministic rank or tie-breaking rule. TPE then fits two regularized densities:
 
 $$
-\ell(\lambda) = p(\lambda \mid y \le y^\ast),
+\ell(\lambda) = p(\lambda \mid C \le c^\ast),
 \qquad
-g(\lambda) = p(\lambda \mid y > y^\ast).
+g(\lambda) = p(\lambda \mid C > c^\ast).
 $$
 
 The search idea is simple: propose candidates that look likely under the good-trial density and unlikely under the bad-trial density. Where both fitted densities are positive, this means favoring large values of
@@ -470,7 +470,7 @@ One practical TPE workflow can be summarized as follows.
 
 1. Evaluate an initial set of randomly sampled hyperparameter configurations.
 2. Split the evaluated archive into a good set and a bad set using a $\gamma$-quantile threshold on the observed validation losses, with an explicit rule for ties.
-3. Fit regularized densities $\ell(\lambda)=p(\lambda\mid y \le y^\ast)$ and $g(\lambda)=p(\lambda\mid y > y^\ast)$ so that candidate ratios remain well-defined.
+3. Fit regularized densities $\ell(\lambda)=p(\lambda\mid C \le c^\ast)$ and $g(\lambda)=p(\lambda\mid C > c^\ast)$ so that candidate ratios remain well-defined.
 4. Sample candidate configurations from the good density and score them by the ratio $\ell(\lambda)/g(\lambda)$.
 5. Evaluate the highest-scoring candidate, update the archive, and repeat until the budget is exhausted.
 
@@ -758,7 +758,7 @@ plt.show()
 
 The left panel shows that expected improvement does not simply repeat one point. After exploring the boundaries and intermediate leaf sizes, the search concentrates on high learning rates, where the best validation scores occur for this fixed 100-tree ensemble. In the right panel, Bayesian optimization improves on the shared initialization by its sixth evaluation and reaches its selected validation loss by evaluation seven. Random search finds no improvement over the best shared initialization within the remaining ten trials. This realized path illustrates sample efficiency under one seed; it does not imply that Bayesian optimization wins for every random initialization or search space.
 
-After both searches finish, each selected configuration is refitted on the combined training and validation observations. The following table reports the search objective and three descriptive test metrics. The Brier score is the mean squared error of a binary probability forecast, $N_{\mathrm{test}}^{-1}\sum_i(y_i-\hat p_i)^2$. The best value in each performance column is highlighted dynamically.
+After both searches finish, each selected configuration is refitted on the combined training and validation observations. The following table reports the search objective and three descriptive test metrics. The Brier score is the mean squared error of a binary probability forecast, $N_{\mathrm{test}}^{-1}\sum_{i=1}^{N_{\mathrm{test}}}(y_i-\hat p_i)^2$. The best value in each performance column is highlighted dynamically.
 
 ```{python}
 #| label: tbl-hpo-credit-bo
@@ -1091,9 +1091,9 @@ For every inner split, fit the standardization constants and imputation rule usi
 
 Suppose you are tuning a forecasting model with four hyperparameters: `learning_rate`, `max_depth`, `min_samples_leaf`, and `subsample`. Each model evaluation requires a full rolling-window validation exercise and is therefore expensive.
 
-1. **Derive the closed form of expected improvement.** Under the Gaussian surrogate $C(\lambda)\mid\mathcal{D}_t \sim \mathcal{N}(m,s^2)$ with $s>0$, start from the definition
+1. **Derive the closed form of expected improvement.** Under the Gaussian surrogate $C(\lambda)\mid\mathcal{D}_t \sim \mathcal{N}(m,s^2)$ with $s>0$—writing $m=m_t(\lambda)$, $s=s_t(\lambda)$, and $c_{\min}=c_{\min,t}$ to keep the algebra light—start from the definition
    $$
-   \operatorname{EI}(\lambda)=\mathbb{E}\big[\max\{c_{\min}-C(\lambda),0\}\big]
+   \operatorname{EI}(\lambda)=\mathbb{E}\big[\max\{c_{\min}-C(\lambda),0\}\mid\mathcal{D}_t\big]
    $$
    and show that
    $$
@@ -1112,11 +1112,11 @@ Suppose you are tuning a forecasting model with four hyperparameters: `learning_
    z=\frac{c_{\min}-m}{s},
    $$
    where $\Phi$ and $\phi$ are the standard normal CDF and PDF. Using $\Phi(3)\approx 0.999$, $\phi(3)\approx 0.004$, $\Phi(-0.2)\approx 0.421$, and $\phi(-0.2)\approx 0.391$, compute $\mathrm{EI}$ for both configurations and explain which one the acquisition function prefers.
-4. **Show why TPE ranks candidates by the density ratio.** TPE models the trials as $p(\lambda \mid y) = \ell(\lambda)$ if $y \le y^\ast$ and $g(\lambda)$ if $y > y^\ast$, with $\mathbb{P}(y \le y^\ast) = \gamma$. Assume $0<\gamma<1$, positive fitted densities at the candidate, and a continuous loss distribution with no mass at $y^\ast$. Using $p(\lambda) = \gamma\,\ell(\lambda) + (1-\gamma)\,g(\lambda)$ and the definition
+4. **Show why TPE ranks candidates by the density ratio.** TPE models the trials as $p(\lambda \mid c) = \ell(\lambda)$ if $c \le c^\ast$ and $g(\lambda)$ if $c > c^\ast$, with $\mathbb{P}(C \le c^\ast) = \gamma$ for the random validation loss $C$. Assume $0<\gamma<1$, positive fitted densities at the candidate, and a continuous loss distribution with no mass at $c^\ast$. Using $p(\lambda) = \gamma\,\ell(\lambda) + (1-\gamma)\,g(\lambda)$ and the definition
    $$
-   \operatorname{EI}(\lambda) = \int_{-\infty}^{y^\ast} (y^\ast - y)\, p(y \mid \lambda)\, dy,
+   \operatorname{EI}(\lambda) = \int_{-\infty}^{c^\ast} (c^\ast - c)\, p(c \mid \lambda)\, dc,
    $$
-   together with Bayes' rule $p(y\mid\lambda) = p(\lambda\mid y)p(y)/p(\lambda)$, show that
+   together with Bayes' rule $p(c\mid\lambda) = p(\lambda\mid c)p(c)/p(\lambda)$, show that
    $$
    \operatorname{EI}(\lambda)
    =
@@ -1138,7 +1138,7 @@ Standardize first: write $C = m + sZ$ so the expectation becomes an integral aga
 :::{.callout-warning collapse="true"}
 ## Hint for Part 4
 
-Over the whole region of integration $y \le y^\ast$, the conditional density $p(\lambda\mid y)$ equals $\ell(\lambda)$ and does not depend on $y$—so it factors out of the integral, leaving something that does not involve $\lambda$ at all.
+Over the whole region of integration $c \le c^\ast$, the conditional density $p(\lambda\mid c)$ equals $\ell(\lambda)$ and does not depend on $c$—so it factors out of the integral, leaving something that does not involve $\lambda$ at all.
 :::
 
 :::{.callout-tip collapse="true"}
@@ -1188,15 +1188,15 @@ Configuration B has slightly higher EI despite a worse posterior mean. The high 
 
 **Part 4: The TPE density-ratio criterion**
 
-Apply Bayes' rule inside the integral. Since $p(y\mid\lambda) = p(\lambda\mid y)p(y)/p(\lambda)$ and $p(\lambda\mid y) = \ell(\lambda)$ throughout the region $y \le y^\ast$,
+Apply Bayes' rule inside the integral. Since $p(c\mid\lambda) = p(\lambda\mid c)p(c)/p(\lambda)$ and $p(\lambda\mid c) = \ell(\lambda)$ throughout the region $c \le c^\ast$,
 $$
 \operatorname{EI}(\lambda)
 =
-\frac{1}{p(\lambda)}\int_{-\infty}^{y^\ast}(y^\ast-y)\,\ell(\lambda)\,p(y)\,dy
+\frac{1}{p(\lambda)}\int_{-\infty}^{c^\ast}(c^\ast-c)\,\ell(\lambda)\,p(c)\,dc
 =
-\frac{\ell(\lambda)}{p(\lambda)}\underbrace{\int_{-\infty}^{y^\ast}(y^\ast-y)\,p(y)\,dy}_{=:\,A},
+\frac{\ell(\lambda)}{p(\lambda)}\underbrace{\int_{-\infty}^{c^\ast}(c^\ast-c)\,p(c)\,dc}_{=:\,A},
 $$
-where $A>0$ depends only on $y^\ast$ and the marginal distribution of the losses, not on $\lambda$. Substituting the mixture $p(\lambda) = \gamma\ell(\lambda) + (1-\gamma)g(\lambda)$ and dividing numerator and denominator by the positive $\ell(\lambda)$,
+where $A>0$ depends only on $c^\ast$ and the marginal distribution of the losses, not on $\lambda$. Substituting the mixture $p(\lambda) = \gamma\ell(\lambda) + (1-\gamma)g(\lambda)$ and dividing numerator and denominator by the positive $\ell(\lambda)$,
 $$
 \operatorname{EI}(\lambda)
 =
