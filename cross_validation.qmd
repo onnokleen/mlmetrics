@@ -219,12 +219,12 @@ If these steps are computed on the full dataset before cross-validation, the val
 
 :::{.callout-note title="Question for Reflection"}
 
-Suppose excess returns are winsorized before K-fold cross-validation. Analyst A clips returns at thresholds fixed *ex ante* at $-5\%$ and $+5\%$. Analyst B clips returns at the sample's 1st and 99th percentiles, computed once from the full dataset. Which procedure leaks validation information, and how should the data-dependent procedure be implemented instead?
+Suppose lagged excess returns used as predictors are winsorized before K-fold cross-validation. Analyst A clips these predictor values at thresholds fixed *ex ante* at $-5\%$ and $+5\%$. Analyst B clips them at the sample's 1st and 99th percentiles, computed once from the full dataset. Which procedure leaks validation information, and how should the data-dependent procedure be implemented instead?
 :::
 
 :::{.callout-tip collapse="true" title="Suggested Answer"}
 
-Analyst A does not create leakage, provided the $\pm5\%$ thresholds were genuinely fixed before looking at the sample. Analyst B does create leakage because every validation fold helps determine the full-sample percentiles. To make the second procedure reliable, estimate the 1st and 99th percentiles using only the training portion of each fold, then apply those fitted thresholds unchanged to that fold's validation observations. The relevant distinction is not winsorization itself, but whether its thresholds were learned from held-out data.
+Analyst A does not create leakage, provided the $\pm5\%$ thresholds were genuinely fixed before looking at the sample. Analyst B does create leakage because every validation fold helps determine the full-sample percentiles. To make the second procedure reliable, estimate the 1st and 99th percentiles using only the training portion of each fold, then apply those fitted thresholds unchanged to that fold's validation predictor values. The relevant distinction is not winsorization itself, but whether its thresholds were learned from held-out data.
 :::
 
 **Visualizing K-Fold Cross-Validation**
@@ -1045,7 +1045,7 @@ $$
 \qquad
 \hat{R}_B = R_0+\eta_B,
 $$
-where $\eta_A$ and $\eta_B$ have mean zero and $\mathbb{P}(\eta_A\neq\eta_B)>0$, so the two estimates do not coincide with certainty. They need not be independent: candidate models evaluated on the same validation observations will generally have dependent score errors.
+where expectations are taken over the validation sample with the fitted rules $\hat f_A$ and $\hat f_B$ held fixed, $\eta_A$ and $\eta_B$ have mean zero, and $\mathbb{P}(\eta_A\neq\eta_B)>0$, so the two estimates do not coincide with certainty. They need not be independent: candidate models evaluated on the same validation observations will generally have dependent score errors.
 
 The researcher selects the model with the smaller validation estimate.
 
@@ -1080,17 +1080,9 @@ The researcher selects the model with the smaller validation estimate.
    \mathbb E[\min(\hat R_A,\hat R_B)]\leq \min(R_A,R_B).
    $$
    Explain why exact equality of the candidates' risks is therefore not required for selection optimism.
-5. Relate these results to repeated specification search in econometrics, and explain why an untouched test set or nested cross-validation is needed after model selection.
+5. An econometrician compares specifications $A$ and $B$ on the same validation sample, selects $\hat s\in\arg\min_{s\in\{A,B\}}\hat R_s$, and reports $\min(\hat R_A,\hat R_B)$ as the risk of the selected specification. Using Part 4 and $R_{\hat s}\geq\min(R_A,R_B)$, compare the expected reported score with $\mathbb E[R_{\hat s}]$. Then explain why evaluating the selected specification on an untouched test set, or in the outer loop of nested cross-validation, avoids this selection-induced optimism.
 
 *Exam level. The exercise formalizes a central point of the chapter: validation is noisy, and searching across specifications makes the best observed score look too good.*
-:::
-
-:::{.callout-warning collapse="true"}
-## Hint for Part 1
-Use the identity
-$$
-\min(a,b)=\frac{a+b-|a-b|}{2}.
-$$
 :::
 
 :::{.callout-warning collapse="true"}
@@ -1099,11 +1091,6 @@ First compute $\operatorname{Var}(\eta_A-\eta_B)$. Under the joint Gaussian assu
 $$
 \mathbb{E}|Z|=\tau\sqrt{\frac{2}{\pi}}.
 $$
-:::
-
-:::{.callout-warning collapse="true"}
-## Hint for Part 4
-Take expectations of both pointwise inequalities and then combine the resulting upper bounds.
 :::
 
 :::{.callout-tip collapse="true"}
@@ -1187,19 +1174,32 @@ $$
 \mathbb E[\min(\hat R_A,\hat R_B)]
 \leq \min(R_A,R_B).
 $$
-Thus the exact-tie calculation in Parts 1–3 makes the mechanism transparent but is not required for the weak optimism inequality. The inequality is strict whenever selection sometimes favors a sufficiently lucky estimate rather than the genuinely lower-risk candidate.
+Thus the exact-tie calculation in Parts 1–3 makes the mechanism transparent but is not required for the weak optimism inequality. More precisely, writing $x^+:=\max\{x,0\}$ for the positive part, if $R_A\leq R_B$, then
+$$
+\min(\hat R_A,\hat R_B)
+=\hat R_A-(\hat R_A-\hat R_B)^+,
+$$
+and hence
+$$
+\mathbb E[\min(\hat R_A,\hat R_B)]
+=R_A-\mathbb E[(\hat R_A-\hat R_B)^+].
+$$
+The inequality is therefore strict exactly when $\mathbb P(\hat R_A>\hat R_B)>0$: with positive probability, validation selects candidate $B$ even though $A$ has weakly lower risk.
 
 **Part 5: Why Specification Search Creates Bias**
 
 Each candidate validation score is unbiased when viewed separately:
 $$
-\mathbb{E}[\hat{R}_A]=\mathbb{E}[\hat{R}_B]=R_0.
+\mathbb{E}[\hat{R}_s]=R_s,
+\qquad s\in\{A,B\}.
 $$
-But the researcher does not report one fixed model's score; they report the *smaller* of two noisy scores. The minimum operator systematically picks negative noise realizations. That is why the selected validation score is optimistically biased.
-
-The same logic applies when an econometrician searches across many lag lengths, control sets, regularization parameters, or model classes using the same validation sample. The "best" validation score partly reflects good luck.
-
-An untouched test set or nested cross-validation is needed because model selection has already used the validation information. A final reliable assessment requires a fresh evaluation sample that was not involved in the search.
+For the selected specification, Part 4 gives
+$$
+\mathbb E[\min(\hat R_A,\hat R_B)]
+\leq \min(R_A,R_B)
+\leq \mathbb E[R_{\hat s}].
+$$
+The reported minimum validation score is therefore optimistic for the expected risk of the selected specification. An untouched test set avoids this bias because, conditional on the selected fitted rule, its score is computed from fresh observations that played no role in forming $\hat s$. The outer validation fold in nested cross-validation serves the same role for the full selection procedure.
 :::
 
 :::{.callout-note}
@@ -1211,7 +1211,7 @@ Y_{t+1}=\beta Z_t+U_{t+1},
 \qquad
 Z_t=\rho Z_{t-1}+\xi_t,
 $$
-where $|\rho|<1$, $\beta\neq 0$, and $\{\xi_t\}$ and $\{U_t\}$ are mutually independent i.i.d. innovation sequences with mean zero and variances $\sigma_\xi^2>0$ and $\sigma_U^2$, respectively. Treat $\beta$ and $\rho$ as known, so the mean squared prediction errors below are population quantities net of parameter-estimation error.
+where $|\rho|<1$, $\beta\neq 0$, and $\{\xi_t\}$ and $\{U_t\}$ are mutually independent i.i.d. innovation sequences with mean zero and variances $\sigma_\xi^2>0$ and $\sigma_U^2$, respectively. Treat $\beta$ and $\rho$ as known, so the mean squared prediction error (MSPE) quantities below are population quantities net of parameter-estimation error.
 
 Assume the predictor $Z_t$ is published with a one-period delay, so at forecast origin $t$ we observe $Z_{t-1}$ but not $Z_t$. Consistently with the chapter's definition, let the forecast-origin information set be generated by the available predictor and outcome histories,
 $$
@@ -1229,7 +1229,7 @@ $$
 
 1. Derive the feasible real-time forecast $\hat{y}^{\,\text{rt}}_{t+1\mid t}$ as a function of $Z_{t-1}$. Then derive its forecast error and MSPE from the two equations of the data-generating process; do not leave the answer in conditional-expectation form.
 2. Derive the oracle forecast error and its MSPE. Compute the exact MSPE gap between the feasible and oracle rules, and identify the innovation that generates this gap.
-3. A researcher constructs the row dated $t$ using the final-vintage value of $Z_t$ and evaluates the resulting oracle rule. State precisely which $\mathcal{F}_t$-measurability condition fails, explain why changing from random to chronological splits does not repair the mis-dated feature, and specify both the feature-timing correction and the split restriction needed for a feasible real-time validation exercise.
+3. A researcher constructs the predictor--outcome pair for forecast origin $t$ using $Z_t$, even though $Z_t$ is published only at $t+1$, and evaluates the resulting oracle rule. State precisely which $\mathcal{F}_t$-measurability condition fails, explain why changing from random to chronological splits does not repair the mis-dated feature, and specify both the feature-timing correction and the split restriction needed for a feasible real-time validation exercise.
 
 *Exam level. The exercise formalizes the central econometric issue in time-series cross-validation: the validation design must match the real-time information set.*
 :::
@@ -1242,11 +1242,6 @@ $$
 =
 \beta\,\mathbb{E}[Z_t\mid \mathcal{F}_t].
 $$
-:::
-
-:::{.callout-warning collapse="true"}
-## Hint for Part 3
-A chronological split controls which rows enter training; it does not change which vintage of a predictor was placed in each row.
 :::
 
 :::{.callout-tip collapse="true"}
@@ -1318,9 +1313,9 @@ where strict positivity follows from $\beta\neq0$ and $\sigma_\xi^2>0$. The gap 
 
 **Part 3: Measurability Failure and Its Correction**
 
-The final-vintage feature $Z_t$ is not $\mathcal F_t$-measurable because its publication occurs only after forecast origin $t$. A protocol that places it in the row dated $t$ therefore evaluates performance for an infeasible forecasting setup and understates achievable real-time MSPE by $\beta^2\sigma_\xi^2$ in this data-generating process.
+The feature $Z_t$ is not $\mathcal F_t$-measurable. Indeed, $Z_t=\rho Z_{t-1}+\xi_t$, where $Z_{t-1}$ is $\mathcal F_t$-measurable but the nondegenerate innovation $\xi_t$ is independent of $\mathcal F_t$. A protocol that places $Z_t$ in the predictor--outcome pair for origin $t$ therefore evaluates an infeasible forecasting setup and understates achievable real-time MSPE by $\beta^2\sigma_\xi^2$ in this data-generating process.
 
-Switching from random to chronological splits changes which dated rows are used for estimation, but it cannot repair the contents of a row whose feature availability was recorded incorrectly. The feature-timing correction is to replace the final-vintage $Z_t$ by the value actually observable at origin $t$, namely $Z_{t-1}$ here, and to preserve the appropriate real-time vintage for revised data. The split correction is to train only on observations available by each forecast origin and validate on a subsequent block, as in an expanding or sliding pseudo-out-of-sample design. Both corrections are necessary: feasible rows do not excuse future training data, and chronological rows do not excuse infeasible features.
+Switching from random to chronological splits changes which dated predictor--outcome pairs are used for estimation, but it cannot repair a pair whose feature timing is wrong. The feature-timing correction is to replace $Z_t$ by the value actually observable at origin $t$, namely $Z_{t-1}$ here. The split correction is to train only on observations available by each forecast origin and validate on a subsequent block, as in an expanding or sliding pseudo-out-of-sample design. Both corrections are necessary: feasible predictors do not excuse future training data, and chronological ordering does not excuse infeasible predictors.
 :::
 
 :::: {.content-visible when-format="html"}

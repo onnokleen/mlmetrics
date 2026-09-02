@@ -216,7 +216,7 @@ If a macroeconomic predictor is published with a one-month delay and later revis
 
 :::{.callout-tip collapse="true" title="Suggested Answer"}
 
-$\mathcal{F}_t$ should contain only the real-time data vintage available at the forecast origin. With a one-month publication delay, the current-month value is not available, and later revisions are also unavailable. The RNN input should therefore use the last released vintage and respect the release calendar, rather than the revised historical series that becomes available only later.
+$\mathcal{F}_t$ should contain only the data vintage available at forecast origin $t$. With a one-month publication delay, the current-month value is not yet available, and revisions released after $t$ are also unavailable. Each training row should therefore use the vintage that had been released by its own forecast origin, rather than values from the revised historical series available later.
 :::
 
 
@@ -315,13 +315,13 @@ In this exercise, we examine the vanishing gradient problem in RNNs. Consider a 
 **Parts:**
 
 1. **Derive the gradient formula for backpropagation through time.** Using the chain rule, derive the expression for $\frac{\partial L_T}{\partial W_{hh}}$. Show that it involves the term $\frac{\partial h_T}{\partial h_t}$ for each time step $t = 1, 2, \ldots, T$ and express it as a product of derivatives.
-2. **Prove gradient vanishing conditions.** Show that $\left|\frac{\partial h_T}{\partial h_t}\right| \leq |W_{hh}|^{T-t}$ and explain why this leads to exponentially vanishing gradients when $|W_{hh}| < 1$.
+2. **Bound early-step gradient contributions.** Show that $\left|\frac{\partial h_T}{\partial h_t}\right| \leq |W_{hh}|^{T-t}$ and explain why, when $|W_{hh}| < 1$, the contribution associated with an earlier time $t$ is bounded by a geometrically decaying factor.
 3. **Analyze learning implications.** Explain why vanishing gradients weaken parameter updates associated with early time steps. Then explain why the bound does not imply a universal maximum sequence length and identify what determines how quickly the contribution of a distant state fades.
 4. **Derive data memory in an AR(1).** Consider a stationary first-order autoregressive (AR(1)) process $Y_t = \phi Y_{t-1} + U_t$ with $|\phi| < 1$ and independent and identically distributed (i.i.d.) mean-zero innovations $U_t$. Derive the impulse response $\partial Y_{t+k} / \partial U_t$ and show that it decays geometrically in $k$, formally paralleling the bound from Part 2.
 5. **Separate data memory from model memory.** Explain which object's memory is described by the AR(1) impulse response and which object's memory is described by the bound from Part 2.
-6. **Locate the learning signal.** An RNN is trained to forecast the AR(1) process one step ahead, observing the current value as its input at each step ($x_t = y_t$), with a one-step-ahead loss at each forecast origin. Explain why the vanishing-gradient bound does *not* prevent this network from learning the AR(1) dynamics, identifying the time gap across which the loss-relevant signal about $\phi$ must travel and whether $W_{hh}$ must equal $\phi$.
+6. **Locate the learning signal.** An RNN is trained to forecast the AR(1) process one step ahead, observing the current value as its input at each step ($x_t = y_t$), with a one-step-ahead loss at each forecast origin. Explain why the vanishing-gradient bound does *not* prevent this network from receiving a local learning signal about the AR(1) dynamics, identifying the time gap across which the loss-relevant signal about $\phi$ must travel and whether $W_{hh}$ must equal $\phi$.
 7. **Trace a genuinely long-gap signal.** Now let the data-generating process be $Y_{t+1} = \psi X_{t-k} + U_{t+1}$ for a large delay $k$, where the network observes the realized scalar input sequence $\{x_t\}$, the intermediate inputs $X_{t-k+1}, \ldots, X_t$ carry no information about $Y_{t+1}$, and training again uses a one-step-ahead loss at each origin. Explain why the only gradient path connecting the loss to the relevant input bridges $k$ recurrence steps.
-8. **Explain the lock-in mechanism.** Using the dual role of $\partial h_T/\partial h_t$ as a measure of fitted-state sensitivity and as a factor in the parameter gradient, explain why a contractive network can remain in a short-memory regime during training in the delayed-signal design of Part 7.
+8. **Explain the lock-in mechanism.** Suppose the one-step sensitivities along the relevant fitted path satisfy $|W_{hh}\tanh'(z_j)|\leq\kappa<1$ uniformly in $j$. Using the dual role of $\partial h_T/\partial h_t$ as a measure of fitted-state sensitivity and as a factor in the parameter gradient, explain why the network can remain in a short-memory regime during training in the delayed-signal design of Part 7.
 
 *Exam level, deliberately long as a whole. Parts 1–3 form one exam question. Parts 4–8 form a second only if the decomposition and bound from Parts 1–2 are supplied with the question.*
 :::
@@ -377,7 +377,12 @@ $$
 **Calculating the Indirect Influence (The Chain Rule Through Time)**
 
 
-The term $\frac{\partial L_T}{\partial h_t}$ is more complex. It measures how a change in an early hidden state $h_t$ propagates *all the way to the end* to affect the final loss $L_T$. We must use the chain rule through the sequence of hidden states:
+The term $\frac{\partial L_T}{\partial h_t}$ is more complex. It measures how a change in an early hidden state $h_t$ propagates *all the way to the end* to affect the final loss $L_T$. The state sensitivity is
+$$
+\frac{\partial h_T}{\partial h_t}
+=\prod_{k=t+1}^T \frac{\partial h_k}{\partial h_{k-1}},
+$$
+where the empty product equals one when $t=T$. Applying the chain rule through the sequence of hidden states therefore gives
 $$
 \frac{\partial L_T}{\partial h_t} = \frac{\partial L_T}{\partial h_T} \frac{\partial h_T}{\partial h_{T-1}} \frac{\partial h_{T-1}}{\partial h_{T-2}} \cdots \frac{\partial h_{t+1}}{\partial h_t} = \frac{\partial L_T}{\partial h_T}  \prod_{k=t+1}^T \frac{\partial h_k}{\partial h_{k-1}}
 $$
@@ -408,25 +413,25 @@ $$
 \left|\frac{\partial h_T}{\partial h_t}\right| = \left|\prod_{k=t+1}^T \frac{\partial h_k}{\partial h_{k-1}}\right| \leq |W_{hh}|^{T-t}
 $$
 
-**Exponential vanishing:** When $|W_{hh}| < 1$, we have $|W_{hh}|^{T-t} \to 0$ exponentially as the time gap $(T-t)$ increases. This proves the exponential decay of gradient magnitudes.
+**Exponential vanishing:** When $|W_{hh}| < 1$, we have $|W_{hh}|^{T-t} \to 0$ geometrically as the time gap $(T-t)$ increases. Provided the remaining factors are bounded, the contribution associated with an early time $t$ is therefore bounded by a geometrically decaying factor. This statement concerns early-step contributions, not the sum of all contributions to the parameter gradient.
 
 The bound above is the scalar $H=1$ case in which the recurrent weight $W_{hh}$ is a single real number. For a multidimensional hidden state ($H>1$), $W_{hh}$ is a square matrix and the per-step bound uses the **spectral norm** $\|W_{hh}\|_2$ (the largest singular value):
 $$
 \left\|\frac{\partial \mathbf{h}_T}{\partial \mathbf{h}_t}\right\|_2 \le \prod_{k=t+1}^{T} \|\mathbf{W}_{hh}\|_2 \cdot \|\operatorname{diag}(g'(\mathbf{z}_k))\|_2 \le \|\mathbf{W}_{hh}\|_2^{T-t}.
 $$
-For the *linear* recurrence $\mathbf{h}_t = \mathbf{W}_{hh}\mathbf{h}_{t-1}$—equivalently, when all activation derivatives equal one—the asymptotic decay rate is governed by the **spectral radius** $\rho(\mathbf{W}_{hh}) = \max_i |\lambda_i(\mathbf{W}_{hh})|$, which coincides with the spectral norm when $\mathbf{W}_{hh}$ is normal (e.g., symmetric). For the nonlinear recursion, the time-varying factors $\operatorname{diag}(g'(\mathbf{z}_k))$ prevent such a clean characterization, and the spectral-norm bound above is what remains. The qualitative conclusion is the same as in the scalar case: when the recurrent dynamics are contractive, gradients decay exponentially in $T-t$.
+For the *linear* recurrence $\mathbf{h}_t = \mathbf{W}_{hh}\mathbf{h}_{t-1}$—equivalently, when all activation derivatives equal one—the asymptotic decay rate is governed by the **spectral radius** $\rho(\mathbf{W}_{hh}) = \max_i |\lambda_i(\mathbf{W}_{hh})|$, which coincides with the spectral norm when $\mathbf{W}_{hh}$ is normal (e.g., symmetric). For the nonlinear recursion, the time-varying factors $\operatorname{diag}(g'(\mathbf{z}_k))$ prevent such a clean characterization, and the spectral-norm bound above is what remains. The qualitative conclusion for the pathwise state sensitivity is the same as in the scalar case: uniformly contractive dynamics geometrically attenuate contributions that travel across long gaps.
 
 **Part 3: Learning implications**
 
 The exponential decay has three critical effects on learning:
 
-1. **Dominated parameter updates:** Since $\frac{\partial L_T}{\partial W_{hh}} = \sum_{t=1}^T \frac{\partial L_T}{\partial h_T} \frac{\partial h_T}{\partial h_t} \frac{\partial h_t}{\partial W_{hh}}$, when $\frac{\partial h_T}{\partial h_t}$ becomes exponentially small for early $t$, the gradient sum becomes dominated by recent time steps (large $t$).
+1. **Attenuated early-step contributions:** Since $\frac{\partial L_T}{\partial W_{hh}} = \sum_{t=1}^T \frac{\partial L_T}{\partial h_T} \frac{\partial h_T}{\partial h_t} \frac{\partial h_t}{\partial W_{hh}}$, when $\frac{\partial h_T}{\partial h_t}$ becomes geometrically small for early $t$, those early-step contributions are attenuated. If the remaining local factors are of comparable magnitude and do not cancel, the effective parameter update is then driven mainly by more recent time steps (large $t$).
 
-2. **Loss of long-term information:** The network cannot learn patterns where important information at time $t$ influences the loss at time $T$ when $T-t$ is large, because the gradient signal carrying this information becomes negligibly small.
+2. **Loss of long-term information:** The network receives an exponentially attenuated learning signal for patterns in which information at time $t$ influences the loss at time $T$ with a large gap $T-t$.
 
 3. **No universal sequence cutoff:** The bound does not imply a fixed maximum number of usable lags. The effective decay rate depends on the recurrent weight $|W_{hh}|$ and on the activation derivatives $\tanh'(z_k)$ encountered along the fitted trajectory. Values close to one can preserve signal for many steps; smaller factors make the same signal disappear much sooner. Plain RNNs are therefore unreliable for long-run dependence without architectural or training modifications, but the bound alone does not determine one universal horizon.
 
-The fundamental issue is that learning requires non-negligible gradients to update parameters, but the exponential decay ensures that distant time steps contribute virtually nothing to parameter updates.
+The fundamental issue is that learning requires non-negligible gradients to update parameters. Under the contractive conditions above, the signal transmitted across a long gap is geometrically attenuated, so distant dependencies can exert very little influence on parameter updates.
 
 **Part 4: Data memory in an AR(1)**
 
@@ -442,11 +447,11 @@ which decays geometrically in $k$ because $|\phi| < 1$—formally the same geome
 
 **Part 5: Data memory versus model memory**
 
-The impulse response $\phi^k$ is a property of the *data-generating process*: it describes how a shock at time $t$ propagates into future values of the observed series, and for $\phi$ close to one the data are highly persistent. The bound from Part 2 concerns $\partial h_T / \partial h_t$, which is a property of the *fitted model*: it measures how sensitive the network's state remains to what happened at time $t$. A contractive network—one whose one-step factors $|W_{hh}| \tanh'(z_k)$ stay below one—is therefore itself a short-memory model, whatever the data are.
+The impulse response $\phi^k$ is a property of the *data-generating process*: it describes how a shock at time $t$ propagates into future values of the observed series, and for $\phi$ close to one the data are highly persistent. The bound from Part 2 concerns $\partial h_T / \partial h_t$, which is a property of the *fitted model*: it measures how sensitive the network's state remains to what happened at time $t$. If the one-step factors satisfy $|W_{hh}|\tanh'(z_k)\leq\kappa<1$ uniformly along a path, the fitted network's sensitivity along that path decays geometrically, whatever the persistence of the data.
 
 **Part 6: Why local learning suffices for the AR(1)**
 
-By Part 1, $\partial h_T / \partial h_t$ is also the factor that carries the training signal from the loss back to early time steps—yet for the AR(1) this does not prevent learning. The one-step conditional mean is $\mathbb{E}[Y_{t+1} \mid \mathcal{F}_t] = \phi Y_t$: everything the network needs in order to forecast is contained in its current input, the realized value $x_t = y_t$. The relevant path is therefore $x_t \to h_t \to \widehat y_{t+1\mid t}$, which crosses no recurrent transition after $x_t$ enters the state. The input and output weights can encode the coefficient $\phi$; $W_{hh}$ need not equal or directly represent it. Adjacent-observation forecast errors thus provide a local learning signal without long-range credit assignment.
+By Part 1, $\partial h_T / \partial h_t$ is also the factor that carries the training signal from the loss back to early time steps—yet for the AR(1) this does not prevent the network from receiving a local learning signal about the dynamics. The one-step conditional mean is $\mathbb{E}[Y_{t+1} \mid \mathcal{F}_t] = \phi Y_t$: everything the network needs in order to forecast is contained in its current input, the realized value $x_t = y_t$. The relevant path is therefore $x_t \to h_t \to \widehat y_{t+1\mid t}$, which crosses no recurrent transition after $x_t$ enters the state. The input and output weights can approximate the map $y_t\mapsto\phi y_t$ over the relevant range, with $\tanh$ operating near its linear region. The recurrent term is not required for this one-step target, so $W_{hh}=0$ is compatible with it; in particular, $W_{hh}$ need not equal $\phi$. Adjacent-observation forecast errors thus provide a local learning signal without long-range credit assignment.
 
 **Part 7: The long-gap gradient path**
 
@@ -475,15 +480,15 @@ The parameters are:
 The input sequence is $(x_1, x_2, x_3) = (0.2, -0.5, 0.3)$ and the initial hidden state is $h_0 = 0$. Use the approximations $\tanh(0.2) \approx 0.197$, $\tanh(0.008) \approx 0.008$, $\tanh(0.256) \approx 0.251$, $\tanh'(0.2) \approx 0.961$, and $\tanh'(0.008) \approx 1.000$.
 
 1. **Compute the forward pass.** For $t = 1, 2, 3$, compute the hidden state $h_t$ and the output $\hat{y}_t$.
-2. **Separate value from sensitivity.** Your forward pass shows that the second input $x_2 = -0.5$ is large and negative, yet $h_2 \approx 0.008$ is nearly zero. Explain why the memory term $W_{hh} h_1$ and the bias $b_h$ together almost exactly cancel the input contribution at $t=2$. Then compute the sensitivity $\partial h_2/\partial x_1$ and use it to discuss what a near-zero *value* of the hidden state does and does not imply about the memory of $x_1$, connecting your answer to the geometric decay factor from Exercise 6.1.
-3. **Compare two windowing schemes.** Suppose this RNN is trained on windows of length $\tau$, with one forecast at the end of each window. Compare (a) resetting the hidden state to zero at the start of every window and (b) carrying the final state from one contiguous window into the next while detaching it from the previous computational graph. For each scheme, state the state horizon and the gradient horizon. Under scheme (a), describe precisely what information before the window the forecast cannot use. Finally, explain why a structural break can still be a problem under either scheme even though the weights are estimated from many windows.
+2. **Separate value from sensitivity.** Your forward pass shows that the second input $x_2 = -0.5$ is large and negative, yet $h_2 \approx 0.008$ is nearly zero. Show numerically that the memory term $W_{hh} h_1$ and the bias $b_h$ almost exactly cancel the input contribution at $t=2$. Then compute the sensitivity $\partial h_2/\partial x_1$ and state what a near-zero *value* of the hidden state does and does not imply about the memory of $x_1$, connecting your answer to the geometric decay factor from Exercise 6.1.
+3. **Compare two windowing schemes.** Suppose this RNN is trained on sequences of length $\tau$, with one forecast at the end of each sequence. Compare (a) resetting the hidden state to zero for every overlapping window and (b) dividing the series into non-overlapping consecutive segments, carrying the final state from one segment into the next, and detaching it from the previous computational graph. For each scheme, state the state horizon and the gradient horizon. Under scheme (a), describe precisely what information before the window the forecast cannot use. Finally, explain why a structural break can still be a problem under either scheme even though the weights are estimated from many sequences.
 
 *Exam level. Part 1 checks the mechanics of the recursion; Part 2 tests the distinction between the value of a state and its sensitivity to past inputs; Part 3 checks the econometric meaning of state truncation, gradient truncation, and shared parameters.*
 :::
 
 :::{.callout-warning collapse="true"}
 ## Hint for Part 2
-The *value* of $h_2$ and the *sensitivity* of $h_2$ to an earlier input are two different things, and the question asks you to separate them. For the sensitivity, apply the chain rule along $x_1 \to h_1 \to h_2$. Recall that $\tanh'(z) = 1-\tanh^2(z)$ is largest exactly where $z=0$, and note where $z_2$ sits.
+For the sensitivity, apply the chain rule along $x_1 \to h_1 \to h_2$ and recall that $\tanh'(z)=1-\tanh^2(z)$.
 :::
 
 :::{.callout-tip collapse="true"}
@@ -535,7 +540,7 @@ The genuine connection to Exercise 6.1 runs through the *rate of decay*, not the
 
 **Part 3: Fixed-window and state-carrying truncation**
 
-Under scheme (a), resetting the state gives both the forward state and the backward gradient a horizon of at most $\tau$ steps. The forecast is a function of the inputs inside its window and cannot use predictive information contained only in earlier observations unless that information is summarized in an included feature. Under scheme (b), the carried state can transmit information across window boundaries, so its state horizon can extend beyond $\tau$. Detaching the state still stops the derivative chain at the boundary, however, so the gradient horizon remains at most $\tau$ steps.
+Under scheme (a), resetting the state gives both the forward state and the backward gradient a horizon of at most $\tau$ steps. The forecast is a function of the inputs inside its window and cannot use predictive information contained only in earlier observations unless that information is summarized in an included feature. Under scheme (b), the carried state can transmit information back to the last reset—potentially the start of the series—although its sensitivity generally decays along the recurrent path. Detaching the state stops the derivative chain at each segment boundary, so the gradient horizon remains at most $\tau$ steps.
 
 Both schemes reuse the same parameters across windows and dates. A structural break changes the state-update or forecast relationship that those common parameters are supposed to describe. Pooling pre-break and post-break windows can then estimate a compromise that fits neither regime well. Chronological validation, rolling or subsample estimation, and break-aware inputs are possible responses; changing the state initialization alone does not remove the shared-parameter restriction.
 :::
