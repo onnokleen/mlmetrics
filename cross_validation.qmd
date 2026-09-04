@@ -124,7 +124,7 @@ plt.tight_layout()
 plt.show()
 ```
 
-The left panel of @fig-overfitting-example shows the fitted mean functions. The degree-12 polynomial follows local noise in the training sample, while the linear model cannot reproduce the nonlinear signal. The right panel shows the resulting overfitting pattern: as the degree rises, the training MSE falls monotonically, but the test MSE eventually rises. The independent test sample reveals this divergence, but repeatedly using its scores to choose $d$ would turn the test set into a model-selection device rather than a final evaluation sample. This tension motivates the train-test workflow in the next section.
+The left panel of @fig-overfitting-example shows the fitted mean functions. The degree-12 polynomial follows local noise in the training sample, while the linear model cannot reproduce the nonlinear signal. The right panel shows the resulting overfitting pattern: as the degree rises, the training MSE falls monotonically, but the test MSE eventually rises. The independent test sample reveals this divergence, but repeatedly using the test MSE to choose $d$ would turn the test set into a model-selection device rather than a final evaluation sample. This tension motivates the train-test workflow in the next section.
 
 ## The Problem with Simple Train-Test Splits
 
@@ -142,7 +142,7 @@ Specifically, relying on a single split has three major drawbacks:
 2. **Test set contamination**: If we use the test set to make multiple decisions (choose hyperparameters, select the model specification), we are effectively "training" on the test set, leading to overly optimistic performance estimates.
 3. **Limited data usage**: We are not using all available data for training.
 
-The K-fold design introduced below addresses the first and third drawbacks: by averaging over $K$ splits, it reduces the dependence of the estimate on any one arbitrary split, and it lets every observation serve in validation exactly once. Cross-validation does not by itself prevent contamination from repeated model comparison. Selecting among many configurations using the same cross-validated scores reuses those scores just as repeated decisions reuse a test set, which is why the workflow below still separates selection from final assessment.
+The K-fold design introduced below addresses the first and third drawbacks: by averaging over $K$ splits, it reduces the dependence of the estimate on any one arbitrary split, and it lets every observation serve in validation exactly once. Cross-validation does not by itself prevent contamination from repeated model comparison. Selecting among many configurations using the same cross-validated loss estimates reuses those estimates just as repeated decisions reuse a test set, which is why the workflow below still separates selection from final assessment.
 
 :::{.callout-important}
 ## Reliable Workflow: Validation and Test Sets {#sec-cv-reliable-workflow}
@@ -151,7 +151,7 @@ The clean workflow is:
 
 1. Use the **training data** to fit candidate models.
 2. Compare those candidates and tune hyperparameters on a **validation set**: data held out from fitting and used only to choose among models. Reuse should nevertheless be limited, because extensive adaptive comparison can overfit the validation set through the selection process even when no model is fitted directly on its observations.
-3. Obtain a final performance assessment either from a test set kept untouched until the very end or from the held-out scores of an outer layer of nested cross-validation, with all model selection and preprocessing repeated inside each outer training sample.
+3. Obtain a final performance assessment either from a test set kept untouched until the very end or from the held-out losses of an outer layer of nested cross-validation, with all model selection and preprocessing repeated inside each outer training sample.
 
 The two approaches serve the same evaluation role but estimate different targets. An untouched test set evaluates the selected model fitted once on the available training data. Nested cross-validation estimates the expected performance of the complete tuning-and-fitting procedure when trained on one outer training sample. It is therefore an alternative source of a final performance estimate, not a literal test set for the model eventually refitted on all observations. For dependent data, the outer partitions must also respect the dependence structure. We define folds and spell out both layers later in the chapter.
 :::
@@ -177,7 +177,7 @@ The most common type of cross-validation is **K-fold cross-validation**. In the 
     a.  Use the fold as a validation set.
     b.  Use the remaining $K-1$ folds as a training set.
     c.  Train the model on the training set and evaluate it on the validation set.
-4.  **Average** the performance scores from the $K$ folds to obtain a single performance estimate.
+4.  **Average** the held-out losses from the $K$ folds to obtain a single loss estimate.
 
 Formally, write the dataset as $\{(x_i,y_i)\}_{i=1}^N$, where $i$ indexes observations, $x_i$ denotes all predictor information supplied to the model for observation $i$, and $y_i$ is the corresponding observed outcome. Thus $x_i$ is the scalar predictor in the polynomial example of @fig-overfitting-example, but it may be a vector of predictors more generally. Let $D_k$ be the index set of the observations in fold $k$, let $|D_k|$ be its size, and let $\hat{f}^{-k}$ denote the model **refit from scratch on all data except fold $k$**—that is, trained only on the $K-1$ remaining folds, including any data-dependent preprocessing re-estimated on those folds alone. Consequently, $\hat f^{-k}(x_i)$ is the prediction for held-out observation $i\in D_k$, obtained without using any observation in $D_k$ during fitting or preprocessing. The pooled K-fold cross-validation (CV) estimate of the risk is
 $$
@@ -191,7 +191,7 @@ $$
 $$
 When $K$ does not divide $N$, the folds differ slightly in size and an unweighted average of their means is not exactly the pooled per-observation average; the pooled form above uses weights $|D_k|/N$ on the fold means.
 
-**What does $\widehat{\mathrm{CV}}_K$ estimate?** With equal folds, each fold model is trained on $N(K-1)/K$ observations. Under the independent sampling assumed here, $\widehat{\mathrm{CV}}_K$ estimates the average out-of-sample risk of the fitting procedure at that training-sample size, where the average is over hypothetical training samples and fresh test observations. It does not estimate the realized risk $R(\hat f)$ of the particular model refitted on the observed full sample. For a detailed example, see@BatesHastieTibshirani2024.
+**What does $\widehat{\mathrm{CV}}_K$ estimate?** With equal folds, each fold model is trained on $N(K-1)/K$ observations. Under the independent sampling assumed here, $\widehat{\mathrm{CV}}_K$ estimates the average out-of-sample risk of the fitting procedure at that training-sample size, where the average is over hypothetical training samples and fresh test observations. It does not estimate the realized risk $R(\hat f)$ of the particular model refitted on the observed full sample. In the homoskedastic Gaussian linear model under squared loss, @BatesHastieTibshirani2024 prove an even sharper separation for linearly invariant estimators: conditional on the design matrix, the cross-validation error estimate is independent of the realized conditional prediction error. Under proportional Gaussian-design asymptotics, the correlation between those two quantities tends to zero. These are special-model results, not a universal property of cross-validation, but they reinforce the interpretation of cross-validation as an estimate of procedure risk rather than an approximate estimate of the error of one particular fit.
 
 :::{.callout-note}
 ## Common Choices for K
@@ -282,7 +282,7 @@ Reading @fig-kfold-cv row by row makes the reuse logic concrete: every observati
 
 :::{.callout-note}
 ## Additional Information: Stratified K-Fold for Classification
-For a **classification problem**, the outcome is categorical—for example, default versus no default. If the classes are imbalanced, meaning that one outcome is rare, ordinary random folds can contain very few or even no observations from that class, making some fold scores erratic or undefined. **Stratified K-fold** keeps the class proportions in each fold as close to those of the full dataset as the integer fold sizes allow.
+For a **classification problem**, the outcome is categorical—for example, default versus no default. If the classes are imbalanced, meaning that one outcome is rare, ordinary random folds can contain very few or even no observations from that class, making some fold evaluations erratic or undefined. **Stratified K-fold** keeps the class proportions in each fold as close to those of the full dataset as the integer fold sizes allow.
 :::
 
 ## Time Series Cross-Validation {#sec-cv-time-series}
@@ -310,7 +310,7 @@ In forecasting applications, leakage can arise even without explicit shuffling. 
 
 So "time-aware" cross-validation must reflect the actual information set available at the forecast origin.
 
-Serial dependence near fold boundaries is a related but distinct problem. Autocorrelation by itself is not leakage in the sense defined above: it puts no unavailable information into the forecast, and a validation block that lies strictly after the training window remains genuinely unseen even when it is dependent on the training history. What dependence changes is what the validation score measures. Observations just after the training window are partly predictable from recently shared shocks, so a design that always validates immediately next to the training data estimates short-horizon performance, and the fold scores are correlated draws rather than independent ones. The validation design must therefore match the intended deployment horizon. Training on observations after the validation block can make the estimate genuinely *optimistic* when a misspecified or flexible model can exploit dependence between that block and the post-validation observations used for training; the purely autoregressive exception described above remains important.
+Serial dependence near fold boundaries is a related but distinct problem. Autocorrelation by itself is not leakage in the sense defined above: it puts no unavailable information into the forecast, and a validation block that lies strictly after the training window remains genuinely unseen even when it is dependent on the training history. What dependence changes is what the validation loss measures. Observations just after the training window are partly predictable from recently shared shocks, so a design that always validates immediately next to the training data estimates short-horizon performance, and the fold-average losses are correlated draws rather than independent ones. The validation design must therefore match the intended deployment horizon. Training on observations after the validation block can make the estimate genuinely *optimistic* when a misspecified or flexible model can exploit dependence between that block and the post-validation observations used for training; the purely autoregressive exception described above remains important.
 
 A separate source of genuine optimism is overlap in *labels*, the machine-learning term for the outcomes being predicted. If an outcome is constructed from a window of future periods, training observations whose label windows reach into the validation block use information from it. In financial applications one common response is **purged cross-validation** [@LopezDePrado2018], which removes training observations whose labels overlap with the validation period, sometimes combined with an **embargo** period that drops a short buffer after the validation block before training resumes. The exact buffer length is an econometric design choice: it should reflect the forecast horizon, label construction, and persistence in the data.
 :::
@@ -459,7 +459,7 @@ fig.tight_layout(rect=[0, 0, 0.85, 1]) # Adjust layout to make space for legend
 plt.show()
 ```
 
-The contrast between the first two panels of @fig-timeseries-cv is the window-length choice: the expanding window never discards early observations, while the sliding window drops old observations as it moves. Sliding can be preferable when the gain from emphasizing recent conditions outweighs the loss of estimation precision from using fewer observations. In both designs the validation block lies strictly after the training data, so no split trains on the future. The third panel addresses a different issue in a two-sided K-fold design. Purple observations are excluded because their multi-period outcomes would overlap the validation block; dark-gray observations are excluded by the post-validation embargo before training resumes. The returned training set contains the blue observations on both sides but excludes every buffer that exists for that split; the first split has no preceding purge and the last has no following embargo. Such a two-sided design is appropriate only when its maintained assumptions justify training on post-validation observations; it does not reproduce a strictly real-time forecast exercise. Purging and embargoing therefore modify a base validation design rather than replace the choice between recursive and rolling estimation.
+The contrast between the first two panels of @fig-timeseries-cv is the window-length choice: the expanding window never discards early observations, while the sliding window drops old observations as it moves. Sliding can be preferable when the gain from emphasizing recent conditions outweighs the usual loss of estimation precision from using fewer observations; that loss is not universal under heteroskedasticity or structural change. In both designs the validation block lies strictly after the training data, so no split trains on the future. The third panel addresses a different issue in a two-sided K-fold design. Purple observations are excluded because their multi-period outcomes would overlap the validation block; dark-gray observations are excluded by the post-validation embargo before training resumes. The returned training set contains the blue observations on both sides but excludes every buffer that exists for that split; the first split has no preceding purge and the last has no following embargo. Such a two-sided design is appropriate only when its maintained assumptions justify training on post-validation observations; it does not reproduce a strictly real-time forecast exercise. Purging and embargoing therefore modify a base validation design rather than replace the choice between recursive and rolling estimation.
 
 Scikit-learn's `TimeSeriesSplit` implements the expanding window by default; setting its `max_train_size` argument caps the training window, giving a rolling design once the cap binds. A manual implementation is needed for nonstandard stepping, such as the fixed-length, overlapping windows in the middle panel, which advance by more observations than the validation-block length. No buffer separates training from validation there; the `gap` argument of `TimeSeriesSplit` would add such a buffer.
 
@@ -471,7 +471,7 @@ The architecture labels below report how many neurons each hidden layer contains
 
 Because the firm characteristics are measured on heterogeneous scales, we standardize them before fitting the network. Scikit-learn's `Pipeline` object combines these two ordered steps—standardization followed by model fitting—and treats them as one fitting procedure. Within each CV split, the pipeline estimates the means and standard deviations only from that split's training observations, fits the network on the standardized training predictors, and applies those same scaling constants to the validation predictors. The validation observations therefore do not influence standardization.
 
-We fix the fitting procedure explicitly at no more than 1,000 optimization iterations per CV split. Instead of suppressing convergence warnings, the code records how many of the five fits reach that cap for every configuration; a capped fit is a valid fixed-budget procedure, but its score can reflect incomplete optimization as well as architecture and learning rate. Within the manual grid-search loop, scikit-learn's `cross_validate` function evaluates one fixed pipeline configuration: it refits the pipeline on the training observations in each of the five splits and returns the corresponding held-out fold scores. The surrounding `ParameterGrid` loop repeats this evaluation for every configuration, after which the code selects the configuration with the smallest mean cross-validated MSE. @fig-nn-cv-tuning summarizes the search: each point is one configuration in the grid, plotted against the learning rate in the left panel and against the architecture in the right panel, with the red star marking the selected configuration. Scikit-learn follows a higher-is-better scoring convention, so `neg_mean_squared_error` returns the negative of each fold's MSE; the minus sign in the code converts the average back to ordinary MSE before comparison and plotting.
+We fix the fitting procedure explicitly at no more than 1,000 optimization iterations per CV split. Instead of suppressing convergence warnings, the code records how many of the five fits reach that cap for every configuration; a capped fit is a valid fixed-budget procedure, but its held-out loss can reflect incomplete optimization as well as architecture and learning rate. Within the manual grid-search loop, scikit-learn's `cross_validate` function evaluates one fixed pipeline configuration: it refits the pipeline on the training observations in each of the five splits and returns the corresponding held-out fold results. The surrounding `ParameterGrid` loop repeats this evaluation for every configuration, after which the code selects the configuration with the smallest mean cross-validated MSE. @fig-nn-cv-tuning summarizes the search: each point is one configuration in the grid, plotted against the learning rate in the left panel and against the architecture in the right panel, with the red star marking the selected configuration. Scikit-learn follows a higher-is-better `scoring` convention, so `neg_mean_squared_error` returns the negative of each fold's MSE; the minus sign in the code converts the average back to ordinary MSE before comparison and plotting.
 
 ```{python}
 #| label: fig-nn-cv-tuning
@@ -552,7 +552,7 @@ for params in ParameterGrid(param_grid):
             return_estimator=True,
         )
 
-    cv_scores = cv_result['test_score']
+    neg_mse_values = cv_result['test_score']
     n_capped = sum(
         estimator.named_steps['mlp'].n_iter_ >= 1000
         for estimator in cv_result['estimator']
@@ -565,8 +565,8 @@ for params in ParameterGrid(param_grid):
     results.append({
         'architecture': architecture_labels[params['hidden_layer_sizes']],
         'learning_rate': params['learning_rate_init'],
-        'mean_cv_mse': -cv_scores.mean(),
-        'fold_mse_sd': (-cv_scores).std(ddof=1),
+        'mean_cv_mse': -neg_mse_values.mean(),
+        'fold_mse_sd': (-neg_mse_values).std(ddof=1),
         'n_capped_folds': n_capped,
         'n_convergence_warnings': n_convergence_warnings,
     })
@@ -582,7 +582,7 @@ print("Best Configuration:")
 print(f"Hidden units by layer: {best_config['architecture']}")
 print(f"Learning Rate: {best_config['learning_rate']}")
 print(f"Mean CV MSE: {best_config['mean_cv_mse']:.4f}")
-print(f"Fold-score standard deviation (ddof=1): {best_config['fold_mse_sd']:.4f}")
+print(f"Across-fold MSE standard deviation (ddof=1): {best_config['fold_mse_sd']:.4f}")
 print(f"Folds reaching 1,000 iterations: {int(best_config['n_capped_folds'])}/5")
 print(f"Captured convergence warnings: {int(best_config['n_convergence_warnings'])}")
 
@@ -628,11 +628,11 @@ ax2.legend(title='Learning Rate')
 # Highlight best configuration
 best_lr = best_config['learning_rate']
 best_arch_pos = arch_mapping[best_config['architecture']]
-best_score = best_config['mean_cv_mse']
+best_mse = best_config['mean_cv_mse']
 
-ax1.scatter([best_lr], [best_score], color='red', s=100, marker='*', 
+ax1.scatter([best_lr], [best_mse], color='red', s=100, marker='*',
            edgecolors='black', linewidth=1, label='Best Config', zorder=5)
-ax2.scatter([best_arch_pos], [best_score], color='red', s=100, marker='*', 
+ax2.scatter([best_arch_pos], [best_mse], color='red', s=100, marker='*',
            edgecolors='black', linewidth=1, label='Best Config', zorder=5)
 
 # Update legends to include best config
@@ -643,7 +643,7 @@ plt.tight_layout()
 plt.show()
 ```
 
-The five best-scoring configurations are reported separately in @tbl-nn-cv-top-five. Its first column uses exactly the same hidden-units-by-layer labels as the right panel of @fig-nn-cv-tuning.
+The five configurations with the lowest mean CV MSE are reported separately in @tbl-nn-cv-top-five. Its first column uses exactly the same hidden-units-by-layer labels as the right panel of @fig-nn-cv-tuning.
 
 ```{python}
 #| label: tbl-nn-cv-top-five
@@ -656,7 +656,7 @@ top_five = results_df.nsmallest(5, 'mean_cv_mse')[[
     'architecture': 'Hidden units by layer',
     'learning_rate': 'Learning rate',
     'mean_cv_mse': 'Mean CV MSE',
-    'fold_mse_sd': 'Fold-score standard deviation',
+    'fold_mse_sd': 'Across-fold MSE standard deviation',
     'n_capped_folds': 'Capped folds',
 })
 display(
@@ -665,7 +665,7 @@ display(
     .format({
         'Learning rate': '{:.3g}',
         'Mean CV MSE': '{:.2f}',
-        'Fold-score standard deviation': '{:.2f}',
+        'Across-fold MSE standard deviation': '{:.2f}',
         'Capped folds': '{:.0f}',
     })
 )
@@ -674,18 +674,18 @@ display(
 :::{.callout-note}
 ## How to Read the Diagnostics
 
-The mean CV MSE ranks the candidate configurations. The **Fold-score standard deviation** column—computed in the code as `fold_mse_sd` with `ddof=1`—describes how much the $K$ scores fluctuate across folds, but it is *not* a standard error for the cross-validated risk: the fold scores are correlated because their training sets overlap [@BatesHastieTibshirani2024]. The **Capped folds** column provides a separate optimization diagnostic. A positive value means that score differences may reflect incomplete optimization under the fixed iteration budget, not only differences in architecture or learning rate. Small differences in mean CV MSE should therefore not be read as precise rankings, especially when fold-score dispersion is large or the number of capped fits differs.
+The mean CV MSE ranks the candidate configurations. The **Across-fold MSE standard deviation** column—computed in the code as `fold_mse_sd` with `ddof=1`—describes how much the $K$ validation-fold MSE values fluctuate, but it is *not* a standard error for the cross-validated risk: the fold-average losses are correlated because their training sets overlap [@BatesHastieTibshirani2024]. The **Capped folds** column provides a separate optimization diagnostic. A positive value means that differences in CV MSE may reflect incomplete optimization under the fixed iteration budget, not only differences in architecture or learning rate. Small differences in mean CV MSE should therefore not be read as precise rankings, especially when across-fold dispersion is large or the number of capped fits differs.
 :::
 
-The grid search above uses a single level of cross-validation. For each fixed configuration, `cross_validate` produces five validation scores. The `ParameterGrid` loop repeats that call for every configuration, and the subsequent `idxmin` step selects the configuration with the smallest mean CV MSE. This entire selection step plays the role of the **inner tuning loop** in the nested procedure developed next. Using the same splits for every configuration makes their scores directly comparable, but the ranking remains noisy, as the dispersion and convergence diagnostics emphasize. Moreover, the cross-validated score of the *selected* configuration is optimistically biased, for exactly the reason formalized in Exercise 2.2 below: taking the best of many noisy validation scores favors lucky draws. @sec-cv-nested develops the separate outer layer needed to assess the tuning procedure without reusing its inner validation scores.
+The grid search above uses a single level of cross-validation. For each fixed configuration, `cross_validate` produces five returned values that the code converts to validation-fold MSEs. The `ParameterGrid` loop repeats that call for every configuration, and the subsequent `idxmin` step selects the configuration with the smallest mean CV MSE. This entire selection step plays the role of the **inner tuning loop** in the nested procedure developed next. Using the same splits for every configuration makes their loss estimates directly comparable, but the ranking remains noisy, as the dispersion and convergence diagnostics emphasize. Moreover, the mean CV MSE of the *selected* configuration is optimistically low, for exactly the reason formalized in Exercise 2.2 below: taking the smallest of many noisy validation-loss estimates favors lucky draws. @sec-cv-nested develops the separate outer layer needed to assess the tuning procedure without reusing its inner loss estimates.
 
-Exhaustive grid search becomes costly as the number of hyperparameters grows. Random and sequential search methods provide alternatives, which we study in the [chapter on advanced hyperparameter optimization](hpo.qmd). Regardless of how the candidates are searched, using the same validation scores for selection and assessment remains a separate problem.
+Exhaustive grid search becomes costly as the number of hyperparameters grows. Random and sequential search methods provide alternatives, which we study in the [chapter on advanced hyperparameter optimization](hpo.qmd). Regardless of how the candidates are searched, using the same validation-loss estimates for selection and assessment remains a separate problem.
 
 ## Nested Cross-Validation {#sec-cv-nested}
 
-The practical example used cross-validation to answer a **selection question**: which candidate architecture and learning rate should we choose? Nested cross-validation adds an assessment layer for a second question: how well will the entire selection procedure predict on new data? Reporting the smallest inner-CV error as the answer reuses the same validation scores for both tasks. Because the minimum favors configurations that received unusually favorable validation draws, the reported error is generally optimistic even if each candidate's CV score is unbiased before selection [@VarmaSimon2006; @CawleyTalbot2010].
+The practical example used cross-validation to answer a **selection question**: which candidate architecture and learning rate should we choose? Nested cross-validation adds an assessment layer for a second question: how well will the entire selection procedure predict on new data? Reporting the smallest inner-CV loss estimate as the answer reuses the same validation-loss estimates for both tasks. Because the minimum favors configurations that received unusually favorable validation draws, the reported estimate is generally optimistic even if each candidate's CV loss estimate is unbiased before selection [@VarmaSimon2006; @CawleyTalbot2010].
 
-@fig-nested-cv visualizes how nested cross-validation prevents that reuse. The left panel shows the outer loop that produces the final assessment scores. The right panel zooms into the first outer split and shows the separate inner loop used for tuning.
+@fig-nested-cv visualizes how nested cross-validation prevents that reuse. The left panel shows the outer loop that produces the final assessment losses. The right panel zooms into the first outer split and shows the separate inner loop used for tuning.
 
 ```{python}
 #| label: fig-nested-cv
@@ -795,7 +795,7 @@ fig.tight_layout(rect=[0, 0.08, 1, 1])
 plt.show()
 ```
 
-The right panel of @fig-nested-cv makes the separation operational. The four inner folds rotate between training and validation, but $D_1^{\mathrm{out}}$ never changes role. After the inner scores select a configuration, denoted $\hat\lambda_1$ below, the procedure refits on the complete outer training sample and evaluates once on $D_1^{\mathrm{out}}$. Repeating the same sequence for the other four outer splits produces one reliable outer score for every observation.
+The right panel of @fig-nested-cv makes the separation operational. The four inner folds rotate between training and validation, but $D_1^{\mathrm{out}}$ never changes role. After the inner loss estimates select a configuration, denoted $\hat\lambda_1$ below, the procedure refits on the complete outer training sample and evaluates once on $D_1^{\mathrm{out}}$. Repeating the same sequence for the other four outer splits produces one reliable held-out loss for every observation.
 
 Nested cross-validation separates the two questions. Let $\Lambda$ denote the set of candidate hyperparameter configurations. In ordinary nested K-fold CV, the full sample is first partitioned into $K_{\mathrm{out}}$ **outer folds**. Then:
 
@@ -821,7 +821,7 @@ where $\hat f_k^{\mathrm{tuned}}$ denotes the entire rule produced from outer tr
 
 **What does nested CV estimate?** It estimates the expected performance of the complete tuning-and-fitting procedure when that procedure is trained on an outer training sample of size approximately $N(K_{\mathrm{out}}-1)/K_{\mathrm{out}}$. It does not estimate the risk of one prespecified configuration, nor exactly the risk of the final model fitted on all $N$ observations. The selected configurations $\hat\lambda_k$ may legitimately differ across outer folds: the object being evaluated is the rule *choose a configuration from the available training data and then refit*, not any one value of $\lambda$.
 
-**What happens after assessment?** Once the nested estimate has been recorded, rerun the inner tuning procedure on the full development sample, choose a final configuration, and refit the pipeline on all available development observations for deployment. The nested outer score remains the performance estimate for that workflow. Do not replace it with the smaller inner-CV score obtained during the final full-sample search. If a genuinely untouched test set is available, it can instead provide the final assessment, but it must not become another dataset consulted repeatedly during tuning.
+**What happens after assessment?** Once the nested estimate has been recorded, rerun the inner tuning procedure on the full development sample, choose a final configuration, and refit the pipeline on all available development observations for deployment. The nested outer loss estimate remains the performance estimate for that workflow. Do not replace it with the smaller inner-CV loss estimate obtained during the final full-sample search. If a genuinely untouched test set is available, it can instead provide the final assessment, but it must not become another dataset consulted repeatedly during tuning.
 
 **What changes with dependent data?** Both layers must respect the dependence and information structure described in @sec-cv-time-series. For time series, each outer validation block must lie after its outer training window, and every inner split must preserve chronology *within that outer training window*. For clustered data, clusters rather than individual observations should remain intact in both layers. A time-aware outer loop cannot repair leakage created by random or otherwise invalid inner folds.
 
@@ -840,7 +840,7 @@ where $\hat f_k^{\mathrm{tuned}}$ denotes the entire rule produced from outer tr
 1. Cross-validation used for model selection is not by itself an unbiased final assessment; evaluate final performance with either a genuinely untouched test set or a properly separated outer loop of nested cross-validation.
 2. K-fold cross-validation estimates the expected risk of a fitting procedure trained on roughly $N(K-1)/K$ observations, not the realized conditional risk $R(\hat{f})$ of the one model refit on the full sample.
 3. A validation strategy is reliable only if every data-dependent preprocessing step is recomputed using each split's training observations.
-4. Repeatedly choosing the best specification from noisy validation scores creates selection-induced optimism, even when each candidate score is unbiased on its own.
+4. Repeatedly choosing the specification with the smallest noisy validation-loss estimate creates selection-induced optimism, even when each candidate's estimate is unbiased on its own.
 5. In time-series settings, cross-validation must respect the forecast-origin information set and the publication timing of predictors.
 6. Random K-fold is often inappropriate for dependent data because it can leak future information into the training sample.
 :::
@@ -848,7 +848,7 @@ where $\hat f_k^{\mathrm{tuned}}$ denotes the entire rule produced from outer tr
 :::{.callout-warning}
 ## Common Pitfalls
 - Using the test set repeatedly while tuning hyperparameters or architectures.
-- Reporting the best inner-CV score as the final performance estimate after searching over many configurations.
+- Reporting the smallest inner-CV loss estimate as the final performance estimate after searching over many configurations.
 - Allowing an outer validation fold to influence preprocessing, the hyperparameter search, or early stopping.
 - Standardizing, imputing, or selecting predictors on the full sample before cross-validation.
 - Treating random K-fold as automatically valid for time-series forecasting problems.
@@ -1036,7 +1036,7 @@ The strict inequality shows mathematically that full-sample standardization is n
 :::
 
 :::{.callout-note}
-## Exercise 2.2: Why Model Search Creates Optimistic Validation Scores
+## Exercise 2.2: Why Model Search Creates Optimistically Low Validation-Loss Estimates
 
 Suppose two fitted forecasting models, $A$ and $B$, have the same generalization risk,
 $$
@@ -1048,7 +1048,7 @@ $$
 \qquad
 \hat{R}_B = R_0+\eta_B,
 $$
-where expectations are taken over the validation sample with the fitted rules $\hat f_A$ and $\hat f_B$ held fixed, $\eta_A$ and $\eta_B$ have mean zero, and $\mathbb{P}(\eta_A\neq\eta_B)>0$, so the two estimates do not coincide with certainty. They need not be independent: candidate models evaluated on the same validation observations will generally have dependent score errors.
+where expectations are taken over the validation sample with the fitted rules $\hat f_A$ and $\hat f_B$ held fixed, $\eta_A$ and $\eta_B$ have mean zero, and $\mathbb{P}(\eta_A\neq\eta_B)>0$, so the two estimates do not coincide with certainty. They need not be independent: candidate models evaluated on the same validation observations will generally have dependent loss-estimation errors.
 
 The researcher selects the model with the smaller validation estimate.
 
@@ -1071,21 +1071,21 @@ The researcher selects the model with the smaller validation estimate.
    \qquad
    \operatorname{Corr}(\eta_A,\eta_B)=c<1.
    $$
-   Derive the exact expectation of the selected validation score. Show that it equals
+   Derive the exact expectation of the selected validation-loss estimate. Show that it equals
    $$
    \mathbb{E}\big[\min(\hat{R}_A,\hat{R}_B)\big]
    =
    R_0-\frac{\sigma\sqrt{1-c}}{\sqrt{\pi}},
    $$
-   and explain why stronger positive dependence between candidate scores reduces the selection-induced optimism. Specialize the result to independent errors.
+   and explain why stronger positive dependence between candidate loss estimates reduces the selection-induced optimism. Specialize the result to independent errors.
 4. Now allow the candidates to have unequal risks $R_A$ and $R_B$, while their validation estimates remain individually unbiased. Use the pointwise inequalities $\min(\hat R_A,\hat R_B)\leq \hat R_A$ and $\min(\hat R_A,\hat R_B)\leq \hat R_B$ to show that
    $$
    \mathbb E[\min(\hat R_A,\hat R_B)]\leq \min(R_A,R_B).
    $$
    Explain why exact equality of the candidates' risks is therefore not required for selection optimism.
-5. An econometrician compares specifications $A$ and $B$ on the same validation sample, selects $\hat s\in\arg\min_{s\in\{A,B\}}\hat R_s$, and reports $\min(\hat R_A,\hat R_B)$ as the risk of the selected specification. Using Part 4 and $R_{\hat s}\geq\min(R_A,R_B)$, compare the expected reported score with $\mathbb E[R_{\hat s}]$. Then explain why evaluating the selected specification on an untouched test set, or in the outer loop of nested cross-validation, avoids this selection-induced optimism.
+5. An econometrician compares specifications $A$ and $B$ on the same validation sample, selects $\hat s\in\arg\min_{s\in\{A,B\}}\hat R_s$, and reports $\min(\hat R_A,\hat R_B)$ as the risk of the selected specification. Using Part 4 and $R_{\hat s}\geq\min(R_A,R_B)$, compare the expected reported loss estimate with $\mathbb E[R_{\hat s}]$. Then explain why evaluating the selected specification on an untouched test set, or in the outer loop of nested cross-validation, avoids this selection-induced optimism.
 
-*Exam level. The exercise formalizes a central point of the chapter: validation is noisy, and searching across specifications makes the best observed score look too good.*
+*Exam level. The exercise formalizes a central point of the chapter: validation is noisy, and searching across specifications makes the smallest observed loss estimate look too low.*
 :::
 
 :::{.callout-warning collapse="true"}
@@ -1099,7 +1099,7 @@ $$
 :::{.callout-tip collapse="true"}
 ## Solution
 
-**Part 1: Writing the Selected Validation Score**
+**Part 1: Writing the Selected Validation-Loss Estimate**
 
 Use the elementary identity $\min(a,b)=(a+b-|a-b|)/2$, valid for all real $a,b$, with $a=\hat{R}_A$ and $b=\hat{R}_B$:
 $$
@@ -1158,7 +1158,7 @@ R_0-\frac{1}{2}\cdot \frac{2\sigma\sqrt{1-c}}{\sqrt{\pi}}
 R_0-\frac{\sigma\sqrt{1-c}}{\sqrt{\pi}}.
 $$
 
-As $c$ increases, the two score errors move together and their difference becomes less variable, so selecting the smaller score extracts less favorable noise. Setting $c=0$ gives the independent-error result $R_0-\sigma/\sqrt{\pi}$.
+As $c$ increases, the two loss-estimation errors move together and their difference becomes less variable, so selecting the smaller estimate extracts less favorable noise. Setting $c=0$ gives the independent-error result $R_0-\sigma/\sqrt{\pi}$.
 
 **Part 4: Unequal Candidate Risks**
 
@@ -1191,7 +1191,7 @@ The inequality is therefore strict exactly when $\mathbb P(\hat R_A>\hat R_B)>0$
 
 **Part 5: Why Specification Search Creates Bias**
 
-Each candidate validation score is unbiased when viewed separately:
+Each candidate's validation-loss estimate is unbiased when viewed separately:
 $$
 \mathbb{E}[\hat{R}_s]=R_s,
 \qquad s\in\{A,B\}.
@@ -1202,7 +1202,7 @@ $$
 \leq \min(R_A,R_B)
 \leq \mathbb E[R_{\hat s}].
 $$
-The reported minimum validation score is therefore optimistic for the expected risk of the selected specification. An untouched test set avoids this bias because, conditional on the selected fitted rule, its score is computed from fresh observations that played no role in forming $\hat s$. The outer validation fold in nested cross-validation serves the same role for the full selection procedure.
+The reported minimum validation-loss estimate is therefore optimistic for the expected risk of the selected specification. An untouched test set avoids this bias because, conditional on the selected fitted rule, the test loss estimate is computed from fresh observations that played no role in forming $\hat s$. The outer validation fold in nested cross-validation serves the same role for the full selection procedure.
 :::
 
 :::{.callout-note}
