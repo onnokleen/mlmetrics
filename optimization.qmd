@@ -92,7 +92,7 @@ Using only one data point per update instead of all $i = 1, \dots, N$ is a coars
 
 Mini-Batch Gradient Descent is the standard approach for training the neural networks studied later in the book because it balances BGD and SGD. The gradient is computed on a small, random subset of the data called a **mini-batch**.
 
-More precisely: We first define $J$ batches $B_j$ such that $\bigcup_{j=1}^J B_j = \{1,\ldots,N\}$ and $B_j \cap B_{j'} = \emptyset \quad \text{ for all } j,j' = 1,\ldots,J:\ j \neq j'$. With learning rate $\eta > 0$ and starting value $\boldsymbol{\theta}^{(0)}$, we get the following gradient approximation for the selected batch $B_j$:
+More precisely, partition the observation indices into $J$ nonempty batches $B_j$ such that $\bigcup_{j=1}^J B_j = \{1,\ldots,N\}$ and $B_j \cap B_{j'} = \emptyset$ for $j\neq j'$. With learning rate $\eta > 0$ and starting value $\boldsymbol{\theta}^{(0)}$, we get the following gradient approximation for the selected batch $B_j$:
 
 $$ \nabla_{\boldsymbol \theta} L(\boldsymbol \theta^{(t-1)}) \approx \frac{1}{\left|B_j\right|}  \sum_{i \in B_j} \nabla_{\boldsymbol \theta} \ell_i(\boldsymbol \theta^{(t-1)})$$
 
@@ -102,7 +102,7 @@ $$
 \boldsymbol{\theta}^{(t)} = \boldsymbol{\theta}^{(t-1)} - \eta \frac{1}{\left|B_j\right|} \sum_{i \in B_j}\nabla_{\boldsymbol{\theta}}\ell_i(\boldsymbol{\theta}^{(t-1)}).
 $$
 
-A typical mini-batch size $b = |B_j|$ is 32, 64, or 128. The total number of iteration steps for the algorithm $T$ does not need to coincide with the number of batches $J$. Typically, $J \ll T$: after processing every batch in the partition, we reshuffle the data, form a new partition with the same batch size, and continue updating the parameters. Holding $\boldsymbol\theta$ fixed before a fresh shuffle, each labeled batch is marginally a uniform size-$b$ subset, so its gradient is unbiased for the full-sample gradient. Conditional on the batches already processed within that epoch, however, the next batch is sampled only from the remaining observations and need not be unbiased for the full-sample gradient.
+Let $b$ denote the target mini-batch size; common choices are 32, 64, or 128. Equal batch sizes require $b$ to divide $N$; otherwise the final batch can be smaller, and the formulas above use its actual size $|B_j|$. One **epoch** is one full pass through the training data. The total number of updates $T$ does not need to coincide with the number of batches $J$. Typically, $J \ll T$: after processing every batch in an epoch, we reshuffle the data, form a new partition, and continue updating the parameters. If we hold $\boldsymbol\theta$ fixed before a fresh shuffle, each labeled full-size batch is marginally a uniform size-$b$ subset, so its gradient is unbiased for the full-sample gradient. Conditional on the batches already processed within that epoch, however, the next batch is sampled only from the remaining observations and need not be unbiased for the full-sample gradient.
 
 
 
@@ -116,8 +116,8 @@ The two limiting choices recover the earlier methods:
 - If $J = 1$ with $B_1 = \{1,\ldots,N\}$, the method reduces to Batch Gradient Descent.
 :::
 
-:::{.callout-note title="Definition: Epoch"}
-An epoch refers to one full pass through the training data. With this notion introduced, we get the following pseudocode for mini-batch training:
+:::{.callout-note title="Algorithm: Mini-Batch Training by Epoch"}
+The following pseudocode implements the epoch-based partitioning scheme described above:
 
 Define $n_e \in \mathbb{N}\setminus\{0\}$ as the number of epochs used for training; within each epoch the $J$ batches defined above are processed once.
 
@@ -159,13 +159,13 @@ In all of the following algorithms, we choose a learning rate $\eta > 0$ and a s
 
 **Momentum**
 
-The momentum idea traces to @Polyak1964, who introduced the "heavy ball" method to accelerate iterative optimization, and @Nesterov1983, whose accelerated-gradient variant achieves a provably better convergence rate on convex objectives. Momentum builds movement in directions whose gradients remain persistent and dampens oscillation in directions whose gradient signs alternate. We implement this idea by replacing the raw gradient with an exponentially weighted moving average of current and past gradients, creating a "velocity" term $\boldsymbol u_t$. (We reserve $\boldsymbol v_t$ for the squared-gradient averages of RMSprop and Adam below.)
+The momentum idea traces to @Polyak1964, who introduced the "heavy ball" method to accelerate iterative optimization, and @Nesterov1983, whose accelerated-gradient variant achieves a provably better convergence rate on smooth convex objectives. Momentum replaces the current gradient with an exponentially weighted moving average of current and past gradients, creating a "velocity" term $\boldsymbol u_t$. Alternating signs partly cancel in this average, while persistent directions remain. (We reserve $\boldsymbol v_t$ for the squared-gradient averages of RMSprop and Adam below.)
 
 $$ \boldsymbol u_t = \delta \boldsymbol u_{t-1} + (1 - \delta) \boldsymbol g_t $$
 $$ \boldsymbol \theta^{(t)} = \boldsymbol \theta^{(t-1)} - \eta \boldsymbol u_t $$
 with $\boldsymbol u_0 = \mathbf 0$. (Note the timing: $\boldsymbol g_t$ is evaluated at $\boldsymbol \theta^{(t-1)}$, and the $t$th update produces $\boldsymbol \theta^{(t)}$—the same convention as for the algorithms below.)
 
-Here, $\delta \in [0,1)$ is the momentum coefficient. Because the weights $\delta$ and $1-\delta$ sum to one, $\boldsymbol u_t$ is an exponentially weighted moving average on the same long-run scale as $\boldsymbol g_t$. This normalization is a convention: Polyak's original heavy-ball recursion, and the momentum option in many software implementations, instead uses $\boldsymbol u_t=\delta\boldsymbol u_{t-1}+\boldsymbol g_t$. Under a persistent gradient, that unnormalized velocity is larger by the factor $1/(1-\delta)$, so its learning rate should be smaller by approximately $1-\delta$ when translating from the convention used here. We retain the normalized convention throughout because it matches Adam's first-moment recursion below. The resulting velocity creates a "ball rolling downhill" effect that accelerates movement in directions with persistent gradients and can carry the iterate through a shallow basin, but it does not guarantee escape from a local minimum.
+Here, $\delta \in [0,1)$ is the momentum coefficient. Because the weights $\delta$ and $1-\delta$ sum to one, $\boldsymbol u_t$ is an exponentially weighted moving average on the same long-run scale as $\boldsymbol g_t$. This normalization is a convention: Polyak's original heavy-ball recursion, and the momentum option in many software implementations, instead uses $\boldsymbol u_t=\delta\boldsymbol u_{t-1}+\boldsymbol g_t$. Under a constant gradient, that unnormalized velocity converges to $\boldsymbol g/(1-\delta)$, so its learning rate should be smaller by a factor of approximately $1-\delta$ when translating from the convention used here. We retain the normalized convention throughout because it matches Adam's first-moment recursion below. Under the normalized convention and a constant gradient, $\boldsymbol u_t$ approaches $\boldsymbol g$ from below, so momentum does not enlarge the steady step at a fixed $\eta$. Its potential benefits come from smoothing alternating gradients and changing the stability region; Exercise 3.3 shows that the wider stable range can permit a larger tuned learning rate. Gradient history can also carry an iterate through a shallow basin, but it does not guarantee escape from a local minimum.
 
 **AdaGrad (Adaptive Gradient)**
 
@@ -185,7 +185,7 @@ $$
 This form is mathematically clean but computationally infeasible in high-dimensional models: storing an $m \times m$ matrix and computing its inverse square root, with $m$ in the millions, is impractical.
 
 
-The version actually used in software (and called *AdaGrad* below) replaces the full matrix with its diagonal: define the elementwise gradient accumulator
+The version commonly used in software (and called *AdaGrad* below) retains only coordinate-wise squared gradients, a form of diagonal preconditioning. Define the elementwise gradient accumulator
 $$
 \boldsymbol G_t = \sum_{\tau=1}^{t} \boldsymbol g_\tau \odot \boldsymbol g_\tau \in \mathbb{R}^m,
 $$
@@ -196,7 +196,7 @@ $$
 $$
 where the division and square root are elementwise. For illustration, the one-dimensional case reads
 $$ \theta^{(t)} = \theta^{(t - 1)} - \frac{\eta}{\sqrt{G_{t}} + \varepsilon}\, g_{t}, \qquad G_{t} = \sum_{\tau=1}^{t} g_{\tau}^2.$$
-In the diagonal update, the small constant $\varepsilon$ prevents division by zero. Throughout this book, *AdaGrad* refers to the diagonal version unless stated otherwise.
+In the diagonal update, the small constant $\varepsilon$ prevents division by zero. This is a diagonal analogue rather than the literal diagonal of the regularized full-matrix formula above: the full-matrix display adds $\varepsilon\boldsymbol I_m$ before the inverse square root, whereas the displayed diagonal convention adds $\varepsilon$ after the square root. Software implementations vary in this placement. Throughout this book, *AdaGrad* refers to the diagonal version unless stated otherwise.
 
 :::{.callout-note}
 -   **Pros**: Excellent for sparse data—as in text applications, where some predictors appear infrequently.
@@ -227,13 +227,13 @@ The algorithm maintains two moving averages:
 2. **Uncentered second-moment estimate**, with second-moment decay $\beta_2$:
    $$ \boldsymbol v_t = \beta_2 \boldsymbol v_{t-1} + (1 - \beta_2) \boldsymbol g_{t}^2 $$
 
-Here $\beta_1,\beta_2 \in [0,1)$ play the roles that $\delta$ and $\rho$ played for Momentum and RMSprop, respectively. The moment symbols $\boldsymbol m_t$ and $\boldsymbol v_t$ are the standard notation of @KingmaBa2015; the letter $m$ in $\boldsymbol m_t$ is unrelated to the parameter dimension $m$ from the chapter setup. Since $\boldsymbol m_t$ and $\boldsymbol v_t$ are initialized as zero vectors, they are biased toward zero, especially during the initial time steps. Unrolling the recursion gives $\boldsymbol m_t = (1-\beta_1) \sum_{\tau=1}^{t} \beta_1^{t-\tau} \boldsymbol g_\tau$. To speak of a *bias* we need randomness in the gradients, which is where the mini-batches suppressed from our notation re-enter: think of $\boldsymbol g_\tau$ as the gradient of a randomly drawn batch, with the expectation below taken over that batch sampling. If the batch gradients are stationary with $\mathbb{E}[\boldsymbol g_\tau] = \boldsymbol \mu$, then $\mathbb{E}[\boldsymbol m_t] = (1-\beta_1^t)\boldsymbol \mu$. Adam corrects this bias by rescaling:
+Here $\beta_1,\beta_2 \in [0,1)$ play the roles that $\delta$ and $\rho$ played for Momentum and RMSprop, respectively. The moment symbols $\boldsymbol m_t$ and $\boldsymbol v_t$ are the standard notation of @KingmaBa2015; the letter $m$ in $\boldsymbol m_t$ is unrelated to the parameter dimension $m$ from the chapter setup. Since $\boldsymbol m_t$ and $\boldsymbol v_t$ are initialized as zero vectors, they are biased toward zero, especially during the initial time steps. To speak of a *bias* we need randomness in the gradients, which is where the mini-batches suppressed from our notation re-enter: think of $\boldsymbol g_\tau$ as the gradient of a randomly drawn batch, with expectations taken over batch sampling. If the gradient mean and uncentered second moment are constant across updates, $\mathbb{E}[\boldsymbol g_\tau]=\boldsymbol\mu$ and $\mathbb{E}[\boldsymbol g_\tau\odot\boldsymbol g_\tau]=\boldsymbol\nu$, then unrolling the recursions gives $\mathbb{E}[\boldsymbol m_t]=(1-\beta_1^t)\boldsymbol\mu$ and $\mathbb{E}[\boldsymbol v_t]=(1-\beta_2^t)\boldsymbol\nu$. Adam corrects the resulting zero-initialization attenuation by rescaling:
 
 3. **Bias-corrected estimates**:
    $$ \hat{\boldsymbol m}_t = \frac{\boldsymbol m_t}{1 - \beta_1^t} $$
    $$ \hat{\boldsymbol v}_t = \frac{\boldsymbol v_t}{1 - \beta_2^t} $$
 
-The correction restores unbiasedness under stationarity; during actual training, gradient means and second moments drift across iterations, so the correction is approximate but still removes most of the initial zero-init bias.
+The correction restores unbiasedness of the two moment estimates under those constant-moment conditions. During actual training, gradient means and second moments drift across iterations, so the correction is approximate but still removes the mechanical attenuation from zero initialization.
 
 4. **Parameter update**:
    $$ \boldsymbol{\theta}^{(t)} = \boldsymbol{\theta}^{(t-1)} - \eta \frac{\hat{\boldsymbol m}_t}{\sqrt{\hat{\boldsymbol v}_t} + \varepsilon}. $$
@@ -247,9 +247,9 @@ Having derived the update rules one by one, we now place their computational tra
 | **Algorithm** | **Optimizer state** | **Hyperparameters** | **Key Advantage** | **Key Limitation** |
 |---------------|---------------------|---------------------|-------------------|-------------------|
 | **Batch Gradient Descent** [@GoodfellowBengioCourville2016, chap. 8] | 0 | $\eta$ | Uses the exact full-sample gradient | High computation per update |
-| **SGD** [@RobbinsMonro1951] | 0 | $\eta$ | Uses one observation per update | High gradient noise; sensitive to $\eta$ |
+| **SGD** [@RobbinsMonro1951] | 0 | $\eta$ | Low computation and memory per update | High gradient noise; sensitive to $\eta$ |
 | **Mini-Batch Gradient Descent** [@GoodfellowBengioCourville2016, chap. 8] | 0 | $\eta$, batch size | Supports vectorized updates with less noise than SGD | Adds batch size as a tuning choice |
-| **Momentum** (normalized convention; idea from @Polyak1964) | 1 (velocity) | $\eta$, $\delta$ | Accelerates along persistent-gradient directions; dampens oscillation where gradient signs alternate | Can overshoot; requires tuning |
+| **Momentum** (normalized convention; idea from @Polyak1964) | 1 (velocity) | $\eta$, $\delta$ | Dampens alternating-gradient oscillation and can widen the stable learning-rate range | Can overshoot; requires tuning |
 | **AdaGrad** [@DuchiHazanSinger2011] | 1 (squared-gradient sum) | $\eta$, $\varepsilon$ | Adapts rates coordinate by coordinate | Accumulation can make later steps extremely small |
 | **RMSprop** [@hinton2012rmsprop] | 1 (moving average of squared gradients) | $\eta$, $\rho$, $\varepsilon$ | Avoids AdaGrad's monotonically growing accumulator | Vanilla form has no first-moment momentum term |
 | **Adam** [@KingmaBa2015] | 2 (first and second moments) | $\eta$, $\beta_1$, $\beta_2$, $\varepsilon$ | Combines momentum with coordinate-specific scaling | Highest optimizer-state memory; adaptive scaling does not eliminate learning-rate tuning |
@@ -268,7 +268,7 @@ The algorithms stop after at most 100 iterations, with stopping criterion $L(\th
 
 ```{python}
 #| label: fig-optimizers
-#| fig-cap: "Paths of six update rules on the anisotropic quadratic $L(\\theta_1,\\theta_2)=1+0.1\\,\\theta_1^2+\\theta_2^2$, whose Hessian condition number is 10. In each panel the red line traces the parameter path from the common starting point (green dot) to the final iterate (red dot); the black star marks the global optimum at the origin, gray contour lines show loss levels, and the panel title reports the number of steps taken. The noisy-gradient panel adds artificial Gaussian noise to the exact gradient rather than sampling observations from an empirical loss."
+#| fig-cap: "Paths of six update rules on the quadratic $L(\\theta_1,\\theta_2)=1+0.1\\,\\theta_1^2+\\theta_2^2$, which has uneven curvature across directions and a Hessian condition number of 10. In each panel the red line traces the parameter path from the common starting point (green dot) to the final iterate (red dot); the black star marks the global optimum at the origin, gray contour lines show loss levels, and the panel title reports the number of steps taken. The noisy-gradient panel adds artificial Gaussian noise to the exact gradient rather than sampling observations from an empirical loss."
 #| code-fold: true
 import numpy as np
 import matplotlib.pyplot as plt
@@ -510,9 +510,9 @@ While Adam might not appear dramatically superior to other algorithms in this vi
 In such landscapes, Adam's adaptive scaling and momentum can make early training less sensitive to differences in gradient scale across coordinates than plain gradient descent with one global learning rate. This is a statement about the behavior of the update rule, not a guarantee of a lower final training loss or better out-of-sample performance. The simple two-dimensional example therefore illustrates behavioral differences between optimizers; it does not rank them for complex prediction problems.
 :::
 
-We can make the minimization problem more challenging by introducing several local minima alongside one global minimum. With several basins, the minimum an algorithm reaches depends on both its trajectory and its tuning. The practical question is therefore how sensitive each update rule is to the learning-rate choice, which is what the next comparison probes.
+We can make the minimization problem more challenging by introducing several local minima alongside one global minimum. With several basins, the minimum an algorithm reaches depends on both its trajectory and its tuning. The next comparison therefore illustrates path and basin selection under workable, rule-specific learning rates; it is not a common-learning-rate sensitivity experiment.
 
-Three disclosures are needed to read the figure honestly. First, as in the quadratic comparison, the noisy-gradient panel adds artificial Gaussian noise to the exact gradient and is not literal SGD from sampled observations. Second, the raw-gradient methods use much smaller learning rates (0.01 for batch and noisy gradient descent, 0.001 for momentum) than the adaptive methods (0.3 for AdaGrad, RMSprop, and Adam). On this surface, coordinate-specific normalization changes the scale of a workable nominal learning rate: the chosen larger values give the adaptive methods useful movement, while plain gradient descent diverges at 0.3. These values are plot-specific, not universal requirements. Third, every panel stops when the loss falls below 1, after 200 iterations, or if a numerical failure produces a non-finite iterate; Adam uses $\beta_2=0.999$, matching the quadratic comparison. The panels therefore compare algorithm designs *at workable tunings*, not the algorithms at a common learning rate.
+Three disclosures are needed to read the figure correctly. First, as in the quadratic comparison, the noisy-gradient panel adds artificial Gaussian noise to the exact gradient and is not literal SGD from sampled observations. Second, the non-adaptive methods use much smaller learning rates (0.01 for batch and noisy gradient descent, 0.001 for momentum) than the adaptive methods (0.3 for AdaGrad, RMSprop, and Adam). On this surface, coordinate-specific normalization changes the scale of a workable nominal learning rate: the chosen larger values give the adaptive methods useful movement, while batch gradient descent diverges at 0.3. These values are plot-specific, not universal requirements. Third, every panel stops when the loss falls below 1, after 200 iterations, or if a numerical failure produces a non-finite iterate; Adam uses $\beta_2=0.999$, matching the quadratic comparison. The panels therefore compare algorithm designs *at workable tunings*, not the algorithms at a common learning rate.
 
 
 ```{python}
@@ -747,9 +747,9 @@ plt.tight_layout()
 plt.show()
 ```
 
-The non-convex surface makes the design differences visible in a way the quadratic could not. Compare the endpoints across the panels of @fig-optimizers-nonconvex: with several basins available, where an optimizer lands depends on its trajectory, not only on its speed. The raw-gradient methods follow the local downhill pull at the small step sizes used here because their raw gradients are much larger on this surface, while the adaptive methods' rescaled steps carry them through flat regions where raw gradients are tiny. Neither behavior dominates—a path that crosses saddles quickly can also skip past a good basin—so optimizer comparisons should use workable tunings for every candidate and the validation criterion relevant to the final prediction problem.
+The non-convex surface makes the design differences visible in a way the quadratic could not. Compare the endpoints across the panels of @fig-optimizers-nonconvex: with several basins available, where an optimizer lands depends on its trajectory, not only on its speed. The non-adaptive methods follow the local downhill pull at their small workable step sizes, while coordinate scaling gives the adaptive methods visible movement through regions where the unscaled gradient is small. Neither behavior dominates: a path that crosses saddle regions quickly can also skip past a good basin. Optimizer comparisons should therefore use workable tunings for every candidate and the validation criterion relevant to the final prediction problem.
 
-Before turning to the final background chapter, note the scope of what we have done: so far the objects being optimized were generic objective functions. The [feed-forward neural networks chapter](feed_forward_nns.qmd) later applies the same optimization ideas to networks, where gradients are computed by backpropagation.
+Before turning to feed-forward neural networks in the next chapter, note the scope of what we have done: so far the objects being optimized were generic objective functions. The [feed-forward neural networks chapter](feed_forward_nns.qmd) applies the same optimization ideas to networks, where gradients are computed by backpropagation.
 
 ## Summary
 
@@ -785,6 +785,8 @@ The two coefficients are the eigenvalues of the constant Hessian $\nabla^2 L=\op
 $$
 \boldsymbol{\theta}^{(t+1)}=\boldsymbol{\theta}^{(t)}-\eta \nabla L(\boldsymbol{\theta}^{(t)}).
 $$
+
+This exercise uses the equivalent $t\mapsto t+1$ indexing convention to make the scalar recursions easier to read; the main text labels the same update by its destination index $t$.
 
 1. Derive the gradient and show that the updates satisfy
    $$
@@ -1029,7 +1031,7 @@ where $\eta>0$ is the learning rate and $\delta\in[0,1)$ is the momentum coeffic
    \big(1+\delta-\eta(1-\delta)a\big)\theta^{(t-1)}
    -\delta \theta^{(t-2)}.
    $$
-2. Show that when $\delta=0$ this reduces to the gradient descent recursion of Exercise 3.1, with the single curvature $a$ here playing the role of $\lambda_{\max}$ there. For the general case, use the following Schur-Cohn stability criterion [see, e.g., @Hamilton1994TimeSeries]: a second-order linear recursion $x_t=cx_{t-1}+dx_{t-2}$ with characteristic polynomial $p(r)=r^2-cr-d$ converges to zero from every initial state if and only if $p(1)>0$, $p(-1)>0$, and $|d|<1$. Apply this to show that, for general $\delta\in[0,1)$, the recursion converges to zero from every initial state $(\theta^{(0)},u_0)$ if and only if
+2. Show that when $\delta=0$ this reduces to the gradient descent recursion of Exercise 3.1, with the single curvature $a$ here playing the role of $\lambda_{\max}$ there. For the general case, use the following Schur-Cohn stability criterion [see, e.g., @Hamilton1994TimeSeries, sec. 1.2]: a second-order linear recursion $x_t=cx_{t-1}+dx_{t-2}$ with characteristic polynomial $p(r)=r^2-cr-d$ converges to zero from every initial state if and only if $p(1)>0$, $p(-1)>0$, and $|d|<1$. Apply this to show that, for general $\delta\in[0,1)$, the recursion converges to zero from every initial state $(\theta^{(0)},u_0)$ if and only if
    $$
    \eta<\frac{2(1+\delta)}{(1-\delta)\,a}.
    $$
