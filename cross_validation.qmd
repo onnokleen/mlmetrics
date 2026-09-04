@@ -7,14 +7,14 @@ number-offset: [1, 0]
 
 ## Overview
 
-When building a machine learning model, we face several decisions that affect performance: which algorithm to use, and what values to choose for the tuning constants that govern a model's flexibility—for instance, the degree of a polynomial regression or the weight on a penalty term added to the loss. Here it is worth fixing terminology: ordinary **parameters** (such as regression coefficients $\beta$) minimize the in-sample objective for a given set of tuning constants, whereas **hyperparameters** (such as the polynomial degree $d$ of this chapter's running example, the weight on a penalty term, or the number of knots in a spline) index that objective or the fitting algorithm and are chosen by a separate criterion. That criterion is often out of sample, as in this chapter, although in-sample penalized criteria such as the Akaike or Bayesian information criterion can also be used. The shared challenge here is that we cannot evaluate predictive performance on the same data used for fitting—doing so produces optimistic estimates that do not generalize to new observations.
+When building a machine learning model, we face several decisions that affect performance: which algorithm to use, and what values to choose for the tuning constants that govern a model's flexibility—for instance, the degree of a polynomial regression or the weight on a penalty term added to the loss. Here it is worth fixing terminology: ordinary **parameters** (such as regression coefficients $\beta$) minimize the in-sample objective for a given set of tuning constants, whereas **hyperparameters** (such as the polynomial degree $d$ of this chapter's running example, the weight on a penalty term, or the number of knots in a spline) determine the objective or fitting procedure and are chosen by a separate criterion. That criterion is often out of sample, as in this chapter, although in-sample penalized criteria such as the Akaike or Bayesian information criterion can also be used. The shared challenge here is that we cannot evaluate predictive performance on the same data used for fitting—doing so produces optimistic estimates that do not generalize to new observations.
 
 This chapter introduces **cross-validation** as the principled answer to that challenge. Cross-validation simulates the experience of predicting on unseen data by systematically holding out portions of the training set. The idea dates to @Stone1974 and @Geisser1975, who proposed leave-one-out (holding out one observation at a time) and predictive-sample-reuse procedures for model assessment well before "machine learning" was a separate field. For econometricians, the issues are familiar: overfitting, specification search, and the bias introduced by repeated use of the same data arise in classical model selection just as in machine learning. The econometric analogue of the problem is pretest and specification-search bias; the machine-learning community's answer to it is **nested cross-validation**—carrying out model selection on one layer of held-out data while keeping a separate outer layer untouched for the final performance assessment [@VarmaSimon2006; @CawleyTalbot2010]—an idea we develop at the end of this chapter.
 
 ## Roadmap
 
 1. We illustrate **overfitting** with a polynomial regression example to motivate why the training mean squared error (MSE) is not a reliable guide to predictive performance.
-2. We introduce a **reliable workflow**—separating training, validation, and test sets—and explain when each set should be touched.
+2. We introduce an **honest workflow**—separating training, validation, and test sets—and explain when each set should be touched.
 3. We define **K-fold cross-validation**—partitioning the sample into $K$ groups and rotating which group is held out—discuss common choices of $K$, and explain why letting information from held-out observations slip into the training step typically makes estimated predictive performance look better than it is.
 4. We extend to **time-series cross-validation**—designs in which the training sample either grows over time or moves forward at a fixed length—and explain why standard K-fold is often invalid for dependent data, and when it can survive.
 5. We close with a **practical example** of hyperparameter tuning, in which cross-validation selects among candidate model configurations, and then develop **nested cross-validation** as a two-loop procedure for assessing the entire tuning-and-fitting workflow.
@@ -32,7 +32,7 @@ $$
 so that $f(x) = \mathbb{E}[Y_i \mid X_i = x]$ is the conditional mean function at a generic predictor value $x$. Suppose we approximate $f$ by a polynomial of degree $d$,
 
 $$
-\mu_d(x) = \beta_0 + \beta_1 x + \cdots + \beta_d x^d,
+\mu_d(x) = \beta_0 + \beta_1 x + \cdots + \beta_d x^d.
 $$
 
 Fitting this polynomial is ordinary least squares (OLS) on an intercept and the constructed regressors $x_i,x_i^2,\dots,x_i^d$. Each $x_i^j$ is the $j$th power of the same observed predictor for unit $i$, not a separate variable. We write $\hat{\mu}_d$ for the fitted polynomial and use $\hat f$ as generic notation for a fitted prediction rule. The degree $d$ is a hyperparameter: increasing it moves the model from rigid to increasingly flexible.
@@ -53,7 +53,7 @@ R(\hat{f})=\mathbb{E}_{(X,Y)}\big[L\big(Y,\hat{f}(X)\big)\,\big|\,\hat{f}\big].
 $$
 The conditioning bar holds the fitted rule $\hat f$ fixed; the expectation runs only over the new observation. The training MSE is optimistic for this risk because the same observations helped determine $\hat f$. By contrast, the **test MSE** evaluates the fitted rule on observations excluded from estimation and therefore provides an out-of-sample estimate of $R(\hat f)$, with accuracy that depends on the size of the test sample. Cross-validation pursues the same out-of-sample target without committing a large part of the available sample to one validation split. As we explain later, however, K-fold cross-validation targets the risk of a fitting procedure trained on the fold-induced sample size rather than exactly $R(\hat f)$ for the final full-sample fit.
 
-**Simulation design.** For @fig-overfitting-example, we simulate $N=25$ training observations and, separately, $200$ test observations from the same data-generating process. The test observations are independent fresh draws, not a subset removed from the training sample. We draw the predictor on $[-1,1]$ and interpret $y$ as an economic outcome whose conditional mean varies smoothly but nonlinearly with $x$, as in an Engel curve or a response of output growth to financial conditions. The left panel compares a rigid linear fit with a flexible degree-12 fit; the right panel plots their underlying training and test criteria across polynomial degrees.
+**Simulation design.** For @fig-overfitting-example, we simulate $N=25$ training observations and, separately, $200$ test observations from the same data-generating process. The test observations are independent fresh draws, not a subset removed from the training sample. We draw the predictor on $[-1,1]$ and interpret $y$ as an economic outcome whose conditional mean varies smoothly but nonlinearly with $x$, as in an Engel curve or a response of output growth to financial conditions. The left panel compares a rigid linear fit with a flexible degree-12 fit; the right panel plots training and test MSE across polynomial degrees.
 
 ```{python}
 #| label: fig-overfitting-example
@@ -128,13 +128,13 @@ The left panel of @fig-overfitting-example shows the fitted mean functions. The 
 
 ## The Problem with Simple Train-Test Splits
 
-A simple approach is to split our data into a **training set** and a **test set**:
+A common first approach is to split the data into a **training set** and one held-out set:
 
 - Train different models/configurations on the training set
-- Evaluate their performance on the test set
+- Evaluate their performance on the held-out set
 - Choose the best-performing option
 
-If this test set is used exactly once at the very end, it is a legitimate final evaluation device. The problem starts when we also use it to choose the model.
+Because the held-out set is used to choose among candidates, it functions as a **validation set**, regardless of whether we initially called it a test set. It supports model selection but no longer provides an untouched final assessment. By contrast, if one fitting procedure had been fully specified in advance and the held-out set were used exactly once after all decisions, it would be a legitimate test set.
 
 Specifically, relying on a single split has three major drawbacks:
 
@@ -142,10 +142,10 @@ Specifically, relying on a single split has three major drawbacks:
 2. **Test set contamination**: If we use the test set to make multiple decisions (choose hyperparameters, select the model specification), we are effectively "training" on the test set, leading to overly optimistic performance estimates.
 3. **Limited data usage**: We are not using all available data for training.
 
-Cross-validation addresses the first and third drawbacks: by averaging over several splits, it reduces the dependence of the estimate on any one arbitrary split, and it lets every observation serve in validation exactly once. Cross-validation does not by itself prevent contamination from repeated model comparison. Selecting among many configurations using the same cross-validated scores reuses those scores just as repeated decisions reuse a test set, which is why the workflow below still separates selection from final assessment.
+The K-fold design introduced below addresses the first and third drawbacks: by averaging over $K$ splits, it reduces the dependence of the estimate on any one arbitrary split, and it lets every observation serve in validation exactly once. Cross-validation does not by itself prevent contamination from repeated model comparison. Selecting among many configurations using the same cross-validated scores reuses those scores just as repeated decisions reuse a test set, which is why the workflow below still separates selection from final assessment.
 
 :::{.callout-important}
-## Reliable Workflow: Validation vs Test Set {#sec-cv-reliable-workflow}
+## Honest Workflow: Validation and Test Sets {#sec-cv-reliable-workflow}
 
 The clean workflow is:
 
@@ -191,7 +191,7 @@ $$
 $$
 When $K$ does not divide $N$, the folds differ slightly in size and an unweighted average of their means is not exactly the pooled per-observation average; the pooled form above uses weights $|D_k|/N$ on the fold means.
 
-**What does $\widehat{\mathrm{CV}}_K$ estimate?** With equal folds, each fold model is trained on $N(K-1)/K$ observations. Under the independent sampling assumed here, $\widehat{\mathrm{CV}}_K$ estimates the average out-of-sample risk of the fitting procedure at that training-sample size, where the average is over hypothetical training samples and fresh test observations. It therefore does not estimate exactly the risk $R(\hat f)$ of the particular model refitted on the observed full sample. If prediction risk decreases as the training sample grows, the smaller fold-training samples make CV pessimistic for the full-sample fit, although this direction is not guaranteed for every fitting procedure. @BatesHastieTibshirani2024 analyze this distinction formally for OLS and provide broader empirical evidence.
+**What does $\widehat{\mathrm{CV}}_K$ estimate?** With equal folds, each fold model is trained on $N(K-1)/K$ observations. Under the independent sampling assumed here, $\widehat{\mathrm{CV}}_K$ estimates the average out-of-sample risk of the fitting procedure at that training-sample size, where the average is over hypothetical training samples and fresh test observations. It does not estimate the realized risk $R(\hat f)$ of the particular model refitted on the observed full sample; if you are interested, see @BatesHastieTibshirani2024 for details.
 
 :::{.callout-note}
 ## Common Choices for K
@@ -205,16 +205,16 @@ The number of folds $K$ is a design choice, not a hyperparameter of the fitted m
 
 Cross-validation only works if each fold is treated like genuinely unseen data. The general principle is:
 
-> Inside each fold, every preprocessing or transformation rule used to build features or targets must be a function of the *training portion of that fold only*. Any rule whose computed value depends on the validation-fold observations contaminates the validation distribution.
+> In each CV split, every preprocessing or transformation rule used to build predictors or outcomes must be a function of *that split's training observations only*. Any rule whose computed value depends on the validation observations contaminates the validation distribution.
 
-Concretely, the following steps must be re-estimated inside each training fold rather than once on the full sample:
+Concretely, the following steps must be re-estimated using each split's training observations rather than once on the full sample:
 
 - scaling and standardization
 - imputation of missing values
 - feature selection or dimensionality reduction
-- target transformations chosen from the data
+- outcome transformations chosen from the data
 
-If these steps are computed on the full dataset before cross-validation, the validation folds share information with the training step. This leakage contaminates the validation experiment and can bias the reported performance estimate, often optimistically; the direction and magnitude depend on the transformation and optimization objective function. Exercise 2.1 below proves a special case for full-sample standardization: the validation observation enters its own scaling rule, which shrinks its standardized magnitude relative to reliable leave-one-out scaling.
+If these steps are computed on the full dataset before cross-validation, the validation folds share information with the training step. This leakage contaminates the validation experiment and can bias the reported performance estimate, often optimistically; the direction and magnitude depend on the transformation and optimization objective function. Exercise 2.1 below proves a special case for full-sample standardization: the validation observation enters its own scaling rule, which shrinks its standardized magnitude relative to scaling based only on the remaining training observations.
 :::
 
 :::{.callout-note title="Question for Reflection"}
@@ -224,7 +224,7 @@ Suppose lagged excess returns used as predictors are winsorized before K-fold cr
 
 :::{.callout-tip collapse="true" title="Suggested Answer"}
 
-Analyst A does not create leakage, provided the $\pm5\%$ thresholds were genuinely fixed before looking at the sample. Analyst B does create leakage because every validation fold helps determine the full-sample percentiles. To make the second procedure reliable, estimate the 1st and 99th percentiles using only the training portion of each fold, then apply those fitted thresholds unchanged to that fold's validation predictor values. The relevant distinction is not winsorization itself, but whether its thresholds were learned from held-out data.
+Analyst A does not create leakage, provided the $\pm5\%$ thresholds were genuinely fixed before looking at the sample. Analyst B does create leakage because every validation fold helps determine the full-sample percentiles. To make the second procedure honest, estimate the 1st and 99th percentiles using only each split's training observations, then apply those fitted thresholds unchanged to the corresponding validation predictors. The relevant distinction is not winsorization itself, but whether its thresholds were learned from held-out data.
 :::
 
 **Visualizing K-Fold Cross-Validation**
@@ -280,7 +280,7 @@ plt.show()
 
 Reading @fig-kfold-cv row by row makes the reuse logic concrete: every observation sits in exactly one validation fold and serves as training data in the remaining $K-1$ splits, so the whole sample contributes to both tasks while no model is ever evaluated on an observation that it saw during training. The two panels differ only in how observations are assigned to folds; the training–validation pattern within each split is identical.
 
-:::{.callout-tip}
+:::{.callout-note}
 ## Additional Information: Stratified K-Fold for Classification
 For a **classification problem**, the outcome is categorical—for example, default versus no default. If the classes are imbalanced, meaning that one outcome is rare, ordinary random folds can contain very few or even no observations from that class, making some fold scores erratic or undefined. **Stratified K-fold** keeps the class proportions in each fold as close to those of the full dataset as the integer fold sizes allow.
 :::
@@ -291,12 +291,12 @@ Before discussing time-series validation designs, we need one concept that recur
 
 :::{.callout-note title="Definition: Forecast-Origin Information Set"}
 
-For a forecast made at time $t$, the **forecast-origin information set** $\mathcal{F}_t$ is the $\sigma$-algebra generated by all variables—outcomes, predictors, metadata—in the form in which they were actually available at real-world time $t$. For data subject to revision, this means the vintage published by time $t$: a provisional release available at $t$ belongs to $\mathcal{F}_t$, while its later revised value does not. A validation design is **time-aware** if, at each forecast origin $t$, every predictor entering the forecast and every observation used for estimation is measurable with respect to $\mathcal{F}_t$. The validation *outcome* is the subsequently realized target. The outcome is not $\mathcal{F}_t$-measurable, since it is precisely what the forecast is evaluated against. In a time-series setting, leakage violates this measurability condition: an object on the right-hand side of the forecasting regression depends on information that was not available at $t$. This is the temporal version of the general leakage principle above. In both cases, a training-side rule depends on held-out information—validation observations in the K-fold setting and post-origin data here. The same concept reappears in the chapters on [predictive-distribution evaluation](evaluating_distributions.qmd), [recurrent networks](recurrent_neural_networks.qmd), [hyperparameter optimization](hpo.qmd), and [conformal prediction](conformal_prediction.qmd).
+For a forecast made at time $t$, the **forecast-origin information set** $\mathcal{F}_t$ is the $\sigma$-algebra generated by all variables—outcomes, predictors, metadata—in the form in which they were actually available at real-world time $t$. For data subject to revision, this means the vintage published by time $t$: a provisional release available at $t$ belongs to $\mathcal{F}_t$, while its later revised value does not. A validation design is **time-aware** if, at each forecast origin $t$, every predictor entering the forecast and every observation used for estimation is measurable with respect to $\mathcal{F}_t$. The validation *outcome* is subsequently realized and is not $\mathcal{F}_t$-measurable, since it is precisely what the forecast is evaluated against. In a time-series setting, leakage violates this measurability condition: an object on the right-hand side of the forecasting regression depends on information that was not available at $t$. This is the temporal version of the general leakage principle above. In both cases, a training-side rule depends on held-out information—validation observations in the K-fold setting and post-origin data here. The same concept reappears in the chapters on [predictive-distribution evaluation](evaluating_distributions.qmd), [recurrent networks](recurrent_neural_networks.qmd), [hyperparameter optimization](hpo.qmd), and [conformal prediction](conformal_prediction.qmd).
 :::
 
-Standard K-fold cross-validation is generally not suitable for time-series data: the argument that each held-out fold mimics genuinely unseen data relies on the observations being exchangeable—as they are under i.i.d. sampling—and temporal dependence breaks exchangeability. Randomly shuffling and splitting time-series data gives some fitted models access to observations after the validation date, so the split no longer reproduces a real-time estimation sample. That mismatch is not automatically biasing: for correctly specified autoregressions with uncorrelated errors, random cross-validation can remain asymptotically valid [@BergmeirHyndmanKoo2018]. It becomes optimistic when a misspecified or flexible model can exploit dependence in post-validation observations, and feature timing or overlapping outcomes can create leakage even when the model itself is correctly specified. Time-aware designs are therefore the safe default.
+Standard K-fold cross-validation is generally not suitable for time-series data: the argument that each held-out fold mimics genuinely unseen data relies on the observations being exchangeable—as they are under i.i.d. sampling—and temporal dependence breaks exchangeability. Randomly shuffling and splitting time-series data gives some fitted models access to observations after the validation date, so the split no longer reproduces a real-time estimation sample. That mismatch is not automatically biasing: for a stationary, purely autoregressive model that nests the true lag structure, so its errors are serially uncorrelated, random cross-validation can remain asymptotically valid [@BergmeirHyndmanKoo2018]. It becomes optimistic when a misspecified or flexible model can exploit dependence between the validation block and post-validation observations used for training, and feature timing or overlapping outcomes can create leakage even when the model itself is correctly specified. Time-aware designs are therefore the prudent default.
 
-Specialized cross-validation techniques are needed for time-series data. More generally, the validation split should mirror the dependence structure of the prediction target; @RobertsEtAl2017CV give a useful taxonomy for temporal, spatial, hierarchical, and related dependence settings.
+Time-series applications therefore generally need validation designs tailored to the prediction task. Expanding- and sliding-window designs are natural for strict real-time forecasting; random or two-sided designs require assumptions that justify training on observations after a validation date. More generally, the validation split should mirror the dependence structure of the predicted outcome; @RobertsEtAl2017CV give a useful taxonomy for temporal, spatial, hierarchical, and related dependence settings.
 
 :::{.callout-warning}
 ## Econometric Warning
@@ -305,12 +305,14 @@ In forecasting applications, leakage can arise even without explicit shuffling. 
 
 - predictors that are revised ex post
 - features published with delay
-- overlapping forecast targets
+- overlapping forecast outcomes
 - preprocessing performed using information from the full sample
 
 So "time-aware" cross-validation must reflect the actual information set available at the forecast origin.
 
-Serial dependence near fold boundaries is a related but distinct problem. Autocorrelation by itself is not leakage in the sense defined above—it puts no unavailable information into the forecast, and a validation block that lies strictly after the training window remains genuinely unseen even when it is dependent on the training history. What dependence changes is what the validation score measures: observations just after the training window are partly predictable from recently shared shocks, so a design that always validates immediately next to the training data estimates short-horizon performance, and the fold scores are correlated draws rather than independent ones—the validation design must match the intended deployment horizon. Training on observations after the validation block can make the estimate genuinely *optimistic* when a misspecified or flexible model can exploit the leaked dependence. The correctly specified autoregression with uncorrelated errors discussed above is an important exception: in that setting, post-validation training observations need not bias the cross-validation estimate [@BergmeirHyndmanKoo2018]. A second source of genuine optimism is overlap in *labels*—the machine-learning term for the outcomes being predicted. If an outcome is constructed from a window of future periods, training observations whose label windows reach into the validation block use information from it. In financial applications one common response is **purged cross-validation** [@LopezDePrado2018], which removes training observations whose labels overlap with the validation period, sometimes combined with an **embargo** period that drops a short buffer after the validation block before training resumes. The exact buffer length is an econometric design choice: it should reflect the forecast horizon, label construction, and persistence in the data.
+Serial dependence near fold boundaries is a related but distinct problem. Autocorrelation by itself is not leakage in the sense defined above: it puts no unavailable information into the forecast, and a validation block that lies strictly after the training window remains genuinely unseen even when it is dependent on the training history. What dependence changes is what the validation score measures. Observations just after the training window are partly predictable from recently shared shocks, so a design that always validates immediately next to the training data estimates short-horizon performance, and the fold scores are correlated draws rather than independent ones. The validation design must therefore match the intended deployment horizon. Training on observations after the validation block can make the estimate genuinely *optimistic* when a misspecified or flexible model can exploit dependence between that block and the post-validation observations used for training; the purely autoregressive exception described above remains important.
+
+A separate source of genuine optimism is overlap in *labels*, the machine-learning term for the outcomes being predicted. If an outcome is constructed from a window of future periods, training observations whose label windows reach into the validation block use information from it. In financial applications one common response is **purged cross-validation** [@LopezDePrado2018], which removes training observations whose labels overlap with the validation period, sometimes combined with an **embargo** period that drops a short buffer after the validation block before training resumes. The exact buffer length is an econometric design choice: it should reflect the forecast horizon, label construction, and persistence in the data.
 :::
 
 **Expanding Window (Recursive Estimation)**
@@ -331,7 +333,7 @@ This method uses a fixed-size training set that "slides" through time.
 2.  The next block of data is the validation set.
 3.  In the next iteration, both the training and validation windows slide forward by a specified step.
 
-The sliding window is preferred when the data-generating process (DGP) exhibits slow non-stationarity or structural change, so that older observations are less informative about the current conditional distribution—provided the relevance gain outweighs the loss of estimation precision, since a shorter window always raises parameter-estimation variance.
+A sliding window can be preferred when the data-generating process (DGP) exhibits slow non-stationarity or structural change, so that older observations are less informative about the current conditional distribution—provided the relevance gain outweighs the usual loss of estimation precision from using fewer observations.
 
 In the econometric forecast-evaluation literature, these are **pseudo-out-of-sample (pseudo-OOS)** schemes: an expanding training window uses **recursive estimation**, whereas a fixed-length sliding window uses **rolling estimation** [@West1996; @ClarkMcCracken2013]. In both schemes the forecast origin advances through time and the model is re-estimated using only the observations that the chosen window makes available at that origin.
 
@@ -457,15 +459,15 @@ fig.tight_layout(rect=[0, 0, 0.85, 1]) # Adjust layout to make space for legend
 plt.show()
 ```
 
-The contrast between the first two panels of @fig-timeseries-cv is the window-length choice: the expanding window never discards early observations, while the sliding window drops old observations as it moves—the better choice when older data are less informative about current conditions. In both designs the validation block lies strictly after the training data, so no split trains on the future. The third panel addresses a different issue in a two-sided K-fold design. Purple observations are excluded because their multi-period outcomes would overlap the validation block; dark-gray observations are excluded by the post-validation embargo before training resumes. The returned training set contains the blue observations on both sides but neither buffer, so both safeguards are binding. Such a two-sided design is appropriate only when its maintained assumptions justify training on post-validation observations; it does not reproduce a strictly real-time forecast exercise. Purging and embargoing therefore modify a base validation design rather than replace the choice between recursive and rolling estimation.
+The contrast between the first two panels of @fig-timeseries-cv is the window-length choice: the expanding window never discards early observations, while the sliding window drops old observations as it moves. Sliding can be preferable when the gain from emphasizing recent conditions outweighs the loss of estimation precision from using fewer observations. In both designs the validation block lies strictly after the training data, so no split trains on the future. The third panel addresses a different issue in a two-sided K-fold design. Purple observations are excluded because their multi-period outcomes would overlap the validation block; dark-gray observations are excluded by the post-validation embargo before training resumes. The returned training set contains the blue observations on both sides but neither buffer, so both safeguards are binding. Such a two-sided design is appropriate only when its maintained assumptions justify training on post-validation observations; it does not reproduce a strictly real-time forecast exercise. Purging and embargoing therefore modify a base validation design rather than replace the choice between recursive and rolling estimation.
 
 Scikit-learn's `TimeSeriesSplit` implements the expanding window by default; setting its `max_train_size` argument caps the training window, giving a rolling design once the cap binds. A manual implementation is needed for nonstandard stepping, such as the fixed-length, gapped windows drawn in the middle panel.
 
 ## Practical Example: Tuning a Neural Network with Cross-Validation
 
-We now show how to use cross-validation to select hyperparameters for a simple neural network. No knowledge of neural networks is needed here: treat the network as a flexible nonlinear regression model whose fitting procedure comes with two tuning constants—the **hidden-layer architecture** (which controls how rich the fitted function class is) and the **learning rate** (a step-size constant of the estimation algorithm). We study these objects properly in the [chapter on feed-forward neural networks](feed_forward_nns.qmd); in this example the network simply provides a realistic tuning problem with multiple hyperparameters, all tuned using scikit-learn. As data we simulate a single-year cross-section of $1{,}000$ firms: annual excess returns, in percent, generated from ten firm characteristics measured on deliberately heterogeneous scales, with an interaction and a quadratic term that a purely linear model would miss. Because the observations are independently simulated—with no cluster, spatial, or time-series dependence—the K-fold design of @sec-cv-kfold is appropriate here. A real firm-year panel would instead require folds that respect firm-level clustering and time.
+We now show how to use cross-validation to select hyperparameters for a simple neural network. No knowledge of neural networks is needed here: treat the network as a flexible nonlinear regression model whose fitting procedure comes with two tuning constants—the **hidden-layer architecture** (which controls how rich the fitted function class is) and the **learning rate** (a step-size constant of the estimation algorithm). We study these objects properly in the [chapter on feed-forward neural networks](feed_forward_nns.qmd); in this example, the network simply provides a realistic tuning problem with multiple hyperparameters, all tuned using scikit-learn. As data we simulate a single-year cross-section of $1{,}000$ firms: annual excess returns, in percent, generated from ten firm characteristics measured on deliberately heterogeneous scales, with an interaction and a quadratic term that a purely linear model would miss. Because the observations are independently simulated—with no cluster, spatial, or time-series dependence—the K-fold design of @sec-cv-kfold is appropriate here. A real firm-year panel would instead require folds that respect firm-level clustering and time.
 
-The architecture labels below report how many computational units (often called neurons) each hidden layer contains. Thus, `50` denotes one hidden layer with 50 units, while `100-50` denotes two hidden layers with 100 and 50 units, in that order. For the present example, these labels simply index model flexibility.
+The architecture labels below report how many computational units (often called neurons) each hidden layer contains. Thus, `50` denotes one hidden layer with 50 units, while `100-50` denotes two hidden layers with 100 and 50 units, in that order. These labels identify candidate architectures; width and depth both affect model capacity, so the labels do not place the candidates on a single ordered flexibility scale.
 
 Because the firm characteristics are measured on heterogeneous scales, we standardize them before fitting the network. Scikit-learn's `Pipeline` object combines these two ordered steps—standardization followed by model fitting—and treats them as one fitting procedure. Within each CV split, the pipeline estimates the means and standard deviations only from the training fold, fits the network on the standardized training predictors, and applies those same training-fold scaling constants to the validation predictors. The validation observations therefore do not influence standardization.
 
@@ -580,7 +582,7 @@ print("Best Configuration:")
 print(f"Hidden units by layer: {best_config['architecture']}")
 print(f"Learning Rate: {best_config['learning_rate']}")
 print(f"Mean CV MSE: {best_config['mean_cv_mse']:.4f}")
-print(f"Fold-score SD (ddof=1): {best_config['fold_mse_sd']:.4f}")
+print(f"Fold-score standard deviation (ddof=1): {best_config['fold_mse_sd']:.4f}")
 print(f"Folds reaching 1,000 iterations: {int(best_config['n_capped_folds'])}/5")
 print(f"Captured convergence warnings: {int(best_config['n_convergence_warnings'])}")
 
@@ -654,7 +656,7 @@ top_five = results_df.nsmallest(5, 'mean_cv_mse')[[
     'architecture': 'Hidden units by layer',
     'learning_rate': 'Learning rate',
     'mean_cv_mse': 'Mean CV MSE',
-    'fold_mse_sd': 'Fold-score SD',
+    'fold_mse_sd': 'Fold-score standard deviation',
     'n_capped_folds': 'Capped folds',
 })
 display(
@@ -663,7 +665,7 @@ display(
     .format({
         'Learning rate': '{:.3g}',
         'Mean CV MSE': '{:.2f}',
-        'Fold-score SD': '{:.2f}',
+        'Fold-score standard deviation': '{:.2f}',
         'Capped folds': '{:.0f}',
     })
 )
@@ -672,7 +674,7 @@ display(
 :::{.callout-note}
 ## How to Read the Diagnostics
 
-The mean CV MSE ranks the candidate configurations. The **Fold-score SD** column—computed in the code as `fold_mse_sd` with `ddof=1`—describes how much the $K$ scores fluctuate across folds, but it is *not* a standard error for the cross-validated risk: the fold scores are correlated because their training sets overlap [@BatesHastieTibshirani2024]. The **Capped folds** column provides a separate optimization diagnostic. A positive value means that score differences may reflect incomplete optimization under the fixed iteration budget, not only differences in architecture or learning rate. Small differences in mean CV MSE should therefore not be read as precise rankings, especially when fold-score dispersion is large or the number of capped fits differs.
+The mean CV MSE ranks the candidate configurations. The **Fold-score standard deviation** column—computed in the code as `fold_mse_sd` with `ddof=1`—describes how much the $K$ scores fluctuate across folds, but it is *not* a standard error for the cross-validated risk: the fold scores are correlated because their training sets overlap [@BatesHastieTibshirani2024]. The **Capped folds** column provides a separate optimization diagnostic. A positive value means that score differences may reflect incomplete optimization under the fixed iteration budget, not only differences in architecture or learning rate. Small differences in mean CV MSE should therefore not be read as precise rankings, especially when fold-score dispersion is large or the number of capped fits differs.
 :::
 
 The grid search above uses a single level of cross-validation. For each fixed configuration, `cross_validate` produces five validation scores. The `ParameterGrid` loop repeats that call for every configuration, and the subsequent `idxmin` step selects the configuration with the smallest mean CV MSE. This entire selection step plays the role of the **inner tuning loop** in the nested procedure developed next. Using the same splits for every configuration makes their scores directly comparable, but the ranking remains noisy, as the dispersion and convergence diagnostics emphasize. Moreover, the cross-validated score of the *selected* configuration is optimistically biased, for exactly the reason formalized in Exercise 2.2 below: taking the best of many noisy validation scores favors lucky draws. @sec-cv-nested develops the separate outer layer needed to assess the tuning procedure without reusing its inner validation scores.
@@ -863,7 +865,7 @@ $$
 \qquad\text{and}\qquad
 \bar{x}_{-j}=\frac{1}{N-1}\sum_{i\neq j}x_i,
 $$
-where $\bar{x}$ is the full-sample mean and $\bar{x}_{-j}$ is the mean computed only on the training fold.
+where $\bar{x}$ is the full-sample mean and $\bar{x}_{-j}$ is the mean computed only from the remaining $N-1$ training observations.
 
 Define the corresponding second moments
 $$
@@ -872,7 +874,7 @@ s^2=\frac{1}{N}\sum_{i=1}^{N}(x_i-\bar{x})^2,
 s_{-j}^2=\frac{1}{N-1}\sum_{i\neq j}(x_i-\bar{x}_{-j})^2.
 $$
 
-Both quantities use the divide-by-own-sample-size convention (`ddof=0`): the full sample contains $N$ observations, whereas the training fold contains $N-1$. This is also the convention used by `StandardScaler` in the chapter's Python example.
+Both quantities use the divide-by-own-sample-size convention (`ddof=0`): the full sample contains $N$ observations, whereas the training subset/fold contains $N-1$. This is also the convention used by `StandardScaler` in the chapter's Python example.
 
 Assume $N\ge 3$ and that the training-fold observations $\{x_i\}_{i\neq j}$ are not all equal, so that $s_{-j}^2>0$.
 
@@ -1098,7 +1100,7 @@ $$
 
 **Part 1: Writing the Selected Validation Score**
 
-Apply the identity with $a=\hat{R}_A$ and $b=\hat{R}_B$:
+Use the elementary identity $\min(a,b)=(a+b-|a-b|)/2$, valid for all real $a,b$, with $a=\hat{R}_A$ and $b=\hat{R}_B$:
 $$
 \min(\hat{R}_A,\hat{R}_B)
 =\frac{\hat{R}_A+\hat{R}_B-|\hat{R}_A-\hat{R}_B|}{2}.
