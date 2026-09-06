@@ -310,10 +310,16 @@ Both are strictly proper scoring rules, each relative to a specific class of for
 |----------------------|--------------------------------------------------------|-----------------------------------------------------|
 | **Input Required**   | Forecast PDF, $f(y)$                                   | Forecast CDF, $F(y)$ (or samples)                   |
 | **Sensitivity**      | Local: evaluates the density only at the realization, so one outcome in a low-density region can dominate the average score. | Aggregates CDF errors across all thresholds, so a single low-density realization rarely dominates. |
-| **Numerical implementation** | Unbounded: a tiny $f(y)$ yields a huge score. Compute $\log f(y)$ directly (`logpdf`) rather than $f(y)$ first, to avoid floating-point underflow. | Contributions are bounded by the CDF gap; no comparable underflow issue. |
+| **Numerical implementation** | Unbounded: a tiny $f(y)$ yields a huge score. Compute $\log f(y)$ directly (`logpdf`) rather than $f(y)$ first, to avoid floating-point underflow. | Avoids evaluating tiny densities. The squared integrand is bounded by one, but CRPS itself is unbounded in the realization. |
 | **Measurement Error Sensitivity** | High                                               | Low                                                 |
 
 The measurement-error row summarizes @Kleen2024: in many forecasting applications the evaluation target is observed only through a noisy proxy—squared returns or a realized-variance estimate standing in for the latent conditional variance, or a preliminary release standing in for the final value—and model rankings based on the LogS react substantially more strongly to such measurement error in the outcome than rankings based on the CRPS.
+
+For a forecast $F$ with a finite first moment, the kernel representation gives the precise sensitivity bound
+$$
+\big|\operatorname{CRPS}(F,y+e)-\operatorname{CRPS}(F,y)\big|\le |e|,
+$$
+where $e$ is an additive measurement error in the realized outcome. The bound limits how much CRPS changes when the outcome is perturbed; it does not bound the score itself or guarantee that forecast rankings survive measurement error. Exercise 4.2 derives the bound and a condition under which a given ranking is preserved.
 
 :::{.callout-important}
 ## Practical Rule of Thumb
@@ -348,9 +354,21 @@ Beyond comparing models with scoring rules, we often want to diagnose *how* a mo
 
 The PIT is based on a fundamental statistical result: if a continuous random variable $Y$ is drawn from a distribution with CDF $F$, then the transformed random variable $U = F(Y)$ follows a Uniform distribution on the interval [0, 1].
 
-In forecasting, we can apply this principle to a sequence of forecasts and outcomes [@DieboldGuntherTay1998]. Suppose our model produces, at each forecast origin $t$, a predictive CDF $F_{t+1\mid t}$ for the next-period outcome $Y_{t+1}$—the subscript records that the forecast is issued at time $t$ and targets time $t+1$—constructed from the forecast-origin information set $\mathcal{F}_t$. If each conditional distribution is correctly specified relative to $\mathcal{F}_t$, then for one-step-ahead forecasts the PIT sequence $U_{t+1} = F_{t+1\mid t}(Y_{t+1})$, indexed by the date of the outcome it evaluates, should be i.i.d. Uniform(0, 1), not merely marginally uniform; deviations in either the marginal shape or the serial dependence signal misspecification. As everywhere in the book, lowercase $u_{t+1} = F_{t+1\mid t}(y_{t+1})$ denotes the realized PIT value computed from the realized outcome $y_{t+1}$; the histograms below are drawn from these realized values. (For multi-step forecasts, overlapping horizons induce serial dependence in the PITs even under correct specification, so the i.i.d. statement is specific to the one-step-ahead case.) In time-series applications, it is useful to distinguish **probabilistic calibration**—the unconditional PIT distribution is Uniform(0,1), the property the term "calibration" refers to in the taxonomy of @GneitingKatzfuss2014—from **serial independence** (the PIT sequence has no predictable dependence): a PIT histogram can look uniform even when the PIT sequence remains autocorrelated. Correct conditional specification requires both—the PIT is Uniform(0,1) and unpredictable given $\mathcal{F}_t$—so that the marginal shape is correct and no leftover predictable pattern remains in the PIT sequence. (The density-forecasting literature reserves the term **marginal calibration** for a different property—the average forecast CDF matching the unconditional distribution of the outcomes—which we do not use in this chapter.)
+In forecasting, we apply this principle to a sequence of forecasts and outcomes [@DieboldGuntherTay1998]. At forecast origin $t$, let $F_{t+1\mid t}$ be the predictive CDF for $Y_{t+1}$ constructed from the information set $\mathcal F_t$. The subscript records both the forecast origin and the date of the target. The PIT is
+$$
+U_{t+1}=F_{t+1\mid t}(Y_{t+1}).
+$$
+If each forecast is the correct continuous conditional distribution given $\mathcal F_t$, then $U_{t+1}$ is Uniform(0,1) and independent of $\mathcal F_t$. Since this information set contains past outcomes and forecasts, the one-step-ahead PIT sequence is i.i.d. Uniform(0,1).
 
-We can visually check this by plotting a histogram of the PIT values. The shape of the histogram reveals systematic biases in the forecast distributions:
+Lowercase $u_{t+1}=F_{t+1\mid t}(y_{t+1})$ denotes the realized PIT value computed from the realized outcome; the histograms below use these values. For multi-step forecasts, overlapping horizons can induce serial dependence in the PITs even under correct specification, so the i.i.d. conclusion does not extend to that case.
+
+In time-series applications, **probabilistic calibration** means that the unconditional PIT distribution is Uniform(0,1), following the taxonomy of @GneitingKatzfuss2014. This property is distinct from **serial independence** of the PIT sequence. A histogram can look uniform even when PIT values remain autocorrelated. Correct conditional specification requires more than a flat histogram: the PIT must be uniform and independent of the full forecast-origin information set.
+
+:::{.callout-note title="Calibration terminology"}
+The density-forecasting literature uses **marginal calibration** for a different property: the average forecast CDF matches the unconditional CDF of the outcomes. In this chapter, calibration refers to probabilistic calibration, assessed through the PIT distribution.
+:::
+
+A histogram of the PIT values checks their marginal uniformity. Its shape can reveal systematic biases in the forecast distributions:
 
 -   **Calibrated Forecasts**: If the forecasts are well-calibrated, the PIT histogram will be approximately flat, resembling a uniform distribution.
 -   **Underdispersed Forecasts (Too Narrow)**: If the forecast distributions are consistently too narrow, the realized outcomes will frequently fall in the tails. This leads to PIT values clustering near 0 and 1, creating a **U-shaped** histogram. The model is "overconfident" and surprised too often.
@@ -621,11 +639,11 @@ plt.show()
 
 The top panel of @fig-eval-dist-scores shows LogS over time. All three models register a sharp spike in 2020Q2, the quarter in which GDP fell by roughly 30 percent annualized. Because LogS evaluates the density at the realized outcome, a single quarter that falls far into the left tail—where any Gaussian forecast places near-zero density—can inflate the average LogS dramatically. The spike is by far the largest for the in-sample RF: its variance forest had been predicting a small conditional variance going into 2020, so the resulting density at $-32.8\%$ is essentially zero. The OOB RF produces a larger variance forecast for that quarter, so its 2020Q2 spike is smaller; the AR(1) sits in between. The bottom panel plots CRPS over the same period. All three models deteriorate in 2020Q2. For the in-sample RF, the spike dominates its CRPS series far less than the corresponding spike dominates its LogS series (the two scores live on different scales, so only such within-score comparisons are meaningful): CRPS integrates the CDF discrepancy over all values rather than evaluating the density at one point, so a miss that lands where the predictive density is essentially zero inflates CRPS far less than LogS. For the AR(1) and the OOB RF, whose forecasts were less overconfident going into 2020, the COVID quarter weighs comparably on their CRPS and LogS series.
 
-@fig-eval-dist-summary condenses the evaluation: average scores in the first panel and PIT histograms for each model in the remaining panels. Two reading aids matter with only $63$ test quarters. First, we use eight bins, so that roughly eight observations per bin are expected under uniformity; finer bins would mostly display noise. Second, the shaded band around the uniform density marks pointwise ±2-standard-error variation of the bin heights under correct calibration. It is a visual reference rather than a simultaneous confidence band or a formal calibration test: a bar outside the band is conspicuous, but a coordinated pattern across bins can also warrant investigation when every individual bar remains inside. We inspect only the marginal shape of the PITs here; testing for leftover serial dependence in the PIT sequence—the second half of the diagnosis in @sec-eval-dist-pit—requires additional tools, and Exercise 4.4 develops the closely related serial-correlation problem for average-score comparisons.
+@fig-eval-dist-summary condenses the evaluation: average scores in the first panel and PIT histograms for each model in the remaining panels. Two reading aids matter with only $63$ test quarters. First, we use eight bins, so that roughly eight observations per bin are expected under uniformity; finer bins would mostly display noise. Second, the shaded band around the uniform density marks pointwise ±2-standard-error variation of the bin heights under an i.i.d. Uniform(0,1) PIT reference. Marginal uniformity alone does not justify this band when PITs are serially dependent. The band is a visual reference rather than a simultaneous confidence band or a formal calibration test: a bar outside the band is conspicuous, but a coordinated pattern across bins can also warrant investigation when every individual bar remains inside. We inspect only the marginal shape of the PITs here; testing for leftover serial dependence in the PIT sequence—the second half of the diagnosis in @sec-eval-dist-pit—requires additional tools, and Exercise 4.4 develops the closely related serial-correlation problem for average-score comparisons.
 
 ```{python}
 #| label: fig-eval-dist-summary
-#| fig-cap: "Average LogS (solid bars) and CRPS (hatched bars) by model in the top-left panel, lower is better, and PIT histograms for each model over the $T=63$ test quarters in the remaining panels, using 8 bins. The dashed red line marks the uniform density; the shaded band is a pointwise ±2-standard-error region around it under correct calibration, based on the binomial variation of the bin counts. LogS and CRPS are on different scales, so bar heights in the top-left panel are comparable across models within a score, not between the two scores."
+#| fig-cap: "Average LogS (solid bars) and CRPS (hatched bars) by model in the top-left panel, lower is better, and PIT histograms for each model over the $T=63$ test quarters in the remaining panels, using 8 bins. The dashed red line marks the uniform density; the shaded band is a pointwise ±2-standard-error region under i.i.d. Uniform(0,1) PITs, based on binomial bin-count variation. It is not adjusted for serial dependence under marginal uniformity alone. LogS and CRPS are on different scales, so bar heights in the top-left panel are comparable across models within a score, not between the two scores."
 #| echo: true
 
 fig, axes = plt.subplots(2, 2, figsize=(11, 8))
@@ -649,7 +667,7 @@ ax_bar.set_title("Average Scores")
 ax_bar.legend(frameon=False)
 ax_bar.grid(True, axis="y", alpha=0.3)
 
-# PIT histograms: 8 bins for n = 63, with a pointwise 2-SE band under uniformity
+# PIT histograms: 8 bins for n = 63, with a pointwise 2-SE band under iid uniform PITs
 n_bins = 8
 bins = np.linspace(0, 1, n_bins + 1)
 se_unif = np.sqrt((1 - 1 / n_bins) / (len(pit_ar) / n_bins))
@@ -660,7 +678,7 @@ for ax, pit_vals, title, color in zip(
     ["C1", "C3", "C0"],
 ):
     ax.hist(pit_vals, bins=bins, density=True, color=color, edgecolor="white", alpha=0.8)
-    ax.axhspan(1 - 2 * se_unif, 1 + 2 * se_unif, color="red", alpha=0.08, label="±2 SE band")
+    ax.axhspan(1 - 2 * se_unif, 1 + 2 * se_unif, color="red", alpha=0.08, label="±2 SE (iid uniform)")
     ax.axhline(1.0, color="red", linestyle="--", linewidth=1, label="Uniform")
     ax.set_xlabel("PIT value")
     ax.set_ylabel("Density")
@@ -850,123 +868,88 @@ By contrast, LogS evaluates the full predictive density. A forecaster can get th
 :::
 
 :::{.callout-note}
-## Exercise 4.2: Why CRPS Is Proper
+## Exercise 4.2: Strict Propriety and Measurement Error in CRPS
 
-Let $F_0$ denote the true CDF of the outcome, let $F$ denote a forecast CDF—the convention of this chapter—and let $Y\sim F_0$; assume both distributions have finite first moments. Recall the CRPS:
+Let $F_0$ denote the true CDF and $F$ a forecast CDF, both with finite first moments. For $Y\sim F_0$, the chapter established
 $$
-\mathrm{CRPS}(F,y)=\int_{-\infty}^{\infty}\big(F(z)-\mathbf{1}\{z\ge y\}\big)^2\,dz.
+\mathbb E[\operatorname{CRPS}(F,Y)]
+=\int_{-\infty}^{\infty}(F(z)-F_0(z))^2\,dz
++\int_{-\infty}^{\infty}F_0(z)(1-F_0(z))\,dz.
 $$
 
-1. Show that
+1. Use this decomposition to prove that $F_0$ is the unique minimizer of expected CRPS. In particular, show why equality of two CDFs Lebesgue-almost everywhere implies equality everywhere, using their right-continuity.
+2. Starting from the integral definition, show that CRPS for a point forecast $\hat y$, represented by $F(z)=\mathbf1\{z\ge\hat y\}$, equals $|\hat y-y|$. Use point forecasts at 0 and 1 to give an explicit example in which changing the observed outcome from $y=0$ to $y=1$ reverses their CRPS ranking.
+3. For a fixed forecast $F$ with finite first moment, use the kernel representation to prove
    $$
-   \mathbb{E}_{Y\sim F_0}[\mathrm{CRPS}(F,Y)]
-   =
-   \int_{-\infty}^{\infty}\left[\big(F(z)-F_0(z)\big)^2+F_0(z)\big(1-F_0(z)\big)\right]\,dz.
+   |\operatorname{CRPS}(F,y+e)-\operatorname{CRPS}(F,y)|\le |e|
    $$
-2. Show that the expected CRPS is minimized at $F=F_0$.
-3. Prove that for a point forecast represented by the degenerate CDF $F(z)=\mathbf{1}\{z\ge \hat y\}$,
-   $$
-   \mathrm{CRPS}(F,y)=|\hat y-y|.
-   $$
-   Work directly from the integral definition; the chapter's collapsible box obtained the same result from the kernel representation, so this part establishes it by the complementary route.
+   for every real $y$ and additive measurement error $e$. For two such forecasts $F_A,F_B$, define $D(y)=\operatorname{CRPS}(F_A,y)-\operatorname{CRPS}(F_B,y)$. Deduce a bound on $|D(y+e)-D(y)|$ and, when $D(y)<0$, give a sufficient upper bound on $|e|$ for $A$ still to have the lower score at $y+e$.
 
-*Exam level. The exercise proves propriety and then shows why CRPS reduces to MAE for a degenerate point forecast.*
+*Exam level. The exercise establishes strict propriety, constructs a ranking reversal, and derives a bound linking measurement error to forecast-score differences.*
 :::
 
 :::{.callout-warning collapse="true"}
 ## Hint for Part 1
-Take expectation inside the integral, expand the square, and use
-$$
-\mathbb{E}[\mathbf{1}\{z\ge Y\}] = F_0(z),
-\qquad
-\mathbb{E}[\mathbf{1}\{z\ge Y\}^2] = F_0(z).
-$$
+If the CDFs differ at $z_0$, use right-continuity to find an interval to the right of $z_0$ on which the absolute difference stays bounded away from zero.
 :::
 
 :::{.callout-warning collapse="true"}
 ## Hint for Part 3
-The two indicator functions differ exactly when $z$ lies between $\hat y$ and $y$; hence the squared integrand is one on that interval and zero elsewhere.
+The term $\tfrac12\mathbb E|X-X'|$ in the kernel representation does not depend on the realized outcome. Apply the reverse triangle inequality to the remaining absolute-error terms, then the triangle inequality to the difference of two scores.
 :::
 
 :::{.callout-tip collapse="true"}
 ## Solution
 
-**Part 1: Expected CRPS Decomposition**
+**Part 1: Strict Propriety**
 
-By definition,
-$$
-\mathrm{CRPS}(F,Y)=\int_{-\infty}^{\infty}\big(F(z)-\mathbf{1}\{z\ge Y\}\big)^2\,dz.
-$$
-Taking expectation under $Y\sim F_0$ and interchanging expectation and integral—justified by Tonelli's theorem, since the integrand is nonnegative—gives
-$$
-\mathbb{E}_{Y\sim F_0}[\mathrm{CRPS}(F,Y)]
-=
-\int_{-\infty}^{\infty}\mathbb{E}\Big[\big(F(z)-\mathbf{1}\{z\ge Y\}\big)^2\Big]\,dz.
-$$
-Expand the square:
-$$
-\big(F(z)-\mathbf{1}\{z\ge Y\}\big)^2
-=
-F(z)^2-2F(z)\mathbf{1}\{z\ge Y\}+\mathbf{1}\{z\ge Y\}.
-$$
-Taking expectations yields
-$$
-\mathbb{E}\Big[\big(F(z)-\mathbf{1}\{z\ge Y\}\big)^2\Big]
-=
-F(z)^2-2F(z)F_0(z)+F_0(z).
-$$
-Now add and subtract $F_0(z)^2$:
-$$
-F(z)^2-2F(z)F_0(z)+F_0(z)^2+F_0(z)-F_0(z)^2.
-$$
-Therefore
-$$
-\mathbb{E}\Big[\big(F(z)-\mathbf{1}\{z\ge Y\}\big)^2\Big]
-=
-\big(F(z)-F_0(z)\big)^2+F_0(z)\big(1-F_0(z)\big).
-$$
-Substituting this into the integral gives
-$$
-\mathbb{E}_{Y\sim F_0}[\mathrm{CRPS}(F,Y)]
-=
-\int_{-\infty}^{\infty}\big(F(z)-F_0(z)\big)^2\,dz
-+
-\int_{-\infty}^{\infty}F_0(z)\big(1-F_0(z)\big)\,dz.
-$$
+The second integral is independent of $F$. The first is nonnegative and is zero at $F=F_0$, so $F_0$ minimizes expected CRPS. To establish uniqueness, suppose the first integral is zero. Then $F(z)=F_0(z)$ Lebesgue-almost everywhere.
 
-**Part 2: Propriety of CRPS**
+If the CDFs differed at some $z_0$, write $d=|F(z_0)-F_0(z_0)|>0$. Right-continuity of their difference gives an $h>0$ such that
+$$
+|F(z)-F_0(z)|\ge d/2
+\qquad\text{for }z\in[z_0,z_0+h).
+$$
+Consequently,
+$$
+\int_{-\infty}^{\infty}(F(z)-F_0(z))^2\,dz\ge h\,d^2/4>0,
+$$
+a contradiction. The CDFs therefore agree everywhere, proving strict propriety on the stated class.
 
-The second integral depends only on the true distribution $F_0$. So the only term depending on the forecast $F$ is
-$$
-\int_{-\infty}^{\infty}\big(F(z)-F_0(z)\big)^2\,dz,
-$$
-which is nonnegative and equals zero if and only if $F=F_0$ Lebesgue-almost everywhere; because CDFs are right-continuous, almost-everywhere equality forces $F(z)=F_0(z)$ for every $z$. Hence the expected CRPS is minimized at the true outcome distribution $F=F_0$.
+**Part 2: Point Forecasts and a Ranking Reversal**
 
-**Part 3: Degenerate Forecasts and Absolute Error**
+For a point forecast, the integral definition becomes
+$$
+\operatorname{CRPS}(F,y)
+=\int_{-\infty}^{\infty}\big(\mathbf1\{z\ge\hat y\}-\mathbf1\{z\ge y\}\big)^2\,dz.
+$$
+The integrand is one on the interval between $\hat y$ and $y$ and zero elsewhere. Its integral is the interval's length, $|\hat y-y|$, including zero when the two endpoints coincide.
 
-Now let
+At $y=0$, the scores of the point forecasts at 0 and 1 are respectively 0 and 1. At $y=1$, they are respectively 1 and 0. The ranking reverses. Strict propriety concerns expected scores under a fixed truth; it does not guarantee that rankings at individual realizations survive measurement error.
+
+**Part 3: Sensitivity of Scores and Score Differences**
+
+For independent draws $X,X'\sim F$, the kernel representation gives
 $$
-F(z)=\mathbf{1}\{z\ge \hat y\}.
+\operatorname{CRPS}(F,y+e)-\operatorname{CRPS}(F,y)
+=\mathbb E\big[|X-y-e|-|X-y|\big].
 $$
-Then
+By the reverse triangle inequality, $\big||X-y-e|-|X-y|\big|\le |e|$. The finite first moment makes the expectations well-defined, and hence
 $$
-\mathrm{CRPS}(F,y)
-=
-\int_{-\infty}^{\infty}\big(\mathbf{1}\{z\ge \hat y\}-\mathbf{1}\{z\ge y\}\big)^2\,dz.
+|\operatorname{CRPS}(F,y+e)-\operatorname{CRPS}(F,y)|
+\le\mathbb E\big|\,|X-y-e|-|X-y|\,\big|
+\le |e|.
 $$
-If $\hat y<y$, the integrand equals 1 exactly on the interval $[\hat y,y)$ and 0 elsewhere, so
+Applying the bound separately to $F_A$ and $F_B$ yields
 $$
-\mathrm{CRPS}(F,y)=y-\hat y.
+|D(y+e)-D(y)|\le 2|e|.
 $$
-If $\hat y>y$, the integrand equals 1 exactly on $[y,\hat y)$, so
+If $D(y)<0$, then
 $$
-\mathrm{CRPS}(F,y)=\hat y-y.
+D(y+e)\le D(y)+2|e|<0
+\qquad\text{whenever }|e|<-D(y)/2.
 $$
-Therefore in all cases,
-$$
-\mathrm{CRPS}(F,y)=|\hat y-y|.
-$$
-So CRPS reduces to the absolute error for a degenerate point forecast.
+Thus a perturbation smaller than half the original score gap preserves the strict ranking. This is a sufficient condition; outside it the ranking may either persist or reverse, as the example in Part 2 illustrates.
 :::
 
 :::{.callout-note}
@@ -1110,7 +1093,7 @@ If $\sigma>1$, then $1-\sigma^2<0$, so the density is damped in the tails and re
 :::{.callout-note}
 ## Exercise 4.4: Comparing Average Scores Under Serial Correlation
 
-Two density forecasters, $A$ and $B$, issue predictive distributions for the same target series at the same forecast horizon, and both are evaluated with the same proper scoring rule. Let $\delta_t$ denote the score differential in period $t$—the score of forecaster $A$ minus the score of forecaster $B$, each evaluated at the realized outcome—and assume $\{\delta_t\}$ is covariance stationary with mean $\mu=\mathbb{E}[\delta_t]$ and autocovariances $\gamma_\ell=\operatorname{Cov}(\delta_t,\delta_{t-\ell})$ satisfying $\sum_{\ell=0}^{\infty}|\gamma_\ell|<\infty$. These assumptions deliver the variance calculations below and a finite long-run variance. Equal predictive ability corresponds to $H_0:\mu=0$. For a formal $t$-test, additionally assume a central limit theorem for $\sqrt{T}(\bar\delta-\mu)$ and consistency of the chosen HAC estimator; those conclusions require further moment and weak-dependence conditions, together with suitable kernel and bandwidth choices for the HAC estimator.
+Two density forecasters, $A$ and $B$, issue predictive distributions for the same target series at the same forecast horizon, and both are evaluated with the same proper scoring rule. Let $\delta_t$ denote the score differential in period $t$—the score of forecaster $A$ minus the score of forecaster $B$, each evaluated at the realized outcome—and assume $\{\delta_t\}$ is covariance stationary with mean $\mu=\mathbb{E}[\delta_t]$ and autocovariances $\gamma_\ell=\operatorname{Cov}(\delta_t,\delta_{t-\ell})$ satisfying $\sum_{\ell=0}^{\infty}|\gamma_\ell|<\infty$. These assumptions deliver the variance calculations below and a finite long-run variance. Equal predictive ability corresponds to $H_0:\mu=0$. For a formal $t$-test, additionally assume $\sqrt{T}(\bar\delta-\mu)\Rightarrow\mathcal N(0,\Omega)$ with strictly positive long-run variance $\Omega=\gamma_0+2\sum_{\ell\ge1}\gamma_\ell>0$, and consistency of the chosen HAC estimator; those conclusions require further moment and weak-dependence conditions, together with suitable kernel and bandwidth choices for the HAC estimator.
 
 1. Show that
    $$
@@ -1177,6 +1160,14 @@ T\operatorname{Var}(\bar\delta)
 =\sigma_\varepsilon^2\big(1+\theta^2+2\theta\big)
 =\sigma_\varepsilon^2(1+\theta)^2 .
 $$
+
+At $\theta=-1$, the long-run variance is zero. Indeed,
+$$
+\bar\delta-\mu=\frac{\varepsilon_T-\varepsilon_0}{T},
+\qquad
+\operatorname{Var}(\bar\delta)=\frac{2\sigma_\varepsilon^2}{T^2}.
+$$
+The variance identities remain valid at this boundary, but the strictly positive limiting variance required for the usual $t$-test is absent.
 
 **Part 3: The Cost of Ignoring Dependence**
 

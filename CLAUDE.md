@@ -106,6 +106,7 @@ Hints do not need to appear for every numbered part. Use only the hint boxes tha
 Write with a naive but attentive student in mind:
 
 - Assume the reader will notice and stumble over any imprecise wording, skipped condition, overloaded notation, or hidden assumption.
+- **Keep notation minimal.** Reuse familiar notation and names already established in the chapter. Introduce a new symbol, subscript, abbreviation, or named definition only when it expresses a distinction the argument actually needs; otherwise use the existing notation or a short phrase. Do not create a second name for the same object just to formalize an example.
 - If a statement is true only under an additional condition, state that condition explicitly rather than leaving it implicit.
 - If a theorem or algorithm uses a convention, such as a sample split, a tie-breaking rule, positivity of a scale parameter, or a training-only estimation step, spell it out.
 - Avoid phrases that are heuristically suggestive but mathematically ambiguous when a more precise formulation is available.

@@ -14,7 +14,7 @@ This chapter introduces **cross-validation** as the principled answer to that ch
 ## Roadmap
 
 1. We illustrate **overfitting** with a polynomial regression example to motivate why the training mean squared error (MSE) is not a reliable guide to predictive performance.
-2. We introduce a **honest workflow**—separating training, validation, and test sets—and explain when each set should be touched.
+2. We introduce an **honest workflow**—separating training, validation, and test sets—and explain when each set should be touched.
 3. We define **K-fold cross-validation**—partitioning the sample into $K$ groups and rotating which group is held out—discuss common choices of $K$, and explain why letting information from held-out observations slip into the training step typically makes estimated predictive performance look better than it is.
 4. We extend to **time-series cross-validation**—designs in which the training sample either grows over time or moves forward at a fixed length—and explain why standard K-fold is often invalid for dependent data, and when it can survive.
 5. We close with a **practical example** of hyperparameter tuning, in which cross-validation selects among candidate model configurations, and then develop **nested cross-validation** as a two-loop procedure for assessing the entire tuning-and-fitting workflow.
@@ -29,13 +29,13 @@ $$
 Y_i = f(X_i) + \varepsilon_i, \qquad \varepsilon_i \mid X_i \stackrel{\text{iid}}{\sim} \mathcal{N}(0,\sigma^2),
 $$
 
-so that $f(x) = \mathbb{E}[Y_i \mid X_i = x]$ is the conditional mean function at a generic predictor value $x$. Suppose we approximate $f$ by a polynomial of degree $d$,
+so that $f(x) = \mathbb{E}[Y_i \mid X_i = x]$ is the conditional mean function at a generic predictor value $x$. We approximate $f$ by fitting a polynomial of degree $d$. At predictor value $x$, the resulting prediction is
 
 $$
-\mu_d(x) = \beta_0 + \beta_1 x + \cdots + \beta_d x^d.
+\hat y = \hat f(x) = \hat\beta_0 + \hat\beta_1 x + \cdots + \hat\beta_d x^d.
 $$
 
-Fitting this polynomial is ordinary least squares (OLS) on an intercept and the constructed regressors $x_i,x_i^2,\dots,x_i^d$. Each $x_i^j$ is the $j$th power of the same observed predictor for unit $i$, not a separate variable. We write $\hat{\mu}_d$ for the fitted polynomial and use $\hat f$ as generic notation for a fitted prediction rule. The degree $d$ is a hyperparameter: increasing it moves the model from rigid to increasingly flexible.
+We estimate the coefficients by ordinary least squares (OLS) on an intercept and the constructed regressors $x_i,x_i^2,\dots,x_i^d$. Each $x_i^j$ is the $j$th power of the same observed predictor for unit $i$, not a separate variable. The degree $d$ is a hyperparameter: increasing it moves the model from rigid to increasingly flexible.
 
 **Training objective.** Fix a **loss function** $L(y,\hat y)$ that measures the cost of predicting $\hat y$ when the outcome is $y$. Here we use **squared loss**, $L(y,\hat y)=(y-\hat y)^2$. For a fitted model $\hat f$ and a sample $(x_i,y_i)_{i=1}^N$, the **empirical risk** is the average loss
 
@@ -191,7 +191,11 @@ $$
 $$
 When $K$ does not divide $N$, the folds differ slightly in size and an unweighted average of their means is not exactly the pooled per-observation average; the pooled form above uses weights $|D_k|/N$ on the fold means.
 
-**What does $\widehat{\mathrm{CV}}_K$ estimate?** With equal folds, each fold model is trained on $N(K-1)/K$ observations. Under the independent sampling assumed here, $\widehat{\mathrm{CV}}_K$ estimates the average out-of-sample risk of the fitting procedure at that training-sample size, where the average is over hypothetical training samples and fresh test observations. It does not estimate the realized risk $R(\hat f)$ of the particular model refitted on the observed full sample. In the homoskedastic Gaussian linear model under squared loss, @BatesHastieTibshirani2024 prove an even sharper separation for linearly invariant estimators: conditional on the design matrix, the cross-validation error estimate is independent of the realized conditional prediction error. Under proportional Gaussian-design asymptotics, the correlation between those two quantities tends to zero. These are special-model results, not a universal property of cross-validation, but they reinforce the interpretation of cross-validation as an estimate of procedure risk rather than an approximate estimate of the error of one particular fit.
+**What does $\widehat{\mathrm{CV}}_K$ estimate?** With equal folds, each fold model is trained on $N(K-1)/K$ observations. Under the independent sampling assumed here, $\widehat{\mathrm{CV}}_K$ estimates the average out-of-sample risk of the fitting procedure at that training-sample size, where the average is over hypothetical training samples and fresh test observations. It does not estimate the realized risk $R(\hat f)$ of the particular model refitted on the observed full sample.
+
+:::{.callout-note collapse="true" title="Optional: A special case for OLS"}
+For OLS in a homoskedastic Gaussian linear model under squared loss, @BatesHastieTibshirani2024 show that, conditional on the design matrix, the CV error estimate is independent of the prediction risk of the full-sample fit. This special-case result illustrates the distinction between a fitting procedure's average performance and the risk of one fitted model.
+:::
 
 :::{.callout-note}
 ## Common Choices for K
@@ -214,7 +218,7 @@ Concretely, the following steps must be re-estimated using each split's training
 - feature selection or dimensionality reduction
 - outcome transformations chosen from the data
 
-If these steps are computed on the full dataset before cross-validation, the validation folds share information with the training step. This leakage contaminates the validation experiment and can bias the reported performance estimate, often optimistically; the direction and magnitude depend on the transformation and optimization objective function. Exercise 2.1 below proves a special case for full-sample standardization: the validation observation enters its own scaling rule, which shrinks its standardized magnitude relative to scaling based only on the remaining training observations.
+If these steps are computed on the full dataset before cross-validation, the validation folds share information with the training step. This leakage contaminates the validation experiment and can bias the reported performance estimate, often optimistically; the direction and magnitude depend on the transformation and optimization objective function. Exercise 2.1 below shows how a validation observation enters its own full-sample scaling rule and shrinks its standardized magnitude. It then distinguishes that change in the predictor from a change in prediction loss: refitted unpenalized OLS predictions are invariant to this affine rescaling, whereas a fixed penalty on the standardized slope need not preserve predictions.
 :::
 
 :::{.callout-note title="Question for Reflection"}
@@ -471,11 +475,13 @@ The architecture labels below report how many neurons each hidden layer contains
 
 Because the firm characteristics are measured on heterogeneous scales, we standardize them before fitting the network. Scikit-learn's `Pipeline` object combines these two ordered steps—standardization followed by model fitting—and treats them as one fitting procedure. Within each CV split, the pipeline estimates the means and standard deviations only from that split's training observations, fits the network on the standardized training predictors, and applies those same scaling constants to the validation predictors. The validation observations therefore do not influence standardization.
 
-We fix the fitting procedure explicitly at no more than 1,000 optimization iterations per CV split. Instead of suppressing convergence warnings, the code records how many of the five fits reach that cap for every configuration; a capped fit is a valid fixed-budget procedure, but its held-out loss can reflect incomplete optimization as well as architecture and learning rate. Within the manual grid-search loop, scikit-learn's `cross_validate` function evaluates one fixed pipeline configuration: it refits the pipeline on the training observations in each of the five splits and returns the corresponding held-out fold results. The surrounding `ParameterGrid` loop repeats this evaluation for every configuration, after which the code selects the configuration with the smallest mean cross-validated MSE. @fig-nn-cv-tuning summarizes the search: each point is one configuration in the grid, plotted against the learning rate in the left panel and against the architecture in the right panel, with the red star marking the selected configuration. Scikit-learn follows a higher-is-better `scoring` convention, so `neg_mean_squared_error` returns the negative of each fold's MSE; the minus sign in the code converts the average back to ordinary MSE before comparison and plotting.
+We fix the fitting procedure explicitly at no more than 1,000 training epochs per CV split, where one epoch is one full pass through the training fold. In this example, scikit-learn's `max_iter` counts epochs, while each weight update uses a mini-batch—a subset of the training fold. With 800 training observations per fold and the default mini-batch size of 200, a capped fit makes 4,000 gradient updates. The [optimization chapter](optimization.qmd#sec-optim-mini-batch) explains this distinction between epochs and updates.
+
+Instead of suppressing convergence warnings, the code records how many of the five fits reach that cap for every configuration; a capped fit is a valid fixed-budget procedure, but its held-out loss can reflect incomplete optimization as well as architecture and learning rate. Within the manual grid-search loop, scikit-learn's `cross_validate` function evaluates one fixed pipeline configuration: it refits the pipeline on the training observations in each of the five splits and returns the corresponding held-out fold results. The surrounding `ParameterGrid` loop repeats this evaluation for every configuration, after which the code selects the configuration with the smallest mean cross-validated MSE. @fig-nn-cv-tuning summarizes the search: each point is one configuration in the grid, plotted against the learning rate in the left panel and against the architecture in the right panel, with the red star marking the selected configuration. Scikit-learn follows a higher-is-better `scoring` convention, so `neg_mean_squared_error` returns the negative of each fold's MSE; the minus sign in the code converts the average back to ordinary MSE before comparison and plotting.
 
 ```{python}
 #| label: fig-nn-cv-tuning
-#| fig-cap: "Cross-validated MSE for every fixed-budget hyperparameter configuration in the grid search. Left panel: mean CV MSE against the learning rate (log scale), with marker color indicating the number of hidden units by layer. Right panel: the same configurations against those architecture labels, with color indicating the learning rate and horizontal jitter added for visibility. For example, 100-50 means two hidden layers with 100 and 50 units. In both panels the red star marks the configuration with the lowest mean CV MSE; the printed diagnostics report how many fold fits reached the 1,000-iteration cap."
+#| fig-cap: "Cross-validated MSE for every fixed-budget hyperparameter configuration in the grid search. Left panel: mean CV MSE against the learning rate (log scale), with marker color indicating the number of hidden units by layer. Right panel: the same configurations against those architecture labels, with color indicating the learning rate and horizontal jitter added for visibility. For example, 100-50 means two hidden layers with 100 and 50 units. In both panels the red star marks the configuration with the lowest mean CV MSE; the printed diagnostics report how many fold fits reached the 1,000-epoch cap."
 #| echo: true
 import numpy as np
 import matplotlib.pyplot as plt
@@ -583,7 +589,7 @@ print(f"Hidden units by layer: {best_config['architecture']}")
 print(f"Learning Rate: {best_config['learning_rate']}")
 print(f"Mean CV MSE: {best_config['mean_cv_mse']:.4f}")
 print(f"Across-fold MSE standard deviation (ddof=1): {best_config['fold_mse_sd']:.4f}")
-print(f"Folds reaching 1,000 iterations: {int(best_config['n_capped_folds'])}/5")
+print(f"Folds reaching 1,000 epochs: {int(best_config['n_capped_folds'])}/5")
 print(f"Captured convergence warnings: {int(best_config['n_convergence_warnings'])}")
 
 # Visualize results
@@ -647,7 +653,7 @@ The five configurations with the lowest mean CV MSE are reported separately in @
 
 ```{python}
 #| label: tbl-nn-cv-top-five
-#| tbl-cap: "Five configurations with the lowest mean cross-validated MSE. Hidden units by layer uses the same architecture labels as @fig-nn-cv-tuning; capped folds counts the fold fits that reached the 1,000-iteration limit."
+#| tbl-cap: "Five configurations with the lowest mean cross-validated MSE. Hidden units by layer uses the same architecture labels as @fig-nn-cv-tuning; capped folds counts the fold fits that reached the 1,000-epoch limit."
 #| echo: true
 top_five = results_df.nsmallest(5, 'mean_cv_mse')[[
     'architecture', 'learning_rate', 'mean_cv_mse',
@@ -862,177 +868,121 @@ where $\hat f_k^{\mathrm{tuned}}$ denotes the entire rule produced from outer tr
 
 Consider leave-one-out cross-validation for a scalar predictor $x_1,\dots,x_N$. Let observation $j$ be the validation observation. Define
 $$
-\bar{x}=\frac{1}{N}\sum_{i=1}^{N}x_i
-\qquad\text{and}\qquad
+\bar{x}=\frac{1}{N}\sum_{i=1}^{N}x_i,
+\qquad
 \bar{x}_{-j}=\frac{1}{N-1}\sum_{i\neq j}x_i,
 $$
-where $\bar{x}$ is the full-sample mean and $\bar{x}_{-j}$ is the mean computed only from the remaining $N-1$ training observations.
-
-Define the corresponding second moments
+and
 $$
 s^2=\frac{1}{N}\sum_{i=1}^{N}(x_i-\bar{x})^2,
 \qquad
 s_{-j}^2=\frac{1}{N-1}\sum_{i\neq j}(x_i-\bar{x}_{-j})^2.
 $$
+Both variances use the divide-by-own-sample-size convention (`ddof=0`), as does `StandardScaler` in the chapter's Python example. Assume $N\ge3$ and $s_{-j}^2>0$.
 
-Both quantities use the divide-by-own-sample-size convention (`ddof=0`): the full sample contains $N$ observations, whereas the training subset contains $N-1$. This is also the convention used by `StandardScaler` in the chapter's Python example.
-
-Assume $N\ge 3$ and that the remaining observations $\{x_i\}_{i\neq j}$ are not all equal, so that $s_{-j}^2>0$.
-
-1. Show that
+1. Derive the mean and variance decompositions
    $$
-   \bar{x}=\bar{x}_{-j}+\frac{x_j-\bar{x}_{-j}}{N}.
-   $$
-2. Show that
-   $$
+   \bar{x}=\bar{x}_{-j}+\frac{x_j-\bar{x}_{-j}}{N},
+   \qquad
    s^2=\frac{N-1}{N}s_{-j}^2+\frac{N-1}{N^2}(x_j-\bar{x}_{-j})^2.
    $$
-3. Let
+2. Define $z_j^{\mathrm{full}}=(x_j-\bar{x})/s$ and $z_j^{(-j)}=(x_j-\bar{x}_{-j})/s_{-j}$. Show that
    $$
-   z_j^{\text{full}}=\frac{x_j-\bar{x}}{s},
-   \qquad
-   z_j^{(-j)}=\frac{x_j-\bar{x}_{-j}}{s_{-j}}.
+   z_j^{\mathrm{full}}=
+   \frac{\sqrt{N-1}\,z_j^{(-j)}}{\sqrt{N+(z_j^{(-j)})^2}},
    $$
-   Show that
+   and deduce $|z_j^{\mathrm{full}}|<|z_j^{(-j)}|$ whenever $z_j^{(-j)}\ne0$. Identify where the held-out observation enters the transformation.
+3. Now suppose outcomes $y_1,\dots,y_N$ are observed. For any centering constant $m$ and scale $r>0$, fit the regression $\alpha+\gamma(x_i-m)/r$ by unpenalized OLS on $i\ne j$, including the intercept. Derive the one-to-one mapping between $(\alpha,\gamma)$ and the coefficients $(\beta_0,\beta_1)$ of $\beta_0+\beta_1x$. Use it to prove that choosing $(m,r)=(\bar{x},s)$ or $(\bar{x}_{-j},s_{-j})$ gives the same held-out prediction and squared prediction error after refitting.
+4. Instead fit $(\alpha,\gamma)$ by minimizing
    $$
-   z_j^{\text{full}}
-   =
-   \frac{\sqrt{N-1}\,z_j^{(-j)}}
-   {\sqrt{N+(z_j^{(-j)})^2}}.
+   \frac{1}{N-1}\sum_{i\ne j}\left[y_i-\alpha-\gamma\frac{x_i-m}{r}\right]^2+\lambda\gamma^2,
+   \qquad \lambda>0,
    $$
-4. Deduce that
-   $$
-   |z_j^{\text{full}}|<|z_j^{(-j)}|
-   \qquad\text{for every }z_j^{(-j)}\neq 0.
-   $$
-   Explain why this shows that full-sample standardization mechanically uses the validation observation to shrink its own standardized magnitude.
+   with the same fixed $\lambda$ under either scaling rule and no penalty on the intercept. Write $\bar y_{-j}=(N-1)^{-1}\sum_{i\ne j}y_i$ and $C_{xy,-j}=(N-1)^{-1}\sum_{i\ne j}(x_i-\bar x_{-j})(y_i-\bar y_{-j})$. Derive the fitted slope in the original $x$ units and the held-out prediction. Explain why changing $r$ can now change validation loss, and why Part 2 alone cannot determine the direction of that change.
 
-*Exam level. The point is to show mathematically that preprocessing on the full sample contaminates the validation fold and changes the object being evaluated.*
+*Exam level. The exercise distinguishes a transformation that uses validation information from its effect on forecasts, comparing unpenalized and penalized least squares.*
 :::
 
 :::{.callout-warning collapse="true"}
-## Hint for Part 2
-Use the identity
-$$
-\sum_{i=1}^{N}(x_i-\bar{x})^2
-=
-\sum_{i\neq j}(x_i-\bar{x})^2+(x_j-\bar{x})^2
-$$
-and rewrite $x_i-\bar{x}$ as $(x_i-\bar{x}_{-j})-(\bar{x}-\bar{x}_{-j})$.
+## Hint for Part 1
+For the variance calculation, write $x_i-\bar{x}=(x_i-\bar{x}_{-j})-(\bar{x}-\bar{x}_{-j})$ for $i\ne j$ and use $\sum_{i\ne j}(x_i-\bar{x}_{-j})=0$.
 :::
 
 :::{.callout-warning collapse="true"}
-## Hint for Part 3
-Use Parts 1 and 2 to write both numerator and denominator in terms of $z_j^{(-j)}$ and $N$.
+## Hint for Part 4
+Express both the fitted values and the penalty in terms of $(\beta_0,\beta_1)$ from Part 3. Minimize first over the unpenalized intercept, then over the slope.
 :::
 
 :::{.callout-tip collapse="true"}
 ## Solution
 
-**Part 1: Mean Leakage from Full-Sample Standardization**
+**Part 1: Mean and Variance Decompositions**
 
-We have
-$$
-N\bar{x}=\sum_{i=1}^{N}x_i=\sum_{i\neq j}x_i+x_j=(N-1)\bar{x}_{-j}+x_j.
-$$
-Dividing by $N$ gives
-$$
-\bar{x}=\frac{N-1}{N}\bar{x}_{-j}+\frac{x_j}{N}
-=\bar{x}_{-j}+\frac{x_j-\bar{x}_{-j}}{N}.
-$$
-
-**Part 2: Variance Leakage from Full-Sample Standardization**
-
-We start from
-$$
-\sum_{i=1}^{N}(x_i-\bar{x})^2
-=
-\sum_{i\neq j}(x_i-\bar{x})^2+(x_j-\bar{x})^2.
-$$
-For $i\neq j$,
-$$
-x_i-\bar{x}
-=(x_i-\bar{x}_{-j})-(\bar{x}-\bar{x}_{-j}).
-$$
-Since $\sum_{i\neq j}(x_i-\bar{x}_{-j})=0$, we obtain
-$$
-\sum_{i\neq j}(x_i-\bar{x})^2
-=
-\sum_{i\neq j}(x_i-\bar{x}_{-j})^2
-+(N-1)(\bar{x}-\bar{x}_{-j})^2.
-$$
-By Part 1,
+Since $N\bar{x}=(N-1)\bar{x}_{-j}+x_j$,
 $$
 \bar{x}-\bar{x}_{-j}=\frac{x_j-\bar{x}_{-j}}{N},
 \qquad
 x_j-\bar{x}=\frac{N-1}{N}(x_j-\bar{x}_{-j}).
 $$
-Therefore
+For the remaining observations, centering at $\bar{x}_{-j}$ eliminates the cross term:
 $$
-\sum_{i=1}^{N}(x_i-\bar{x})^2
-=(N-1)s_{-j}^2+(N-1)\frac{(x_j-\bar{x}_{-j})^2}{N^2}
-+\frac{(N-1)^2}{N^2}(x_j-\bar{x}_{-j})^2.
+\sum_{i\ne j}(x_i-\bar{x})^2
+=(N-1)s_{-j}^2+(N-1)(\bar{x}-\bar{x}_{-j})^2.
 $$
-Combining the last two terms gives
+Adding $(x_j-\bar{x})^2$ and substituting the two mean identities gives
 $$
-\sum_{i=1}^{N}(x_i-\bar{x})^2
-=(N-1)s_{-j}^2+\frac{N-1}{N}(x_j-\bar{x}_{-j})^2.
+Ns^2=(N-1)s_{-j}^2+
+\left(\frac{N-1}{N^2}+\frac{(N-1)^2}{N^2}\right)(x_j-\bar{x}_{-j})^2.
 $$
-Dividing by $N$ yields
-$$
-s^2=\frac{N-1}{N}s_{-j}^2+\frac{N-1}{N^2}(x_j-\bar{x}_{-j})^2.
-$$
+The coefficient in parentheses is $(N-1)/N$. Dividing by $N$ proves the stated variance decomposition.
 
-**Part 3: Closed-Form Expression for the Contaminated Z-Score**
+**Part 2: Shrinkage of the Standardized Predictor**
 
-From Part 1,
+Part 1 gives
 $$
-x_j-\bar{x}=\frac{N-1}{N}(x_j-\bar{x}_{-j})
-=\frac{N-1}{N}z_j^{(-j)}s_{-j}.
+x_j-\bar{x}=\frac{N-1}{N}z_j^{(-j)}s_{-j},
+\qquad
+s=s_{-j}\sqrt{\frac{N-1}{N}}\sqrt{1+\frac{(z_j^{(-j)})^2}{N}}.
 $$
-From Part 2,
+Taking the ratio yields
 $$
-s^2=\frac{N-1}{N}s_{-j}^2
-+\frac{N-1}{N^2}(z_j^{(-j)})^2s_{-j}^2
-=\frac{N-1}{N}s_{-j}^2
-\left(1+\frac{(z_j^{(-j)})^2}{N}\right).
+z_j^{\mathrm{full}}=
+\frac{\sqrt{N-1}\,z_j^{(-j)}}{\sqrt{N+(z_j^{(-j)})^2}}.
 $$
-Hence
-$$
-s=s_{-j}\sqrt{\frac{N-1}{N}}
-\sqrt{1+\frac{(z_j^{(-j)})^2}{N}}.
-$$
-Therefore
-$$
-z_j^{\text{full}}
-=\frac{x_j-\bar{x}}{s}
-=
-\frac{\frac{N-1}{N}z_j^{(-j)}s_{-j}}
-{s_{-j}\sqrt{\frac{N-1}{N}}
-\sqrt{1+\frac{(z_j^{(-j)})^2}{N}}}
-=
-\frac{\sqrt{N-1}\,z_j^{(-j)}}
-{\sqrt{N+(z_j^{(-j)})^2}}.
-$$
+For $z_j^{(-j)}\ne0$, the ratio of absolute standardized values is strictly below one because $N+(z_j^{(-j)})^2>N-1$. The held-out $x_j$ enters both the full-sample mean and variance. Its standardized magnitude therefore shrinks under a rule that uses validation information. Whether predictions change is a separate question.
 
-**Part 4: Why the Validation Observation Shrinks Itself**
+**Part 3: Invariance of Refitted OLS Predictions**
 
-Using the expression from Part 3,
+For every $x$,
 $$
-\left|\frac{z_j^{\text{full}}}{z_j^{(-j)}}\right|
-=
-\frac{\sqrt{N-1}}{\sqrt{N+(z_j^{(-j)})^2}}
-<1
-\qquad\text{for every }z_j^{(-j)}\neq 0,
+\alpha+\gamma\frac{x-m}{r}
+=\left(\alpha-\frac{\gamma m}{r}\right)+\frac{\gamma}{r}x.
 $$
-because $N+(z_j^{(-j)})^2>N-1$.
-
 Thus
 $$
-|z_j^{\text{full}}|<|z_j^{(-j)}|
-\qquad\text{whenever }z_j^{(-j)}\neq 0.
+\beta_0=\alpha-\frac{\gamma m}{r},\qquad \beta_1=\frac{\gamma}{r},
+\qquad
+\alpha=\beta_0+\beta_1m,\qquad \gamma=r\beta_1.
 $$
-The strict inequality shows mathematically that full-sample standardization is not innocuous: the validation observation enters both the centering and scaling rule, which shrinks its own standardized magnitude. So the validation fold is no longer being evaluated under a preprocessing rule estimated only from the training data.
+Because $r>0$, this is a one-to-one reparameterization of the same set of affine prediction functions. The unpenalized training criterion is consequently the same function of $(\beta_0,\beta_1)$ under either scaling rule. The intercept and slope are uniquely determined because $s_{-j}^2>0$. Refitting therefore gives the same prediction at $x_j$ and the same squared error $(y_j-\hat f(x_j))^2$ under both transformations, despite Part 2's change in standardized magnitude.
+
+**Part 4: A Fixed Penalty Makes Scale Matter**
+
+The penalty becomes $\lambda r^2\beta_1^2$ in the original units. For any fixed slope, the intercept minimizing the criterion is
+$$
+\hat\beta_0=\bar y_{-j}-\beta_1\bar x_{-j}.
+$$
+Substituting it into the criterion leaves a term independent of $\beta_1$ plus
+$$
+-2\beta_1 C_{xy,-j}+\beta_1^2(s_{-j}^2+\lambda r^2).
+$$
+The coefficient of $\beta_1^2$ is strictly positive, so
+$$
+\hat\beta_1(r)=\frac{C_{xy,-j}}{s_{-j}^2+\lambda r^2},
+\qquad
+\hat f_{m,r}(x_j)=\bar y_{-j}+\hat\beta_1(r)(x_j-\bar x_{-j}).
+$$
+The centering constant $m$ cancels because the intercept is unpenalized. The scale $r$ changes the effective penalty in the original units. If the two scales differ, the predictions can differ whenever $C_{xy,-j}(x_j-\bar x_{-j})\ne0$. Which prediction is closer to $y_j$ depends on the outcome; shrinking the standardized predictor alone does not determine whether squared validation loss rises or falls. Training-only preprocessing remains the general design rule, while Part 3 identifies a specific invariance of unpenalized OLS.
 :::
 
 :::{.callout-note}
