@@ -7,7 +7,7 @@ number-offset: [1, 0]
 
 ## Overview
 
-When building a machine learning model, we face several decisions that affect performance: which algorithm to use, and what values to choose for the tuning constants that govern a model's flexibility—for instance, the degree of a polynomial regression or the weight on a penalty term added to the loss. Here it is worth fixing terminology: ordinary **parameters** (such as regression coefficients $\beta$) minimize the in-sample objective for a given set of tuning constants, whereas **hyperparameters** (such as the polynomial degree $d$ of this chapter's running example, the weight on a penalty term, or the number of knots in a spline) determine the objective or fitting procedure and are chosen by a separate criterion. That criterion is often out of sample, as in this chapter, although in-sample penalized criteria such as the Akaike or Bayesian information criterion can also be used. The shared challenge here is that we cannot evaluate predictive performance on the same data used for fitting—doing so produces optimistic estimates that do not generalize to new observations.
+When building a machine learning model, we face several decisions that affect performance: which algorithm to use, and what values to choose for the tuning constants that govern a model's flexibility—for instance, the degree of a polynomial regression. Here it is worth fixing terminology: ordinary **parameters** (such as regression coefficients $\beta$) minimize the in-sample objective for a given set of tuning constants, whereas **hyperparameters** (such as the polynomial degree $d$ of this chapter's running example or the architecture of a neural network) determine the objective or fitting procedure and are chosen by a separate criterion. That criterion is often out of sample, as in this chapter, although in-sample penalized criteria such as the Akaike or Bayesian information criterion can also be used. The shared challenge here is that we cannot evaluate predictive performance on the same data used for fitting—doing so produces optimistic estimates that do not generalize to new observations.
 
 This chapter introduces **cross-validation** as the principled answer to that challenge. Cross-validation simulates the experience of predicting on unseen data by systematically holding out portions of the training set. The idea dates to @Stone1974 and @Geisser1975, who proposed leave-one-out (holding out one observation at a time) and predictive-sample-reuse procedures for model assessment well before "machine learning" was a separate field. For econometricians, the issues are familiar: overfitting, specification search, and the bias introduced by repeated use of the same data arise in classical model selection just as in machine learning. The econometric analogue of the problem is pretest and specification-search bias; the machine-learning community's answer to it is **nested cross-validation**—carrying out model selection on one layer of held-out data while keeping a separate outer layer untouched for the final performance assessment [@VarmaSimon2006; @CawleyTalbot2010]—an idea we develop at the end of this chapter.
 
@@ -37,12 +37,14 @@ $$
 
 We estimate the coefficients by ordinary least squares (OLS) on an intercept and the constructed regressors $x_i,x_i^2,\dots,x_i^d$. Each $x_i^j$ is the $j$th power of the same observed predictor for unit $i$, not a separate variable. The degree $d$ is a hyperparameter: increasing it moves the model from rigid to increasingly flexible.
 
-**Training objective.** Fix a **loss function** $L(y,\hat y)$ that measures the cost of predicting $\hat y$ when the outcome is $y$. Here we use **squared loss**, $L(y,\hat y)=(y-\hat y)^2$. For a fitted model $\hat f$ and a sample $(x_i,y_i)_{i=1}^N$, the **empirical risk** is the average loss
+**A word on vocabulary.** What econometrics calls *estimating* a model, the machine-learning literature calls *training* or *fitting* it: choosing parameter values by optimizing an objective on a given sample. The three verbs describe the same operation, and we use them interchangeably throughout the book; the sample used for this step is the training set (or estimation sample), and the objective optimized on it is the training objective introduced next. Where the distinction between the estimator, the rule that maps a sample to $\hat\beta$, and the numerical algorithm that computes it matters, as in the [neural-network](feed_forward_nns.qmd) and [optimization](optimization.qmd) chapters, the text says so explicitly. What differs across the two fields is emphasis rather than mechanics: an econometrician estimating $\beta$ usually wants to interpret the estimate and attach a standard error to it, whereas training is judged by how well the fitted function $\hat f$ predicts, which is the perspective of this chapter.
+
+**Training objective.** Fix a **loss function** $L(y,\hat y)$ that measures the cost of predicting $\hat y$ when the outcome is $y$. In this example, we use **squared loss**, $L(y,\hat y)=(y-\hat y)^2$. For a fitted model $\hat f$ and a sample $(x_i,y_i)_{i=1}^N$, the **empirical risk** is the average loss
 
 $$
 \frac{1}{N}\sum_{i=1}^{N}L\big(y_i,\hat{f}(x_i)\big),
 $$
-which under squared loss is the MSE on that sample. Recall from the [previous chapter](information_theory.qmd) that maximizing a likelihood is equivalent to minimizing the sample average negative log-likelihood. Under Gaussian errors with fixed variance, that objective is, up to an additive constant and a positive scale factor, the training MSE. Thus least squares and maximum likelihood select the same polynomial coefficients.
+which under squared loss is the MSE on that sample. Recall from the [information theory chapter](information_theory.qmd) that maximizing a likelihood is equivalent to minimizing the sample average negative log-likelihood. Under Gaussian errors with fixed variance, that objective is, up to an additive constant and a positive scale factor, the training MSE. Thus least squares and maximum likelihood select the same polynomial coefficients.
 
 Evaluating the empirical risk on the data used for fitting gives the **training MSE**. Because $\hat f$ is chosen to make this quantity small, a sufficiently flexible polynomial can reduce it by following sample noise rather than the conditional mean.
 
@@ -142,7 +144,7 @@ Specifically, relying on a single split has three major drawbacks:
 2. **Test set contamination**: If we use the test set to make multiple decisions (choose hyperparameters, select the model specification), we are effectively "training" on the test set, leading to overly optimistic performance estimates.
 3. **Limited data usage**: We are not using all available data for training.
 
-The K-fold design introduced below addresses the first and third drawbacks: by averaging over $K$ splits, it reduces the dependence of the estimate on any one arbitrary split, and it lets every observation serve in validation exactly once. Cross-validation does not by itself prevent contamination from repeated model comparison. Selecting among many configurations using the same cross-validated loss estimates reuses those estimates just as repeated decisions reuse a test set, which is why the workflow below still separates selection from final assessment.
+The K-fold design introduced below addresses the first and third drawbacks: by averaging over $K$ splits, it reduces the dependence of the estimate on any one arbitrary split, and it lets every observation serve in validation exactly once. Cross-validation does not by itself prevent contamination from repeated model comparison.
 
 :::{.callout-important}
 ## Reliable Workflow: Validation and Test Sets {#sec-cv-reliable-workflow}
@@ -150,10 +152,8 @@ The K-fold design introduced below addresses the first and third drawbacks: by a
 The clean workflow is:
 
 1. Use the **training data** to fit candidate models.
-2. Compare those candidates and tune hyperparameters on a **validation set**: data held out from fitting and used only to choose among models. Reuse should nevertheless be limited, because extensive adaptive comparison can overfit the validation set through the selection process even when no model is fitted directly on its observations.
+2. Compare those candidates and tune hyperparameters on a **validation set**: data held out from fitting and used only to choose among models. Reuse should nevertheless be limited, because extensive adaptive comparison can overfit the validation set through the selection process even when no model is fitted directly on its observations motivating nested cross-validation later in this chapter
 3. Obtain a final performance assessment either from a test set kept untouched until the very end or from the held-out losses of an outer layer of nested cross-validation, with all model selection and preprocessing repeated inside each outer training sample.
-
-The two approaches serve the same evaluation role but estimate different targets. An untouched test set evaluates the selected model fitted once on the available training data. Nested cross-validation estimates the expected performance of the complete tuning-and-fitting procedure when trained on one outer training sample. It is therefore an alternative source of a final performance estimate, not a literal test set for the model eventually refitted on all observations. For dependent data, the outer partitions must also respect the dependence structure. We define folds and spell out both layers later in the chapter.
 :::
 
 ## K-Fold Cross-Validation {#sec-cv-kfold}
@@ -163,11 +163,11 @@ We now need a systematic way to rotate which observations are held out. Cross-va
 :::{.callout-important}
 ## Two Uses of Cross-Validation
 
-1. **Performance estimation**: Estimate how well a model will perform on unseen data.
+1. **Performance estimation**: Estimate how well a model will perform on data not used in training.
 2. **Model selection**: Choose between different hyperparameters, model specifications, or algorithms based on their cross-validated performance.
 :::
 
-Typical choices made this way include the polynomial degree of this chapter's running example, the weight on a regularization penalty, and—once we reach richer model classes—the many structural and estimation settings of [neural networks](feed_forward_nns.qmd) and [tree-based methods](decision_trees.qmd) in later chapters.
+Typical choices made this way include the polynomial degree of this chapter's running example and the many structural and estimation settings of [neural networks](feed_forward_nns.qmd) and [tree-based methods](decision_trees.qmd) in later chapters.
 
 The most common type of cross-validation is **K-fold cross-validation**. In the form given here it is designed for settings in which the observations can be treated as exchangeable—in particular for independently sampled cross-sectional data without cluster or spatial dependence; @sec-cv-time-series develops the variants appropriate for time series. The procedure is as follows:
 
@@ -191,7 +191,7 @@ $$
 $$
 When $K$ does not divide $N$, the folds differ slightly in size and an unweighted average of their means is not exactly the pooled per-observation average; the pooled form above uses weights $|D_k|/N$ on the fold means.
 
-**What does $\widehat{\mathrm{CV}}_K$ estimate?** With equal folds, each fold model is trained on $N(K-1)/K$ observations. Under the independent sampling assumed here, $\widehat{\mathrm{CV}}_K$ estimates the average out-of-sample risk of the fitting procedure at that training-sample size, where the average is over hypothetical training samples and fresh test observations. It does not estimate the realized risk $R(\hat f)$ of the particular model refitted on the observed full sample.
+**What does $\widehat{\mathrm{CV}}_K$ estimate?** With equal folds, each fold model is trained on $N(K-1)/K$ observations. Under the independent sampling assumed here, $\widehat{\mathrm{CV}}_K$ estimates the average out-of-sample risk of the fitting procedure at that training-sample size, where the average is over hypothetical training samples and fresh test observations. It does not estimate the realized risk $R(\hat f)$ of the particular model refitted on the observed full sample because the full sample is larger than any fold model's training sample.
 
 :::{.callout-note collapse="true" title="Optional: A special case for OLS"}
 For OLS in a homoskedastic Gaussian linear model under squared loss, @BatesHastieTibshirani2024 show that, conditional on the design matrix, the CV error estimate is independent of the prediction risk of the full-sample fit. This special-case result illustrates the distinction between a fitting procedure's average performance and the risk of one fitted model.
@@ -209,7 +209,7 @@ The number of folds $K$ is a design choice, not a hyperparameter of the fitted m
 
 Cross-validation only works if each fold is treated like genuinely unseen data. The general principle is:
 
-> In each CV split, every preprocessing or transformation rule used to build predictors or outcomes must be a function of *that split's training observations only*. Any rule whose computed value depends on the validation observations contaminates the validation distribution.
+> In each CV split, every preprocessing or transformation rule used to build predictors or outcomes must be a function of *that split's training observations only*. Apply the resulting rule unchanged to the validation observations.
 
 Concretely, the following steps must be re-estimated using each split's training observations rather than once on the full sample:
 
@@ -218,7 +218,7 @@ Concretely, the following steps must be re-estimated using each split's training
 - feature selection or dimensionality reduction
 - outcome transformations chosen from the data
 
-If these steps are computed on the full dataset before cross-validation, the validation folds share information with the training step. This leakage contaminates the validation experiment and can bias the reported performance estimate, often optimistically; the direction and magnitude depend on the transformation and optimization objective function. Exercise 2.1 below shows how a validation observation enters its own full-sample scaling rule and shrinks its standardized magnitude. It then distinguishes that change in the predictor from a change in prediction loss: refitted unpenalized OLS predictions are invariant to this affine rescaling, whereas a fixed penalty on the standardized slope need not preserve predictions.
+Full-sample preprocessing lets validation observations influence a step of the fitting procedure. Whether this changes predictions or the reported loss depends on the fitting rule: refitted unpenalized OLS with an intercept is invariant to centering and positive rescaling, whereas adding a fixed multiple of the squared standardized slope to the fitting loss can make the scale matter. Exercise 2.1 derives this contrast and shows why a resulting change in squared validation loss can have either sign.
 :::
 
 :::{.callout-note title="Question for Reflection"}
@@ -286,7 +286,7 @@ Reading @fig-kfold-cv row by row makes the reuse logic concrete: every observati
 
 :::{.callout-note}
 ## Additional Information: Stratified K-Fold for Classification
-For a **classification problem**, the outcome is categorical—for example, default versus no default. If the classes are imbalanced, meaning that one outcome is rare, ordinary random folds can contain very few or even no observations from that class, making some fold evaluations erratic or undefined. **Stratified K-fold** keeps the class proportions in each fold as close to those of the full dataset as the integer fold sizes allow.
+For a **classification problem**, the outcome is categorical—for example, default on a loan versus no default. If the classes are imbalanced, meaning that one outcome is rare, ordinary random folds can contain very few or even no observations from that class, making some fold evaluations erratic or undefined. **Stratified K-fold** keeps the class proportions in each fold as close to those of the full dataset as the integer fold sizes allow.
 :::
 
 ## Time Series Cross-Validation {#sec-cv-time-series}
@@ -465,19 +465,17 @@ plt.show()
 
 The contrast between the first two panels of @fig-timeseries-cv is the window-length choice: the expanding window never discards early observations, while the sliding window drops old observations as it moves. Sliding can be preferable when the gain from emphasizing recent conditions outweighs the usual loss of estimation precision from using fewer observations; that loss is not universal under heteroskedasticity or structural change. In both designs the validation block lies strictly after the training data, so no split trains on the future. The third panel addresses a different issue in a two-sided K-fold design. Purple observations are excluded because their multi-period outcomes would overlap the validation block; dark-gray observations are excluded by the post-validation embargo before training resumes. The returned training set contains the blue observations on both sides but excludes every buffer that exists for that split; the first split has no preceding purge and the last has no following embargo. Such a two-sided design is appropriate only when its maintained assumptions justify training on post-validation observations; it does not reproduce a strictly real-time forecast exercise. Purging and embargoing therefore modify a base validation design rather than replace the choice between recursive and rolling estimation.
 
-Scikit-learn's `TimeSeriesSplit` implements the expanding window by default; setting its `max_train_size` argument caps the training window, giving a rolling design once the cap binds. A manual implementation is needed for nonstandard stepping, such as the fixed-length, overlapping windows in the middle panel, which advance by more observations than the validation-block length. No buffer separates training from validation there; the `gap` argument of `TimeSeriesSplit` would add such a buffer.
-
 ## Practical Example: Tuning a Neural Network with Cross-Validation
 
 We now show how to use cross-validation to select hyperparameters for a simple neural network. No knowledge of neural networks is needed here: treat the network as a flexible nonlinear regression model whose fitting procedure comes with two tuning constants—the **hidden-layer architecture** (which controls how rich the fitted function class is) and the **learning rate** (a step-size constant of the estimation algorithm). We study these objects properly in the [chapter on feed-forward neural networks](feed_forward_nns.qmd); here the network simply provides a realistic tuning problem, and we tune both hyperparameters using scikit-learn. As data we simulate a single-year cross-section of $1{,}000$ firms: annual excess returns, in percent, generated from ten firm characteristics measured on deliberately heterogeneous scales, with an interaction and a quadratic term that a purely linear model would miss. Because the observations are independently simulated—with no cluster, spatial, or time-series dependence—the K-fold design of @sec-cv-kfold is appropriate here. A real firm-year panel would instead require folds that respect firm-level clustering and time.
 
 The architecture labels below report how many neurons each hidden layer contains. Thus, `50` denotes one hidden layer with 50 units, while `100-50` denotes two hidden layers with 100 and 50 units, in that order. These labels identify candidate architectures; width and depth both affect model capacity, so the labels do not place the candidates on a single ordered flexibility scale.
 
-Because the firm characteristics are measured on heterogeneous scales, we standardize them before fitting the network. Scikit-learn's `Pipeline` object combines these two ordered steps—standardization followed by model fitting—and treats them as one fitting procedure. Within each CV split, the pipeline estimates the means and standard deviations only from that split's training observations, fits the network on the standardized training predictors, and applies those same scaling constants to the validation predictors. The validation observations therefore do not influence standardization.
+Standardizing the firm characteristics can make fitting easier because they are measured on very different scales; the [neural-network chapter](feed_forward_nns.qmd#ffn-preprocessing) explains why. Scikit-learn's `Pipeline` object combines these two ordered steps—standardization followed by model fitting—and treats them as one fitting procedure. Within each CV split, the pipeline estimates the means and standard deviations only from that split's training observations, fits the network on the standardized training predictors, and applies those same scaling constants to the validation predictors. The validation observations therefore do not influence standardization.
 
-We fix the fitting procedure explicitly at no more than 1,000 training epochs per CV split, where one epoch is one full pass through the training fold. In this example, scikit-learn's `max_iter` counts epochs, while each weight update uses a mini-batch—a subset of the training fold. With 800 training observations per fold and the default mini-batch size of 200, a capped fit makes 4,000 gradient updates. The [optimization chapter](optimization.qmd#sec-optim-mini-batch) explains this distinction between epochs and updates.
+We fix the fitting procedure explicitly at no more than 1,000 training epochs per CV split, where one epoch is one full pass through the training fold. In this example, scikit-learn's `max_iter` counts epochs, while each weight update uses a mini-batch—a subset of the training fold. With 800 training observations per fold and the default mini-batch size of 200, a fit that reaches the epoch limit makes 4,000 gradient updates. The [optimization chapter](optimization.qmd#sec-optim-mini-batch) explains this distinction between epochs and updates.
 
-Instead of suppressing convergence warnings, the code records how many of the five fits reach that cap for every configuration; a capped fit is a valid fixed-budget procedure, but its held-out loss can reflect incomplete optimization as well as architecture and learning rate. Within the manual grid-search loop, scikit-learn's `cross_validate` function evaluates one fixed pipeline configuration: it refits the pipeline on the training observations in each of the five splits and returns the corresponding held-out fold results. The surrounding `ParameterGrid` loop repeats this evaluation for every configuration, after which the code selects the configuration with the smallest mean cross-validated MSE. @fig-nn-cv-tuning summarizes the search: each point is one configuration in the grid, plotted against the learning rate in the left panel and against the architecture in the right panel, with the red star marking the selected configuration. Scikit-learn follows a higher-is-better `scoring` convention, so `neg_mean_squared_error` returns the negative of each fold's MSE; the minus sign in the code converts the average back to ordinary MSE before comparison and plotting.
+Instead of suppressing convergence warnings, the code records how many of the five training runs reach 1,000 epochs for each configuration; these runs may stop before the algorithm's convergence criterion is met. Within the manual grid-search loop, scikit-learn's `cross_validate` function evaluates one fixed pipeline configuration: it refits the pipeline on the training observations in each of the five splits and returns the corresponding held-out fold results. The surrounding `ParameterGrid` loop repeats this evaluation for every configuration, after which the code selects the configuration with the smallest mean cross-validated MSE. @fig-nn-cv-tuning summarizes the search: each point is one configuration in the grid, plotted against the learning rate in the left panel and against the architecture in the right panel, with the red star marking the selected configuration. Scikit-learn follows a higher-is-better `scoring` convention, so `neg_mean_squared_error` returns the negative of each fold's MSE; the minus sign in the code converts the average back to ordinary MSE before comparison and plotting.
 
 ```{python}
 #| label: fig-nn-cv-tuning
@@ -559,7 +557,7 @@ for params in ParameterGrid(param_grid):
         )
 
     neg_mse_values = cv_result['test_score']
-    n_capped = sum(
+    n_fits_at_limit = sum(
         estimator.named_steps['mlp'].n_iter_ >= 1000
         for estimator in cv_result['estimator']
     )
@@ -573,7 +571,7 @@ for params in ParameterGrid(param_grid):
         'learning_rate': params['learning_rate_init'],
         'mean_cv_mse': -neg_mse_values.mean(),
         'fold_mse_sd': (-neg_mse_values).std(ddof=1),
-        'n_capped_folds': n_capped,
+        'n_fits_at_limit': n_fits_at_limit,
         'n_convergence_warnings': n_convergence_warnings,
     })
 
@@ -589,7 +587,7 @@ print(f"Hidden units by layer: {best_config['architecture']}")
 print(f"Learning Rate: {best_config['learning_rate']}")
 print(f"Mean CV MSE: {best_config['mean_cv_mse']:.4f}")
 print(f"Across-fold MSE standard deviation (ddof=1): {best_config['fold_mse_sd']:.4f}")
-print(f"Folds reaching 1,000 epochs: {int(best_config['n_capped_folds'])}/5")
+print(f"Fits reaching 1,000 epochs: {int(best_config['n_fits_at_limit'])}/5")
 print(f"Captured convergence warnings: {int(best_config['n_convergence_warnings'])}")
 
 # Visualize results
@@ -649,21 +647,21 @@ plt.tight_layout()
 plt.show()
 ```
 
-The five configurations with the lowest mean CV MSE are reported separately in @tbl-nn-cv-top-five. Its first column uses exactly the same hidden-units-by-layer labels as the right panel of @fig-nn-cv-tuning.
+The five configurations with the lowest mean CV MSE are reported separately in @tbl-nn-cv-top-five. Its first column uses exactly the same hidden-units-by-layer labels as the right panel of @fig-nn-cv-tuning. The **Fits at epoch limit** column counts how many of the five training runs reached 1,000 epochs; a value of 3 means that three runs used the full training budget.
 
 ```{python}
 #| label: tbl-nn-cv-top-five
-#| tbl-cap: "Five configurations with the lowest mean cross-validated MSE. Hidden units by layer uses the same architecture labels as @fig-nn-cv-tuning; capped folds counts the fold fits that reached the 1,000-epoch limit."
+#| tbl-cap: "Five configurations with the lowest mean cross-validated MSE. Hidden units by layer uses the same architecture labels as @fig-nn-cv-tuning; Fits at epoch limit counts, out of five, the training runs that reached 1,000 epochs."
 #| echo: true
 top_five = results_df.nsmallest(5, 'mean_cv_mse')[[
     'architecture', 'learning_rate', 'mean_cv_mse',
-    'fold_mse_sd', 'n_capped_folds'
+    'fold_mse_sd', 'n_fits_at_limit'
 ]].rename(columns={
     'architecture': 'Hidden units by layer',
     'learning_rate': 'Learning rate',
     'mean_cv_mse': 'Mean CV MSE',
     'fold_mse_sd': 'Across-fold MSE standard deviation',
-    'n_capped_folds': 'Capped folds',
+    'n_fits_at_limit': 'Fits at epoch limit',
 })
 display(
     top_five.style
@@ -672,7 +670,7 @@ display(
         'Learning rate': '{:.3g}',
         'Mean CV MSE': '{:.2f}',
         'Across-fold MSE standard deviation': '{:.2f}',
-        'Capped folds': '{:.0f}',
+        'Fits at epoch limit': '{:.0f}',
     })
 )
 ```
@@ -680,7 +678,9 @@ display(
 :::{.callout-note}
 ## How to Read the Diagnostics
 
-The mean CV MSE ranks the candidate configurations. The **Across-fold MSE standard deviation** column—computed in the code as `fold_mse_sd` with `ddof=1`—describes how much the $K$ validation-fold MSE values fluctuate, but it is *not* a standard error for the cross-validated risk: the fold-average losses are correlated because their training sets overlap [@BatesHastieTibshirani2024]. The **Capped folds** column provides a separate optimization diagnostic. A positive value means that differences in CV MSE may reflect incomplete optimization under the fixed iteration budget, not only differences in architecture or learning rate. Small differences in mean CV MSE should therefore not be read as precise rankings, especially when across-fold dispersion is large or the number of capped fits differs.
+The mean CV MSE ranks the candidate configurations. The **Across-fold MSE standard deviation** column—computed in the code as `fold_mse_sd` with `ddof=1`—describes how much the $K$ validation-fold MSE values fluctuate, but it is *not* a standard error for the cross-validated risk: the fold-average losses are correlated because their training sets overlap [@BatesHastieTibshirani2024].
+
+Runs that reach the epoch limit may not have converged, so differences in CV MSE can reflect incomplete optimization as well as architecture or learning rate. Small differences in mean CV MSE should therefore not be read as precise rankings, especially when across-fold dispersion is large or different numbers of runs reach the limit.
 :::
 
 The grid search above uses a single level of cross-validation. For each fixed configuration, `cross_validate` produces five returned values that the code converts to validation-fold MSEs. The `ParameterGrid` loop repeats that call for every configuration, and the subsequent `idxmin` step selects the configuration with the smallest mean CV MSE. This entire selection step plays the role of the **inner tuning loop** in the nested procedure developed next. Using the same splits for every configuration makes their loss estimates directly comparable, but the ranking remains noisy, as the dispersion and convergence diagnostics emphasize. Moreover, the mean CV MSE of the *selected* configuration is optimistically low, for exactly the reason formalized in Exercise 2.2 below: taking the smallest of many noisy validation-loss estimates favors lucky draws. @sec-cv-nested develops the separate outer layer needed to assess the tuning procedure without reusing its inner loss estimates.
@@ -843,22 +843,18 @@ where $\hat f_k^{\mathrm{tuned}}$ denotes the entire rule produced from outer tr
 
 :::{.callout-important}
 ## Key Takeaways
-1. Cross-validation used for model selection is not by itself an unbiased final assessment; evaluate final performance with either a genuinely untouched test set or a properly separated outer loop of nested cross-validation.
-2. K-fold cross-validation estimates the expected risk of a fitting procedure trained on roughly $N(K-1)/K$ observations, not the realized conditional risk $R(\hat{f})$ of the one model refit on the full sample.
-3. A validation strategy is reliable only if every data-dependent preprocessing step is recomputed using each split's training observations.
-4. Repeatedly choosing the specification with the smallest noisy validation-loss estimate creates selection-induced optimism, even when each candidate's estimate is unbiased on its own.
-5. In time-series settings, cross-validation must respect the forecast-origin information set and the publication timing of predictors.
-6. Random K-fold is often inappropriate for dependent data because it can leak future information into the training sample.
+1. Cross-validation compares fitting procedures using predictions for observations excluded from fitting.
+2. With equal folds, K-fold CV targets average prediction risk for a procedure trained on $N(K-1)/K$ observations.
+3. Nested cross-validation uses inner folds for selection and outer folds to assess the complete tuning procedure.
+4. Forecast validation should reproduce the timing and information available when predictions will be issued.
 :::
 
 :::{.callout-warning}
 ## Common Pitfalls
-- Using the test set repeatedly while tuning hyperparameters or architectures.
-- Reporting the smallest inner-CV loss estimate as the final performance estimate after searching over many configurations.
-- Allowing an outer validation fold to influence preprocessing, the hyperparameter search, or early stopping.
-- Standardizing, imputing, or selecting predictors on the full sample before cross-validation.
-- Treating random K-fold as automatically valid for time-series forecasting problems.
-- Forgetting that revised or delayed-release predictors may not belong to the real-time information set.
+- Reporting the smallest tuning loss, or repeatedly inspecting the test set, makes the final assessment optimistic.
+- Fit preprocessing separately inside each training fold to prevent validation information from entering model fitting.
+- Across-fold MSE dispersion is not a standard error because the training samples overlap.
+- A training run that reaches the epoch limit has not necessarily converged.
 :::
 
 ## Exercises
@@ -898,7 +894,7 @@ Both variances use the divide-by-own-sample-size convention (`ddof=0`), as does 
    \frac{1}{N-1}\sum_{i\ne j}\left[y_i-\alpha-\gamma\frac{x_i-m}{r}\right]^2+\lambda\gamma^2,
    \qquad \lambda>0,
    $$
-   with the same fixed $\lambda$ under either scaling rule and no penalty on the intercept. Write $\bar y_{-j}=(N-1)^{-1}\sum_{i\ne j}y_i$ and $C_{xy,-j}=(N-1)^{-1}\sum_{i\ne j}(x_i-\bar x_{-j})(y_i-\bar y_{-j})$. Derive the fitted slope in the original $x$ units and the held-out prediction. Use Part 1 to determine when full-sample scaling increases the penalty weight in the original units. Explain why this does not determine whether squared validation loss rises or falls.
+   with the same fixed $\lambda$ under either scaling rule and no penalty on the intercept. Write $\bar y_{-j}=(N-1)^{-1}\sum_{i\ne j}y_i$ and $C_{xy,-j}=(N-1)^{-1}\sum_{i\ne j}(x_i-\bar x_{-j})(y_i-\bar y_{-j})$. Derive the fitted slope in the original $x$ units and the held-out prediction. Identify the coefficient multiplying $\beta_1^2$ in the penalty after reparameterization, and use Parts 1 and 2 to determine when full-sample scaling increases this coefficient. Holding the training observations and all predictors fixed, suppose the two scaling rules give different held-out predictions. Exhibit one value of $y_j$ for which full-sample scaling increases squared validation loss and another for which it decreases the loss.
 
 *Exam level. The exercise distinguishes a transformation that uses validation information from its effect on forecasts, comparing unpenalized and penalized least squares.*
 :::
@@ -910,7 +906,7 @@ For the variance calculation, write $x_i-\bar{x}=(x_i-\bar{x}_{-j})-(\bar{x}-\ba
 
 :::{.callout-warning collapse="true"}
 ## Hint for Part 4
-Express both the fitted values and the penalty in terms of $(\beta_0,\beta_1)$ from Part 3. Minimize first over the unpenalized intercept, then over the slope.
+Express both the fitted values and the penalty in terms of $(\beta_0,\beta_1)$ from Part 3. Minimize first over the unpenalized intercept, then over the slope. For the loss comparison, consider choosing $y_j$ equal to one of the fitted predictions.
 :::
 
 :::{.callout-tip collapse="true"}
@@ -968,7 +964,7 @@ Because $r>0$, this is a one-to-one reparameterization of the same set of affine
 
 **Part 4: A Fixed Penalty Makes Scale Matter**
 
-The penalty becomes $\lambda r^2\beta_1^2$ in the original units. For any fixed slope, the intercept minimizing the criterion is
+Since $\gamma=r\beta_1$ by Part 3, the penalty becomes $\lambda r^2\beta_1^2$, with coefficient $\lambda r^2$ multiplying $\beta_1^2$. For any fixed slope, the intercept minimizing the criterion is
 $$
 \hat\beta_0=\bar y_{-j}-\beta_1\bar x_{-j}.
 $$
@@ -982,13 +978,26 @@ $$
 \qquad
 \hat f_{m,r}(x_j)=\bar y_{-j}+\hat\beta_1(r)(x_j-\bar x_{-j}).
 $$
-The centering constant $m$ cancels because the intercept is unpenalized. If the two scales differ, the predictions differ whenever $C_{xy,-j}(x_j-\bar x_{-j})\ne0$.
+The centering constant $m$ cancels because the intercept is unpenalized. The two held-out predictions differ if and only if $s\ne s_{-j}$ and $C_{xy,-j}(x_j-\bar x_{-j})\ne0$.
 
 Part 1 gives
 $$
-s^2-s_{-j}^2=\frac{s_{-j}^2}{N^2}\left[(N-1)(z_j^{(-j)})^2-N\right].
+s^2-s_{-j}^2=\frac{(N-1)(x_j-\bar x_{-j})^2-Ns_{-j}^2}{N^2}.
 $$
-Full-sample scaling therefore increases the penalty weight $\lambda r^2$ exactly when $(z_j^{(-j)})^2>N/(N-1)$; below this threshold the weight decreases, and at equality it is unchanged. The direction of the penalty change is determined, but which prediction is closer to $y_j$ still depends on the outcome. Thus the change in squared validation loss can have either sign. Training-only preprocessing remains the general design rule, while Part 3 identifies a specific invariance of unpenalized OLS.
+Since $\lambda>0$, full-sample scaling increases the coefficient $\lambda r^2$ exactly when
+$$
+(x_j-\bar x_{-j})^2>\frac{N}{N-1}s_{-j}^2
+\quad\Longleftrightarrow\quad
+(z_j^{(-j)})^2>\frac{N}{N-1},
+$$
+where the second form uses Part 2. Below this threshold the coefficient decreases, and at equality it is unchanged.
+
+For the loss comparison, hold the training observations and all predictors fixed and suppose the two predictions differ. Neither fitted prediction uses $y_j$, so choosing its value does not change either fit:
+
+- If $y_j=\hat f_{\bar x_{-j},s_{-j}}(x_j)$, the training-only rule has zero squared error and the full-sample rule has strictly positive squared error, so full-sample scaling increases validation loss.
+- If $y_j=\hat f_{\bar x,s}(x_j)$, the full-sample rule has zero squared error and the training-only rule has strictly positive squared error, so full-sample scaling decreases validation loss.
+
+If the predictions coincide, both rules give the same loss for every $y_j$. Training-only preprocessing remains the general design rule, while Part 3 identifies a specific invariance of unpenalized OLS.
 :::
 
 :::{.callout-note}

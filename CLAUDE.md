@@ -149,6 +149,8 @@ Visual pedagogy rule:
 - Each chapter has a single `## Summary` heading that contains one or two callout boxes.
 - The **Key Takeaways** callout (`.callout-important` with `## Key Takeaways` title) always appears first, with a numbered list. It is styled green via `styles.css`.
 - An optional **Common Pitfalls** callout (`.callout-warning` with `## Common Pitfalls` title) follows when there are predictable misunderstandings, implementation mistakes, or exam traps. Include it when useful, omit when it would be artificial.
+- Keep each list to **3–4 short, single-sentence points** without sublists or explanatory paragraphs.
+- Give the lists distinct jobs: **Key Takeaways** states the chapter's core results and mechanisms; **Common Pitfalls** identifies concrete errors in applying or interpreting them. Do not repeat a takeaway as a warning with its wording reversed, and do not add filler to reach a target count.
 
 ## Self-reflection questions
 
