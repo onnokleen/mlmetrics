@@ -218,7 +218,7 @@ Concretely, the following steps must be re-estimated using each split's training
 - feature selection or dimensionality reduction
 - outcome transformations chosen from the data
 
-Full-sample preprocessing lets validation observations influence a step of the fitting procedure. Whether this changes predictions or the reported loss depends on the fitting rule: refitted unpenalized OLS with an intercept is invariant to centering and positive rescaling, whereas adding a fixed multiple of the squared standardized slope to the fitting loss can make the scale matter. Exercise 2.1 derives this contrast and shows why a resulting change in squared validation loss can have either sign.
+Full-sample preprocessing lets validation observations influence a step of the fitting procedure. Whether this changes predictions or the reported loss depends on the fitting rule: refitted unpenalized OLS with an intercept is invariant to centering and positive rescaling, whereas adding a fixed multiple of the squared standardized slope to the fitting loss can make the scale matter. When predictions change, the resulting change in squared validation loss can have either sign.
 :::
 
 :::{.callout-note title="Question for Reflection"}
@@ -683,7 +683,7 @@ The mean CV MSE ranks the candidate configurations. The **Across-fold MSE standa
 Runs that reach the epoch limit may not have converged, so differences in CV MSE can reflect incomplete optimization as well as architecture or learning rate. Small differences in mean CV MSE should therefore not be read as precise rankings, especially when across-fold dispersion is large or different numbers of runs reach the limit.
 :::
 
-The grid search above uses a single level of cross-validation. For each fixed configuration, `cross_validate` produces five returned values that the code converts to validation-fold MSEs. The `ParameterGrid` loop repeats that call for every configuration, and the subsequent `idxmin` step selects the configuration with the smallest mean CV MSE. This entire selection step plays the role of the **inner tuning loop** in the nested procedure developed next. Using the same splits for every configuration makes their loss estimates directly comparable, but the ranking remains noisy, as the dispersion and convergence diagnostics emphasize. Moreover, the mean CV MSE of the *selected* configuration is optimistically low, for exactly the reason formalized in Exercise 2.2 below: taking the smallest of many noisy validation-loss estimates favors lucky draws. @sec-cv-nested develops the separate outer layer needed to assess the tuning procedure without reusing its inner loss estimates.
+The grid search above uses a single level of cross-validation. For each fixed configuration, `cross_validate` produces five returned values that the code converts to validation-fold MSEs. The `ParameterGrid` loop repeats that call for every configuration, and the subsequent `idxmin` step selects the configuration with the smallest mean CV MSE. This entire selection step plays the role of the **inner tuning loop** in the nested procedure developed next. Using the same splits for every configuration makes their loss estimates directly comparable, but the ranking remains noisy, as the dispersion and convergence diagnostics emphasize. Moreover, the mean CV MSE of the *selected* configuration is optimistically low, for exactly the reason formalized in Exercise 2.1 below: taking the smallest of many noisy validation-loss estimates favors lucky draws. @sec-cv-nested develops the separate outer layer needed to assess the tuning procedure without reusing its inner loss estimates.
 
 Exhaustive grid search becomes costly as the number of hyperparameters grows. Random and sequential search methods provide alternatives, which we study in the [chapter on advanced hyperparameter optimization](hpo.qmd). Regardless of how the candidates are searched, using the same validation-loss estimates for selection and assessment remains a separate problem.
 
@@ -860,150 +860,11 @@ where $\hat f_k^{\mathrm{tuned}}$ denotes the entire rule produced from outer tr
 ## Exercises
 
 :::{.callout-note}
-## Exercise 2.1: Leakage from Full-Sample Standardization
+## Exercise 2.1: Why Model Search Creates Optimistically Low Validation-Loss Estimates
 
-Consider leave-one-out cross-validation for a scalar predictor $x_1,\dots,x_N$. Let observation $j$ be the validation observation. Define
-$$
-\bar{x}=\frac{1}{N}\sum_{i=1}^{N}x_i,
-\qquad
-\bar{x}_{-j}=\frac{1}{N-1}\sum_{i\neq j}x_i,
-$$
-and
-$$
-s^2=\frac{1}{N}\sum_{i=1}^{N}(x_i-\bar{x})^2,
-\qquad
-s_{-j}^2=\frac{1}{N-1}\sum_{i\neq j}(x_i-\bar{x}_{-j})^2.
-$$
-Both variances use the divide-by-own-sample-size convention (`ddof=0`), as does `StandardScaler` in the chapter's Python example. Assume $N\ge3$ and $s_{-j}^2>0$.
+Throughout this exercise, treat the fitted forecasting rules $\hat f_A$ and $\hat f_B$ as fixed. Their generalization risks are therefore fixed numbers, whereas their validation-loss estimates are random because the validation sample is random. Expectations and probabilities are over the validation sample, and in Part 5 also over the independent test sample introduced there.
 
-1. Derive the mean and variance decompositions
-   $$
-   \bar{x}=\bar{x}_{-j}+\frac{x_j-\bar{x}_{-j}}{N},
-   \qquad
-   s^2=\frac{N-1}{N}s_{-j}^2+\frac{N-1}{N^2}(x_j-\bar{x}_{-j})^2.
-   $$
-2. Part 1 ensures $s>0$. Define $z_j^{\mathrm{full}}=(x_j-\bar{x})/s$ and $z_j^{(-j)}=(x_j-\bar{x}_{-j})/s_{-j}$. Show that
-   $$
-   z_j^{\mathrm{full}}=
-   \frac{\sqrt{N-1}\,z_j^{(-j)}}{\sqrt{N+(z_j^{(-j)})^2}},
-   $$
-   and deduce $|z_j^{\mathrm{full}}|<|z_j^{(-j)}|$ whenever $z_j^{(-j)}\ne0$. Identify where the held-out observation enters the transformation.
-3. Now suppose outcomes $y_1,\dots,y_N$ are observed. For any centering constant $m$ and scale $r>0$, fit the regression $\alpha+\gamma(x_i-m)/r$ by unpenalized OLS on $i\ne j$, including the intercept. Derive the one-to-one mapping between $(\alpha,\gamma)$ and the coefficients $(\beta_0,\beta_1)$ of $\beta_0+\beta_1x$. Use it to prove that choosing $(m,r)=(\bar{x},s)$ or $(\bar{x}_{-j},s_{-j})$ gives the same held-out prediction and squared prediction error after refitting.
-4. Instead fit $(\alpha,\gamma)$ by minimizing
-   $$
-   \frac{1}{N-1}\sum_{i\ne j}\left[y_i-\alpha-\gamma\frac{x_i-m}{r}\right]^2+\lambda\gamma^2,
-   \qquad \lambda>0,
-   $$
-   with the same fixed $\lambda$ under either scaling rule and no penalty on the intercept. Write $\bar y_{-j}=(N-1)^{-1}\sum_{i\ne j}y_i$ and $C_{xy,-j}=(N-1)^{-1}\sum_{i\ne j}(x_i-\bar x_{-j})(y_i-\bar y_{-j})$. Derive the fitted slope in the original $x$ units and the held-out prediction. Identify the coefficient multiplying $\beta_1^2$ in the penalty after reparameterization, and use Parts 1 and 2 to determine when full-sample scaling increases this coefficient. Holding the training observations and all predictors fixed, suppose the two scaling rules give different held-out predictions. Exhibit one value of $y_j$ for which full-sample scaling increases squared validation loss and another for which it decreases the loss.
-
-*Exam level. The exercise distinguishes a transformation that uses validation information from its effect on forecasts, comparing unpenalized and penalized least squares.*
-:::
-
-:::{.callout-warning collapse="true"}
-## Hint for Part 1
-For the variance calculation, write $x_i-\bar{x}=(x_i-\bar{x}_{-j})-(\bar{x}-\bar{x}_{-j})$ for $i\ne j$ and use $\sum_{i\ne j}(x_i-\bar{x}_{-j})=0$.
-:::
-
-:::{.callout-warning collapse="true"}
-## Hint for Part 4
-Express both the fitted values and the penalty in terms of $(\beta_0,\beta_1)$ from Part 3. Minimize first over the unpenalized intercept, then over the slope. For the loss comparison, consider choosing $y_j$ equal to one of the fitted predictions.
-:::
-
-:::{.callout-tip collapse="true"}
-## Solution
-
-**Part 1: Mean and Variance Decompositions**
-
-Since $N\bar{x}=(N-1)\bar{x}_{-j}+x_j$,
-$$
-\bar{x}-\bar{x}_{-j}=\frac{x_j-\bar{x}_{-j}}{N},
-\qquad
-x_j-\bar{x}=\frac{N-1}{N}(x_j-\bar{x}_{-j}).
-$$
-For the remaining observations, centering at $\bar{x}_{-j}$ eliminates the cross term:
-$$
-\sum_{i\ne j}(x_i-\bar{x})^2
-=(N-1)s_{-j}^2+(N-1)(\bar{x}-\bar{x}_{-j})^2.
-$$
-Adding $(x_j-\bar{x})^2$ and substituting the two mean identities gives
-$$
-Ns^2=(N-1)s_{-j}^2+
-\left(\frac{N-1}{N^2}+\frac{(N-1)^2}{N^2}\right)(x_j-\bar{x}_{-j})^2.
-$$
-The coefficient in parentheses is $(N-1)/N$. Dividing by $N$ proves the stated variance decomposition.
-
-**Part 2: Shrinkage of the Standardized Predictor**
-
-Part 1 gives
-$$
-x_j-\bar{x}=\frac{N-1}{N}z_j^{(-j)}s_{-j},
-\qquad
-s=s_{-j}\sqrt{\frac{N-1}{N}}\sqrt{1+\frac{(z_j^{(-j)})^2}{N}}.
-$$
-Taking the ratio yields
-$$
-z_j^{\mathrm{full}}=
-\frac{\sqrt{N-1}\,z_j^{(-j)}}{\sqrt{N+(z_j^{(-j)})^2}}.
-$$
-For $z_j^{(-j)}\ne0$, the ratio of absolute standardized values is strictly below one because $N+(z_j^{(-j)})^2>N-1$. The held-out $x_j$ enters both the full-sample mean and variance. Its standardized magnitude therefore shrinks under a rule that uses validation information. Whether predictions change is a separate question.
-
-**Part 3: Invariance of Refitted OLS Predictions**
-
-For every $x$,
-$$
-\alpha+\gamma\frac{x-m}{r}
-=\left(\alpha-\frac{\gamma m}{r}\right)+\frac{\gamma}{r}x.
-$$
-Thus
-$$
-\beta_0=\alpha-\frac{\gamma m}{r},\qquad \beta_1=\frac{\gamma}{r},
-\qquad
-\alpha=\beta_0+\beta_1m,\qquad \gamma=r\beta_1.
-$$
-Because $r>0$, this is a one-to-one reparameterization of the same set of affine prediction functions. The unpenalized training criterion is consequently the same function of $(\beta_0,\beta_1)$ under either scaling rule. The intercept and slope are uniquely determined because $s_{-j}^2>0$. Refitting therefore gives the same prediction at $x_j$ and the same squared error $(y_j-\hat f(x_j))^2$ under both transformations, despite Part 2's change in standardized magnitude.
-
-**Part 4: A Fixed Penalty Makes Scale Matter**
-
-Since $\gamma=r\beta_1$ by Part 3, the penalty becomes $\lambda r^2\beta_1^2$, with coefficient $\lambda r^2$ multiplying $\beta_1^2$. For any fixed slope, the intercept minimizing the criterion is
-$$
-\hat\beta_0=\bar y_{-j}-\beta_1\bar x_{-j}.
-$$
-Substituting it into the criterion leaves a term independent of $\beta_1$ plus
-$$
--2\beta_1 C_{xy,-j}+\beta_1^2(s_{-j}^2+\lambda r^2).
-$$
-The coefficient of $\beta_1^2$ is strictly positive, so
-$$
-\hat\beta_1(r)=\frac{C_{xy,-j}}{s_{-j}^2+\lambda r^2},
-\qquad
-\hat f_{m,r}(x_j)=\bar y_{-j}+\hat\beta_1(r)(x_j-\bar x_{-j}).
-$$
-The centering constant $m$ cancels because the intercept is unpenalized. The two held-out predictions differ if and only if $s\ne s_{-j}$ and $C_{xy,-j}(x_j-\bar x_{-j})\ne0$.
-
-Part 1 gives
-$$
-s^2-s_{-j}^2=\frac{(N-1)(x_j-\bar x_{-j})^2-Ns_{-j}^2}{N^2}.
-$$
-Since $\lambda>0$, full-sample scaling increases the coefficient $\lambda r^2$ exactly when
-$$
-(x_j-\bar x_{-j})^2>\frac{N}{N-1}s_{-j}^2
-\quad\Longleftrightarrow\quad
-(z_j^{(-j)})^2>\frac{N}{N-1},
-$$
-where the second form uses Part 2. Below this threshold the coefficient decreases, and at equality it is unchanged.
-
-For the loss comparison, hold the training observations and all predictors fixed and suppose the two predictions differ. Neither fitted prediction uses $y_j$, so choosing its value does not change either fit:
-
-- If $y_j=\hat f_{\bar x_{-j},s_{-j}}(x_j)$, the training-only rule has zero squared error and the full-sample rule has strictly positive squared error, so full-sample scaling increases validation loss.
-- If $y_j=\hat f_{\bar x,s}(x_j)$, the full-sample rule has zero squared error and the training-only rule has strictly positive squared error, so full-sample scaling decreases validation loss.
-
-If the predictions coincide, both rules give the same loss for every $y_j$. Training-only preprocessing remains the general design rule, while Part 3 identifies a specific invariance of unpenalized OLS.
-:::
-
-:::{.callout-note}
-## Exercise 2.2: Why Model Search Creates Optimistically Low Validation-Loss Estimates
-
-Suppose two fitted forecasting models, $A$ and $B$, have the same generalization risk,
+For Parts 1–3, suppose the two fitted rules have the same finite generalization risk,
 $$
 R(\hat{f}_A)=R(\hat{f}_B)=R_0.
 $$
@@ -1013,9 +874,9 @@ $$
 \qquad
 \hat{R}_B = R_0+\eta_B,
 $$
-where expectations are taken over the validation sample with the fitted rules $\hat f_A$ and $\hat f_B$ held fixed, $\eta_A$ and $\eta_B$ have mean zero, and $\mathbb{P}(\eta_A\neq\eta_B)>0$, so the two estimates do not coincide with certainty. They need not be independent: candidate models evaluated on the same validation observations will generally have dependent loss-estimation errors.
+where $\eta_A$ and $\eta_B$ are the loss-estimation errors. Assume for these three parts that $\eta_A$ and $\eta_B$ have mean zero and that $\mathbb{P}(\eta_A\neq\eta_B)>0$, so the two estimates do not coincide with certainty. The errors need not be independent: candidate models evaluated on the same validation observations will generally have dependent loss-estimation errors.
 
-The researcher selects the model with the smaller validation estimate.
+The researcher selects the model with the smaller validation estimate, choosing $A$ in a tie.
 
 1. Show that
    $$
@@ -1043,14 +904,13 @@ The researcher selects the model with the smaller validation estimate.
    R_0-\frac{\sigma\sqrt{1-c}}{\sqrt{\pi}},
    $$
    and explain why stronger positive dependence between candidate loss estimates reduces the selection-induced optimism. Specialize the result to independent errors.
-4. Now allow the candidates to have unequal risks $R_A$ and $R_B$, while their validation estimates remain individually unbiased. Use the pointwise inequalities $\min(\hat R_A,\hat R_B)\leq \hat R_A$ and $\min(\hat R_A,\hat R_B)\leq \hat R_B$ to show that
+4. For Parts 4–5, drop the equal-risk restriction and write $R_A=R(\hat f_A)$ and $R_B=R(\hat f_B)$ for the fixed, finite generalization risks, labeling the models so that $R_A\leq R_B$. The random validation-loss estimates satisfy $\mathbb E[\hat R_A]=R_A$ and $\mathbb E[\hat R_B]=R_B$; no Gaussian assumption is imposed. Compare
    $$
-   \mathbb E[\min(\hat R_A,\hat R_B)]\leq \min(R_A,R_B).
+   \mathbb E[\min(\hat R_A,\hat R_B)]
    $$
-   Explain why exact equality of the candidates' risks is therefore not required for selection optimism.
-5. An econometrician compares specifications $A$ and $B$ on the same validation sample, selects $\hat s\in\arg\min_{s\in\{A,B\}}\hat R_s$, and reports $\min(\hat R_A,\hat R_B)$ as the risk of the selected specification. Using Part 4 and $R_{\hat s}\geq\min(R_A,R_B)$, compare the expected reported loss estimate with $\mathbb E[R_{\hat s}]$. Then explain why evaluating the selected specification on an untouched test set, or in the outer loop of nested cross-validation, avoids this selection-induced optimism.
+   with the smaller generalization risk $R_A$. Prove your comparison and give a necessary and sufficient condition for the inequality to be strict. Express your condition as a probability statement about $\hat R_A$ and $\hat R_B$.
 
-*Exam level. The exercise formalizes a central point of the chapter: validation is noisy, and searching across specifications makes the smallest observed loss estimate look too low.*
+*Exam level. The exercise derives selection optimism for equal and unequal generalization risks and connects this to validation-based model selection.*
 :::
 
 :::{.callout-warning collapse="true"}
@@ -1125,53 +985,36 @@ $$
 
 As $c$ increases, the two loss-estimation errors move together and their difference becomes less variable, so selecting the smaller estimate extracts less favorable noise. Setting $c=0$ gives the independent-error result $R_0-\sigma/\sqrt{\pi}$.
 
-**Part 4: Unequal Candidate Risks**
+**Part 4: Possibly Unequal Generalization Risks**
 
-The pointwise inequalities imply
+The fitted rules remain fixed, so $R_A$ and $R_B$ are constants. For every validation sample, $\min(\hat R_A,\hat R_B)\leq\hat R_A$. Taking expectations gives
 $$
 \mathbb E[\min(\hat R_A,\hat R_B)]
-\leq \mathbb E[\hat R_A]=R_A
+\leq \mathbb E[\hat R_A]=R_A.
 $$
-and, similarly,
-$$
-\mathbb E[\min(\hat R_A,\hat R_B)]
-\leq \mathbb E[\hat R_B]=R_B.
-$$
-Taking the smaller of the two upper bounds yields
-$$
-\mathbb E[\min(\hat R_A,\hat R_B)]
-\leq \min(R_A,R_B).
-$$
-Thus the exact-tie calculation in Parts 1–3 makes the mechanism transparent but is not required for the weak optimism inequality. More precisely, writing $x^+:=\max\{x,0\}$ for the positive part, the pointwise identity
+
+Since the models are labeled so that $R_A\leq R_B$, the right-hand side is the smaller generalization risk. To determine when the inequality is strict, write $x^+:=\max\{x,0\}$ for the positive part and use the identity
 $$
 \min(\hat R_A,\hat R_B)
 =\hat R_A-(\hat R_A-\hat R_B)^+,
 $$
-holds without any ordering assumption. If $R_A\leq R_B$, taking expectations gives
+which follows by considering $\hat R_A\leq\hat R_B$ and $\hat R_A>\hat R_B$ separately. Taking expectations gives
 $$
 \mathbb E[\min(\hat R_A,\hat R_B)]
 =R_A-\mathbb E[(\hat R_A-\hat R_B)^+].
 $$
-The inequality is therefore strict exactly when $\mathbb P(\hat R_A>\hat R_B)>0$: with positive probability, validation selects candidate $B$ even though $A$ has weakly lower risk.
+The nonnegative random variable $(\hat R_A-\hat R_B)^+$ has strictly positive expectation if and only if it is strictly positive with positive probability. Hence
+$$
+\mathbb E[\min(\hat R_A,\hat R_B)]<R_A
+\quad\Longleftrightarrow\quad
+\mathbb P(\hat R_B<\hat R_A)>0.
+$$
+When $R_A<R_B$, this is the event that validation strictly prefers the model with the larger generalization risk. If $\hat R_A\leq\hat R_B$ almost surely, the expected minimum equals $R_A$. The same probability condition also applies when $R_A=R_B$.
 
-**Part 5: Why Specification Search Creates Bias**
-
-Each candidate's validation-loss estimate is unbiased when viewed separately:
-$$
-\mathbb{E}[\hat{R}_s]=R_s,
-\qquad s\in\{A,B\}.
-$$
-For the selected specification, Part 4 gives
-$$
-\mathbb E[\min(\hat R_A,\hat R_B)]
-\leq \min(R_A,R_B)
-\leq \mathbb E[R_{\hat s}].
-$$
-The reported minimum validation-loss estimate is therefore optimistic for the expected risk of the selected specification. An untouched test set avoids this bias because, conditional on the selected fitted rule, the test loss estimate is computed from fresh observations that played no role in forming $\hat s$. The outer validation fold in nested cross-validation serves the same role for the full selection procedure.
 :::
 
 :::{.callout-note}
-## Exercise 2.3: Feasible and Infeasible Time-Series Forecasts
+## Exercise 2.2: Feasible and Infeasible Time-Series Forecasts
 
 Suppose the data-generating process is
 $$
@@ -1179,7 +1022,7 @@ Y_{t+1}=\beta Z_t+U_{t+1},
 \qquad
 Z_t=\rho Z_{t-1}+\xi_t,
 $$
-where $|\rho|<1$, $\beta\neq 0$, and $\{\xi_t\}$ and $\{U_t\}$ are mutually independent i.i.d. innovation sequences with mean zero and variances $\sigma_\xi^2>0$ and $\sigma_U^2$, respectively. Treat $\beta$ and $\rho$ as known, so the mean squared prediction error (MSPE) quantities below are population quantities net of parameter-estimation error.
+where $|\rho|<1$, $\beta\neq 0$, and $\{\xi_t\}$ and $\{U_t\}$ are mutually independent i.i.d. innovation sequences with mean zero and variances $\sigma_\xi^2>0$ and $\sigma_U^2$, respectively. Treat $\beta$ and $\rho$ as known, so the mean squared prediction error (MSPE) of a forecast $\hat y_{t+1\mid t}$, defined as $\operatorname{MSPE}=\mathbb{E}\big[(Y_{t+1}-\hat y_{t+1\mid t})^2\big]$, is a population quantity net of parameter-estimation error.
 
 Assume the predictor $Z_t$ is published with a one-period delay, so at forecast origin $t$ we observe $Z_{t-1}$ but not $Z_t$. Consistently with the chapter's definition, let the forecast-origin information set be generated by the available predictor and outcome histories,
 $$

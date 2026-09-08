@@ -688,7 +688,7 @@ Leakage Inside Cross-Validation
 <li>feature selection or dimensionality reduction</li>
 <li>outcome transformations chosen from the data</li>
 </ul>
-<p>Full-sample preprocessing lets validation observations influence a step of the fitting procedure. Whether this changes predictions or the reported loss depends on the fitting rule: refitted unpenalized OLS with an intercept is invariant to centering and positive rescaling, whereas adding a fixed multiple of the squared standardized slope to the fitting loss can make the scale matter. Exercise 2.1 derives this contrast and shows why a resulting change in squared validation loss can have either sign.</p>
+<p>Full-sample preprocessing lets validation observations influence a step of the fitting procedure. Whether this changes predictions or the reported loss depends on the fitting rule: refitted unpenalized OLS with an intercept is invariant to centering and positive rescaling, whereas adding a fixed multiple of the squared standardized slope to the fitting loss can make the scale matter. When predictions change, the resulting change in squared validation loss can have either sign.</p>
 </div>
 </div>
 <div class="callout callout-style-default callout-note callout-titled" title="Question for Reflection">
@@ -1284,7 +1284,7 @@ How to Read the Diagnostics
 <p>Runs that reach the epoch limit may not have converged, so differences in CV MSE can reflect incomplete optimization as well as architecture or learning rate. Small differences in mean CV MSE should therefore not be read as precise rankings, especially when across-fold dispersion is large or different numbers of runs reach the limit.</p>
 </div>
 </div>
-<p>The grid search above uses a single level of cross-validation. For each fixed configuration, <code>cross_validate</code> produces five returned values that the code converts to validation-fold MSEs. The <code>ParameterGrid</code> loop repeats that call for every configuration, and the subsequent <code>idxmin</code> step selects the configuration with the smallest mean CV MSE. This entire selection step plays the role of the <strong>inner tuning loop</strong> in the nested procedure developed next. Using the same splits for every configuration makes their loss estimates directly comparable, but the ranking remains noisy, as the dispersion and convergence diagnostics emphasize. Moreover, the mean CV MSE of the <em>selected</em> configuration is optimistically low, for exactly the reason formalized in Exercise 2.2 below: taking the smallest of many noisy validation-loss estimates favors lucky draws. <a href="#sec-cv-nested" class="quarto-xref">Section&nbsp;2.8</a> develops the separate outer layer needed to assess the tuning procedure without reusing its inner loss estimates.</p>
+<p>The grid search above uses a single level of cross-validation. For each fixed configuration, <code>cross_validate</code> produces five returned values that the code converts to validation-fold MSEs. The <code>ParameterGrid</code> loop repeats that call for every configuration, and the subsequent <code>idxmin</code> step selects the configuration with the smallest mean CV MSE. This entire selection step plays the role of the <strong>inner tuning loop</strong> in the nested procedure developed next. Using the same splits for every configuration makes their loss estimates directly comparable, but the ranking remains noisy, as the dispersion and convergence diagnostics emphasize. Moreover, the mean CV MSE of the <em>selected</em> configuration is optimistically low, for exactly the reason formalized in Exercise 2.1 below: taking the smallest of many noisy validation-loss estimates favors lucky draws. <a href="#sec-cv-nested" class="quarto-xref">Section&nbsp;2.8</a> develops the separate outer layer needed to assess the tuning procedure without reusing its inner loss estimates.</p>
 <p>Exhaustive grid search becomes costly as the number of hyperparameters grows. Random and sequential search methods provide alternatives, which we study in the <a href="./hpo.html">chapter on advanced hyperparameter optimization</a>. Regardless of how the candidates are searched, using the same validation-loss estimates for selection and assessment remains a separate problem.</p>
 </section>
 <section id="sec-cv-nested" class="level2" data-number="2.8">
@@ -1500,205 +1500,12 @@ Common Pitfalls
 <i class="callout-icon"></i>
 </div>
 <div class="callout-title-container flex-fill">
-Exercise 2.1: Leakage from Full-Sample Standardization
+Exercise 2.1: Why Model Search Creates Optimistically Low Validation-Loss Estimates
 </div>
 </div>
 <div class="callout-body-container callout-body">
-<p>Consider leave-one-out cross-validation for a scalar predictor <span class="math inline">x_1,\dots,x_N</span>. Let observation <span class="math inline">j</span> be the validation observation. Define </p>
-<div class="display-math-block">
-<p><span class="math display">
-\bar{x}=\frac{1}{N}\sum_{i=1}^{N}x_i,
-\qquad
-\bar{x}_{-j}=\frac{1}{N-1}\sum_{i\neq j}x_i,
-</span></p>
-</div>
-<p> and </p>
-<div class="display-math-block">
-<p><span class="math display">
-s^2=\frac{1}{N}\sum_{i=1}^{N}(x_i-\bar{x})^2,
-\qquad
-s_{-j}^2=\frac{1}{N-1}\sum_{i\neq j}(x_i-\bar{x}_{-j})^2.
-</span></p>
-</div>
-<p> Both variances use the divide-by-own-sample-size convention (<code>ddof=0</code>), as does <code>StandardScaler</code> in the chapter’s Python example. Assume <span class="math inline">N\ge3</span> and <span class="math inline">s_{-j}^2&gt;0</span>.</p>
-<ol type="1">
-<li>Derive the mean and variance decompositions <span class="math display">
-\bar{x}=\bar{x}_{-j}+\frac{x_j-\bar{x}_{-j}}{N},
-\qquad
-s^2=\frac{N-1}{N}s_{-j}^2+\frac{N-1}{N^2}(x_j-\bar{x}_{-j})^2.
-</span></li>
-<li>Part 1 ensures <span class="math inline">s&gt;0</span>. Define <span class="math inline">z_j^{\mathrm{full}}=(x_j-\bar{x})/s</span> and <span class="math inline">z_j^{(-j)}=(x_j-\bar{x}_{-j})/s_{-j}</span>. Show that <span class="math display">
-z_j^{\mathrm{full}}=
-\frac{\sqrt{N-1}\,z_j^{(-j)}}{\sqrt{N+(z_j^{(-j)})^2}},
-</span> and deduce <span class="math inline">|z_j^{\mathrm{full}}|&lt;|z_j^{(-j)}|</span> whenever <span class="math inline">z_j^{(-j)}\ne0</span>. Identify where the held-out observation enters the transformation.</li>
-<li>Now suppose outcomes <span class="math inline">y_1,\dots,y_N</span> are observed. For any centering constant <span class="math inline">m</span> and scale <span class="math inline">r&gt;0</span>, fit the regression <span class="math inline">\alpha+\gamma(x_i-m)/r</span> by unpenalized OLS on <span class="math inline">i\ne j</span>, including the intercept. Derive the one-to-one mapping between <span class="math inline">(\alpha,\gamma)</span> and the coefficients <span class="math inline">(\beta_0,\beta_1)</span> of <span class="math inline">\beta_0+\beta_1x</span>. Use it to prove that choosing <span class="math inline">(m,r)=(\bar{x},s)</span> or <span class="math inline">(\bar{x}_{-j},s_{-j})</span> gives the same held-out prediction and squared prediction error after refitting.</li>
-<li>Instead fit <span class="math inline">(\alpha,\gamma)</span> by minimizing <span class="math display">
-\frac{1}{N-1}\sum_{i\ne j}\left[y_i-\alpha-\gamma\frac{x_i-m}{r}\right]^2+\lambda\gamma^2,
-\qquad \lambda&gt;0,
-</span> with the same fixed <span class="math inline">\lambda</span> under either scaling rule and no penalty on the intercept. Write <span class="math inline">\bar y_{-j}=(N-1)^{-1}\sum_{i\ne j}y_i</span> and <span class="math inline">C_{xy,-j}=(N-1)^{-1}\sum_{i\ne j}(x_i-\bar x_{-j})(y_i-\bar y_{-j})</span>. Derive the fitted slope in the original <span class="math inline">x</span> units and the held-out prediction. Identify the coefficient multiplying <span class="math inline">\beta_1^2</span> in the penalty after reparameterization, and use Parts 1 and 2 to determine when full-sample scaling increases this coefficient. Holding the training observations and all predictors fixed, suppose the two scaling rules give different held-out predictions. Exhibit one value of <span class="math inline">y_j</span> for which full-sample scaling increases squared validation loss and another for which it decreases the loss.</li>
-</ol>
-<p><em>Exam level. The exercise distinguishes a transformation that uses validation information from its effect on forecasts, comparing unpenalized and penalized least squares.</em></p>
-</div>
-</div>
-<div class="callout callout-style-default callout-warning callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-16-contents" aria-controls="callout-16" aria-expanded="false" aria-label="Toggle callout">
-<div class="callout-icon-container">
-<i class="callout-icon"></i>
-</div>
-<div class="callout-title-container flex-fill">
-Hint for Part 1
-</div>
-<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
-</div>
-<div id="callout-16" class="callout-16-contents callout-collapse collapse">
-<div class="callout-body-container callout-body">
-<p>For the variance calculation, write <span class="math inline">x_i-\bar{x}=(x_i-\bar{x}_{-j})-(\bar{x}-\bar{x}_{-j})</span> for <span class="math inline">i\ne j</span> and use <span class="math inline">\sum_{i\ne j}(x_i-\bar{x}_{-j})=0</span>.</p>
-</div>
-</div>
-</div>
-<div class="callout callout-style-default callout-warning callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-17-contents" aria-controls="callout-17" aria-expanded="false" aria-label="Toggle callout">
-<div class="callout-icon-container">
-<i class="callout-icon"></i>
-</div>
-<div class="callout-title-container flex-fill">
-Hint for Part 4
-</div>
-<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
-</div>
-<div id="callout-17" class="callout-17-contents callout-collapse collapse">
-<div class="callout-body-container callout-body">
-<p>Express both the fitted values and the penalty in terms of <span class="math inline">(\beta_0,\beta_1)</span> from Part 3. Minimize first over the unpenalized intercept, then over the slope. For the loss comparison, consider choosing <span class="math inline">y_j</span> equal to one of the fitted predictions.</p>
-</div>
-</div>
-</div>
-<div class="callout callout-style-default callout-tip callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-18-contents" aria-controls="callout-18" aria-expanded="false" aria-label="Toggle callout">
-<div class="callout-icon-container">
-<i class="callout-icon"></i>
-</div>
-<div class="callout-title-container flex-fill">
-Solution
-</div>
-<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
-</div>
-<div id="callout-18" class="callout-18-contents callout-collapse collapse">
-<div class="callout-body-container callout-body">
-<p><strong>Part 1: Mean and Variance Decompositions</strong></p>
-<p>Since <span class="math inline">N\bar{x}=(N-1)\bar{x}_{-j}+x_j</span>, </p>
-<div class="display-math-block">
-<p><span class="math display">
-\bar{x}-\bar{x}_{-j}=\frac{x_j-\bar{x}_{-j}}{N},
-\qquad
-x_j-\bar{x}=\frac{N-1}{N}(x_j-\bar{x}_{-j}).
-</span></p>
-</div>
-<p> For the remaining observations, centering at <span class="math inline">\bar{x}_{-j}</span> eliminates the cross term: </p>
-<div class="display-math-block">
-<p><span class="math display">
-\sum_{i\ne j}(x_i-\bar{x})^2
-=(N-1)s_{-j}^2+(N-1)(\bar{x}-\bar{x}_{-j})^2.
-</span></p>
-</div>
-<p> Adding <span class="math inline">(x_j-\bar{x})^2</span> and substituting the two mean identities gives </p>
-<div class="display-math-block">
-<p><span class="math display">
-Ns^2=(N-1)s_{-j}^2+
-\left(\frac{N-1}{N^2}+\frac{(N-1)^2}{N^2}\right)(x_j-\bar{x}_{-j})^2.
-</span></p>
-</div>
-<p> The coefficient in parentheses is <span class="math inline">(N-1)/N</span>. Dividing by <span class="math inline">N</span> proves the stated variance decomposition.</p>
-<p><strong>Part 2: Shrinkage of the Standardized Predictor</strong></p>
-<p>Part 1 gives </p>
-<div class="display-math-block">
-<p><span class="math display">
-x_j-\bar{x}=\frac{N-1}{N}z_j^{(-j)}s_{-j},
-\qquad
-s=s_{-j}\sqrt{\frac{N-1}{N}}\sqrt{1+\frac{(z_j^{(-j)})^2}{N}}.
-</span></p>
-</div>
-<p> Taking the ratio yields </p>
-<div class="display-math-block">
-<p><span class="math display">
-z_j^{\mathrm{full}}=
-\frac{\sqrt{N-1}\,z_j^{(-j)}}{\sqrt{N+(z_j^{(-j)})^2}}.
-</span></p>
-</div>
-<p> For <span class="math inline">z_j^{(-j)}\ne0</span>, the ratio of absolute standardized values is strictly below one because <span class="math inline">N+(z_j^{(-j)})^2&gt;N-1</span>. The held-out <span class="math inline">x_j</span> enters both the full-sample mean and variance. Its standardized magnitude therefore shrinks under a rule that uses validation information. Whether predictions change is a separate question.</p>
-<p><strong>Part 3: Invariance of Refitted OLS Predictions</strong></p>
-<p>For every <span class="math inline">x</span>, </p>
-<div class="display-math-block">
-<p><span class="math display">
-\alpha+\gamma\frac{x-m}{r}
-=\left(\alpha-\frac{\gamma m}{r}\right)+\frac{\gamma}{r}x.
-</span></p>
-</div>
-<p> Thus </p>
-<div class="display-math-block">
-<p><span class="math display">
-\beta_0=\alpha-\frac{\gamma m}{r},\qquad \beta_1=\frac{\gamma}{r},
-\qquad
-\alpha=\beta_0+\beta_1m,\qquad \gamma=r\beta_1.
-</span></p>
-</div>
-<p> Because <span class="math inline">r&gt;0</span>, this is a one-to-one reparameterization of the same set of affine prediction functions. The unpenalized training criterion is consequently the same function of <span class="math inline">(\beta_0,\beta_1)</span> under either scaling rule. The intercept and slope are uniquely determined because <span class="math inline">s_{-j}^2&gt;0</span>. Refitting therefore gives the same prediction at <span class="math inline">x_j</span> and the same squared error <span class="math inline">(y_j-\hat f(x_j))^2</span> under both transformations, despite Part 2’s change in standardized magnitude.</p>
-<p><strong>Part 4: A Fixed Penalty Makes Scale Matter</strong></p>
-<p>Since <span class="math inline">\gamma=r\beta_1</span> by Part 3, the penalty becomes <span class="math inline">\lambda r^2\beta_1^2</span>, with coefficient <span class="math inline">\lambda r^2</span> multiplying <span class="math inline">\beta_1^2</span>. For any fixed slope, the intercept minimizing the criterion is </p>
-<div class="display-math-block">
-<p><span class="math display">
-\hat\beta_0=\bar y_{-j}-\beta_1\bar x_{-j}.
-</span></p>
-</div>
-<p> Substituting it into the criterion leaves a term independent of <span class="math inline">\beta_1</span> plus </p>
-<div class="display-math-block">
-<p><span class="math display">
--2\beta_1 C_{xy,-j}+\beta_1^2(s_{-j}^2+\lambda r^2).
-</span></p>
-</div>
-<p> The coefficient of <span class="math inline">\beta_1^2</span> is strictly positive, so </p>
-<div class="display-math-block">
-<p><span class="math display">
-\hat\beta_1(r)=\frac{C_{xy,-j}}{s_{-j}^2+\lambda r^2},
-\qquad
-\hat f_{m,r}(x_j)=\bar y_{-j}+\hat\beta_1(r)(x_j-\bar x_{-j}).
-</span></p>
-</div>
-<p> The centering constant <span class="math inline">m</span> cancels because the intercept is unpenalized. The two held-out predictions differ if and only if <span class="math inline">s\ne s_{-j}</span> and <span class="math inline">C_{xy,-j}(x_j-\bar x_{-j})\ne0</span>.</p>
-<p>Part 1 gives </p>
-<div class="display-math-block">
-<p><span class="math display">
-s^2-s_{-j}^2=\frac{(N-1)(x_j-\bar x_{-j})^2-Ns_{-j}^2}{N^2}.
-</span></p>
-</div>
-<p> Since <span class="math inline">\lambda&gt;0</span>, full-sample scaling increases the coefficient <span class="math inline">\lambda r^2</span> exactly when </p>
-<div class="display-math-block">
-<p><span class="math display">
-(x_j-\bar x_{-j})^2&gt;\frac{N}{N-1}s_{-j}^2
-\quad\Longleftrightarrow\quad
-(z_j^{(-j)})^2&gt;\frac{N}{N-1},
-</span></p>
-</div>
-<p> where the second form uses Part 2. Below this threshold the coefficient decreases, and at equality it is unchanged.</p>
-<p>For the loss comparison, hold the training observations and all predictors fixed and suppose the two predictions differ. Neither fitted prediction uses <span class="math inline">y_j</span>, so choosing its value does not change either fit:</p>
-<ul>
-<li>If <span class="math inline">y_j=\hat f_{\bar x_{-j},s_{-j}}(x_j)</span>, the training-only rule has zero squared error and the full-sample rule has strictly positive squared error, so full-sample scaling increases validation loss.</li>
-<li>If <span class="math inline">y_j=\hat f_{\bar x,s}(x_j)</span>, the full-sample rule has zero squared error and the training-only rule has strictly positive squared error, so full-sample scaling decreases validation loss.</li>
-</ul>
-<p>If the predictions coincide, both rules give the same loss for every <span class="math inline">y_j</span>. Training-only preprocessing remains the general design rule, while Part 3 identifies a specific invariance of unpenalized OLS.</p>
-</div>
-</div>
-</div>
-<div class="callout callout-style-default callout-note callout-titled">
-<div class="callout-header d-flex align-content-center">
-<div class="callout-icon-container">
-<i class="callout-icon"></i>
-</div>
-<div class="callout-title-container flex-fill">
-Exercise 2.2: Why Model Search Creates Optimistically Low Validation-Loss Estimates
-</div>
-</div>
-<div class="callout-body-container callout-body">
-<p>Suppose two fitted forecasting models, <span class="math inline">A</span> and <span class="math inline">B</span>, have the same generalization risk, </p>
+<p>Throughout this exercise, treat the fitted forecasting rules <span class="math inline">\hat f_A</span> and <span class="math inline">\hat f_B</span> as fixed. Their generalization risks are therefore fixed numbers, whereas their validation-loss estimates are random because the validation sample is random. Expectations and probabilities are over the validation sample, and in Part 5 also over the independent test sample introduced there.</p>
+<p>For Parts 1–3, suppose the two fitted rules have the same finite generalization risk, </p>
 <div class="display-math-block">
 <p><span class="math display">
 R(\hat{f}_A)=R(\hat{f}_B)=R_0.
@@ -1712,8 +1519,8 @@ R(\hat{f}_A)=R(\hat{f}_B)=R_0.
 \hat{R}_B = R_0+\eta_B,
 </span></p>
 </div>
-<p> where expectations are taken over the validation sample with the fitted rules <span class="math inline">\hat f_A</span> and <span class="math inline">\hat f_B</span> held fixed, <span class="math inline">\eta_A</span> and <span class="math inline">\eta_B</span> have mean zero, and <span class="math inline">\mathbb{P}(\eta_A\neq\eta_B)&gt;0</span>, so the two estimates do not coincide with certainty. They need not be independent: candidate models evaluated on the same validation observations will generally have dependent loss-estimation errors.</p>
-<p>The researcher selects the model with the smaller validation estimate.</p>
+<p> where <span class="math inline">\eta_A</span> and <span class="math inline">\eta_B</span> are the loss-estimation errors. Assume for these three parts that <span class="math inline">\eta_A</span> and <span class="math inline">\eta_B</span> have mean zero and that <span class="math inline">\mathbb{P}(\eta_A\neq\eta_B)&gt;0</span>, so the two estimates do not coincide with certainty. The errors need not be independent: candidate models evaluated on the same validation observations will generally have dependent loss-estimation errors.</p>
+<p>The researcher selects the model with the smaller validation estimate, choosing <span class="math inline">A</span> in a tie.</p>
 <ol type="1">
 <li>Show that <span class="math display">
 \min(\hat{R}_A,\hat{R}_B)
@@ -1735,16 +1542,15 @@ R_0-\frac{1}{2}\mathbb{E}\big[|\eta_A-\eta_B|\big]
 =
 R_0-\frac{\sigma\sqrt{1-c}}{\sqrt{\pi}},
 </span> and explain why stronger positive dependence between candidate loss estimates reduces the selection-induced optimism. Specialize the result to independent errors.</li>
-<li>Now allow the candidates to have unequal risks <span class="math inline">R_A</span> and <span class="math inline">R_B</span>, while their validation estimates remain individually unbiased. Use the pointwise inequalities <span class="math inline">\min(\hat R_A,\hat R_B)\leq \hat R_A</span> and <span class="math inline">\min(\hat R_A,\hat R_B)\leq \hat R_B</span> to show that <span class="math display">
-\mathbb E[\min(\hat R_A,\hat R_B)]\leq \min(R_A,R_B).
-</span> Explain why exact equality of the candidates’ risks is therefore not required for selection optimism.</li>
-<li>An econometrician compares specifications <span class="math inline">A</span> and <span class="math inline">B</span> on the same validation sample, selects <span class="math inline">\hat s\in\arg\min_{s\in\{A,B\}}\hat R_s</span>, and reports <span class="math inline">\min(\hat R_A,\hat R_B)</span> as the risk of the selected specification. Using Part 4 and <span class="math inline">R_{\hat s}\geq\min(R_A,R_B)</span>, compare the expected reported loss estimate with <span class="math inline">\mathbb E[R_{\hat s}]</span>. Then explain why evaluating the selected specification on an untouched test set, or in the outer loop of nested cross-validation, avoids this selection-induced optimism.</li>
+<li>For Parts 4–5, drop the equal-risk restriction and write <span class="math inline">R_A=R(\hat f_A)</span> and <span class="math inline">R_B=R(\hat f_B)</span> for the fixed, finite generalization risks, labeling the models so that <span class="math inline">R_A\leq R_B</span>. The random validation-loss estimates satisfy <span class="math inline">\mathbb E[\hat R_A]=R_A</span> and <span class="math inline">\mathbb E[\hat R_B]=R_B</span>; no Gaussian assumption is imposed. Compare <span class="math display">
+\mathbb E[\min(\hat R_A,\hat R_B)]
+</span> with the smaller generalization risk <span class="math inline">R_A</span>. Prove your comparison and give a necessary and sufficient condition for the inequality to be strict. Express your condition as a probability statement about <span class="math inline">\hat R_A</span> and <span class="math inline">\hat R_B</span>.</li>
 </ol>
-<p><em>Exam level. The exercise formalizes a central point of the chapter: validation is noisy, and searching across specifications makes the smallest observed loss estimate look too low.</em></p>
+<p><em>Exam level. The exercise derives selection optimism for equal and unequal generalization risks and connects this to validation-based model selection.</em></p>
 </div>
 </div>
 <div class="callout callout-style-default callout-warning callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-20-contents" aria-controls="callout-20" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-16-contents" aria-controls="callout-16" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -1753,7 +1559,7 @@ Hint for Part 3
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-20" class="callout-20-contents callout-collapse collapse">
+<div id="callout-16" class="callout-16-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p>First compute <span class="math inline">\operatorname{Var}(\eta_A-\eta_B)</span>. Under the joint Gaussian assumption, the difference is Gaussian. Use the fact that if <span class="math inline">Z\sim\mathcal{N}(0,\tau^2)</span>, then </p>
 <div class="display-math-block">
@@ -1765,7 +1571,7 @@ Hint for Part 3
 </div>
 </div>
 <div class="callout callout-style-default callout-tip callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-21-contents" aria-controls="callout-21" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-17-contents" aria-controls="callout-17" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -1774,7 +1580,7 @@ Solution
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-21" class="callout-21-contents callout-collapse collapse">
+<div id="callout-17" class="callout-17-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p><strong>Part 1: Writing the Selected Validation-Loss Estimate</strong></p>
 <p>Use the elementary identity <span class="math inline">\min(a,b)=(a+b-|a-b|)/2</span>, valid for all real <span class="math inline">a,b</span>, with <span class="math inline">a=\hat{R}_A</span> and <span class="math inline">b=\hat{R}_B</span>: </p>
@@ -1848,60 +1654,37 @@ R_0-\frac{\sigma\sqrt{1-c}}{\sqrt{\pi}}.
 </span></p>
 </div>
 <p>As <span class="math inline">c</span> increases, the two loss-estimation errors move together and their difference becomes less variable, so selecting the smaller estimate extracts less favorable noise. Setting <span class="math inline">c=0</span> gives the independent-error result <span class="math inline">R_0-\sigma/\sqrt{\pi}</span>.</p>
-<p><strong>Part 4: Unequal Candidate Risks</strong></p>
-<p>The pointwise inequalities imply </p>
+<p><strong>Part 4: Possibly Unequal Generalization Risks</strong></p>
+<p>The fitted rules remain fixed, so <span class="math inline">R_A</span> and <span class="math inline">R_B</span> are constants. For every validation sample, <span class="math inline">\min(\hat R_A,\hat R_B)\leq\hat R_A</span>. Taking expectations gives </p>
 <div class="display-math-block">
 <p><span class="math display">
 \mathbb E[\min(\hat R_A,\hat R_B)]
-\leq \mathbb E[\hat R_A]=R_A
+\leq \mathbb E[\hat R_A]=R_A.
 </span></p>
 </div>
-<p> and, similarly, </p>
-<div class="display-math-block">
-<p><span class="math display">
-\mathbb E[\min(\hat R_A,\hat R_B)]
-\leq \mathbb E[\hat R_B]=R_B.
-</span></p>
-</div>
-<p> Taking the smaller of the two upper bounds yields </p>
-<div class="display-math-block">
-<p><span class="math display">
-\mathbb E[\min(\hat R_A,\hat R_B)]
-\leq \min(R_A,R_B).
-</span></p>
-</div>
-<p> Thus the exact-tie calculation in Parts 1–3 makes the mechanism transparent but is not required for the weak optimism inequality. More precisely, writing <span class="math inline">x^+:=\max\{x,0\}</span> for the positive part, the pointwise identity </p>
+<p>Since the models are labeled so that <span class="math inline">R_A\leq R_B</span>, the right-hand side is the smaller generalization risk. To determine when the inequality is strict, write <span class="math inline">x^+:=\max\{x,0\}</span> for the positive part and use the identity </p>
 <div class="display-math-block">
 <p><span class="math display">
 \min(\hat R_A,\hat R_B)
 =\hat R_A-(\hat R_A-\hat R_B)^+,
 </span></p>
 </div>
-<p> holds without any ordering assumption. If <span class="math inline">R_A\leq R_B</span>, taking expectations gives </p>
+<p> which follows by considering <span class="math inline">\hat R_A\leq\hat R_B</span> and <span class="math inline">\hat R_A&gt;\hat R_B</span> separately. Taking expectations gives </p>
 <div class="display-math-block">
 <p><span class="math display">
 \mathbb E[\min(\hat R_A,\hat R_B)]
 =R_A-\mathbb E[(\hat R_A-\hat R_B)^+].
 </span></p>
 </div>
-<p> The inequality is therefore strict exactly when <span class="math inline">\mathbb P(\hat R_A&gt;\hat R_B)&gt;0</span>: with positive probability, validation selects candidate <span class="math inline">B</span> even though <span class="math inline">A</span> has weakly lower risk.</p>
-<p><strong>Part 5: Why Specification Search Creates Bias</strong></p>
-<p>Each candidate’s validation-loss estimate is unbiased when viewed separately: </p>
+<p> The nonnegative random variable <span class="math inline">(\hat R_A-\hat R_B)^+</span> has strictly positive expectation if and only if it is strictly positive with positive probability. Hence </p>
 <div class="display-math-block">
 <p><span class="math display">
-\mathbb{E}[\hat{R}_s]=R_s,
-\qquad s\in\{A,B\}.
+\mathbb E[\min(\hat R_A,\hat R_B)]&lt;R_A
+\quad\Longleftrightarrow\quad
+\mathbb P(\hat R_B&lt;\hat R_A)&gt;0.
 </span></p>
 </div>
-<p> For the selected specification, Part 4 gives </p>
-<div class="display-math-block">
-<p><span class="math display">
-\mathbb E[\min(\hat R_A,\hat R_B)]
-\leq \min(R_A,R_B)
-\leq \mathbb E[R_{\hat s}].
-</span></p>
-</div>
-<p> The reported minimum validation-loss estimate is therefore optimistic for the expected risk of the selected specification. An untouched test set avoids this bias because, conditional on the selected fitted rule, the test loss estimate is computed from fresh observations that played no role in forming <span class="math inline">\hat s</span>. The outer validation fold in nested cross-validation serves the same role for the full selection procedure.</p>
+<p> When <span class="math inline">R_A&lt;R_B</span>, this is the event that validation strictly prefers the model with the larger generalization risk. If <span class="math inline">\hat R_A\leq\hat R_B</span> almost surely, the expected minimum equals <span class="math inline">R_A</span>. The same probability condition also applies when <span class="math inline">R_A=R_B</span>.</p>
 </div>
 </div>
 </div>
@@ -1911,7 +1694,7 @@ R_0-\frac{\sigma\sqrt{1-c}}{\sqrt{\pi}}.
 <i class="callout-icon"></i>
 </div>
 <div class="callout-title-container flex-fill">
-Exercise 2.3: Feasible and Infeasible Time-Series Forecasts
+Exercise 2.2: Feasible and Infeasible Time-Series Forecasts
 </div>
 </div>
 <div class="callout-body-container callout-body">
@@ -1923,7 +1706,7 @@ Y_{t+1}=\beta Z_t+U_{t+1},
 Z_t=\rho Z_{t-1}+\xi_t,
 </span></p>
 </div>
-<p> where <span class="math inline">|\rho|&lt;1</span>, <span class="math inline">\beta\neq 0</span>, and <span class="math inline">\{\xi_t\}</span> and <span class="math inline">\{U_t\}</span> are mutually independent i.i.d. innovation sequences with mean zero and variances <span class="math inline">\sigma_\xi^2&gt;0</span> and <span class="math inline">\sigma_U^2</span>, respectively. Treat <span class="math inline">\beta</span> and <span class="math inline">\rho</span> as known, so the mean squared prediction error (MSPE) quantities below are population quantities net of parameter-estimation error.</p>
+<p> where <span class="math inline">|\rho|&lt;1</span>, <span class="math inline">\beta\neq 0</span>, and <span class="math inline">\{\xi_t\}</span> and <span class="math inline">\{U_t\}</span> are mutually independent i.i.d. innovation sequences with mean zero and variances <span class="math inline">\sigma_\xi^2&gt;0</span> and <span class="math inline">\sigma_U^2</span>, respectively. Treat <span class="math inline">\beta</span> and <span class="math inline">\rho</span> as known, so the mean squared prediction error (MSPE) of a forecast <span class="math inline">\hat y_{t+1\mid t}</span>, defined as <span class="math inline">\operatorname{MSPE}=\mathbb{E}\big[(Y_{t+1}-\hat y_{t+1\mid t})^2\big]</span>, is a population quantity net of parameter-estimation error.</p>
 <p>Assume the predictor <span class="math inline">Z_t</span> is published with a one-period delay, so at forecast origin <span class="math inline">t</span> we observe <span class="math inline">Z_{t-1}</span> but not <span class="math inline">Z_t</span>. Consistently with the chapter’s definition, let the forecast-origin information set be generated by the available predictor and outcome histories, </p>
 <div class="display-math-block">
 <p><span class="math display">
@@ -1949,7 +1732,7 @@ Z_t=\rho Z_{t-1}+\xi_t,
 </div>
 </div>
 <div class="callout callout-style-default callout-warning callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-23-contents" aria-controls="callout-23" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-19-contents" aria-controls="callout-19" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -1958,7 +1741,7 @@ Hint for Part 1
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-23" class="callout-23-contents callout-collapse collapse">
+<div id="callout-19" class="callout-19-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p>Use linearity of conditional expectation and the independence of <span class="math inline">\xi_t</span> and <span class="math inline">U_{t+1}</span> from <span class="math inline">\mathcal{F}_t</span>: </p>
 <div class="display-math-block">
@@ -1972,7 +1755,7 @@ Hint for Part 1
 </div>
 </div>
 <div class="callout callout-style-default callout-tip callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-24-contents" aria-controls="callout-24" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-20-contents" aria-controls="callout-20" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -1981,7 +1764,7 @@ Solution
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-24" class="callout-24-contents callout-collapse collapse">
+<div id="callout-20" class="callout-20-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p><strong>Part 1: Feasible Forecast, Error, and MSPE</strong></p>
 <p>We have </p>
