@@ -311,15 +311,7 @@ Both are strictly proper scoring rules, each relative to a specific class of for
 | **Input Required**   | Forecast PDF, $f(y)$                                   | Forecast CDF, $F(y)$ (or samples)                   |
 | **Sensitivity**      | Local: evaluates the density only at the realization, so one outcome in a low-density region can dominate the average score. | Aggregates CDF errors across all thresholds, so a single low-density realization rarely dominates. |
 | **Numerical implementation** | Unbounded: a tiny $f(y)$ yields a huge score. Compute $\log f(y)$ directly (`logpdf`) rather than $f(y)$ first, to avoid floating-point underflow. | Avoids evaluating tiny densities. The squared integrand is bounded by one, but CRPS itself is unbounded in the realization. |
-| **Measurement Error Sensitivity** | High                                               | Low                                                 |
-
-The measurement-error row summarizes @Kleen2024: in many forecasting applications the evaluation target is observed only through a noisy proxy—squared returns or a realized-variance estimate standing in for the latent conditional variance, or a preliminary release standing in for the final value—and model rankings based on the LogS react substantially more strongly to such measurement error in the outcome than rankings based on the CRPS.
-
-For a forecast $F$ with a finite first moment, the kernel representation gives the precise sensitivity bound
-$$
-\big|\operatorname{CRPS}(F,y+e)-\operatorname{CRPS}(F,y)\big|\le |e|,
-$$
-where $e$ is an additive measurement error in the realized outcome. The bound limits how much CRPS changes when the outcome is perturbed; it does not bound the score itself or guarantee that forecast rankings survive measurement error. Exercise 4.2 derives the bound and a condition under which a given ranking is preserved.
+| **Measurement Error Sensitivity** | Can be high, especially where forecast density is small. | Less sensitive: score changes by at most the absolute outcome error, though rankings can change [@Kleen2024]. |
 
 :::{.callout-important}
 ## Practical Rule of Thumb
@@ -344,7 +336,7 @@ LogS reacts more sharply because it evaluates the density assigned to the realiz
 :::{.callout-note title="Beyond LogS and CRPS"}
 
 - Energy score for multivariate distributions [introduced as a proper scoring rule by @GneitingRaftery2007, building on the energy-statistics machinery of @Szekely2003EnergyTR]
-- Diebold-Mariano tests for comparing forecast performance [@DieboldMariano1995] and the conditional predictive-ability extension of @GiacominiWhite2006, which accommodates time-varying or estimated forecasting models and is the standard reference in real-time forecast evaluation; Exercise 4.4 below develops the serial-correlation issue these tests must address
+- Diebold-Mariano tests for comparing forecast performance [@DieboldMariano1995] and the conditional predictive-ability extension of @GiacominiWhite2006, which accommodates time-varying or estimated forecasting models and is the standard reference in real-time forecast evaluation; Exercise 4.3 below develops the serial-correlation issue these tests must address
 - Quantile scores for specific percentiles of interest [@GneitingRaftery2007]
 :::
 
@@ -500,7 +492,7 @@ where we used $\mathbb E[\mathbf{1}\{z \geq Y\}]=F_0(z)$ and $\operatorname{Var}
 - The term $h_{\text{CRPS}}(F_0)=\int F_0(z)(1-F_0(z))\,dz$ is the generalized "CRPS entropy" of the outcome distribution $F_0$.
 - The excess risk
 $$D_{\text{CRPS}}(F_0,F)=\int_{-\infty}^{\infty} (F_0(z)-F(z))^2\,dz$$
-is the **Cramér distance** between $F_0$ and $F$. It is nonnegative and vanishes only when the two CDFs agree everywhere, which is what makes CRPS strictly proper (minimized at $F(z)=F_0(z)$ for all $z$; Exercise 4.2 fills in the almost-everywhere detail). Note the naming: the Cramér distance integrates the squared CDF gap against Lebesgue measure, $dz$, as displayed above. The Cramér–von Mises criterion integrates the same squared gap against $dF_0(z)$ and is a different functional.
+is the **Cramér distance** between $F_0$ and $F$. It is nonnegative and vanishes only when the two CDFs agree everywhere: equality almost everywhere implies equality everywhere by right-continuity of CDFs. This makes CRPS strictly proper, minimized at $F(z)=F_0(z)$ for all $z$. Note the naming: the Cramér distance integrates the squared CDF gap against Lebesgue measure, $dz$, as displayed above. The Cramér–von Mises criterion integrates the same squared gap against $dF_0(z)$ and is a different functional.
 
 Equivalent representation:
 $$h_{\text{CRPS}}(F)=\tfrac{1}{2}\,\mathbb{E}|X-X'|,\quad X,X'\stackrel{\mathrm{i.i.d.}}{\sim}F,$$
@@ -513,7 +505,12 @@ The last expression can be used to define a multivariate CRPS analogue called th
 
 The tools introduced in this chapter—LogS, CRPS, and PIT histograms—are most informative when applied to competing density forecasts on the same data. We use the FRED-QD (Federal Reserve Economic Data, Quarterly Database) macroeconomic panel documented in the [datasets appendix](datasets.qmd); the same panel returns in the tree-based chapters later in the book. The target is annualized one-step-ahead real GDP growth, and the predictors are five lagged macro and financial variables: lagged GDP growth, inflation, term spread, log VIX (the Cboe Volatility Index), and the unemployment rate. This is a pedagogical final-vintage-data example, not a fully real-time evaluation: a real-time design would also need to reconstruct data revisions and publication lags at every forecast origin.
 
-Readers who have not yet worked through the [random forests chapter](random_forests.qmd#sec-random-forests) only need the following idea for this application: a regression forest is a nonparametric ensemble method that combines multiple predictions into one. We use the following notions in this section:
+:::{.callout-note title="If random forests are new to you"}
+
+You can consult the [random forests chapter](random_forests.qmd#sec-random-forests), or simply think of a random forest here as another forecasting model that maps predictors to a prediction. Its internal workings are not needed to follow this illustration. The focus is on constructing forecasts of the conditional mean and variance, then evaluating the resulting predictive distributions using LogS, CRPS, and PIT histograms.
+:::
+
+We use the following notions in this section:
 
 - A **mean forest** predicts the conditional mean of the target variable given the predictors.
 - A **variance forest** predicts the conditional variance of the target variable given the predictors.
@@ -639,7 +636,7 @@ plt.show()
 
 The top panel of @fig-eval-dist-scores shows LogS over time. All three models register a sharp spike in 2020Q2, the quarter in which GDP fell by roughly 30 percent annualized. Because LogS evaluates the density at the realized outcome, a single quarter that falls far into the left tail—where any Gaussian forecast places near-zero density—can inflate the average LogS dramatically. The spike is by far the largest for the in-sample RF: its variance forest had been predicting a small conditional variance going into 2020, so the resulting density at $-32.8\%$ is essentially zero. The OOB RF produces a larger variance forecast for that quarter, so its 2020Q2 spike is smaller; the AR(1) sits in between. The bottom panel plots CRPS over the same period. All three models deteriorate in 2020Q2. For the in-sample RF, the spike dominates its CRPS series far less than the corresponding spike dominates its LogS series (the two scores live on different scales, so only such within-score comparisons are meaningful): CRPS integrates the CDF discrepancy over all values rather than evaluating the density at one point, so a miss that lands where the predictive density is essentially zero inflates CRPS far less than LogS. For the AR(1) and the OOB RF, whose forecasts were less overconfident going into 2020, the COVID quarter weighs comparably on their CRPS and LogS series.
 
-@fig-eval-dist-summary condenses the evaluation: average scores in the first panel and PIT histograms for each model in the remaining panels. Two reading aids matter with only $63$ test quarters. First, we use eight bins, so that roughly eight observations per bin are expected under uniformity; finer bins would mostly display noise. Second, the shaded band around the uniform density marks pointwise ±2-standard-error variation of the bin heights under an i.i.d. Uniform(0,1) PIT reference. Marginal uniformity alone does not justify this band when PITs are serially dependent. The band is a visual reference rather than a simultaneous confidence band or a formal calibration test: a bar outside the band is conspicuous, but a coordinated pattern across bins can also warrant investigation when every individual bar remains inside. We inspect only the marginal shape of the PITs here; testing for leftover serial dependence in the PIT sequence—the second half of the diagnosis in @sec-eval-dist-pit—requires additional tools, and Exercise 4.4 develops the closely related serial-correlation problem for average-score comparisons.
+@fig-eval-dist-summary condenses the evaluation: average scores in the first panel and PIT histograms for each model in the remaining panels. Two reading aids matter with only $63$ test quarters. First, we use eight bins, so that roughly eight observations per bin are expected under uniformity; finer bins would mostly display noise. Second, the shaded band around the uniform density marks pointwise ±2-standard-error variation of the bin heights under an i.i.d. Uniform(0,1) PIT reference. Marginal uniformity alone does not justify this band when PITs are serially dependent. The band is a visual reference rather than a simultaneous confidence band or a formal calibration test: a bar outside the band is conspicuous, but a coordinated pattern across bins can also warrant investigation when every individual bar remains inside. We inspect only the marginal shape of the PITs here; testing for leftover serial dependence in the PIT sequence—the second half of the diagnosis in @sec-eval-dist-pit—requires additional tools, and Exercise 4.3 develops the closely related serial-correlation problem for average-score comparisons.
 
 ```{python}
 #| label: fig-eval-dist-summary
@@ -865,92 +862,7 @@ By contrast, LogS evaluates the full predictive density. A forecaster can get th
 :::
 
 :::{.callout-note}
-## Exercise 4.2: Strict Propriety and Measurement Error in CRPS
-
-Let $F_0$ denote the true CDF and $F$ a forecast CDF, both with finite first moments. For $Y\sim F_0$, the chapter established
-$$
-\mathbb E[\operatorname{CRPS}(F,Y)]
-=\int_{-\infty}^{\infty}(F(z)-F_0(z))^2\,dz
-+\int_{-\infty}^{\infty}F_0(z)(1-F_0(z))\,dz.
-$$
-
-1. Use this decomposition to prove that $F_0$ is the unique minimizer of expected CRPS. In particular, show why equality of two CDFs Lebesgue-almost everywhere implies equality everywhere, using their right-continuity.
-2. Starting from the integral definition, show that CRPS for a point forecast $\hat y$, represented by $F(z)=\mathbf1\{z\ge\hat y\}$, equals $|\hat y-y|$. Use point forecasts at 0 and 1 to give an explicit example in which changing the observed outcome from $y=0$ to $y=1$ reverses their CRPS ranking.
-3. For a fixed forecast $F$ with finite first moment, use the kernel representation to prove
-   $$
-   |\operatorname{CRPS}(F,y+e)-\operatorname{CRPS}(F,y)|\le |e|
-   $$
-   for every real $y$ and additive measurement error $e$. For two such forecasts $F_A,F_B$, define $D(y)=\operatorname{CRPS}(F_A,y)-\operatorname{CRPS}(F_B,y)$. Deduce a bound on $|D(y+e)-D(y)|$ and, when $D(y)<0$, give a sufficient upper bound on $|e|$ for $A$ still to have the lower score at $y+e$.
-
-*Exam level. The exercise establishes strict propriety, constructs a ranking reversal, and derives a bound linking measurement error to forecast-score differences.*
-:::
-
-:::{.callout-warning collapse="true"}
-## Hint for Part 1
-If the CDFs differ at $z_0$, use right-continuity to find an interval to the right of $z_0$ on which the absolute difference stays bounded away from zero.
-:::
-
-:::{.callout-warning collapse="true"}
-## Hint for Part 3
-The term $\tfrac12\mathbb E|X-X'|$ in the kernel representation does not depend on the realized outcome. Apply the reverse triangle inequality to the remaining absolute-error terms, then the triangle inequality to the difference of two scores.
-:::
-
-:::{.callout-tip collapse="true"}
-## Solution
-
-**Part 1: Strict Propriety**
-
-The second integral is independent of $F$. The first is nonnegative and is zero at $F=F_0$, so $F_0$ minimizes expected CRPS. To establish uniqueness, suppose the first integral is zero. Then $F(z)=F_0(z)$ Lebesgue-almost everywhere.
-
-If the CDFs differed at some $z_0$, write $d=|F(z_0)-F_0(z_0)|>0$. Right-continuity of their difference gives an $h>0$ such that
-$$
-|F(z)-F_0(z)|\ge d/2
-\qquad\text{for }z\in[z_0,z_0+h).
-$$
-Consequently,
-$$
-\int_{-\infty}^{\infty}(F(z)-F_0(z))^2\,dz\ge h\,d^2/4>0,
-$$
-a contradiction. The CDFs therefore agree everywhere, proving strict propriety on the stated class.
-
-**Part 2: Point Forecasts and a Ranking Reversal**
-
-For a point forecast, the integral definition becomes
-$$
-\operatorname{CRPS}(F,y)
-=\int_{-\infty}^{\infty}\big(\mathbf1\{z\ge\hat y\}-\mathbf1\{z\ge y\}\big)^2\,dz.
-$$
-The integrand is one on the interval between $\hat y$ and $y$ and zero elsewhere. Its integral is the interval's length, $|\hat y-y|$, including zero when the two endpoints coincide.
-
-At $y=0$, the scores of the point forecasts at 0 and 1 are respectively 0 and 1. At $y=1$, they are respectively 1 and 0. The ranking reverses. Strict propriety concerns expected scores under a fixed truth; it does not guarantee that rankings at individual realizations survive measurement error.
-
-**Part 3: Sensitivity of Scores and Score Differences**
-
-For independent draws $X,X'\sim F$, the kernel representation gives
-$$
-\operatorname{CRPS}(F,y+e)-\operatorname{CRPS}(F,y)
-=\mathbb E\big[|X-y-e|-|X-y|\big].
-$$
-By the reverse triangle inequality, $\big||X-y-e|-|X-y|\big|\le |e|$. The finite first moment makes the expectations well-defined, and hence
-$$
-|\operatorname{CRPS}(F,y+e)-\operatorname{CRPS}(F,y)|
-\le\mathbb E\big|\,|X-y-e|-|X-y|\,\big|
-\le |e|.
-$$
-Applying the bound separately to $F_A$ and $F_B$ yields
-$$
-|D(y+e)-D(y)|\le 2|e|.
-$$
-If $D(y)<0$, then
-$$
-D(y+e)\le D(y)+2|e|<0
-\qquad\text{whenever }|e|<-D(y)/2.
-$$
-Thus a perturbation smaller than half the original score gap preserves the strict ranking. This is a sufficient condition; outside it the ranking may either persist or reverse, as the example in Part 2 illustrates.
-:::
-
-:::{.callout-note}
-## Exercise 4.3: PIT Under Dispersion Misspecification
+## Exercise 4.2: PIT Under Dispersion Misspecification
 
 Suppose the true distribution is standard normal:
 $$
@@ -1088,7 +1000,7 @@ If $\sigma>1$, then $1-\sigma^2<0$, so the density is damped in the tails and re
 :::
 
 :::{.callout-note}
-## Exercise 4.4: Comparing Average Scores Under Serial Correlation
+## Exercise 4.3: Comparing Average Scores Under Serial Correlation
 
 Two density forecasters, $A$ and $B$, issue predictive distributions for the same target series at the same forecast horizon, and both are evaluated with the same proper scoring rule. Let $\delta_t$ denote the score differential in period $t$—the score of forecaster $A$ minus the score of forecaster $B$, each evaluated at the realized outcome—and assume $\{\delta_t\}$ is covariance stationary with mean $\mu=\mathbb{E}[\delta_t]$ and autocovariances $\gamma_\ell=\operatorname{Cov}(\delta_t,\delta_{t-\ell})$ satisfying $\sum_{\ell=0}^{\infty}|\gamma_\ell|<\infty$. These assumptions deliver the variance calculations below and a finite long-run variance. Equal predictive ability corresponds to $H_0:\mu=0$. For a formal $t$-test, additionally assume $\sqrt{T}(\bar\delta-\mu)\Rightarrow\mathcal N(0,\Omega)$ with strictly positive long-run variance $\Omega=\gamma_0+2\sum_{\ell\ge1}\gamma_\ell>0$, and consistency of the chosen HAC estimator; those conclusions require further moment and weak-dependence conditions, together with suitable kernel and bandwidth choices for the HAC estimator.
 
