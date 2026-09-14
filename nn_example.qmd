@@ -16,7 +16,7 @@ Neural-network architectures are often introduced as if the main empirical quest
 
 This chapter makes those choices explicit in a single empirical illustration. The object is one-step-ahead forecasting of the realized variance of the S&P 500 exchange-traded fund (ETF; ticker `SPY`), using the daily measures described in [the dataset appendix](datasets.qmd#sec-spy-taq-realized).
 
-The empirical comparison has two purposes. First, it compares a log-target pipeline with a level-target pipeline. The comparison changes both the target transformation and the normalization of the lag inputs, so it does not isolate the effect of the target transformation alone. Second, it compares a linear benchmark, the heterogeneous autoregressive (HAR) model estimated by ordinary least squares (OLS), with four neural specifications: a HAR feed-forward neural network (HAR-FNN) on the same three volatility summaries, a direct FNN on 22 individual daily observations, a Simple RNN (recurrent neural network), and an LSTM, with both recurrent models using 756 daily observations. The long input history lets us ask whether learning from roughly three years of daily observations improves on a parsimonious volatility summary. The main empirical lesson is that neural forecasts can complement HAR: an exploratory follow-up combines the forecasts with a weight chosen on validation data and finds a modest reduction in log-variance forecast error. The chapter distinguishes that combined forecast from the individual neural models and explains the limits of the evidence.
+The empirical comparison has two purposes. First, it compares a log-target pipeline with a level-target pipeline. The comparison changes both the target transformation and the normalization of the lag inputs, so it does not isolate the effect of the target transformation alone. Second, it compares a linear benchmark, the heterogeneous autoregressive (HAR) model estimated by ordinary least squares (OLS), with four neural specifications: a HAR feed-forward neural network (HAR-FNN) on the same three volatility summaries, a direct FNN on 22 individual daily observations, a Simple RNN (recurrent neural network), and an LSTM, with both recurrent models using 756 daily observations. The long input history lets us ask whether learning from roughly three years of daily observations improves on a parsimonious volatility summary. In this illustration, HAR remains competitive with the neural models, and the ranking depends on the evaluation criterion.
 
 ## Roadmap
 
@@ -24,7 +24,7 @@ The empirical comparison has two purposes. First, it compares a log-target pipel
 2. We separate the 756-day input history from the sliding estimation sample and specify annual refitting.
 3. We compare HAR summaries, a dense lag vector, and recurrent sequence representations.
 4. We select neural hyperparameters before the test period and apply the fixed refitting rule.
-5. We evaluate forecast errors, then ask whether combining HAR and neural forecasts reduces them.
+5. We compare forecast errors across models and loss functions and assess what the rankings can establish.
 
 ## Data and Forecast Target
 
@@ -539,101 +539,24 @@ Numerical rankings do not establish statistically significant performance differ
 
 QLIKE is the @Patton2011 quasi-likelihood loss for volatility. Its robustness result concerns rankings by *expected* loss: under the required conditional-unbiasedness condition for the variance proxy, replacing latent variance by the proxy preserves the expected-loss ranking. Sampling variation can still reverse finite-sample rankings. QLIKE is scale-invariant because it depends only on the ratio $RV_t/\widehat{RV}_t$; it penalizes underprediction more heavily than overprediction. Thus QLIKE and log-RV RMSE can favor different forecasts.
 
-HAR remains a strong benchmark in this comparison. A longer raw history, nonlinear mapping, or gated recurrent state does not by itself guarantee improved forecasts, and the ranking cannot be assigned to memory or nonlinearity alone. A further question is whether a neural forecast can contribute useful information when combined with HAR.
-
-## Neural Forecasts Can Complement HAR {#sec-nn-combinations}
-
-The individual-model comparison asks which forecast has the smallest error. We now ask whether the neural forecast helps when used alongside HAR. This is an exploratory follow-up proposed after inspecting the 2023–2024 results. Although we estimate the combination weights using 2022 only, the later years have already informed model development and are not a fresh holdout for this extension.
-
-A **forecast combination** takes a weighted average of forecasts for the same target. For each of the four original log-target neural models, we form
-$$
-\widehat z_t^{\mathrm{comb}}
-=(1-\widehat w)\widehat z_t^{\mathrm{HAR}}
-+\widehat w\widehat z_t^{\mathrm{NN}},
-\qquad 0\leq\widehat w\leq1.
-$$
-For evaluation dates $t$ in 2023–2024, all three forecasts target $z_t=\log RV_t$ and are formed after observing day $t-1$, using the combination weight already fixed from 2022. The scalar $\widehat w$ is the weight on the neural forecast; $1-\widehat w$ is the weight on HAR-OLS. Each neural model receives its own weight. A zero weight recovers HAR alone, and a unit weight recovers the neural forecast alone.
-
-Let $\mathcal T_{\mathrm{val}}$ contain the 251 validation target dates in 2022. We choose the weight by constrained least squares,
-$$
-\widehat w\in\arg\min_{0\leq w\leq1}
-\sum_{t\in\mathcal T_{\mathrm{val}}}
-\left[z_t-(1-w)\widehat z_t^{\mathrm{HAR}}
--w\widehat z_t^{\mathrm{NN}}\right]^2.
-$$
-Writing $d_t=\widehat z_t^{\mathrm{NN}}-\widehat z_t^{\mathrm{HAR}}$, the unconstrained minimizer is
-$$
-\frac{\sum_{t\in\mathcal T_{\mathrm{val}}}d_t(z_t-\widehat z_t^{\mathrm{HAR}})}
-     {\sum_{t\in\mathcal T_{\mathrm{val}}}d_t^2}.
-$$
-We restrict this value to $[0,1]$. If the denominator is zero, the component forecasts coincide throughout validation; we set the weight to zero and retain HAR. The component networks use their original single-initialization configurations, without further changes to architecture, scaling, or input length.
-
-Within the 2022 selection criterion, the weighted averages are fitted combination values: the full-year weight is not yet known at the individual 2022 forecast origins. All four weights are fixed before evaluating the combinations on 2023–2024. The component models still refit annually on their most recent 756 training examples, but their combination weights stay fixed across both years. The same 2022 outcomes select the neural configurations and the combination weights, so the minimized validation error also reflects these selection steps. A lower validation error does not ensure a lower error in a later period.
-
-The following table compares each neural forecast with its HAR combination on the common 502 evaluation dates. HAR-OLS alone has log-RV RMSE 0.5784.
-
-```{python}
-#| echo: false
-
-from nn_example_combinations import combination_table
-combinations = json.loads(Path("results/nn-example-combinations.json").read_text())
-hashes = combinations["protocol"]["fingerprints"]
-for filename, key in [("nn_example_combinations.py", "combination_module_sha256"),
-                      ("nn_example_pipeline.py", "pipeline_sha256"),
-                      ("results/nn-example-756.json", "base_results_sha256")]:
-    if hashes[key] != hashlib.sha256(Path(filename).read_bytes()).hexdigest():
-        raise ValueError("Recompute the combinations after changing their source inputs.")
-display(Markdown(combination_table(combinations)))
-```
-
-The HAR + LSTM combination has log-RV RMSE 0.5756, compared with 0.5772 for LSTM alone and 0.5784 for HAR-OLS. Its weight is approximately 0.8544 on LSTM and 0.1456 on HAR. The reduction relative to HAR is about 0.48%. HAR + Simple RNN also improves on HAR, at 0.5769, even though the Simple RNN alone has higher RMSE. The combinations involving HAR-FNN and the direct FNN improve on their respective neural forecasts but remain above HAR-OLS on this criterion. HAR + LSTM also has the smallest validation RMSE among the four combinations; its prominence here does not come from selecting the lowest later-period score.
-
-@fig-nn-combinations makes the comparison visible: compare each neural forecast with its combination and then with the vertical HAR benchmark.
-
-![Exploratory SPY forecast combinations evaluated on 502 trading days in 2023–2024. Blue circles show each original log-target neural model; green diamonds show its convex combination with HAR-OLS, with the weight estimated on 2022. The dashed vertical line marks HAR-OLS alone. The horizontal axis shows log-RV RMSE on a restricted range to make the small differences visible; lower values indicate smaller errors.](figures/nn-example-combinations.png){#fig-nn-combinations}
-
-The two recurrent combinations lie to the left of HAR in the figure. Their improvement concerns the combined forecasts and does not identify a gain caused by recurrence or gates alone. The magnitude is modest, and no formal performance test is reported. Confirming the improvement requires evaluation data that have not already informed the development of this extension.
-
-The reason combination can help is that the component forecasts need not make the same errors. Define $e_t^A=\widehat z_t^A-z_t$ for component $A\in\{\mathrm{HAR},\mathrm{NN}\}$. The combined error is $(1-w)e_t^{\mathrm{HAR}}+we_t^{\mathrm{NN}}$. Its square includes the cross-product $2w(1-w)e_t^{\mathrm{HAR}}e_t^{\mathrm{NN}}$, as well as the two weighted squared errors. A component's usefulness in a combination therefore depends on how its errors align with the other component's errors, as well as on its own RMSE.
-
-:::{.callout-note title="Question for Reflection"}
-The Simple RNN has higher log-RV RMSE than HAR-OLS on 2023–2024, but HAR + Simple RNN has lower RMSE than HAR-OLS. Does the first comparison rule out the second? Explain using the combined forecast error.
-:::
-
-:::{.callout-tip collapse="true" title="Suggested Answer"}
-No. The individual RMSEs do not determine the cross-product of the two forecast errors. A positive weight on the RNN can reduce the combined squared error if its errors offset enough of HAR's errors. The result supports examining the forecasts together; it does not establish that the RNN is individually more accurate or that the small empirical gain is statistically significant.
-:::
-
-The comparison continues to use log-RV RMSE as its primary criterion. On the variance scale, the combination becomes $\exp(\widehat z_t^{\mathrm{comb}})$, a geometric average of the component variance forecasts. The earlier qualifications about back-transformation still apply. Other losses need not favor the same combination: HAR + FNN has RV-scale RMSE 0.3151 and QLIKE 0.1750, both below HAR-OLS, despite its higher log-RV RMSE. We do not change the primary criterion after seeing those rankings.
-
-The [combination module](nn_example_combinations.py) reproduces the validation forecasts, fits and freezes all four weights, then evaluates the combined forecasts. The [aggregate combination results](results/nn-example-combinations.json) record the weights, losses, source hashes and exploratory status. The original neural fitting command must be completed first; the following commands use its saved configurations and forecasts. Daily validation and evaluation records remain in the private data directory.
-
-```{bash}
-#| eval: false
-
-python nn_example_combinations.py --fit-weights
-python nn_example_combinations.py --evaluate
-quarto render nn_example.qmd
-```
-
-For completeness, an earlier exploratory training check averaged three fixed initializations, compared chronological and shuffled training examples, and selected an ensemble stopping epoch from at most 60 epochs using 2022. That check did not improve the main 2023–2024 criterion: validation retained the original FNN, Simple RNN and LSTM fits, while the selected HAR-FNN ensemble scored 0.5839 instead of 0.5836. The combinations above use the original individual models. The takeaway is that a neural forecast can complement a strong econometric benchmark, with the strength of that conclusion limited by the criterion and evaluation design.
+HAR remains a strong benchmark in this comparison. A longer raw history, nonlinear mapping, or gated recurrent state does not by itself guarantee improved forecasts, and the ranking cannot be assigned to memory or nonlinearity alone.
 
 ## Summary
 
 :::{.callout-important}
 ## Key Takeaways
-1. Neural forecasts can complement HAR: the exploratory HAR + LSTM combination modestly reduces log-RV RMSE relative to either component.
+1. Log-target LSTM has the lowest test log-RV RMSE among the individual models, only slightly below HAR-OLS.
 2. Input history differs across models: 22 daily observations for the direct FNN, 756 for the recurrent models, and three HAR summaries.
-3. Annual refits keep 756 training examples, while neural hyperparameters and the validation-selected combination weights stay fixed.
-4. Empirical rankings depend on the loss and complete forecasting procedure, and exploratory gains need confirmation on new evaluation data.
+3. Annual refits keep 756 training examples, while the neural hyperparameters stay fixed.
+4. Empirical rankings depend on the loss and complete forecasting procedure; numerical gaps alone do not establish statistical significance.
 :::
 
 :::{.callout-warning}
 ## Common Pitfalls
 - Allowing the annual estimation sample to expand changes the intended forecasting rule.
-- Attributing a HAR + LSTM result to LSTM alone ignores the contribution of HAR.
+- Attributing performance differences to recurrence alone ignores the different input histories across models.
 - Clipping negative variance forecasts to an arbitrary positive constant changes the submitted forecast and its score.
-- Treating previously inspected years as a fresh holdout overstates the evidence from exploratory model development.
+- Choosing hyperparameters after inspecting test performance turns the test period into additional validation data.
 :::
 
 :::: {.content-visible when-format="html"}
