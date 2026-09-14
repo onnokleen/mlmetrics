@@ -15,7 +15,7 @@ This chapter introduces the basic RNN architecture in a forecasting setting, int
 
 ## Roadmap
 
-1. We first define the forecasting setup and the information-set problem that RNNs are meant to address.
+1. We first define the forecasting setup and ask how a model can use the available history.
 2. We contrast a lagged feed-forward network with a recurrent state update.
 3. We introduce the RNN equations, parameter sharing—the same weights reused at every date—and the unrolled computational graph, in which the recurrence is drawn out over time as a chain.
 4. We connect RNNs to econometric state-variable models such as GARCH.
@@ -37,7 +37,7 @@ Here $\hat{y}_{t+1\mid t}$ denotes a forecast of $Y_{t+1}$ formed at the origin 
 
 From this point onward, $\mathbf{x}_t$ denotes the complete per-period input to the RNN. It may include $y_t$ together with any other predictors known at time $t$. An RNN computes a hidden state $\mathbf{h}_t$ by processing the inputs $(\mathbf{x}_1, \ldots, \mathbf{x}_t)$ in order from a fixed initial state. The hidden state replaces the fixed lag vector with a recursively updated summary.
 
-The hidden state $\mathbf{h}_t$ is not an observed economic variable, but it is not a latent stochastic state that must be filtered. Once the network parameters are fixed, $\mathbf{h}_t$ is computed exactly from the input history. It is a learned vector summary of the past that is useful for prediction.
+The hidden state $\mathbf{h}_t$ is neither an observed economic variable nor a latent stochastic state that must be filtered. Once the network parameters and initial state are fixed, $\mathbf{h}_t$ is computed exactly from the input history. It is a learned vector summary of the past that is useful for prediction.
 
 :::{.callout-important}
 ## Econometric Interpretation
@@ -124,8 +124,8 @@ The output carries the two-index subscript introduced above: $\hat{\mathbf{y}}_{
 At each time step $t$, define:
 
 -   $\mathbf{x}_t \in \mathbb{R}^{p}$: The input vector at the current time step (e.g., today's stock returns and trading volume); $p$ is the per-period input dimension, as in the feed-forward chapter.
--   $\mathbf{h}_{t-1}  \in \mathbb{R}^{H}$: The hidden state from the *previous* time step, which acts as the network's memory of the past.
--   $\mathbf{h}_t  \in \mathbb{R}^{H}$: The *new* hidden state, calculated by combining the current input $\mathbf{x}_t$ with the previous state $\mathbf{h}_{t-1}$.
+-   $\mathbf{h}_{t-1} \in \mathbb{R}^{H}$: The hidden state from the *previous* time step, which acts as the network's memory of the past.
+-   $\mathbf{h}_t \in \mathbb{R}^{H}$: The *new* hidden state, calculated by combining the current input $\mathbf{x}_t$ with the previous state $\mathbf{h}_{t-1}$.
 -   $\hat{\mathbf{y}}_{t+1\mid t} \in \mathbb{R}^{O}$: The output produced at forecast origin $t$ for date $t+1$ (e.g., the prediction for the next period's volatility), obtained from the current hidden state. The hat marks it as a model output rather than an observed quantity.
 
 For the basic RNN, the maps $g_\theta$ and $q_\theta$ take the following concrete forms. Write $g$ for the fixed hidden-state activation, applied componentwise, and $g_{\mathrm{out}}$ for the output activation, chosen to match the forecasting object:
@@ -148,6 +148,8 @@ We fix $\mathbf{h}_0$ by convention, typically $\mathbf{h}_0 = \mathbf{0}$, sinc
   - $\mathbf{W}_{hy} \in \mathbb{R}^{O \times H}$ (hidden-to-output weights)
   - $\mathbf{b}_h \in \mathbb{R}^{H}$, $\mathbf{b}_y \in \mathbb{R}^{O}$ (bias terms)
 
+The letter pairs in the matrix names give the source then the destination: $xh$ means input-to-hidden and $hy$ means hidden-to-output. Matrix entries retain the convention from the feed-forward chapter: rows index receiving units and columns index sending units.
+
 The RNN's parameter collection is $\theta = \{\mathbf{W}_{hh}, \mathbf{W}_{xh}, \mathbf{W}_{hy}, \mathbf{b}_h, \mathbf{b}_y\}$. The state-update map $g_\theta$ uses the first two matrices and $\mathbf{b}_h$; the output map $q_\theta$ uses $\mathbf{W}_{hy}$ and $\mathbf{b}_y$.
 
 We use $\tanh$ as the hidden-state activation $g$. Its range is bounded between $-1$ and $1$, and it is centered at zero. Before listing the properties of this recursion, we follow it through two dates with numbers.
@@ -158,10 +160,10 @@ Consider a single hidden unit with a scalar input and an identity output activat
 
 $$
 \begin{aligned}
-h_1 &= \tanh(W_{xh}x_1 + W_{hh}h_0 + b_h) \\
-    &= \tanh(0.4 + 0.5\times 0) \approx 0.380, \\[0.5em]
-h_2 &= \tanh(W_{xh}x_2 + W_{hh}h_1 + b_h) \\
-    &= \tanh(0.2 + 0.5\times 0.380) \\
+h_1 &= \tanh(W_{hh}h_0 + W_{xh}x_1 + b_h) \\
+    &= \tanh(0.5\times 0 + 0.4) \approx 0.380, \\[0.5em]
+h_2 &= \tanh(W_{hh}h_1 + W_{xh}x_2 + b_h) \\
+    &= \tanh(0.5\times 0.380 + 0.2) \\
     &= \tanh(0.39) \approx 0.371,
 \end{aligned}
 $$
@@ -178,11 +180,11 @@ and the output at origin $2$ is $\hat{y}_{3\mid 2} = W_{hy}h_2 + b_y \approx 0.4
 
 An RNN models time-series dynamics through a recursively updated state. A useful econometric benchmark is the GARCH model of @Bollerslev1986.
 
-In the **GARCH(1,1)** model, the return at $t$ is decomposed as $R_t = \mu_t + \varepsilon_t$, where $\mu_t=\mathbb{E}[R_t\mid\mathcal{F}_{t-1}]$ and $\varepsilon_t=\sigma_t Z_t$. The innovations $Z_t$ are independent and identically distributed, independent of $\mathcal{F}_{t-1}$, and normalized so that $\mathbb{E}[Z_t]=0$ and $\mathbb{E}[Z_t^2]=1$. Under these conditions, $\sigma_t^2=\operatorname{Var}(\varepsilon_t\mid\mathcal{F}_{t-1})$, and the conditional variance follows the recursion
+In the **GARCH(1,1)** model, the return at $t$ is decomposed as $R_t = \mu_t + \varepsilon_t$, where $\mu_t=\mathbb{E}[R_t\mid\mathcal{F}_{t-1}]$ and $\varepsilon_t=\sigma_t Z_t$. The innovations $Z_t$ are independent and identically distributed, independent of $\mathcal{F}_{t-1}$, and normalized so that $\mathbb{E}[Z_t]=0$ and $\mathbb{E}[Z_t^2]=1$. Under these conditions, $\sigma_t^2=\operatorname{Var}(\varepsilon_t\mid\mathcal{F}_{t-1})$. GARCH indexes the variance by the date of the innovation whose variance it describes. At forecast origin $t$, its next-period update is
 $$
-\sigma_t^2 = \omega + \alpha \varepsilon_{t-1}^2 + \beta \sigma_{t-1}^2,
+\sigma_{t+1}^2 = \omega + \alpha \varepsilon_t^2 + \beta \sigma_t^2,
 $$
-where $\omega>0$ and $\alpha,\beta\geq 0$. For a covariance-stationary innovation process with finite unconditional variance, the stated normalization requires $\alpha+\beta<1$. The state is $\sigma_{t-1}^2$, and the update is linear in the lagged squared innovation and the lagged variance.
+where $\omega>0$ and $\alpha,\beta\geq 0$. Under the stated normalization, covariance stationarity with finite unconditional innovation variance requires $\alpha+\beta<1$; that variance is $\omega/(1-\alpha-\beta)$. The update combines the previous variance state $\sigma_t^2$ with the newly observed squared innovation $\varepsilon_t^2$ to produce $\sigma_{t+1}^2$.
 
 An RNN-style volatility model could instead use
 $$
@@ -192,14 +194,14 @@ $$
 \end{aligned}
 $$
 
-where $\mathbf{x}_t$ might contain lagged returns, squared returns, realized volatility measures, or macro-financial predictors known at time $t$. The hidden state $\mathbf{h}_t$ is a high-dimensional vector that learns a nonlinear summary of the relevant history. The softplus transformation ensures a positive variance forecast.
+where $\mathbf{x}_t$ might contain lagged returns, squared returns, realized volatility measures, or macro-financial predictors known at time $t$. Both models use information available at $t$ to forecast the variance at $t+1$. In the RNN, the hidden state $\mathbf{h}_t$ learns a vector summary of the history, and the separate output map turns that summary into a positive variance forecast.
 
-The analogy has clear limits. A GARCH conditional variance is a *filtered* state: a deterministic function of past observations, updated as new data arrive—what @Cox1981 calls an observation-driven model. Its probabilistic role is the conditional variance of the innovation; specifying the distribution of $Z_t$ additionally gives a full conditional distribution. An RNN hidden state is likewise observation-driven, a deterministic function of past inputs, but its components carry no assigned probabilistic role: the hidden state is a predictive representation. The RNN becomes a probabilistic econometric model once we specify how its output maps into a conditional distribution. A proper scoring rule then determines how the parameters of that model are estimated.
+The analogy has clear limits. A GARCH conditional variance is an **observation-driven** state [@Cox1981]: given the parameters, mean specification, and initial variance, it is computed recursively from past observations. Its probabilistic role is the conditional variance of the innovation; specifying the distribution of $Z_t$ additionally gives a full conditional distribution. An RNN hidden state is likewise observation-driven, a deterministic function of past inputs given its parameters and initialization, but its components carry no assigned probabilistic role: the hidden state is a predictive representation. The RNN becomes a probabilistic econometric model once we specify how its output maps into a conditional distribution. A proper scoring rule then determines how the parameters of that model are estimated.
 
 :::{.callout-note}
 ## RNNs and Classical Time-Series Models
 
-The hidden state $\mathbf{h}_t$ plays a role similar to a state vector in a state-space model or a volatility state in GARCH. Like the GARCH variance—and unlike the latent state of a stochastic state-space model, which must be inferred by filtering—$\mathbf{h}_t$ is exactly computable from past observations once the parameters are known. The difference is that its components are learned predictive features, without a direct one-to-one econometric interpretation.
+The hidden state $\mathbf{h}_t$ plays a role similar to a state vector in a state-space model or a volatility state in GARCH. Like the GARCH variance, $\mathbf{h}_t$ is exactly computable from past inputs once the model parameters and initial state are fixed. A latent state in a stochastic state-space model instead requires filtering: inference about its conditional distribution given the observations. The RNN's state coordinates are learned predictive features, without a direct one-to-one econometric interpretation.
 :::
 
 ## Outputs and Loss Functions
@@ -210,16 +212,18 @@ $$
 \hat{y}_{t+1\mid t} = \mathbf{W}_{hy}\mathbf{h}_t + \mathbf{b}_y
 $$
 
-and train by minimizing squared loss. For a binary event, such as recession prediction, we can pass the output through a sigmoid and train with cross-entropy. For a probabilistic forecast, the output should parameterize a distribution and be trained with a [proper scoring rule](evaluating_distributions.qmd#proper-scoring-rules). For example, for the conditionally centered return innovation $\varepsilon_{t+1}=R_{t+1}-\mu_{t+1}$ defined above, we could specify a Gaussian conditional distribution:
+and train by minimizing squared loss. For a binary event, such as recession prediction, we can pass the output through a sigmoid and train with cross-entropy. For a probabilistic forecast, the output should parameterize a distribution and be trained with a [proper scoring rule](evaluating_distributions.qmd#proper-scoring-rules). For example, suppose we impose a zero conditional mean for returns, $\mu_{t+1}=0$. A Gaussian RNN model then specifies
 
 $$
 \begin{aligned}
-\varepsilon_{t+1} \mid \mathcal{F}_t &\sim \mathcal{N}(0, \sigma_{t+1}^2), \\
+R_{t+1} \mid \mathcal{F}_t &\sim \mathcal{N}(0, \sigma_{t+1}^2), \\
 \sigma_{t+1}^2 &= \text{softplus}(\mathbf{W}_{hy}\mathbf{h}_t + \mathbf{b}_y).
 \end{aligned}
 $$
 
-This distinction matters in econometrics. A deterministic RNN trained by squared loss gives a point forecast. A distributional RNN gives a predictive distribution; negative log-likelihood is one familiar training score, but other differentiable proper scores, such as the continuous ranked probability score (CRPS), are also valid. The resulting forecasts can be evaluated with the scoring rules from the [predictive-distribution chapter](evaluating_distributions.qmd).
+The training score is evaluated on the realized returns $r_{t+1}$. The zero-mean restriction is a modeling choice; a nonzero mean can instead be estimated jointly with the variance using an additional unrestricted output, as developed in the [distributional networks chapter](distributions_via_nns.qmd#sec-point-to-distnn).
+
+A deterministic RNN trained by squared loss gives a point forecast. A distributional RNN gives a predictive distribution; negative log-likelihood is one familiar training score, but other differentiable proper scores, such as the continuous ranked probability score (CRPS), are also valid. The resulting forecasts can be evaluated with the scoring rules from the [predictive-distribution chapter](evaluating_distributions.qmd).
 
 :::{.callout-note title="From next-token prediction to foundation models"}
 
@@ -227,7 +231,7 @@ Text is another ordered sequence. Consider continuing a central-bank statement b
 
 To generate text, first process a **prompt**, the supplied starting text. Then sample a next token from the output distribution, feed that token into the RNN, and repeat. With the fitted weights held fixed, the hidden state changes as the generated sequence grows. This is **autoregressive generation**: each new token is predicted conditional on the preceding tokens.
 
-A **foundation model** is trained on broad data at scale and can be adapted to many subsequent tasks [@Bommasani2021]. Next-token prediction is one way to pretrain a text foundation model, as in @BrownEtAl2020. The architecture need not be recurrent. A **Transformer** uses attention to combine token representations with weights that depend on the context [@VaswaniEtAl2017]; for next-token prediction, access to subsequent tokens is blocked. An RNN carries the preceding context through its recurrent hidden state, whereas a Transformer can access representations at multiple positions within its context window. The forecasting objective can therefore be the same even though the mechanism for using the past differs.
+A **foundation model** is trained on broad data at scale and can be adapted to many subsequent tasks [@Bommasani2021]. Next-token prediction can provide this initial training, called **pretraining**, as in @BrownEtAl2020. The architecture need not be recurrent. A **Transformer** uses **attention** to combine numerical vectors representing tokens, with weights that depend on the text [@VaswaniEtAl2017]. For next-token prediction, it can access only positions before the token being predicted, within a limited span called the **context window**. An RNN carries the preceding text through its recurrent hidden state; a Transformer can access vectors at multiple positions within that window. The forecasting objective can therefore be the same even though the mechanism for using the past differs.
 :::
 
 :::{.callout-important}
@@ -257,7 +261,7 @@ For clarity, the chapter specializes to a single terminal loss evaluated at the 
 $$
 L_T = \ell(y_{T+1}, \hat{\mathbf{y}}_{T+1\mid T}),
 $$
-with the observed target first and the network output second, as in the [feed-forward networks chapter](feed_forward_nns.qmd). In a sequence-to-sequence objective, the gradient is obtained by summing analogous contributions over the per-step losses $\sum_{t=1}^{T}\ell(y_{t+1},\hat{\mathbf{y}}_{t+1\mid t})$.
+with the observed target first and the network output second, as in the [feed-forward networks chapter](feed_forward_nns.qmd). For an objective with a loss at every step, the gradient is obtained by summing analogous contributions over the per-step losses $\sum_{t=1}^{T}\ell(y_{t+1},\hat{\mathbf{y}}_{t+1\mid t})$.
 
 :::{.callout-note title="Notation: Gradients and Jacobians"}
 
@@ -265,7 +269,7 @@ All vectors are columns. We use the conventions from [feed-forward backpropagati
 
 - The loss gradient $\nabla_{\mathbf{h}_t}L_T$ is an $H\times1$ column vector; its $a$-th entry is $\partial L_T/\partial(\mathbf{h}_t)_a$.
 - The loss gradient $\nabla_{\mathbf{W}_{hh}}L_T$ is an $H\times H$ matrix; its $(a,b)$-th entry is $\partial L_T/\partial(\mathbf{W}_{hh})_{ab}$. A matrix gradient has the same shape as the parameter matrix it updates.
-- The vector derivative $\partial\mathbf{h}_t/\partial\mathbf{h}_k$ is an $H\times H$ **Jacobian**; its $(a,b)$-th entry is $\partial(\mathbf{h}_t)_a/\partial(\mathbf{h}_k)_b$. Rows index the resulting state, and columns index the state being perturbed.
+- The vector derivative $\partial\mathbf{h}_t/\partial\mathbf{h}_s$ is an $H\times H$ **Jacobian**; its $(a,b)$-th entry is $\partial(\mathbf{h}_t)_a/\partial(\mathbf{h}_s)_b$. Rows index the resulting state, and columns index the state being perturbed.
 
 We use $\nabla$ for scalar-loss gradients with respect to vectors or matrices, and $\partial$ for ordinary scalar derivatives and vector-to-vector Jacobians. The chain rule propagates column gradients backward by multiplying by the **transpose** of the forward Jacobian.
 :::
@@ -301,40 +305,53 @@ $$
 $$
 The dimensions are $(H\times H)(H\times1)=H\times1$. At the terminal step, $\nabla_{\mathbf{h}_T}L_T$ differentiates through the output map $q_\theta$, including its output activation $g_{\mathrm{out}}$; an identity output activation is not required.
 
-For $k<t$, the forward state Jacobian is the ordered product
+For an earlier date $s<t$, the forward state Jacobian is the ordered product
 $$
 \begin{aligned}
-\frac{\partial \mathbf{h}_t}{\partial \mathbf{h}_k}
+\frac{\partial \mathbf{h}_t}{\partial \mathbf{h}_s}
 &= \frac{\partial \mathbf{h}_t}{\partial \mathbf{h}_{t-1}}\,
   \frac{\partial \mathbf{h}_{t-1}}{\partial \mathbf{h}_{t-2}}\cdots
-  \frac{\partial \mathbf{h}_{k+1}}{\partial \mathbf{h}_{k}}, \\[0.5em]
+  \frac{\partial \mathbf{h}_{s+1}}{\partial \mathbf{h}_{s}}, \\[0.5em]
 \frac{\partial \mathbf{h}_i}{\partial \mathbf{h}_{i-1}}
 &= \operatorname{diag}\big(g'(\mathbf{z}_i)\big)\,\mathbf{W}_{hh},
 \end{aligned}
 $$
 
-where each factor is $H\times H$. Each one-step Jacobian follows from $\mathbf{h}_i = g(\mathbf{z}_i)$ with $\mathbf{z}_i$ affine in $\mathbf{h}_{i-1}$. The factors need not commute, so their order matters. For backward propagation, the one-step transpose is $\mathbf{W}_{hh}^{\top}\operatorname{diag}(g'(\mathbf{z}_i))$: transposing reverses the multiplication order. When $H=1$, gradients and Jacobians reduce to scalar derivatives and the transposes have no effect; Exercise 6.1 develops that scalar case in detail.
+where each factor is $H\times H$. Each one-step Jacobian follows from $\mathbf{h}_i = g(\mathbf{z}_i)$ with $\mathbf{z}_i$ affine in $\mathbf{h}_{i-1}$. The factors need not commute, so their order matters. For backward propagation, the one-step transpose is $\mathbf{W}_{hh}^{\top}\operatorname{diag}(g'(\mathbf{z}_i))$: transposing reverses the multiplication order.
+
+The backward calculation can therefore be implemented one step at a time. Starting from $\nabla_{\mathbf h_T}L_T$, compute $\boldsymbol\delta_t$ as above, accumulate the weight-gradient contribution, and propagate to the previous state using
+$$
+\nabla_{\mathbf h_{t-1}}L_T
+= \mathbf W_{hh}^{\top}\boldsymbol\delta_t,
+\qquad t=T,T-1,\ldots,1.
+$$
+When $H=1$, gradients and Jacobians reduce to scalar derivatives and the transposes have no effect; Exercise 6.1 develops that scalar case in detail.
 
 ## Vanishing and Exploding Gradients
 
-The long product of Jacobians is the source of the **vanishing gradient problem**. Here $\lVert\cdot\rVert$ denotes the Euclidean norm for vectors and its induced matrix norm, the **spectral norm** (the largest singular value). If each one-step Jacobian along the trajectory satisfies $\lVert \operatorname{diag}(g'(\mathbf{z}_i))\,\mathbf{W}_{hh} \rVert \leq \kappa$ for some $0\leq\kappa < 1$, the norm of the product is at most $\kappa^{T-t}$. For a fixed terminal loss, the gradient propagated to an early state is therefore multiplied by a geometrically small factor. When the remaining local derivative factors are bounded, early-step contributions to the parameter gradient can become numerically negligible.
-For econometric forecasting, this is the central limitation of a plain RNN. The model may have a recursive state, but training can fail when a loss must assign credit across a long time gap.
+The long product of Jacobians is the source of the **vanishing gradient problem** [@BengioSimardFrasconi1994]. Here $\lVert\cdot\rVert$ denotes the Euclidean norm for vectors and its induced matrix norm, the **spectral norm** (the largest singular value). If each one-step Jacobian along the trajectory satisfies $\lVert \operatorname{diag}(g'(\mathbf{z}_i))\,\mathbf{W}_{hh} \rVert \leq \kappa$ for some $0\leq\kappa < 1$, the norm of the product is at most $\kappa^{T-t}$. This follows from submultiplicativity: the norm of a matrix product is at most the product of the matrix norms. For tanh, $\lVert\mathbf W_{hh}\rVert<1$ is a sufficient condition, since the activation derivatives lie between zero and one. For a fixed terminal loss, the gradient propagated to an early state is therefore multiplied by a geometrically small factor. When the remaining local derivative factors are bounded, early-step contributions to the parameter gradient can become numerically negligible.
+
+For econometric forecasting, this is the central limitation of a plain RNN. **Credit assignment** means using the loss to determine how earlier state updates should change. Training can fail when this learning signal must cross a long time gap.
 
 The same recurrent-state Jacobian product can also grow, in which case gradients **explode** rather than vanish. Since $g' \leq 1$ for the $\tanh$ activation, each one-step Jacobian is bounded in norm by $\lVert\mathbf{W}_{hh}\rVert$, so $\lVert\mathbf{W}_{hh}\rVert > 1$ is necessary for this upper bound to permit exponential pathwise growth. It is not sufficient: whether the product actually grows depends on the entire trajectory of factors $\operatorname{diag}(g'(\mathbf{z}_i))\,\mathbf{W}_{hh}$. A per-factor bound below one forces decay, but individual factors with norms above one do not by themselves force growth. Nor does $\lVert\mathbf{W}_{hh}\rVert\leq 1$ uniformly bound every total parameter gradient, because contributions from many loss terms can still accumulate with sequence length.
 
 In the scalar case, the pathwise picture is transparent: the product is $\prod_{i=t+1}^{T} |W_{hh}|\,g'(z_i)$ and grows geometrically whenever the factors stay above some $\gamma > 1$ along the trajectory. Exploding gradients show up as numerical overflow or parameter updates that jump erratically between iterations, rather than as a silent failure to learn long-run dependence.
 
-The standard remedy is **gradient clipping** [@PascanuMikolovBengio2013]: if the norm of the stacked raw gradient vector $\mathbf{g}$ exceeds a threshold $c$, replace $\mathbf{g}$ by $c\,\mathbf{g}/\lVert\mathbf{g}\rVert$ before the optimizer sees it. This transformation caps the raw gradient norm and preserves the raw gradient direction. Under plain gradient descent, it also caps the norm of the immediate parameter step, up to the learning rate; with momentum or adaptive optimizers, the eventual update also depends on stored optimizer state. Clipping stabilizes the exploding case but does nothing for vanishing gradients, whose problem is the loss of signal across a long credit-assignment path.
+The standard remedy is **gradient clipping** [@PascanuMikolovBengio2013]: if the norm of the stacked raw gradient vector $\mathbf{v}$ exceeds a threshold $c>0$, replace $\mathbf{v}$ by $c\,\mathbf{v}/\lVert\mathbf{v}\rVert$ before the optimizer sees it. This transformation caps the raw gradient norm and preserves the raw gradient direction. Under plain gradient descent, it also caps the norm of the immediate parameter step, up to the learning rate; with momentum or adaptive optimizers, the eventual update also depends on stored optimizer state. Clipping stabilizes the exploding case but does nothing for vanishing gradients, whose problem is the loss of signal across a long credit-assignment path.
 
 ## From One Series to Training Windows {#sec-rnn-windows}
 
 The derivations above treat one sequence of length $T$ with a single terminal loss. Estimation practice starts from something less tidy: one long time series of, say, $N$ observations, from which the training sequences must first be constructed. Three choices—the window construction, the truncation of the gradient, and the decision to share parameters across time—deserve to be explicit, because each has an econometric interpretation and each reappears in the [empirical chapter on networks for time series](nn_example.qmd).
 
-**Windows as training observations.** The standard construction cuts the series into overlapping fixed-length windows. With window length $\tau$, each forecast origin $t=\tau,\ldots,N-1$ contributes one training pair: the input sequence $(\mathbf{x}_{t-\tau+1}, \ldots, \mathbf{x}_t)$ and the target $y_{t+1}$. Within each window, index the recurrence by a local step $r=1,\ldots,\tau$: step $r$ receives $\mathbf{x}_{t-\tau+r}$. The local state starts at $\mathbf{h}_0=\mathbf{0}$, and the final local state $\mathbf{h}_\tau$ produces the forecast at calendar origin $t$. Thus the state index inside a reset window counts steps from that window's start, rather than dates from the start of the full series.
+**Windows as training observations.** The standard construction cuts the series into overlapping fixed-length windows. With window length $\tau$, each forecast origin $t=\tau,\ldots,N-1$ contributes one training pair: the input sequence $(\mathbf{x}_{t-\tau+1}, \ldots, \mathbf{x}_t)$ and the target $y_{t+1}$. Within each window, index the recurrence by a local step $r=1,\ldots,\tau$: step $r$ receives $\mathbf{x}_{t-\tau+r}$. The local state starts at $\mathbf{h}_0=\mathbf{0}$, and the final local state $\mathbf{h}_\tau$ produces the forecast at calendar origin $t$. Thus the state index inside a reset window counts steps from that window's start, rather than dates from the start of the full series. The [window diagram in the empirical chapter](nn_example.qmd#fig-nn-forecast-window) illustrates the distinction between the input history for one forecast and the observations used to estimate the model.
 
-Temporal order matters within each window, but whole reset windows may be assigned to mini-batches in any order. If instead the final state of one segment is carried into the next, those segments must be processed in chronological order. One series of length $N$ gives $N-\tau$ training pairs when all inputs and targets are available. Consecutive windows share $\tau-1$ inputs, so their count is not a count of independent observations. Conditional on the realized training windows and fixed parameter values, however, a uniformly sampled mini-batch gives an unbiased gradient of the average empirical loss, by the sampling argument in Exercise 3.2 of the [optimization chapter](optimization.qmd). This identity concerns randomness in batch selection. Overlap and serial dependence still matter for the statistical information in the sample and for forecast evaluation; the [cross-validation chapter's](cross_validation.qmd#sec-cv-time-series) chronological train–validation–test discipline applies to forecast origins and target availability.
+Temporal order matters within each window, but whole reset windows may be assigned to mini-batches in any order. One series of length $N$ gives $N-\tau$ training pairs when all inputs and targets are available. Consecutive windows share $\tau-1$ inputs, so their count is not a count of independent observations. Conditional on the realized training windows and fixed parameter values, however, a uniformly sampled mini-batch gives an unbiased gradient of the average empirical loss, by the sampling argument in Exercise 3.2 of the [optimization chapter](optimization.qmd). This identity concerns randomness in batch selection. Overlap and serial dependence still matter for the statistical information in the sample and for forecast evaluation; the [cross-validation chapter's](cross_validation.qmd#sec-cv-time-series) chronological train–validation–test discipline applies to forecast origins and target availability. A validation window may use earlier training-period observations as inputs; training must not use targets unavailable at the validation forecast origin.
 
-**Fixed windows and truncated backpropagation.** Re-initializing the state at each window has a second effect: both the state recursion and the gradients run only across the $\tau$ steps inside a window. It is worth separating two horizons that this **fixed-window training** scheme happens to tie together. The *gradient horizon* is how far back credit assignment reaches. Cutting the backward derivative chain after a fixed number of steps is **truncated backpropagation through time** [@WilliamsPeng1990], and it caps the Jacobian products of the previous sections at length $\tau$ no matter how long the series is. The *state horizon* is how far back the forward recursion carries information. A state-carrying variant of truncated backpropagation feeds the final state of one segment in as the initial state of the next while still detaching the gradient computation between segments: the state horizon then extends beyond $\tau$ even though the gradient horizon does not, so information from the distant past can still enter the forecast even though no learning signal flows back to it. Fixed-window training—the scheme used in the [empirical chapter on networks for time series](nn_example.qmd)—truncates both horizons at $\tau$. Truncation reduces computation because the cost of a backward pass grows with sequence length. It may discard little *additional* usable gradient signal when contributions from earlier steps are already numerically negligible, but that negligibility is itself the vanishing-gradient problem rather than evidence that distant dependence is irrelevant.
+**Fixed windows and truncated backpropagation.** Re-initializing the state at each window has a second effect: both the state recursion and the gradients run only across the $\tau$ steps inside a window. It is worth separating two horizons that this **fixed-window training** scheme happens to tie together. The *gradient horizon* is how far back credit assignment reaches. Cutting the backward derivative chain after a fixed number of steps is **truncated backpropagation through time** [@WilliamsPeng1990], and it caps the Jacobian products of the previous sections at length $\tau$ no matter how long the series is. The *state horizon* is how far back the forward recursion carries information.
+
+A state-carrying variant processes non-overlapping consecutive segments in chronological order, feeding the final state of one segment in as the initial state of the next. At each boundary it **detaches** the carried state: its numerical value is retained, but it is treated as a constant during the next segment's backward calculation. The state horizon can therefore extend beyond $\tau$, while the gradient horizon cannot. Earlier inputs can still affect the forecast, but the next segment's loss does not differentiate through the updates that produced the carried state. The shared weights still receive gradient contributions from their uses within the current segment.
+
+Fixed-window training—the scheme used in the [empirical chapter on networks for time series](nn_example.qmd)—truncates both horizons at $\tau$. Truncation reduces computation because the cost of a backward pass grows with sequence length. It may discard little *additional* usable gradient signal when contributions from earlier steps are already numerically negligible, but that negligibility is itself the vanishing-gradient problem rather than evidence that distant dependence is irrelevant.
 
 With fitted parameters held fixed, a forecast from a reset window is a function of its inputs $(\mathbf{x}_{t-\tau+1},\ldots,\mathbf{x}_t)$, including any engineered features supplied in them. It cannot use incremental predictive information contained only in observations before the window and not recoverable from those inputs. A moving average, cumulative return, or other summary placed in $\mathbf{x}_t$ can carry older information into the window. The window length therefore plays the same role as the lag-window length $L$ of the lagged FNN at the start of the chapter. Both networks can learn which supplied inputs matter: the FNN maps the lag vector directly to the output, while the RNN compresses the sequence through shared state updates. In both cases, the chosen window limits direct access to history.
 
@@ -384,7 +401,7 @@ Let $L_T=\ell(y_{T+1},\hat y_{T+1\mid T})$ be a differentiable terminal loss. In
 
 1. **Derive the scalar BPTT gradient.** Express $\partial L_T/\partial W_{hh}$ as a sum of contributions from the repeated uses of $W_{hh}$. Evaluate the local derivative of $h_t$ with respect to $W_{hh}$, holding $h_{t-1}$ fixed, and express $\partial h_T/\partial h_t$ as a product of one-step derivatives.
 2. **Bound contributions from earlier steps.** Prove that $|\partial h_T/\partial h_t|\leq|W_{hh}|^{T-t}$ and use $h_0=0$ and the range of tanh to bound each summand from Part 1. Explain what $|W_{hh}|<1$ implies for contributions across long time gaps, and why it does not require the total parameter gradient to vanish.
-3. **Compare local and delayed signals.** Assume finite second moments and squared loss at each forecast origin. For an observed first-order autoregressive (AR(1)) process, the RNN receives $x_t=y_t$ and the conditional mean given the process's history is $\phi Y_t$, with $|\phi|<1$. In a delayed-signal task, the only inputs are realizations $x_s$ of nondegenerate independent and identically distributed variables $X_s$, and the conditional mean given $(X_s:s\leq t)$ is $\psi X_{t-k}$, with $\psi\ne0$ and $k\geq1$. For $t\geq k+1$, assume the relevant input has not been discarded by a state reset. Trace its path to $\hat y_{t+1\mid t}$ in each task and count the recurrent transitions. Which task requires a learning signal across a long time gap, and why does $\phi$ close to one not by itself create that requirement?
+3. **Compare local and delayed signals.** Assume finite second moments and squared loss at each forecast origin. For an observed first-order autoregressive (AR(1)) process, the RNN receives $x_t=y_t$, a realization of $Y_t$, and the conditional mean of $Y_{t+1}$ given the process's history is $\phi Y_t$, with $|\phi|<1$. In a delayed-signal task, the only inputs are realizations $x_s$ of nondegenerate independent and identically distributed variables $X_s$, and the conditional mean of $Y_{t+1}$ given $(X_s:s\leq t)$ is $\psi X_{t-k}$, with $\psi\ne0$ and $k\geq1$. For $t\geq k+1$, assume the relevant input has not been discarded by a state reset. Trace its path to $\hat y_{t+1\mid t}$ in each task and count the recurrent transitions. Which task requires a learning signal across a long time gap, and why does $\phi$ close to one not by itself create that requirement?
 
 *Exam level, approximately 20–25 minutes. The three parts cover the gradient calculation, its contraction bound, and the forecasting interpretation.*
 :::
