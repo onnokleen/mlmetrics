@@ -69,9 +69,9 @@ The recurrence can be visualized in two ways: a compact form with a self-loop, r
 
 ```{r}
 #| label: fig-rnn-side-by-side
-#| fig-cap: "RNN architecture in compact form (left) and unrolled through time (right). Circles are hidden states, the nodes below them are the input vectors, the nodes above them are the outputs, and arrows show the flow of information. Each output's two-index subscript records the target date before the bar and the forecast origin after it. In the compact form, the loop labeled with the recurrent weight matrix feeds the hidden state back into its own next update; unrolling replaces the loop by one column per time step, with the horizontal arrows applying the same weight matrix at every step."
+#| fig-cap: "RNN architecture in compact form (a) and as a three-step excerpt of the unrolled sequence (b). Circles are hidden states, the nodes below them are inputs, the nodes above them are outputs, and arrows show the flow of information. The labels 'state update' refer to the same rule combining the previous hidden state with the current input at every step. The loop represents recurrence; the ellipses and continuation arrows indicate omitted earlier and later steps. Each output's two-index subscript records the target date before the bar and the forecast origin after it."
 #| fig-subcap: ["Compact Form", "Unrolled Form"]
-#| layout-ncol: 2
+#| layout: [[29, 71]]
 #| fig-align: center
 #| echo: false
 #| message: false
@@ -113,17 +113,17 @@ paths <- if (knitr::is_html_output()) {
 } else {
   c("figures/rnn_diagram.pdf", "figures/rnn_diagram_unfolded.pdf")
 }
-knitr::opts_current$set(out.width = c("155px", "306px"))
-knitr::include_graphics(paths)
+# Use the source resolution so both panels display at the same physical scale.
+knitr::include_graphics(paths, dpi = 220)
 ```
 
-The left panel in @fig-rnn-side-by-side shows the compact representation: a recurrent link feeds the previous hidden state back into the model. The right panel shows the same model unrolled through time. Unrolling is mainly a computational device for training; it does not mean that the model has different parameters at different dates.
+The left panel in @fig-rnn-side-by-side shows the compact representation: a recurrent link feeds the previous hidden state into the next state update. The right panel draws three consecutive updates from a longer sequence, with the ellipses showing that the recurrence continues on both sides. Unrolling is mainly a computational device for training; the same update rule and parameters are reused at every date.
 
 The output carries the two-index subscript introduced above: $\hat{\mathbf{y}}_{t+1\mid t}$ is formed at origin $t$ and concerns date $t+1$. In a scalar one-step-ahead application it is the point forecast $\hat{y}_{t+1\mid t}$; more generally it collects the parameters of the predictive distribution of $Y_{t+1}$ given $\mathcal{F}_t$. As everywhere in the book, an unhatted lowercase $y_s$ denotes the outcome realized at calendar time $s$, and uppercase $Y_s$ the corresponding random variable.
 
 At each time step $t$, define:
 
--   $\mathbf{x}_t \in \mathbb{R}^{p}$: The input vector at the current time step (e.g., today's stock returns and trading volume); $p$ is the per-period input dimension, as in the feed-forward chapter.
+-   $\mathbf{x}_t \in \mathbb{R}^{p}$: The input vector at the current time step (e.g., today's stock returns and trading volume); $p$ is the per-period input dimension, as in the [feed-forward chapter](feed_forward_nns.qmd#sec-def-multilayer-nn).
 -   $\mathbf{h}_{t-1} \in \mathbb{R}^{H}$: The hidden state from the *previous* time step, which acts as the network's memory of the past.
 -   $\mathbf{h}_t \in \mathbb{R}^{H}$: The *new* hidden state, calculated by combining the current input $\mathbf{x}_t$ with the previous state $\mathbf{h}_{t-1}$.
 -   $\hat{\mathbf{y}}_{t+1\mid t} \in \mathbb{R}^{O}$: The output produced at forecast origin $t$ for date $t+1$ (e.g., the prediction for the next period's volatility), obtained from the current hidden state. The hat marks it as a model output rather than an observed quantity.
@@ -148,11 +148,25 @@ We fix $\mathbf{h}_0$ by convention, typically $\mathbf{h}_0 = \mathbf{0}$, sinc
   - $\mathbf{W}_{hy} \in \mathbb{R}^{O \times H}$ (hidden-to-output weights)
   - $\mathbf{b}_h \in \mathbb{R}^{H}$, $\mathbf{b}_y \in \mathbb{R}^{O}$ (bias terms)
 
-The letter pairs in the matrix names give the source then the destination: $xh$ means input-to-hidden and $hy$ means hidden-to-output. Matrix entries retain the convention from the feed-forward chapter: rows index receiving units and columns index sending units.
+The letter pairs in the matrix names give the source then the destination: $xh$ means input-to-hidden and $hy$ means hidden-to-output. Matrix entries retain the convention from the [feed-forward chapter](feed_forward_nns.qmd#sec-def-multilayer-nn): rows index receiving units and columns index sending units.
 
 The RNN's parameter collection is $\theta = \{\mathbf{W}_{hh}, \mathbf{W}_{xh}, \mathbf{W}_{hy}, \mathbf{b}_h, \mathbf{b}_y\}$. The state-update map $g_\theta$ uses the first two matrices and $\mathbf{b}_h$; the output map $q_\theta$ uses $\mathbf{W}_{hy}$ and $\mathbf{b}_y$.
 
-We use $\tanh$ as the hidden-state activation $g$. Its range is bounded between $-1$ and $1$, and it is centered at zero. Before listing the properties of this recursion, we follow it through two dates with numbers.
+**Optional direct input-to-output connection.** A further weight matrix $\mathbf W_{xy}\in\mathbb R^{O\times p}$ lets the current input affect the output directly. The output map then takes both the hidden state and the current input as arguments:
+$$
+\begin{aligned}
+\hat{\mathbf y}_{t+1\mid t}
+&=q_\theta(\mathbf h_t,\mathbf x_t) \\
+&=g_{\mathrm{out}}(\mathbf W_{hy}\mathbf h_t+\mathbf W_{xy}\mathbf x_t+\mathbf b_y).
+\end{aligned}
+$$
+The additional matrix joins the trainable parameter collection $\theta$. The hidden state still provides the recurrent summary of the past. Setting $\mathbf W_{xy}=\mathbf0$ recovers the basic architecture used in this chapter's figures and exercises.
+
+**Why use tanh?** We use $\tanh$ as the hidden-state activation $g$, recalling its shape from the [activation-function discussion](feed_forward_nns.qmd#sec-ffn-activations). Its range $(-1,1)$ keeps every hidden-state component bounded through repeated updates. Its symmetry around zero lets a unit represent both positive and negative values. Near zero, $\tanh(z)\approx z$ and $\tanh'(0)=1$, so the activation approximately preserves small changes in its argument while allowing nonlinear responses away from zero [@GoodfellowBengioCourville2016, sec. 6.3.2].
+
+The tradeoff is saturation: for large absolute arguments, tanh flattens near $\pm1$, and its derivative $\tanh'(z)=1-\tanh^2(z)$ approaches zero. Repeated multiplication by small derivatives can weaken the learning signal from distant inputs. Bounded hidden-state values do not guarantee bounded gradients, either: gradient propagation also involves $\mathbf W_{hh}$. We derive both effects in @sec-rnn-gradients.
+
+Before listing the properties of this recursion, we follow it through two dates with numbers.
 
 :::{.callout-tip title="Example: Two recurrent updates"}
 
@@ -174,7 +188,7 @@ and the output at origin $2$ is $\hat{y}_{3\mid 2} = W_{hy}h_2 + b_y \approx 0.4
 **Key Properties**
 
 - **Parameter sharing:** The same weight matrices ($\mathbf{W}_{hh}, \mathbf{W}_{xh}, \mathbf{W}_{hy}$) and biases are used at *every time step*. The total parameter count is therefore independent of sequence length, so the same network can be applied to sequences of different lengths.
-- **Memory:** The hidden state $\mathbf{h}_t$ carries information from past inputs forward, so observations at $t-k$ for $k\geq 1$ can still influence $\hat{y}_{t+1\mid t}$ through the state.
+- **Memory:** The hidden state $\mathbf{h}_t$ carries information from past inputs forward, so observations at $t-d$ for $d\geq 1$ can still influence $\hat{y}_{t+1\mid t}$ through the state.
 
 ## Econometric State-Variable Interpretation
 
@@ -265,11 +279,11 @@ with the observed target first and the network output second, as in the [feed-fo
 
 :::{.callout-note title="Notation: Gradients and Jacobians"}
 
-All vectors are columns. We use the conventions from [feed-forward backpropagation](feed_forward_nns.qmd#sec-ffn-backprop), with $a,b$ indexing coordinates:
+All vectors are columns. We use the conventions from [feed-forward backpropagation](feed_forward_nns.qmd#sec-ffn-backprop), with $i$ and $j$ indexing hidden units (matrix rows and columns):
 
-- The loss gradient $\nabla_{\mathbf{h}_t}L_T$ is an $H\times1$ column vector; its $a$-th entry is $\partial L_T/\partial(\mathbf{h}_t)_a$.
-- The loss gradient $\nabla_{\mathbf{W}_{hh}}L_T$ is an $H\times H$ matrix; its $(a,b)$-th entry is $\partial L_T/\partial(\mathbf{W}_{hh})_{ab}$. A matrix gradient has the same shape as the parameter matrix it updates.
-- The vector derivative $\partial\mathbf{h}_t/\partial\mathbf{h}_s$ is an $H\times H$ **Jacobian**; its $(a,b)$-th entry is $\partial(\mathbf{h}_t)_a/\partial(\mathbf{h}_s)_b$. Rows index the resulting state, and columns index the state being perturbed.
+- The loss gradient $\nabla_{\mathbf{h}_t}L_T$ is an $H\times1$ column vector; its $i$-th entry is $\partial L_T/\partial(\mathbf{h}_t)_i$.
+- The loss gradient $\nabla_{\mathbf{W}_{hh}}L_T$ is an $H\times H$ matrix; its $(i,j)$-th entry is $\partial L_T/\partial(\mathbf{W}_{hh})_{ij}$. A matrix gradient has the same shape as the parameter matrix it updates.
+- The vector derivative $\partial\mathbf{h}_t/\partial\mathbf{h}_s$ is an $H\times H$ **Jacobian**; its $(i,j)$-th entry is $\partial(\mathbf{h}_t)_i/\partial(\mathbf{h}_s)_j$. Rows index the resulting state, and columns index the state being perturbed.
 
 We use $\nabla$ for scalar-loss gradients with respect to vectors or matrices, and $\partial$ for ordinary scalar derivatives and vector-to-vector Jacobians. The chain rule propagates column gradients backward by multiplying by the **transpose** of the forward Jacobian.
 :::
@@ -285,10 +299,10 @@ $$
 $$
 The vector $g'(\mathbf{z}_t)$ contains the componentwise activation derivatives, and $\operatorname{diag}$ places them on the diagonal of an $H\times H$ matrix. Thus $\boldsymbol{\delta}_t$ is an $H\times1$ column vector that includes all downstream effects on $L_T$.
 
-For a single recurrent weight $(\mathbf{W}_{hh})_{ab}$, its direct effect on $(\mathbf{z}_t)_a$ at step $t$ is $(\mathbf{h}_{t-1})_b$, holding the previous state fixed. Summing the contributions from its repeated use gives
+For a single recurrent weight $(\mathbf{W}_{hh})_{ij}$, its direct effect on $(\mathbf{z}_t)_i$ at step $t$ is $(\mathbf{h}_{t-1})_j$, holding the previous state fixed. Summing the contributions from its repeated use gives
 $$
-\frac{\partial L_T}{\partial(\mathbf{W}_{hh})_{ab}}
-= \sum_{t=1}^{T}(\boldsymbol{\delta}_t)_a(\mathbf{h}_{t-1})_b.
+\frac{\partial L_T}{\partial(\mathbf{W}_{hh})_{ij}}
+= \sum_{t=1}^{T}(\boldsymbol{\delta}_t)_i(\mathbf{h}_{t-1})_j.
 $$
 Stacking these scalar derivatives yields the matrix gradient
 $$
@@ -312,12 +326,12 @@ $$
 &= \frac{\partial \mathbf{h}_t}{\partial \mathbf{h}_{t-1}}\,
   \frac{\partial \mathbf{h}_{t-1}}{\partial \mathbf{h}_{t-2}}\cdots
   \frac{\partial \mathbf{h}_{s+1}}{\partial \mathbf{h}_{s}}, \\[0.5em]
-\frac{\partial \mathbf{h}_i}{\partial \mathbf{h}_{i-1}}
-&= \operatorname{diag}\big(g'(\mathbf{z}_i)\big)\,\mathbf{W}_{hh},
+\frac{\partial \mathbf{h}_k}{\partial \mathbf{h}_{k-1}}
+&= \operatorname{diag}\big(g'(\mathbf{z}_k)\big)\,\mathbf{W}_{hh},
 \end{aligned}
 $$
 
-where each factor is $H\times H$. Each one-step Jacobian follows from $\mathbf{h}_i = g(\mathbf{z}_i)$ with $\mathbf{z}_i$ affine in $\mathbf{h}_{i-1}$. The factors need not commute, so their order matters. For backward propagation, the one-step transpose is $\mathbf{W}_{hh}^{\top}\operatorname{diag}(g'(\mathbf{z}_i))$: transposing reverses the multiplication order.
+where $k$ indexes time and each factor is $H\times H$. Each one-step Jacobian follows from $\mathbf{h}_k = g(\mathbf{z}_k)$ with $\mathbf{z}_k$ affine in $\mathbf{h}_{k-1}$. The factors need not commute, so their order matters. For backward propagation, the one-step transpose is $\mathbf{W}_{hh}^{\top}\operatorname{diag}(g'(\mathbf{z}_k))$: transposing reverses the multiplication order.
 
 The backward calculation can therefore be implemented one step at a time. Starting from $\nabla_{\mathbf h_T}L_T$, compute $\boldsymbol\delta_t$ as above, accumulate the weight-gradient contribution, and propagate to the previous state using
 $$
@@ -327,15 +341,15 @@ $$
 $$
 When $H=1$, gradients and Jacobians reduce to scalar derivatives and the transposes have no effect; Exercise 6.1 develops that scalar case in detail.
 
-## Vanishing and Exploding Gradients
+## Vanishing and Exploding Gradients {#sec-rnn-gradients}
 
-The long product of Jacobians is the source of the **vanishing gradient problem** [@BengioSimardFrasconi1994]. Here $\lVert\cdot\rVert$ denotes the Euclidean norm for vectors and its induced matrix norm, the **spectral norm** (the largest singular value). If each one-step Jacobian along the trajectory satisfies $\lVert \operatorname{diag}(g'(\mathbf{z}_i))\,\mathbf{W}_{hh} \rVert \leq \kappa$ for some $0\leq\kappa < 1$, the norm of the product is at most $\kappa^{T-t}$. This follows from submultiplicativity: the norm of a matrix product is at most the product of the matrix norms. For tanh, $\lVert\mathbf W_{hh}\rVert<1$ is a sufficient condition, since the activation derivatives lie between zero and one. For a fixed terminal loss, the gradient propagated to an early state is therefore multiplied by a geometrically small factor. When the remaining local derivative factors are bounded, early-step contributions to the parameter gradient can become numerically negligible.
+The long product of Jacobians is the source of the **vanishing gradient problem** [@BengioSimardFrasconi1994]. Here $\lVert\cdot\rVert$ denotes the Euclidean norm for vectors and its induced matrix norm, the **spectral norm** (the largest singular value). If each one-step Jacobian along the trajectory satisfies $\lVert \operatorname{diag}(g'(\mathbf{z}_k))\,\mathbf{W}_{hh} \rVert \leq \kappa$ for some $0\leq\kappa < 1$, the norm of the product is at most $\kappa^{T-t}$. This follows from submultiplicativity: the norm of a matrix product is at most the product of the matrix norms. For tanh, $\lVert\mathbf W_{hh}\rVert<1$ is a sufficient condition, since the activation derivatives lie between zero and one. For a fixed terminal loss, the gradient propagated to an early state is therefore multiplied by a geometrically small factor. When the remaining local derivative factors are bounded, early-step contributions to the parameter gradient can become numerically negligible.
 
 For econometric forecasting, this is the central limitation of a plain RNN. **Credit assignment** means using the loss to determine how earlier state updates should change. Training can fail when this learning signal must cross a long time gap.
 
-The same recurrent-state Jacobian product can also grow, in which case gradients **explode** rather than vanish. Since $g' \leq 1$ for the $\tanh$ activation, each one-step Jacobian is bounded in norm by $\lVert\mathbf{W}_{hh}\rVert$, so $\lVert\mathbf{W}_{hh}\rVert > 1$ is necessary for this upper bound to permit exponential pathwise growth. It is not sufficient: whether the product actually grows depends on the entire trajectory of factors $\operatorname{diag}(g'(\mathbf{z}_i))\,\mathbf{W}_{hh}$. A per-factor bound below one forces decay, but individual factors with norms above one do not by themselves force growth. Nor does $\lVert\mathbf{W}_{hh}\rVert\leq 1$ uniformly bound every total parameter gradient, because contributions from many loss terms can still accumulate with sequence length.
+The same recurrent-state Jacobian product can also grow, in which case gradients **explode** rather than vanish. Since $g' \leq 1$ for the $\tanh$ activation, each one-step Jacobian is bounded in norm by $\lVert\mathbf{W}_{hh}\rVert$, so $\lVert\mathbf{W}_{hh}\rVert > 1$ is necessary for this upper bound to permit exponential pathwise growth. It is not sufficient: whether the product actually grows depends on the entire trajectory of factors $\operatorname{diag}(g'(\mathbf{z}_k))\,\mathbf{W}_{hh}$. A per-factor bound below one forces decay, but individual factors with norms above one do not by themselves force growth. Nor does $\lVert\mathbf{W}_{hh}\rVert\leq 1$ uniformly bound every total parameter gradient, because contributions from many loss terms can still accumulate with sequence length.
 
-In the scalar case, the pathwise picture is transparent: the product is $\prod_{i=t+1}^{T} |W_{hh}|\,g'(z_i)$ and grows geometrically whenever the factors stay above some $\gamma > 1$ along the trajectory. Exploding gradients show up as numerical overflow or parameter updates that jump erratically between iterations, rather than as a silent failure to learn long-run dependence.
+In the scalar case, the pathwise picture is transparent: the product is $\prod_{k=t+1}^{T} |W_{hh}|\,g'(z_k)$ and grows geometrically whenever the factors stay above some $\gamma > 1$ along the trajectory. Exploding gradients show up as numerical overflow or parameter updates that jump erratically between iterations, rather than as a silent failure to learn long-run dependence.
 
 The standard remedy is **gradient clipping** [@PascanuMikolovBengio2013]: if the norm of the stacked raw gradient vector $\mathbf{v}$ exceeds a threshold $c>0$, replace $\mathbf{v}$ by $c\,\mathbf{v}/\lVert\mathbf{v}\rVert$ before the optimizer sees it. This transformation caps the raw gradient norm and preserves the raw gradient direction. Under plain gradient descent, it also caps the norm of the immediate parameter step, up to the learning rate; with momentum or adaptive optimizers, the eventual update also depends on stored optimizer state. Clipping stabilizes the exploding case but does nothing for vanishing gradients, whose problem is the loss of signal across a long credit-assignment path.
 
@@ -401,7 +415,7 @@ Let $L_T=\ell(y_{T+1},\hat y_{T+1\mid T})$ be a differentiable terminal loss. In
 
 1. **Derive the scalar BPTT gradient.** Express $\partial L_T/\partial W_{hh}$ as a sum of contributions from the repeated uses of $W_{hh}$. Evaluate the local derivative of $h_t$ with respect to $W_{hh}$, holding $h_{t-1}$ fixed, and express $\partial h_T/\partial h_t$ as a product of one-step derivatives.
 2. **Bound contributions from earlier steps.** Prove that $|\partial h_T/\partial h_t|\leq|W_{hh}|^{T-t}$ and use $h_0=0$ and the range of tanh to bound each summand from Part 1. Explain what $|W_{hh}|<1$ implies for contributions across long time gaps, and why it does not require the total parameter gradient to vanish.
-3. **Compare local and delayed signals.** Assume finite second moments and squared loss at each forecast origin. For an observed first-order autoregressive (AR(1)) process, the RNN receives $x_t=y_t$, a realization of $Y_t$, and the conditional mean of $Y_{t+1}$ given the process's history is $\phi Y_t$, with $|\phi|<1$. In a delayed-signal task, the only inputs are realizations $x_s$ of nondegenerate independent and identically distributed variables $X_s$, and the conditional mean of $Y_{t+1}$ given $(X_s:s\leq t)$ is $\psi X_{t-k}$, with $\psi\ne0$ and $k\geq1$. For $t\geq k+1$, assume the relevant input has not been discarded by a state reset. Trace its path to $\hat y_{t+1\mid t}$ in each task and count the recurrent transitions. Which task requires a learning signal across a long time gap, and why does $\phi$ close to one not by itself create that requirement?
+3. **Compare local and delayed signals.** Assume finite second moments and squared loss at each forecast origin. For an observed first-order autoregressive (AR(1)) process, the RNN receives $x_t=y_t$, a realization of $Y_t$, and the conditional mean of $Y_{t+1}$ given the process's history is $\phi Y_t$, with $|\phi|<1$. In a delayed-signal task, the only inputs are realizations $x_s$ of nondegenerate independent and identically distributed variables $X_s$, and the conditional mean of $Y_{t+1}$ given $(X_s:s\leq t)$ is $\psi X_{t-d}$, with $\psi\ne0$ and $d\geq1$. For $t\geq d+1$, assume the relevant input has not been discarded by a state reset. Trace its path to $\hat y_{t+1\mid t}$ in each task and count the recurrent transitions. Which task requires a learning signal across a long time gap, and why does $\phi$ close to one not by itself create that requirement?
 
 *Exam level, approximately 20–25 minutes. The three parts cover the gradient calculation, its contraction bound, and the forecasting interpretation.*
 :::
@@ -427,10 +441,10 @@ $$
 \left.\frac{\partial h_t}{\partial W_{hh}}\right|_{h_{t-1}\,\mathrm{fixed}}
 &= \tanh'(z_t)h_{t-1}, \\[0.5em]
 \frac{\partial h_T}{\partial h_t}
-&= \prod_{j=t+1}^{T} W_{hh}\tanh'(z_j),
+&= \prod_{k=t+1}^{T} W_{hh}\tanh'(z_k),
 \end{aligned}
 $$
-because each one-step state derivative is $W_{hh}\tanh'(z_j)$. The empty product equals one when $t=T$. Applying the chain rule to every use of the shared weight gives
+because each one-step state derivative is $W_{hh}\tanh'(z_k)$. The empty product equals one when $t=T$. Applying the chain rule to every use of the shared weight gives
 $$
 \frac{\partial L_T}{\partial W_{hh}}
 = \sum_{t=1}^{T}
@@ -446,7 +460,7 @@ Since $0\leq\tanh'(z)=1-\tanh^2(z)\leq1$,
 $$
 \begin{aligned}
 \left|\frac{\partial h_T}{\partial h_t}\right|
-&= \prod_{j=t+1}^{T}|W_{hh}|\tanh'(z_j) \\
+&= \prod_{k=t+1}^{T}|W_{hh}|\tanh'(z_k) \\
 &\leq |W_{hh}|^{T-t}.
 \end{aligned}
 $$
@@ -458,16 +472,16 @@ The terminal loss derivative is a common finite factor under the stated fixed-se
 
 **Part 3: Local versus delayed prediction**
 
-Under squared loss, the target is the conditional mean. In the AR(1) task, the current input $x_t=y_t$ contains the information needed for $\phi Y_t$. Its path is $x_t\to h_t\to\hat y_{t+1\mid t}$, with **zero recurrent transitions** after the input enters the state. A coefficient close to one makes the observed series persistent, but the current observation still supplies the relevant information directly.
+Under squared loss, the optimal forecast is the conditional mean of $Y_{t+1}$. In the AR(1) task, observing the current input $x_t=y_t$ supplies all the information needed for the optimal forecast $\phi y_t$. Its path is $x_t\to h_t\to\hat y_{t+1\mid t}$, with **zero recurrent transitions** after the input enters the state. A coefficient close to one makes the observed series persistent, but the stipulated conditional mean still depends only on the current observation.
 
-In the delayed task, the relevant input is $x_{t-k}$. The intermediate inputs do not reveal it because the inputs are independent. Its path is $x_{t-k}\to h_{t-k}\to\cdots\to h_t\to\hat y_{t+1\mid t}$, crossing **$k$ recurrent transitions**. The state-sensitivity factor along this path is bounded by $|W_{hh}|^k$. When $|W_{hh}|<1$, this factor attenuates the learning signal from the delayed input, even though the forecast itself is only one step ahead.
+In the delayed task, the relevant input is $x_{t-d}$. The intermediate inputs do not reveal it because the inputs are independent. Its path is $x_{t-d}\to h_{t-d}\to\cdots\to h_t\to\hat y_{t+1\mid t}$, crossing **$d$ recurrent transitions**. The state-sensitivity factor along this path is bounded by $|W_{hh}|^d$. When $|W_{hh}|<1$, this factor attenuates the learning signal from the delayed input, even though the forecast itself is only one step ahead.
 :::
 
 
 :::{.callout-note #rnn-exercise-6-2}
 ## Exercise 6.2: Manual RNN Forward Pass
 
-Consider the simple RNN shown in @fig-rnn-exercise: a single hidden unit processing a sequence of length 3, with hidden update $h_t = \tanh(W_{xh} x_t + W_{hh} h_{t-1} + b_h)$ and linear output $\hat{y}_{t+1\mid t} = W_{hy} h_t + b_y$ (identity output activation).
+Consider the simple RNN shown in @fig-rnn-exercise: a single hidden unit processing a sequence of length 3, with hidden update $h_t = \tanh(W_{hh} h_{t-1} + W_{xh} x_t + b_h)$ and linear output $\hat{y}_{t+1\mid t} = W_{hy} h_t + b_y$ (identity output activation).
 
 ![The single-unit RNN of this exercise, unrolled over $t = 0, 1, 2, 3$. Blue circles are the scalar hidden states $h_t$, initialized at $h_0 = 0$; green circles are the inputs $x_t$ with their numerical values printed below; red circles are the outputs $\hat{y}_{t+1\mid t}$, the forecasts formed at origin $t$. Arrow labels give the scalar weight applied along each edge: $W_{xh}$ (input-to-hidden), $W_{hh}$ (hidden-to-hidden), and $W_{hy}$ (hidden-to-output).](figures/rnn_architecture.png){#fig-rnn-exercise}
 
@@ -479,18 +493,23 @@ The parameters are:
 - Weight for hidden-to-output: $W_{hy} = 1.2$
 - Bias for output: $b_y = 0.0$
 
-The input sequence is $(x_1, x_2, x_3) = (0.2, -0.5, 0.3)$ and the initial hidden state is $h_0 = 0$. Use the approximations $\tanh(0.2) \approx 0.197$, $\tanh(0.008) \approx 0.008$, $\tanh(0.256) \approx 0.251$, $\tanh'(0.2) \approx 0.961$, and $\tanh'(0.008) \approx 1.000$.
+The input sequence is $(x_1, x_2, x_3) = (0.2, -0.5, 0.3)$ and the initial hidden state is $h_0 = 0$. Use the approximations $\tanh(0.2) \approx 0.197$, $\tanh(0.008) \approx 0.008$, and $\tanh(0.256) \approx 0.251$. For Part 3, also use $\tanh(-0.15) \approx -0.149$ and $\tanh(0.131) \approx 0.130$.
 
 1. **Compute the forward pass.** For $t = 1, 2, 3$, compute the hidden state $h_t$ and the output $\hat{y}_{t+1\mid t}$.
-2. **Separate value from sensitivity.** Your forward pass shows that the second input $x_2 = -0.5$ is large and negative, yet $h_2 \approx 0.008$ is nearly zero. Show numerically that the memory term $W_{hh} h_1$ and the bias $b_h$ almost exactly cancel the input contribution at $t=2$. Then compute the sensitivity $\partial h_2/\partial x_1$ and state what a near-zero *value* of the hidden state does and does not imply about the memory of $x_1$, connecting your answer to the geometric decay factor from Exercise 6.1.
-3. **Compare two windowing schemes.** Suppose this RNN is trained on sequences of length $\tau$, with one forecast at the end of each sequence. Compare (a) resetting the hidden state to zero for every overlapping window and (b) dividing the series into non-overlapping consecutive segments, carrying the final state from one segment into the next, and detaching it from the previous computational graph. For each scheme, state the state horizon and the gradient horizon. Under scheme (a), describe precisely what information before the window the forecast cannot use. Finally, explain why a structural break can still be a problem under either scheme even though the weights are estimated from many sequences.
+2. **Separate value from sensitivity.** Using your results from Part 1, show numerically how the memory term $W_{hh} h_1$ and the bias $b_h$ offset the input contribution at $t=2$. Then compute the sensitivity $\partial h_2/\partial x_1$ and state what the *value* of $h_2$ does and does not imply about the memory of $x_1$, connecting your answer to the geometric decay factor from Exercise 6.1.
+3. **Compare reset and detachment.** Set $\tau=2$. Evaluate all forecasts and derivatives at the supplied parameter values. For the forecast $\hat y_{4\mid3}$, compare (a) resetting to zero before processing the window $(x_2,x_3)$ and (b) carrying $h_2$ from Part 1 into a final, shorter segment containing only $x_3$, with $h_2$ detached at the boundary. Under (a), state which inputs the forecast can use, compute $\hat y_{4\mid3}$, and find $\partial\hat y_{4\mid3}/\partial x_1$. Under (b), use Part 2 to compute the derivative of the forecast with respect to $x_1$ through the full forward recursion, then explain which backward paths detachment removes and why the forecast's derivative with respect to $W_{hh}$ retains a step-3 contribution. Finally, state in one sentence why neither scheme by itself resolves a structural break that is not represented in the inputs or state.
 
-*Exam level. Part 1 checks the mechanics of the recursion; Part 2 tests the distinction between the value of a state and its sensitivity to past inputs; Part 3 checks the econometric meaning of state truncation, gradient truncation, and shared parameters.*
+*Exam level, approximately 20–25 minutes. Part 1 checks the recursion, Part 2 separates state value from sensitivity, and Part 3 compares the effects of resetting and detaching the state.*
 :::
 
 :::{.callout-warning collapse="true"}
 ## Hint for Part 2
 For the sensitivity, apply the chain rule along $x_1 \to h_1 \to h_2$ and recall that $\tanh'(z)=1-\tanh^2(z)$.
+:::
+
+:::{.callout-warning collapse="true"}
+## Hint for Part 3
+Under (b), the forecast's dependence on $x_1$ runs through $h_2$. Multiply the Part 2 sensitivity by the step-3 state derivative and the output weight. Detachment changes what the backward pass differentiates, while preserving the carried state's numerical value.
 :::
 
 :::{.callout-tip collapse="true"}
@@ -501,7 +520,7 @@ For the sensitivity, apply the chain rule along $x_1 \to h_1 \to h_2$ and recall
 At $t = 1$:
 $$
 \begin{aligned}
-h_1 &= \tanh(0.5 \cdot 0.2 + 0.8 \cdot 0 + 0.1) \\
+h_1 &= \tanh(0.8 \cdot 0 + 0.5 \cdot 0.2 + 0.1) \\
     &= \tanh(0.2) \approx 0.197, \\[0.5em]
 \hat{y}_{2\mid 1} &= 1.2 \cdot 0.197 \approx 0.236
 \end{aligned}
@@ -510,8 +529,8 @@ $$
 At $t = 2$:
 $$
 \begin{aligned}
-h_2 &= \tanh(0.5 \cdot (-0.5) + 0.8 \cdot 0.197 + 0.1) \\
-    &= \tanh(-0.25 + 0.158 + 0.1) \\
+h_2 &= \tanh(0.8 \cdot 0.197 + 0.5 \cdot (-0.5) + 0.1) \\
+    &= \tanh(0.158 - 0.25 + 0.1) \\
     &= \tanh(0.008) \approx 0.008, \\[0.5em]
 \hat{y}_{3\mid 2} &= 1.2 \cdot 0.008 \approx 0.010
 \end{aligned}
@@ -520,8 +539,8 @@ $$
 At $t = 3$:
 $$
 \begin{aligned}
-h_3 &= \tanh(0.5 \cdot 0.3 + 0.8 \cdot 0.008 + 0.1) \\
-    &= \tanh(0.15 + 0.006 + 0.1) \\
+h_3 &= \tanh(0.8 \cdot 0.008 + 0.5 \cdot 0.3 + 0.1) \\
+    &= \tanh(0.006 + 0.15 + 0.1) \\
     &= \tanh(0.256) \approx 0.251, \\[0.5em]
 \hat{y}_{4\mid 3} &= 1.2 \cdot 0.251 \approx 0.301
 \end{aligned}
@@ -539,18 +558,51 @@ $$
   \cdot
   \underbrace{\tanh'(z_1)\, W_{xh}}_{\partial h_1/\partial x_1} \\[0.5em]
 &\approx (1.000 \times 0.8) \times (0.961 \times 0.5) \\
-&\approx 0.38,
+&\approx 0.3844 \approx 0.38,
 \end{aligned}
 $$
 using $\tanh'(z) = 1 - \tanh^2(z)$ with $z_1 = 0.2$ and $z_2 = 0.008$. A sensitivity of $0.38$ after one recurrence step is substantial—in fact, because $z_2 \approx 0$ places $\tanh$ in its steepest region, $h_2$ is close to *maximally* sensitive to perturbations of $h_1$. Had $x_1$ been slightly different, $h_2$ would have been noticeably different: the state still remembers $x_1$ even though its value happens to sit near zero.
 
 The genuine connection to Exercise 6.1 runs through the *rate of decay*, not the value of the state. Each additional recurrence step multiplies the sensitivity by at most $W_{hh}\,\max_z \tanh'(z) = 0.8$, so the influence of $x_1$ fades geometrically over many steps ($0.8^{10} \approx 0.11$, $0.8^{30} \approx 0.001$). The two-part conclusion: after one step, the memory of $x_1$ is still strong despite the near-zero state value; over long horizons, it is the geometric factor from Exercise 6.1—not value cancellation—that makes plain RNNs forget.
 
-**Part 3: Fixed-window and state-carrying truncation**
+**Part 3: Reset versus detachment**
 
-Under scheme (a), resetting the state gives both the forward state and the backward gradient a horizon of at most $\tau$ steps. The forecast is a function of the inputs inside its window and cannot use predictive information contained only in earlier observations unless that information is summarized in an included feature. Under scheme (b), the carried state can transmit information back to the last reset—potentially the start of the series—although its sensitivity generally decays along the recurrent path. Detaching the state stops the derivative chain at each segment boundary, so the gradient horizon remains at most $\tau$ steps.
+Under scheme (a), the reset forecast uses only $x_2$ and $x_3$. Write $\tilde h_r$ for its state after local window step $r$, with $\tilde h_0=0$: step 1 processes $x_2$ and step 2 processes $x_3$. The reset forward pass is
+$$
+\begin{aligned}
+\tilde h_1 &= \tanh(0.8\cdot0+0.5\cdot(-0.5)+0.1) \\
+&= \tanh(-0.15) \approx -0.149, \\[0.5em]
+\tilde h_2 &= \tanh(0.8\tilde h_1+0.5\cdot0.3+0.1) \\
+&\approx \tanh(0.131) \approx 0.130, \\[0.5em]
+\hat y_{4\mid3} &= 1.2\tilde h_2 \approx 0.156.
+\end{aligned}
+$$
+The reset forecast is about $0.156$, compared with $0.301$ when carrying the state from Part 1: the same parameters and last two inputs give different forecasts because the initial states differ. With the parameters fixed and no engineered input carrying $x_1$, the reset forecast has no dependence on $x_1$, so $\partial\hat y_{4\mid3}/\partial x_1=0$.
 
-Both schemes reuse the same parameters across windows and dates. If a structural break changes the relevant relationship in a way that the supplied inputs and carried state do not capture, pooling pre-break and post-break windows can estimate a compromise that fits neither regime well. A fixed map can accommodate different regimes when its inputs or state encode them. Chronological validation, rolling or subsample estimation, and inputs describing the regime are possible responses; changing the state initialization alone does not remove the shared-parameter restriction.
+Under scheme (b), carrying $h_2$ preserves the forward pass from Part 1. The forecast can depend on all three inputs. Differentiating through the full forward recursion, including how the carried state was produced, gives
+$$
+\begin{aligned}
+\frac{\partial\hat y_{4\mid3}}{\partial x_1}
+&= W_{hy}\tanh'(z_3)W_{hh}
+   \frac{\partial h_2}{\partial x_1} \\
+&\approx 1.2(1-0.251^2)\times0.8\times0.3844 \\
+&\approx 0.346.
+\end{aligned}
+$$
+The extra recurrent transition and the output weight distinguish this sensitivity from $\partial h_2/\partial x_1\approx0.38$ in Part 2.
+
+Detaching $h_2$ leaves its value unchanged but removes the backward paths through its construction. Thus the truncated graph gives no gradient back to $x_1$ or the step-1 and step-2 uses of $W_{hh}$. The step-3 use still contributes to the forecast derivative:
+$$
+\begin{aligned}
+\left.\frac{\partial\hat y_{4\mid3}}{\partial W_{hh}}\right|_{h_2\,\mathrm{fixed}}
+&= W_{hy}\tanh'(z_3)h_2 \\
+&\approx 1.2\times0.937\times0.008 \\
+&\approx 0.009.
+\end{aligned}
+$$
+The local factor is small because it scales with the state *value* $h_2$, which is near zero by the cancellation in Part 2. The input sensitivity above instead contains the *derivative* $\partial h_2/\partial x_1$, which need not be small when $h_2$ is near zero. The corresponding loss-gradient contribution also includes the derivative of the loss with respect to the forecast. A zero gradient through the detached boundary therefore does not mean that the forward forecast has forgotten $x_1$.
+
+Neither scheme by itself resolves an unrepresented structural break, because both reuse the same parameters across dates and can therefore fit a compromise poorly suited to either regime.
 :::
 
 :::: {.content-visible when-format="html"}
