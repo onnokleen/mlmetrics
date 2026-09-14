@@ -370,7 +370,7 @@ window.Quarto = {
   <li><a href="#outputs-and-loss-functions" id="toc-outputs-and-loss-functions" class="nav-link" data-scroll-target="#outputs-and-loss-functions"><span class="header-section-number">6.7</span> Outputs and Loss Functions</a></li>
   <li><a href="#sec-rnn-training" id="toc-sec-rnn-training" class="nav-link" data-scroll-target="#sec-rnn-training"><span class="header-section-number">6.8</span> Training Through Time</a></li>
   <li><a href="#sec-rnn-gradients" id="toc-sec-rnn-gradients" class="nav-link" data-scroll-target="#sec-rnn-gradients"><span class="header-section-number">6.9</span> Vanishing and Exploding Gradients</a></li>
-  <li><a href="#sec-rnn-windows" id="toc-sec-rnn-windows" class="nav-link" data-scroll-target="#sec-rnn-windows"><span class="header-section-number">6.10</span> From One Series to Training Windows</a></li>
+  <li><a href="#sec-rnn-windows" id="toc-sec-rnn-windows" class="nav-link" data-scroll-target="#sec-rnn-windows"><span class="header-section-number">6.10</span> Training on Short Sequences</a></li>
   <li><a href="#summary" id="toc-summary" class="nav-link" data-scroll-target="#summary"><span class="header-section-number">6.11</span> Summary</a></li>
   <li><a href="#exercises" id="toc-exercises" class="nav-link" data-scroll-target="#exercises"><span class="header-section-number">6.12</span> Exercises</a></li>
   <li><a href="#references" id="toc-references" class="nav-link" data-scroll-target="#references"><span class="header-section-number">6.13</span> References</a></li>
@@ -404,7 +404,7 @@ window.Quarto = {
 <li>We connect RNNs to econometric state-variable models such as GARCH.</li>
 <li>We discuss deterministic versus probabilistic outputs for forecasting applications.</li>
 <li>We derive backpropagation through time and analyze the vanishing and exploding gradient problems.</li>
-<li>We finish with training practice—how one long series becomes many training windows, why the backward gradient computation is cut off after a fixed number of steps, and why using the same parameters at every date amounts to assuming stable dynamics—and with the motivation for LSTMs.</li>
+<li>We finish with training on short sequences, contrasting resetting the memory with carrying it forward, and motivate LSTMs.</li>
 </ol>
 </section>
 <section id="forecasting-setup-and-the-information-set" class="level2" data-number="6.3">
@@ -734,7 +734,16 @@ Notation: Gradients and Jacobians
 </span></p>
 </div>
 <p> Each summand is an <strong>outer product</strong>: an <span class="math inline">H\times1</span> column times a <span class="math inline">1\times H</span> row, giving an <span class="math inline">H\times H</span> matrix. The previous state is held fixed only when differentiating the local step-<span class="math inline">t</span> update; its own dependence on the shared weights enters through the other time-step contributions. Including that dependence again in the local factor would double-count paths. This componentwise construction avoids treating <span class="math inline">\partial\mathbf{h}_t/\partial\mathbf{W}_{hh}</span>, which would have three coordinate indices, as an ordinary matrix.</p>
-<p><strong>Propagating the state gradient backward.</strong> The column gradient <span class="math inline">\nabla_{\mathbf{h}_t}L_T</span> measures how an adjustment to the hidden state at time <span class="math inline">t</span> affects the terminal loss. The chain rule gives </p>
+<p><strong>Propagating the state gradient backward.</strong> The column gradient <span class="math inline">\nabla_{\mathbf{h}_t}L_T</span> measures how an adjustment to the hidden state at time <span class="math inline">t</span> affects the terminal loss. The <strong>matrix chain rule</strong> assembles the ordinary scalar chain rule into a matrix product. With the inputs and parameters held fixed, the terminal loss depends on <span class="math inline">\mathbf h_t</span> through <span class="math inline">\mathbf h_T</span>. For coordinate <span class="math inline">j</span>, the scalar chain rule gives </p>
+<div class="display-math-block">
+<p><span class="math display">
+\frac{\partial L_T}{\partial(\mathbf h_t)_j}
+= \sum_{i=1}^{H}
+  \frac{\partial L_T}{\partial(\mathbf h_T)_i}
+  \frac{\partial(\mathbf h_T)_i}{\partial(\mathbf h_t)_j}.
+</span></p>
+</div>
+<p> The last factor is the <span class="math inline">(i,j)</span>-th entry of the forward Jacobian <span class="math inline">\partial\mathbf h_T/\partial\mathbf h_t</span>. Thus the sum is the <span class="math inline">j</span>-th entry of the following matrix product: </p>
 <div class="display-math-block">
 <p><span class="math display">
 \nabla_{\mathbf{h}_t}L_T
@@ -742,8 +751,9 @@ Notation: Gradients and Jacobians
   \nabla_{\mathbf{h}_T}L_T.
 </span></p>
 </div>
-<p> The dimensions are <span class="math inline">(H\times H)(H\times1)=H\times1</span>. At the terminal step, <span class="math inline">\nabla_{\mathbf{h}_T}L_T</span> differentiates through the output map <span class="math inline">q_\theta</span>, including its output activation <span class="math inline">g_{\mathrm{out}}</span>; an identity output activation is not required.</p>
-<p>For an earlier date <span class="math inline">s&lt;t</span>, the forward state Jacobian is the ordered product </p>
+<p> The dimensions are <span class="math inline">(H\times H)(H\times1)=H\times1</span>. The transpose makes the sum run over the later-state coordinates <span class="math inline">i</span>, producing one gradient entry for each earlier-state coordinate <span class="math inline">j</span>. In general, for a scalar loss depending on a column vector through a differentiable vector map, the gradient with respect to the input vector equals the map’s Jacobian transpose times the gradient with respect to its output vector.</p>
+<p>At the terminal step, <span class="math inline">\nabla_{\mathbf{h}_T}L_T</span> differentiates through the output map <span class="math inline">q_\theta</span>, including its output activation <span class="math inline">g_{\mathrm{out}}</span>; an identity output activation is not required.</p>
+<p>For a composition of vector maps, the matrix chain rule multiplies their forward Jacobians in order. For an earlier date <span class="math inline">s&lt;t</span>, the forward state Jacobian is therefore the ordered product </p>
 <div class="display-math-block">
 <p><span class="math display">
 \begin{aligned}
@@ -776,15 +786,47 @@ Notation: Gradients and Jacobians
 <p>The standard remedy is <strong>gradient clipping</strong> <span class="citation" data-cites="PascanuMikolovBengio2013">(<a href="#ref-PascanuMikolovBengio2013" role="doc-biblioref">Pascanu, Mikolov, and Bengio 2013</a>)</span>: if the norm of the stacked raw gradient vector <span class="math inline">\mathbf{v}</span> exceeds a threshold <span class="math inline">c&gt;0</span>, replace <span class="math inline">\mathbf{v}</span> by <span class="math inline">c\,\mathbf{v}/\lVert\mathbf{v}\rVert</span> before the optimizer sees it. This transformation caps the raw gradient norm and preserves the raw gradient direction. Under plain gradient descent, it also caps the norm of the immediate parameter step, up to the learning rate; with momentum or adaptive optimizers, the eventual update also depends on stored optimizer state. Clipping stabilizes the exploding case but does nothing for vanishing gradients, whose problem is the loss of signal across a long credit-assignment path.</p>
 </section>
 <section id="sec-rnn-windows" class="level2" data-number="6.10">
-<h2 data-number="6.10" class="anchored" data-anchor-id="sec-rnn-windows"><span class="header-section-number">6.10</span> From One Series to Training Windows</h2>
-<p>The derivations above treat one sequence of length <span class="math inline">T</span> with a single terminal loss. Estimation practice starts from something less tidy: one long time series of, say, <span class="math inline">N</span> observations, from which the training sequences must first be constructed. Three choices—the window construction, the truncation of the gradient, and the decision to share parameters across time—deserve to be explicit, because each has an econometric interpretation and each reappears in the <a href="./nn_example.html">empirical chapter on networks for time series</a>.</p>
-<p><strong>Windows as training observations.</strong> The standard construction cuts the series into overlapping fixed-length windows. With window length <span class="math inline">\tau</span>, each forecast origin <span class="math inline">t=\tau,\ldots,N-1</span> contributes one training pair: the input sequence <span class="math inline">(\mathbf{x}_{t-\tau+1}, \ldots, \mathbf{x}_t)</span> and the target <span class="math inline">y_{t+1}</span>. Within each window, index the recurrence by a local step <span class="math inline">r=1,\ldots,\tau</span>: step <span class="math inline">r</span> receives <span class="math inline">\mathbf{x}_{t-\tau+r}</span>. The local state starts at <span class="math inline">\mathbf{h}_0=\mathbf{0}</span>, and the final local state <span class="math inline">\mathbf{h}_\tau</span> produces the forecast at calendar origin <span class="math inline">t</span>. Thus the state index inside a reset window counts steps from that window’s start, rather than dates from the start of the full series. The <a href="./nn_example.html#fig-nn-forecast-window">window diagram in the empirical chapter</a> illustrates the distinction between the input history for one forecast and the observations used to estimate the model.</p>
-<p>Temporal order matters within each window, but whole reset windows may be assigned to mini-batches in any order. One series of length <span class="math inline">N</span> gives <span class="math inline">N-\tau</span> training pairs when all inputs and targets are available. Consecutive windows share <span class="math inline">\tau-1</span> inputs, so their count is not a count of independent observations. Conditional on the realized training windows and fixed parameter values, however, a uniformly sampled mini-batch gives an unbiased gradient of the average empirical loss, by the sampling argument in Exercise 3.2 of the <a href="./optimization.html">optimization chapter</a>. This identity concerns randomness in batch selection. Overlap and serial dependence still matter for the statistical information in the sample and for forecast evaluation; the <a href="./cross_validation.html#sec-cv-time-series">cross-validation chapter’s</a> chronological train–validation–test discipline applies to forecast origins and target availability. A validation window may use earlier training-period observations as inputs; training must not use targets unavailable at the validation forecast origin.</p>
-<p><strong>Fixed windows and truncated backpropagation.</strong> Re-initializing the state at each window has a second effect: both the state recursion and the gradients run only across the <span class="math inline">\tau</span> steps inside a window. It is worth separating two horizons that this <strong>fixed-window training</strong> scheme happens to tie together. The <em>gradient horizon</em> is how far back credit assignment reaches. Cutting the backward derivative chain after a fixed number of steps is <strong>truncated backpropagation through time</strong> <span class="citation" data-cites="WilliamsPeng1990">(<a href="#ref-WilliamsPeng1990" role="doc-biblioref">Williams and Peng 1990</a>)</span>, and it caps the Jacobian products of the previous sections at length <span class="math inline">\tau</span> no matter how long the series is. The <em>state horizon</em> is how far back the forward recursion carries information.</p>
-<p>A state-carrying variant processes non-overlapping consecutive segments in chronological order, feeding the final state of one segment in as the initial state of the next. At each boundary it <strong>detaches</strong> the carried state: its numerical value is retained, but it is treated as a constant during the next segment’s backward calculation. The state horizon can therefore extend beyond <span class="math inline">\tau</span>, while the gradient horizon cannot. Earlier inputs can still affect the forecast, but the next segment’s loss does not differentiate through the updates that produced the carried state. The shared weights still receive gradient contributions from their uses within the current segment.</p>
-<p>Fixed-window training—the scheme used in the <a href="./nn_example.html">empirical chapter on networks for time series</a>—truncates both horizons at <span class="math inline">\tau</span>. Truncation reduces computation because the cost of a backward pass grows with sequence length. It may discard little <em>additional</em> usable gradient signal when contributions from earlier steps are already numerically negligible, but that negligibility is itself the vanishing-gradient problem rather than evidence that distant dependence is irrelevant.</p>
-<p>With fitted parameters held fixed, a forecast from a reset window is a function of its inputs <span class="math inline">(\mathbf{x}_{t-\tau+1},\ldots,\mathbf{x}_t)</span>, including any engineered features supplied in them. It cannot use incremental predictive information contained only in observations before the window and not recoverable from those inputs. A moving average, cumulative return, or other summary placed in <span class="math inline">\mathbf{x}_t</span> can carry older information into the window. The window length therefore plays the same role as the lag-window length <span class="math inline">L</span> of the lagged FNN at the start of the chapter. Both networks can learn which supplied inputs matter: the FNN maps the lag vector directly to the output, while the RNN compresses the sequence through shared state updates. In both cases, the chosen window limits direct access to history.</p>
-<p><strong>Parameter sharing imposes time-homogeneous dynamics.</strong> Applying the same weights and biases at every step imposes the same state-update and output maps at every date. This is analogous to assuming a stable parametric structure when estimating an ARMA or GARCH model over a long sample. Stable conditional relationships can justify pooling windows from different periods, but do not guarantee enough information to estimate many weights: dependence, window overlap, and model complexity still matter. The inputs themselves need not be stationary, since time-invariance restricts the maps rather than the input distribution. A fixed map can also accommodate changing observed dynamics when its inputs or state encode the relevant regime. Structural breaks can cause misspecification when the changed relationship is not captured by those inputs or that state. Subsample estimation, rolling estimation windows, and predictors that describe the regime are possible responses.</p>
+<h2 data-number="6.10" class="anchored" data-anchor-id="sec-rnn-windows"><span class="header-section-number">6.10</span> Training on Short Sequences</h2>
+<p>Backpropagating through an entire long series is costly, so we train on shorter sequences. A window of <span class="math inline">\tau</span> inputs ending at date <span class="math inline">t</span> is paired with the target <span class="math inline">y_{t+1}</span>. For <span class="math inline">\tau=3</span>, the first two training pairs are </p>
+<div class="display-math-block">
+<p><span class="math display">
+\begin{aligned}
+(\mathbf x_1,\mathbf x_2,\mathbf x_3)&amp;\longrightarrow y_4,\\
+(\mathbf x_2,\mathbf x_3,\mathbf x_4)&amp;\longrightarrow y_5.
+\end{aligned}
+</span></p>
+</div>
+<p> The inputs remain in chronological order within each window.</p>
+<p>In <strong>fixed-window training</strong>, the hidden state starts at zero for each window. Alternatively, we process consecutive, non-overlapping segments of up to <span class="math inline">\tau</span> steps and carry the final state into the next segment. At each boundary, we <strong>detach</strong> that state: retain its numerical value, but treat it as a constant in the next backward pass.</p>
+<p>The <em>state horizon</em> is how far back the forward recursion extends; the <em>gradient horizon</em> is how far back we differentiate:</p>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 33%">
+<col style="width: 33%">
+<col style="width: 33%">
+</colgroup>
+<thead>
+<tr class="header">
+<th>Scheme</th>
+<th>State horizon</th>
+<th>Gradient horizon</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Reset each window</td>
+<td><span class="math inline">\tau</span> steps</td>
+<td>At most <span class="math inline">\tau</span> steps</td>
+</tr>
+<tr class="even">
+<td>Carry and detach the state</td>
+<td>Can extend beyond <span class="math inline">\tau</span></td>
+<td>Stops at the segment boundary</td>
+</tr>
+</tbody>
+</table>
+<p>Cutting the backward path at these boundaries is <strong>truncated backpropagation through time</strong> <span class="citation" data-cites="WilliamsPeng1990">(<a href="#ref-WilliamsPeng1990" role="doc-biblioref">Williams and Peng 1990</a>)</span>. The forecast can still depend on earlier inputs through a carried state. In the current segment’s backward pass, however, shared weights receive contributions only from their uses within that segment. With fitted weights fixed, a reset window can use older information only if its inputs already contain summaries of that information.</p>
+<p>Overlapping windows are dependent observations; forecast evaluation still requires <a href="./cross_validation.html#sec-cv-time-series">chronological splits</a>. Neither scheme by itself resolves a structural break absent from the inputs or state, since both reuse the same maps across dates. The <a href="./nn_example.html#fig-nn-forecast-window">empirical chapter</a> uses reset windows and provides the window diagram and full Python workflow.</p>
 <div class="callout callout-style-default callout-important callout-titled">
 <div class="callout-header d-flex align-content-center">
 <div class="callout-icon-container">
@@ -795,10 +837,9 @@ Bridge to LSTM Networks
 </div>
 </div>
 <div class="callout-body-container callout-body">
-<p>Plain RNNs are hard to train reliably whenever the forecast depends on information many recurrent steps in the past—precisely the long-run dependence case that motivates reaching for a recurrent model. Their value in this chapter is conceptual: they expose the structural problem that learning long-run dependence requires gradient signal across many time steps. LSTMs address this by modifying the state update with gates and a cell state that preserve information more reliably.</p>
+<p>Shorter backward passes reduce computation, but do not repair vanishing gradients. The <a href="./lstm_neural_networks.html">next chapter</a> introduces LSTMs, which modify the state update to preserve information and gradient signals over longer sequences.</p>
 </div>
 </div>
-<p><strong>Where the implementation lives.</strong> This chapter deliberately stays at the conceptual level—recurrence, information sets, and gradient mechanics—without fitting a network in code. The <a href="./nn_example.html">empirical chapter on networks for time series</a> provides the full Python workflow (sequence construction from a time series, chronological splits, training-only scaling, tuning, and evaluation) that applies directly to the recurrent models introduced here and in the next chapter.</p>
 </section>
 <section id="summary" class="level2" data-number="6.11">
 <h2 data-number="6.11" class="anchored" data-anchor-id="summary"><span class="header-section-number">6.11</span> Summary</h2>
@@ -816,7 +857,7 @@ Key Takeaways
 <li>RNNs use shared parameters to update a hidden state that summarizes past inputs.</li>
 <li>Backpropagation through time applies the chain rule to the unrolled sequence of state updates.</li>
 <li>Repeated state transitions can attenuate or amplify gradients, making long-range learning difficult.</li>
-<li>Fixed windows limit the gradient horizon; forecasts can use earlier history only if the window’s inputs carry it.</li>
+<li>Reset windows restrict both forward and backward paths; detachment cuts the backward path while retaining the carried state.</li>
 </ol>
 </div>
 </div>
@@ -863,11 +904,16 @@ h_t &amp;= \tanh(z_t), \\
 </div>
 <p> Let <span class="math inline">L_T=\ell(y_{T+1},\hat y_{T+1\mid T})</span> be a differentiable terminal loss. In Parts 1–2, hold the observed sequence, terminal date <span class="math inline">T</span>, and fitted parameter values fixed, and assume <span class="math inline">\partial L_T/\partial h_T</span> is finite.</p>
 <ol type="1">
-<li><strong>Derive the scalar BPTT gradient.</strong> Express <span class="math inline">\partial L_T/\partial W_{hh}</span> as a sum of contributions from the repeated uses of <span class="math inline">W_{hh}</span>. Evaluate the local derivative of <span class="math inline">h_t</span> with respect to <span class="math inline">W_{hh}</span>, holding <span class="math inline">h_{t-1}</span> fixed, and express <span class="math inline">\partial h_T/\partial h_t</span> as a product of one-step derivatives.</li>
-<li><strong>Bound contributions from earlier steps.</strong> Prove that <span class="math inline">|\partial h_T/\partial h_t|\leq|W_{hh}|^{T-t}</span> and use <span class="math inline">h_0=0</span> and the range of tanh to bound each summand from Part 1. Explain what <span class="math inline">|W_{hh}|&lt;1</span> implies for contributions across long time gaps, and why it does not require the total parameter gradient to vanish.</li>
-<li><strong>Compare local and delayed signals.</strong> Assume finite second moments and squared loss at each forecast origin. For an observed first-order autoregressive (AR(1)) process, the RNN receives <span class="math inline">x_t=y_t</span>, a realization of <span class="math inline">Y_t</span>, and the conditional mean of <span class="math inline">Y_{t+1}</span> given the process’s history is <span class="math inline">\phi Y_t</span>, with <span class="math inline">|\phi|&lt;1</span>. In a delayed-signal task, the only inputs are realizations <span class="math inline">x_s</span> of nondegenerate independent and identically distributed variables <span class="math inline">X_s</span>, and the conditional mean of <span class="math inline">Y_{t+1}</span> given <span class="math inline">(X_s:s\leq t)</span> is <span class="math inline">\psi X_{t-d}</span>, with <span class="math inline">\psi\ne0</span> and <span class="math inline">d\geq1</span>. For <span class="math inline">t\geq d+1</span>, assume the relevant input has not been discarded by a state reset. Trace its path to <span class="math inline">\hat y_{t+1\mid t}</span> in each task and count the recurrent transitions. Which task requires a learning signal across a long time gap, and why does <span class="math inline">\phi</span> close to one not by itself create that requirement?</li>
+<li><p><strong>Derive the scalar BPTT gradient.</strong> Express <span class="math inline">\partial L_T/\partial W_{hh}</span> as a sum of contributions from the repeated uses of <span class="math inline">W_{hh}</span>. Evaluate the local derivative of <span class="math inline">h_t</span> with respect to <span class="math inline">W_{hh}</span>, holding <span class="math inline">h_{t-1}</span> fixed, and express <span class="math inline">\partial h_T/\partial h_t</span> as a product of one-step derivatives.</p></li>
+<li><p><strong>Bound contributions from earlier steps.</strong> Prove that <span class="math inline">|\partial h_T/\partial h_t|\leq|W_{hh}|^{T-t}</span> and use <span class="math inline">h_0=0</span> and the range of tanh to bound each summand from Part 1. Explain what <span class="math inline">|W_{hh}|&lt;1</span> implies for contributions across long time gaps, and why it does not require the total parameter gradient to vanish.</p></li>
+<li><p><strong>Local versus delayed signals.</strong> Suppose the RNN is trained with squared loss at each forecast origin. Consider two data-generating processes with finite second moments. In each process, the errors <span class="math inline">U_{t+1}</span> are independent and identically distributed with mean zero, and independent of all inputs available at time <span class="math inline">t</span>.</p>
+<ul>
+<li><em>First-order autoregressive (AR(1)) process:</em> <span class="math inline">Y_{t+1}=\phi Y_t+U_{t+1}</span> with <span class="math inline">|\phi|&lt;1</span>. The RNN’s input at date <span class="math inline">t</span> is <span class="math inline">x_t=y_t</span>.</li>
+<li><em>Delayed signal:</em> <span class="math inline">Y_{t+1}=\psi X_{t-d}+U_{t+1}</span> with <span class="math inline">\psi\ne0</span> and <span class="math inline">d\geq1</span>. The inputs <span class="math inline">X_s</span> are independent and identically distributed with positive variance; the RNN receives only their realizations <span class="math inline">x_s</span>.</li>
+</ul>
+<p>Work at <span class="math inline">t\geq d+1</span>, with no state reset from <span class="math inline">t-d</span> through <span class="math inline">t</span>. For each process, write the conditional mean of <span class="math inline">Y_{t+1}</span> given the inputs up to <span class="math inline">t</span> and identify the input appearing in it. Then count the state updates <strong>after</strong> that input has entered the hidden state, up to forecast origin <span class="math inline">t</span>. Each such update contributes a factor <span class="math inline">W_{hh}\tanh'(z_k)</span> to the derivative of the forecast with respect to that input. Which process requires the training signal to survive a long product when <span class="math inline">d</span> is large, and why does <span class="math inline">\phi</span> close to one not by itself create such a product?</p></li>
 </ol>
-<p><em>Exam level, approximately 20–25 minutes. The three parts cover the gradient calculation, its contraction bound, and the forecasting interpretation.</em></p>
+<p><em>Exam level. The three parts cover the gradient calculation, its contraction bound, and the forecasting interpretation.</em></p>
 </div>
 </div>
 <div class="callout callout-style-default callout-warning callout-titled">
@@ -898,7 +944,7 @@ Hint for Part 3
 </div>
 <div id="callout-14" class="callout-14-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
-<p>Locate the input that determines the conditional mean. Count recurrent transitions after that input enters the hidden state; the future date of the forecast target does not itself add a recurrent transition.</p>
+<p>The input that determines the conditional mean enters the state at one specific date. Start counting with the next state update, and stop at date <span class="math inline">t</span>. The final step from <span class="math inline">h_t</span> to <span class="math inline">\hat y_{t+1\mid t}</span> is the output map and adds no state update.</p>
 </div>
 </div>
 </div>
@@ -955,9 +1001,45 @@ Solution
 </span></p>
 </div>
 <p> The terminal loss derivative is a common finite factor under the stated fixed-sequence convention. If <span class="math inline">|W_{hh}|&lt;1</span>, the bound is geometrically smaller for earlier steps, weakening the learning signal across long gaps. Recent-step contributions need not be small, so the sum of all contributions need not vanish.</p>
-<p><strong>Part 3: Local versus delayed prediction</strong></p>
-<p>Under squared loss, the optimal forecast is the conditional mean of <span class="math inline">Y_{t+1}</span>. In the AR(1) task, observing the current input <span class="math inline">x_t=y_t</span> supplies all the information needed for the optimal forecast <span class="math inline">\phi y_t</span>. Its path is <span class="math inline">x_t\to h_t\to\hat y_{t+1\mid t}</span>, with <strong>zero recurrent transitions</strong> after the input enters the state. A coefficient close to one makes the observed series persistent, but the stipulated conditional mean still depends only on the current observation.</p>
-<p>In the delayed task, the relevant input is <span class="math inline">x_{t-d}</span>. The intermediate inputs do not reveal it because the inputs are independent. Its path is <span class="math inline">x_{t-d}\to h_{t-d}\to\cdots\to h_t\to\hat y_{t+1\mid t}</span>, crossing <strong><span class="math inline">d</span> recurrent transitions</strong>. The state-sensitivity factor along this path is bounded by <span class="math inline">|W_{hh}|^d</span>. When <span class="math inline">|W_{hh}|&lt;1</span>, this factor attenuates the learning signal from the delayed input, even though the forecast itself is only one step ahead.</p>
+<p><strong>Part 3: Local versus delayed signals</strong></p>
+<p>Under squared loss, the optimal forecast given the available inputs is the conditional mean. Since <span class="math inline">U_{t+1}</span> has mean zero and is independent of those inputs, the AR(1) and delayed-signal processes give, respectively, </p>
+<div class="display-math-block">
+<p><span class="math display">
+\begin{aligned}
+\mathbb E[Y_{t+1}\mid Y_1,\ldots,Y_t]
+&amp;=\phi Y_t,\\
+\mathbb E[Y_{t+1}\mid X_1,\ldots,X_t]
+&amp;=\psi X_{t-d}.
+\end{aligned}
+</span></p>
+</div>
+<p> The realized optimal forecasts are therefore <span class="math inline">\phi y_t</span> and <span class="math inline">\psi x_{t-d}</span>. The inputs appearing in them are <span class="math inline">x_t=y_t</span> and <span class="math inline">x_{t-d}</span>. In the delayed task, the independence of the <span class="math inline">X_s</span> and the error means that the intervening inputs <span class="math inline">x_{t-d+1},\ldots,x_t</span> provide no information about <span class="math inline">Y_{t+1}</span>.</p>
+<p>In the AR(1) task, the input enters at date <span class="math inline">t</span>, following the path <span class="math inline">x_t\to h_t\to\hat y_{t+1\mid t}</span>. There are <strong>zero state updates after input entry</strong>. To see the corresponding derivative, hold the network parameters and all other inputs fixed: </p>
+<div class="display-math-block">
+<p><span class="math display">
+\frac{\partial\hat y_{t+1\mid t}}{\partial x_t}
+=W_{hy}\tanh'(z_t)W_{xh}.
+</span></p>
+</div>
+<p> The input-to-state and output maps contribute factors, but there is no <span class="math inline">W_{hh}</span> factor.</p>
+<p>In the delayed task, <span class="math inline">x_{t-d}</span> first enters <span class="math inline">h_{t-d}</span>. The subsequent state updates occur at dates <span class="math inline">t-d+1,\ldots,t</span>, giving <strong><span class="math inline">d</span> state updates after input entry</strong>. Under the same derivative convention, </p>
+<div class="display-math-block">
+<p><span class="math display">
+\begin{aligned}
+\frac{\partial\hat y_{t+1\mid t}}{\partial x_{t-d}}
+&amp;=W_{hy}\left[\prod_{k=t-d+1}^{t}W_{hh}\tanh'(z_k)\right]\\
+&amp;\qquad\times\tanh'(z_{t-d})W_{xh}.
+\end{aligned}
+</span></p>
+</div>
+<p> The bracket contains exactly <span class="math inline">d</span> recurrent factors. By Part 2, its magnitude satisfies </p>
+<div class="display-math-block">
+<p><span class="math display">
+\left|\prod_{k=t-d+1}^{t}W_{hh}\tanh'(z_k)\right|
+\leq |W_{hh}|^d.
+</span></p>
+</div>
+<p> When <span class="math inline">|W_{hh}|&lt;1</span> and <span class="math inline">d</span> is large, this factor attenuates the learning signal from the delayed input, even though the forecast itself is only one step ahead. A coefficient <span class="math inline">\phi</span> close to one makes the AR(1) series persistent, but its conditional mean depends only on the current observation, already supplied as <span class="math inline">x_t=y_t</span>.</p>
 </div>
 </div>
 </div>
@@ -990,13 +1072,12 @@ Figure&nbsp;6.2: The single-unit RNN of this exercise, unrolled over <span class
 <li>Weight for hidden-to-output: <span class="math inline">W_{hy} = 1.2</span></li>
 <li>Bias for output: <span class="math inline">b_y = 0.0</span></li>
 </ul>
-<p>The input sequence is <span class="math inline">(x_1, x_2, x_3) = (0.2, -0.5, 0.3)</span> and the initial hidden state is <span class="math inline">h_0 = 0</span>. Use the approximations <span class="math inline">\tanh(0.2) \approx 0.197</span>, <span class="math inline">\tanh(0.008) \approx 0.008</span>, and <span class="math inline">\tanh(0.256) \approx 0.251</span>. For Part 3, also use <span class="math inline">\tanh(-0.15) \approx -0.149</span> and <span class="math inline">\tanh(0.131) \approx 0.130</span>.</p>
+<p>The input sequence is <span class="math inline">(x_1, x_2, x_3) = (0.2, -0.5, 0.3)</span> and the initial hidden state is <span class="math inline">h_0 = 0</span>. Use the approximations <span class="math inline">\tanh(0.2) \approx 0.197</span>, <span class="math inline">\tanh(0.008) \approx 0.008</span>, and <span class="math inline">\tanh(0.256) \approx 0.251</span>.</p>
 <ol type="1">
 <li><strong>Compute the forward pass.</strong> For <span class="math inline">t = 1, 2, 3</span>, compute the hidden state <span class="math inline">h_t</span> and the output <span class="math inline">\hat{y}_{t+1\mid t}</span>.</li>
 <li><strong>Separate value from sensitivity.</strong> Using your results from Part 1, show numerically how the memory term <span class="math inline">W_{hh} h_1</span> and the bias <span class="math inline">b_h</span> offset the input contribution at <span class="math inline">t=2</span>. Then compute the sensitivity <span class="math inline">\partial h_2/\partial x_1</span> and state what the <em>value</em> of <span class="math inline">h_2</span> does and does not imply about the memory of <span class="math inline">x_1</span>, connecting your answer to the geometric decay factor from Exercise 6.1.</li>
-<li><strong>Compare reset and detachment.</strong> Set <span class="math inline">\tau=2</span>. Evaluate all forecasts and derivatives at the supplied parameter values. For the forecast <span class="math inline">\hat y_{4\mid3}</span>, compare (a) resetting to zero before processing the window <span class="math inline">(x_2,x_3)</span> and (b) carrying <span class="math inline">h_2</span> from Part 1 into a final, shorter segment containing only <span class="math inline">x_3</span>, with <span class="math inline">h_2</span> detached at the boundary. Under (a), state which inputs the forecast can use, compute <span class="math inline">\hat y_{4\mid3}</span>, and find <span class="math inline">\partial\hat y_{4\mid3}/\partial x_1</span>. Under (b), use Part 2 to compute the derivative of the forecast with respect to <span class="math inline">x_1</span> through the full forward recursion, then explain which backward paths detachment removes and why the forecast’s derivative with respect to <span class="math inline">W_{hh}</span> retains a step-3 contribution. Finally, state in one sentence why neither scheme by itself resolves a structural break that is not represented in the inputs or state.</li>
 </ol>
-<p><em>Exam level, approximately 20–25 minutes. Part 1 checks the recursion, Part 2 separates state value from sensitivity, and Part 3 compares the effects of resetting and detaching the state.</em></p>
+<p><em>Exam level, approximately 10–15 minutes. Part 1 checks the recursion, and Part 2 separates state value from sensitivity.</em></p>
 </div>
 </div>
 <div class="callout callout-style-default callout-warning callout-titled">
@@ -1015,24 +1096,8 @@ Hint for Part 2
 </div>
 </div>
 </div>
-<div class="callout callout-style-default callout-warning callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-18-contents" aria-controls="callout-18" aria-expanded="false" aria-label="Toggle callout">
-<div class="callout-icon-container">
-<i class="callout-icon"></i>
-</div>
-<div class="callout-title-container flex-fill">
-Hint for Part 3
-</div>
-<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
-</div>
-<div id="callout-18" class="callout-18-contents callout-collapse collapse">
-<div class="callout-body-container callout-body">
-<p>Under (b), the forecast’s dependence on <span class="math inline">x_1</span> runs through <span class="math inline">h_2</span>. Multiply the Part 2 sensitivity by the step-3 state derivative and the output weight. Detachment changes what the backward pass differentiates, while preserving the carried state’s numerical value.</p>
-</div>
-</div>
-</div>
 <div class="callout callout-style-default callout-tip callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-19-contents" aria-controls="callout-19" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-18-contents" aria-controls="callout-18" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -1041,7 +1106,7 @@ Solution
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-19" class="callout-19-contents callout-collapse collapse">
+<div id="callout-18" class="callout-18-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p><strong>Part 1: Forward pass</strong></p>
 <p>At <span class="math inline">t = 1</span>: </p>
@@ -1093,46 +1158,6 @@ h_3 &amp;= \tanh(0.8 \cdot 0.008 + 0.5 \cdot 0.3 + 0.1) \\
 </div>
 <p> using <span class="math inline">\tanh'(z) = 1 - \tanh^2(z)</span> with <span class="math inline">z_1 = 0.2</span> and <span class="math inline">z_2 = 0.008</span>. A sensitivity of <span class="math inline">0.38</span> after one recurrence step is substantial—in fact, because <span class="math inline">z_2 \approx 0</span> places <span class="math inline">\tanh</span> in its steepest region, <span class="math inline">h_2</span> is close to <em>maximally</em> sensitive to perturbations of <span class="math inline">h_1</span>. Had <span class="math inline">x_1</span> been slightly different, <span class="math inline">h_2</span> would have been noticeably different: the state still remembers <span class="math inline">x_1</span> even though its value happens to sit near zero.</p>
 <p>The genuine connection to Exercise 6.1 runs through the <em>rate of decay</em>, not the value of the state. Each additional recurrence step multiplies the sensitivity by at most <span class="math inline">W_{hh}\,\max_z \tanh'(z) = 0.8</span>, so the influence of <span class="math inline">x_1</span> fades geometrically over many steps (<span class="math inline">0.8^{10} \approx 0.11</span>, <span class="math inline">0.8^{30} \approx 0.001</span>). The two-part conclusion: after one step, the memory of <span class="math inline">x_1</span> is still strong despite the near-zero state value; over long horizons, it is the geometric factor from Exercise 6.1—not value cancellation—that makes plain RNNs forget.</p>
-<p><strong>Part 3: Reset versus detachment</strong></p>
-<p>Under scheme (a), the reset forecast uses only <span class="math inline">x_2</span> and <span class="math inline">x_3</span>. Write <span class="math inline">\tilde h_r</span> for its state after local window step <span class="math inline">r</span>, with <span class="math inline">\tilde h_0=0</span>: step 1 processes <span class="math inline">x_2</span> and step 2 processes <span class="math inline">x_3</span>. The reset forward pass is </p>
-<div class="display-math-block">
-<p><span class="math display">
-\begin{aligned}
-\tilde h_1 &amp;= \tanh(0.8\cdot0+0.5\cdot(-0.5)+0.1) \\
-&amp;= \tanh(-0.15) \approx -0.149, \\[0.5em]
-\tilde h_2 &amp;= \tanh(0.8\tilde h_1+0.5\cdot0.3+0.1) \\
-&amp;\approx \tanh(0.131) \approx 0.130, \\[0.5em]
-\hat y_{4\mid3} &amp;= 1.2\tilde h_2 \approx 0.156.
-\end{aligned}
-</span></p>
-</div>
-<p> The reset forecast is about <span class="math inline">0.156</span>, compared with <span class="math inline">0.301</span> when carrying the state from Part 1: the same parameters and last two inputs give different forecasts because the initial states differ. With the parameters fixed and no engineered input carrying <span class="math inline">x_1</span>, the reset forecast has no dependence on <span class="math inline">x_1</span>, so <span class="math inline">\partial\hat y_{4\mid3}/\partial x_1=0</span>.</p>
-<p>Under scheme (b), carrying <span class="math inline">h_2</span> preserves the forward pass from Part 1. The forecast can depend on all three inputs. Differentiating through the full forward recursion, including how the carried state was produced, gives </p>
-<div class="display-math-block">
-<p><span class="math display">
-\begin{aligned}
-\frac{\partial\hat y_{4\mid3}}{\partial x_1}
-&amp;= W_{hy}\tanh'(z_3)W_{hh}
-   \frac{\partial h_2}{\partial x_1} \\
-&amp;\approx 1.2(1-0.251^2)\times0.8\times0.3844 \\
-&amp;\approx 0.346.
-\end{aligned}
-</span></p>
-</div>
-<p> The extra recurrent transition and the output weight distinguish this sensitivity from <span class="math inline">\partial h_2/\partial x_1\approx0.38</span> in Part 2.</p>
-<p>Detaching <span class="math inline">h_2</span> leaves its value unchanged but removes the backward paths through its construction. Thus the truncated graph gives no gradient back to <span class="math inline">x_1</span> or the step-1 and step-2 uses of <span class="math inline">W_{hh}</span>. The step-3 use still contributes to the forecast derivative: </p>
-<div class="display-math-block">
-<p><span class="math display">
-\begin{aligned}
-\left.\frac{\partial\hat y_{4\mid3}}{\partial W_{hh}}\right|_{h_2\,\mathrm{fixed}}
-&amp;= W_{hy}\tanh'(z_3)h_2 \\
-&amp;\approx 1.2\times0.937\times0.008 \\
-&amp;\approx 0.009.
-\end{aligned}
-</span></p>
-</div>
-<p> The local factor is small because it scales with the state <em>value</em> <span class="math inline">h_2</span>, which is near zero by the cancellation in Part 2. The input sensitivity above instead contains the <em>derivative</em> <span class="math inline">\partial h_2/\partial x_1</span>, which need not be small when <span class="math inline">h_2</span> is near zero. The corresponding loss-gradient contribution also includes the derivative of the loss with respect to the forecast. A zero gradient through the detached boundary therefore does not mean that the forward forecast has forgotten <span class="math inline">x_1</span>.</p>
-<p>Neither scheme by itself resolves an unrepresented structural break, because both reuse the same parameters across dates and can therefore fit a compromise poorly suited to either regime.</p>
 </div>
 </div>
 </div>
