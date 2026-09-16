@@ -20,7 +20,7 @@ Distributional neural networks address this by reframing the prediction problem.
 3. Next, we study Gaussian distributional networks and the instability that arises when mean and variance are trained jointly.
 4. We use Hemisphere Neural Networks (HNNs)—networks with a shared representation and separate mean and variance branches—as a case study for stabilizing distributional estimation in macro-financial settings.
 5. We then turn to Mixture Density Networks (MDNs), which output the weights and component parameters of a mixture distribution, for richer conditional distributions.
-6. We close with an empirical application—Gaussian density forecasts for equity realized variance, evaluated with proper scoring rules on a held-out test block—followed by key takeaways, common pitfalls, and exercises.
+6. We close with an empirical application—predictive distributions for next-day returns on the S&P 500 exchange-traded fund, comparing Gaussian and Student-$t$ distributional networks with a constant Gaussian benchmark by proper scoring rules and calibration histograms on a held-out test period—followed by key takeaways, common pitfalls, and exercises.
 
 ## From Point Forecasts to Predictive Distributions {#sec-point-to-distnn}
 
@@ -38,6 +38,9 @@ L(\phi) = -\frac{1}{N}\sum_{i=1}^N \log p(y_i \mid \mathbf{x}_i; \boldsymbol{\et
 $$
 
 Here, $y_i$ is the observed outcome, $\mathbf{x}_i$ is the feature vector, $\boldsymbol{\eta}_\phi(\mathbf{x}_i)$ denotes the distributional parameters implied by the neural network, and $\phi$ collects all trainable network weights. We write the objective as a sample average, matching the loss convention of the network chapters; the $1/N$ does not affect the minimizer.
+
+**The same construction outside forecasting.** Distributional output heads are not tied to predicting a future outcome. @WeiJiang2025 estimate the parameters of a structural econometric model by training a neural network on data simulated from the model itself: each training example pairs a parameter draw with the vector of data moments computed from the data set that this draw generated, and the network learns to map moments back to the parameter value behind them. Adding a second output head for a covariance matrix and training under the Gaussian negative log-likelihood above turns that point estimator into a distributional one. 
+As in the quasi-likelihood argument of @sec-hnn, the Gaussian form of the loss is a device for targeting the first two moments and does not require that this conditional distribution be Gaussian.
 
 ## Training Scores and Information Theory {#sec-distnn-training-scores}
 
@@ -192,15 +195,27 @@ at several quantile levels. The conditional expected loss is minimized by a cond
 An MDN is a flexible way to approximate a conditional density with latent regimes. It should not automatically be interpreted as a structural regime-switching model: the mixture components are learned predictive components unless additional economic restrictions are imposed.
 :::
 
-## Empirical Application: Distributional Network for SPY Realized Variance {#sec-distnn-empirical}
+## Empirical Application: Predictive Distributions for SPY Returns {#sec-distnn-empirical}
 
-The realized-variance illustration of the [previous chapter](nn_example.qmd) produced point forecasts of daily log realized variance, $\log RV_{t+1}$, for SPY, the S&P 500 exchange-traded fund, and evaluated them with squared and absolute losses. A Gaussian predictive distribution also requires a conditional variance. We therefore compare two such distributions using the same SPY data, log-transformed heterogeneous autoregressive (HAR) features, and the final 20% test block. Because all hyperparameters are fixed in advance, this chapter combines the previous chapter's training and validation blocks into one estimation sample.[^distnn-data]
+The Overview motivated distributional networks with a financial economist who cares about the left tail of returns. We now construct such a forecast. The realized-variance illustration of the [previous chapter](nn_example.qmd) produced point forecasts of daily log realized variance for SPY, the S&P 500 exchange-traded fund. Here the same realized-variance information becomes the input to a predictive distribution for the next day's SPY return. Returns are the classic setting for conditional heteroskedasticity: at a daily horizon their conditional mean is hard to predict, whereas their conditional variance moves with recent volatility, as in GARCH models. A predictive distribution for returns should therefore draw most of its value from a scale that responds to the inputs and, if large moves are more frequent than a Gaussian distribution allows, from its tails.
 
-[^distnn-data]: The data file `data/taq_spy/SPY_daily_measures.csv` covers 2015-01-02 through 2024-12-31 and is documented in [the dataset appendix](datasets.qmd#sec-spy-taq-realized). The longest HAR component averages 21 trading days. The pipeline nevertheless begins forecasting only after 22 lagged observations so that its forecast origins and final 20% test block match those in the previous chapter.
+**Target and information set.** Let $r_{t+1}$ denote the SPY log return, in percent, from the close of trading day $t$ to the close of trading day $t+1$, and let $R_{t+1}$ denote the corresponding random variable. The forecast origin is the close of day $t$. The input vector contains the three log heterogeneous autoregressive (HAR) components of @CorsiHAR2009 used in the previous chapter, all known at that close:
+$$
+\mathbf{x}_t=\Bigl(\log RV_t,\ \log\bigl(\tfrac{1}{5}\textstyle\sum_{j=0}^{4} RV_{t-j}\bigr),\ \log\bigl(\tfrac{1}{21}\textstyle\sum_{j=0}^{20} RV_{t-j}\bigr)\Bigr)',
+$$
+where $RV_t$ is the realized variance of day $t$: the sum of squared 5-minute log returns over regular trading hours, after multiplying returns by 100, so that its units are squared percentage points. The inputs measure price variation up to day $t$, whereas $r_{t+1}$ refers to day $t+1$ and also contains the overnight price change from the close of day $t$ to the open of day $t+1$, which realized variance never covers. The inputs are therefore predictors of the return distribution rather than measurements of its variance: each model must learn how $\mathbf{x}_t$ maps into the location, scale, and tail shape of $R_{t+1}$ given $\mathbf{x}_t$.[^distnn-data]
 
-The **HAR-OLS Gaussian baseline** fits the HAR components by ordinary least squares (OLS) and uses the resulting linear conditional mean. Specifically, it regresses $\log RV_{t+1}$ on $\log RV_t$, $\log\big(\tfrac{1}{5}\sum_{j=0}^{4} RV_{t-j}\big)$, and $\log\big(\tfrac{1}{21}\sum_{j=0}^{20} RV_{t-j}\big)$. Its conditional variance is the in-sample residual variance from the same fit, computed with the maximum-likelihood convention by dividing the sum of squared residuals by the number of observations. The variance stays constant over the test block, so the baseline is homoskedastic in log-$RV$ space.
+[^distnn-data]: The data file `data/taq_spy/SPY_daily_measures.csv` covers 2015-01-02 through 2024-12-31 and is documented in [the dataset appendix](datasets.qmd#sec-spy-taq-realized). 
 
-The **Gaussian distributional HAR-FNN** is a feed-forward neural network (FNN) using the same three log-HAR inputs. One hidden layer with 32 softplus units feeds a linear mean head $\mu_\phi(\mathbf{x}_t)$ and an unconstrained variance pre-activation $a_\phi(\mathbf{x}_t)$. The predictive variance is $\sigma_\phi^2(\mathbf{x}_t)=c+\operatorname{softplus}(a_\phi(\mathbf{x}_t))$ for a small floor $c>0$. This smooth parameterization avoids the zero-gradient region created by hard clipping with $\max\{\exp(a),c\}$. We write $a_\phi$ for this scalar head to distinguish it from the full parameter vector $\boldsymbol{\eta}_\phi$ of @sec-point-to-distnn; here $\boldsymbol{\eta}_\phi(\mathbf{x}_t) = (\mu_\phi(\mathbf{x}_t), a_\phi(\mathbf{x}_t))$. The heads share the hidden representation, in the spirit of the HNN common core in @sec-hnn, but the model does not use the volatility-emphasis constraint, blocked subsampling, or out-of-bag recalibration. It minimizes Gaussian negative log-likelihood and is evaluated with LogS, CRPS, and the probability integral transform (PIT) on the held-out test block, as in the [empirical application of the predictive-distribution chapter](evaluating_distributions.qmd#sec-eval-dist-empirical).
+**Sample split.** We keep the test years of the previous chapter: the test block contains the 502 return targets dated in 2023 and 2024. All earlier targets form a single estimation sample. Because all hyperparameters are fixed in advance, no validation block is needed. Each model is fitted once on the estimation sample and held fixed throughout the test block; unlike the previous chapter, we do not refit at the start of 2024.
+
+**Three predictive distributions.** We compare three ways of forming a predictive distribution for $R_{t+1}$ given $\mathbf{x}_t$: a benchmark that ignores the inputs and two distributional networks.
+
+1. The **constant Gaussian** forecast is $\mathcal{N}(\bar r, s_r^2)$ on every test day, where $\bar r$ and $s_r^2$ are the estimation-sample mean and the maximum-likelihood variance of the returns (the sum of squared deviations divided by the number of observations). It ignores $\mathbf{x}_t$.
+2. The **Gaussian HAR-FNN** is a feed-forward neural network (FNN) with one hidden layer of 32 softplus units, a linear mean head $\mu_\phi(\mathbf{x}_t)$, and an unconstrained variance pre-activation $a_\phi(\mathbf{x}_t)$. The predictive variance is $\sigma_\phi^2(\mathbf{x}_t)=c+\zeta(a_\phi(\mathbf{x}_t))$, where $\zeta$ is the softplus function and $c>0$ is a small floor.
+3. The **Student-$t$ HAR-FNN** adds the third output head for the degrees of freedom proposed in @sec-hnn. Its second head now delivers the squared scale, $s_\phi^2(\mathbf{x}_t)=c+\zeta(a_\phi(\mathbf{x}_t))$, and its third head a pre-activation $b_\phi(\mathbf{x}_t)$ with $\nu_\phi(\mathbf{x}_t)=2+\zeta(b_\phi(\mathbf{x}_t))>2$. The degrees of freedom may therefore vary with the inputs. As in @sec-hnn, the implied conditional variance is $s_\phi^2(\mathbf{x}_t)\,\nu_\phi(\mathbf{x}_t)/(\nu_\phi(\mathbf{x}_t)-2)$, not $s_\phi^2(\mathbf{x}_t)$.
+
+The unconstrained outputs $(\mu_\phi,a_\phi)$ and $(\mu_\phi,a_\phi,b_\phi)$ play the role of the parameter vector $\boldsymbol{\eta}_\phi(\mathbf{x}_t)$ of @sec-point-to-distnn before the positivity transformations are applied. In each network the heads share one hidden representation, in the spirit of the HNN common core in @sec-hnn, but neither network uses the volatility-emphasis constraint, blocked subsampling, or out-of-bag recalibration. Each network minimizes its own negative log-likelihood. We evaluate all three forecasts on the test block with LogS, CRPS, and PIT histograms, as in the [empirical application of the predictive-distribution chapter](evaluating_distributions.qmd#sec-eval-dist-empirical).
 
 ```{python}
 #| label: distnn-setup
@@ -214,9 +229,10 @@ import random
 import numpy as np
 import pandas as pd
 import keras
+import tensorflow as tf
 from keras import layers, ops
-from sklearn.linear_model import LinearRegression
-from scipy.stats import norm
+from scipy import special
+from scipy.stats import norm, t as student_t
 import properscoring as ps
 import matplotlib.pyplot as plt
 
@@ -224,71 +240,67 @@ random.seed(0)
 np.random.seed(0)
 keras.utils.set_random_seed(0)
 
-rv_source = (
+spy = (
     pd.read_csv("data/taq_spy/SPY_daily_measures.csv", parse_dates=["date"])
     .sort_values("date")
-    .loc[:, ["date", "rv"]]
+    .loc[:, ["date", "close_taq", "rv"]]
+    .reset_index(drop=True)
 )
-rv = rv_source.dropna(subset=["rv"])
-rv = rv.loc[rv["rv"] > 0].reset_index(drop=True)
-
-usable = rv_source["date"] <= rv["date"].max()
-assert (rv_source.loc[usable, "rv"] > 0).all(), "gap inside the usable sample"
+assert spy["date"].is_monotonic_increasing and not spy["date"].duplicated().any()
+assert (spy["rv"] > 0).all() and (spy["close_taq"] > 0).all()
 
 window = 22
 
-def make_log_har(rv_arr):
-    X, y, idx = [], [], []
+def make_log_har_returns(rv_arr, close_arr):
+    """Row for origin `end`: log-HAR inputs through day `end`, percent log return to close `end + 1`."""
+    X, r, idx = [], [], []
     for end in range(window - 1, len(rv_arr) - 1):
         X.append(np.log([
             rv_arr[end],
             rv_arr[end - 4 : end + 1].mean(),
             rv_arr[end - 20 : end + 1].mean(),
         ]))
-        y.append(np.log(rv_arr[end + 1]))
+        r.append(100 * np.log(close_arr[end + 1] / close_arr[end]))
         idx.append(end + 1)
-    return np.asarray(X), np.asarray(y), np.asarray(idx)
+    return np.asarray(X), np.asarray(r), np.asarray(idx)
 
-X, y, target_idx = make_log_har(rv["rv"].to_numpy())
-dates = rv.loc[target_idx, "date"].reset_index(drop=True)
+X, r, target_idx = make_log_har_returns(spy["rv"].to_numpy(), spy["close_taq"].to_numpy())
+dates = spy.loc[target_idx, "date"].reset_index(drop=True)  # target dates
 
-n = len(y)
-split_valid = int(0.80 * n)
-X_trva, y_trva = X[:split_valid], y[:split_valid]
-X_te, y_te = X[split_valid:], y[split_valid:]
-dates_te = dates.iloc[split_valid:].reset_index(drop=True)
+in_est = (dates < "2023-01-01").to_numpy()
+X_est, r_est = X[in_est], r[in_est]
+X_te, r_te = X[~in_est], r[~in_est]
+dates_te = dates[~in_est].reset_index(drop=True)
 
-x_center = X_trva.mean(axis=0)
-x_scale = X_trva.std(axis=0)
-y_center = float(y_trva.mean())
-y_scale = float(y_trva.std())
+x_center, x_scale = X_est.mean(axis=0), X_est.std(axis=0)
+r_center, r_scale = float(r_est.mean()), float(r_est.std())  # r-bar and s_r
+Xs_est, Xs_te = (X_est - x_center) / x_scale, (X_te - x_center) / x_scale
 
-Xs_trva = (X_trva - x_center) / x_scale
-ys_trva = (y_trva - y_center) / y_scale
-Xs_te = (X_te - x_center) / x_scale
-
-print(f"forecast origins: {n}, train+validation: {split_valid}, test: {n - split_valid}")
-print(f"test window: {dates_te.iloc[0].date()} to {dates_te.iloc[-1].date()}")
+print(f"estimation targets: {in_est.sum()} "
+      f"({dates[in_est].iloc[0].date()} to {dates[in_est].iloc[-1].date()})")
+print(f"test targets: {(~in_est).sum()} ({dates_te.iloc[0].date()} to {dates_te.iloc[-1].date()})")
+print(f"standard deviation of returns: estimation {r_est.std():.2f}, test {r_te.std():.2f}")
 ```
 
-The `make_log_har` helper builds the same three HAR averages used in the [Chapter 8 illustration](nn_example.qmd) but applies $\log(\cdot)$ before standardization, so the linear baseline is a log-log HAR regression and the FNN inputs are on the same scale. We standardize features and the target on the train-plus-validation block, which avoids leaking test-block information into the scaling constants.
+The `make_log_har_returns` helper builds the same three HAR averages as the [Chapter 8 illustration](nn_example.qmd) and takes their logarithms. Row $t$ of `X` holds $\mathbf{x}_t$, and the matching entry of `r` holds $r_{t+1}$, so both arrays are indexed by forecast origin while `dates` records the target date. The inputs are standardized with estimation-sample constants only, so no test-block information enters the scaling. The target needs no standardization, because percent returns already have a mean close to zero and a standard deviation of order one. The printed standard deviations already hint at a problem for the constant Gaussian benchmark: returns in the 2023–2024 test block were considerably less volatile than in the estimation sample, which contains the turbulent years 2020 and 2022.
 
-The Gaussian baseline is just OLS plus an in-sample residual variance.
+The constant Gaussian benchmark needs no neural network: it reuses the scaling constants $\bar r$ and $s_r$ on every test day.
 
 ```{python}
 #| label: distnn-baseline
 #| echo: true
 
-ols = LinearRegression().fit(X_trva, y_trva)
-mu_ols_te = ols.predict(X_te)
-resid_trva = y_trva - ols.predict(X_trva)
-sigma_ols = float(np.std(resid_trva))  # ML convention: divide the SSE by n
-sigma_ols_te = np.full_like(mu_ols_te, sigma_ols)
+mu_const_te = np.full_like(r_te, r_center)
+sigma_const_te = np.full_like(r_te, r_scale)
 ```
 
-The distributional HAR-FNN has two heads on top of a shared hidden layer. The custom loss implements the per-observation Gaussian NLL of @sec-hnn, with a smooth positive variance parameterization that prevents a degenerate density when residuals are near zero (the pathology analyzed in Exercise 9.1). Exercise 9.1 derives the optimum under a hard inequality constraint; the implementation uses a smooth map because applying a hard maximum to a network output would give zero derivative whenever the floor binds.
+The two distributional networks share one architecture and differ only in the number of output heads and in the negative log-likelihood they minimize. The Gaussian loss is the per-observation NLL of @sec-hnn, with the smooth variance floor that prevents a degenerate density when residuals are near zero (the pathology analyzed in Exercise 9.1). Exercise 9.1 derives the optimum under a hard inequality constraint; the implementation uses a smooth map because applying a hard maximum to a network output would give a zero derivative whenever the floor binds. The Student-$t$ loss is the negative logarithm of the location-scale Student-$t$ density,
+$$
+-\log\Gamma\Bigl(\frac{\nu+1}{2}\Bigr)+\log\Gamma\Bigl(\frac{\nu}{2}\Bigr)+\frac{1}{2}\log(\nu\pi s^2)+\frac{\nu+1}{2}\log\Bigl(1+\frac{(r-\mu)^2}{\nu s^2}\Bigr),
+$$
+evaluated at the network outputs $(\mu,s^2,\nu)$ for each observation. Keras's backend-independent `ops` module has no log-gamma function, so the Student-$t$ loss calls TensorFlow's `tf.math.lgamma` directly.
 
-Two protocol notes distinguish this workflow from the previous chapter's. First, we fix all hyperparameters *a priori*—32 hidden units, learning rate $10^{-3}$, 200 epochs, and batch size 32—without a data-driven tuning step. We therefore use the first 80% of forecast origins as one estimation sample; the variable names `X_trva` and `Xs_trva` record that this block combines the earlier training and validation samples. Second, standardizing on this full block is appropriate because no validation sample needs to remain protected, while the test block still never enters the scaling constants. The [Chapter 8](nn_example.qmd) warning about scaling beyond the training block applies when validation data guide model selection. The results below describe one fixed configuration and a single training run with a fixed random seed, not a stable architecture ranking; repeated seeds or resamples would be needed to quantify optimization variability.
+We fix all hyperparameters *a priori*—32 hidden units, learning rate $10^{-3}$, 200 epochs, and batch size 32—without a data-driven tuning step. The results below describe one fixed configuration and a single training run per network with a fixed random seed, not a stable architecture ranking; repeated seeds or resamples would be needed to quantify optimization variability.
 
 ```{python}
 #| label: distnn-model
@@ -296,142 +308,212 @@ Two protocol notes distinguish this workflow from the previous chapter's. First,
 
 VAR_FLOOR = 1e-3
 
-def make_dist_har_fnn(n_neurons=32, learning_rate=1e-3):
+def gaussian_nll(y_true, y_pred):
+    mu = y_pred[..., 0:1]
+    var = VAR_FLOOR + ops.softplus(y_pred[..., 1:2])
+    return 0.5 * (ops.log(2.0 * np.pi * var) + ops.square(y_true - mu) / var)
+
+def student_t_nll(y_true, y_pred):
+    mu = y_pred[..., 0:1]
+    scale2 = VAR_FLOOR + ops.softplus(y_pred[..., 1:2])
+    nu = 2.0 + ops.softplus(y_pred[..., 2:3])
+    log_density = (
+        tf.math.lgamma((nu + 1.0) / 2.0) - tf.math.lgamma(nu / 2.0)
+        - 0.5 * ops.log(nu * np.pi * scale2)
+        - 0.5 * (nu + 1.0) * ops.log1p(ops.square(y_true - mu) / (nu * scale2))
+    )
+    return -log_density
+
+def make_dist_har_fnn(n_heads, loss, n_neurons=32, learning_rate=1e-3):
     inputs = keras.Input(shape=(3,))
     h = layers.Dense(n_neurons, activation="softplus")(inputs)
-    mu_head = layers.Dense(1)(h)
-    raw_var_head = layers.Dense(1)(h)
-    outputs = layers.Concatenate()([mu_head, raw_var_head])
-    model = keras.Model(inputs, outputs, name="DistHARFNN")
-
-    def gaussian_nll(y_true, y_pred):
-        mu = y_pred[..., 0:1]
-        raw_var = y_pred[..., 1:2]
-        var = VAR_FLOOR + ops.softplus(raw_var)
-        return 0.5 * (ops.log(2.0 * np.pi * var) + ops.square(y_true - mu) / var)
-
-    model.compile(loss=gaussian_nll, optimizer=keras.optimizers.Adam(learning_rate))
+    heads = [layers.Dense(1)(h) for _ in range(n_heads)]
+    model = keras.Model(inputs, layers.Concatenate()(heads))
+    model.compile(loss=loss, optimizer=keras.optimizers.Adam(learning_rate))
     return model
 
-dist_model = make_dist_har_fnn(n_neurons=32, learning_rate=1e-3)
-dist_model.fit(
-    Xs_trva, ys_trva.reshape(-1, 1),
-    epochs=200, batch_size=32, verbose=0, shuffle=False,
-)
+def softplus(a):
+    return np.logaddexp(0.0, a)
 
-pred_std = dist_model.predict(Xs_te, verbose=0)
-mu_std, raw_var_std = pred_std[:, 0], pred_std[:, 1]
-mu_dist_te = mu_std * y_scale + y_center
-var_dist_te = (VAR_FLOOR + np.logaddexp(0.0, raw_var_std)) * (y_scale ** 2)
-sigma_dist_te = np.sqrt(var_dist_te)
+gauss_model = make_dist_har_fnn(n_heads=2, loss=gaussian_nll)
+_ = gauss_model.fit(Xs_est, r_est.reshape(-1, 1), epochs=200, batch_size=32, verbose=0, shuffle=False)
+pred = gauss_model.predict(Xs_te, verbose=0)
+mu_gauss_te = pred[:, 0]
+sigma_gauss_te = np.sqrt(VAR_FLOOR + softplus(pred[:, 1]))
+
+t_model = make_dist_har_fnn(n_heads=3, loss=student_t_nll)
+_ = t_model.fit(Xs_est, r_est.reshape(-1, 1), epochs=200, batch_size=32, verbose=0, shuffle=False)
+pred = t_model.predict(Xs_te, verbose=0)
+mu_t_te = pred[:, 0]
+s_t_te = np.sqrt(VAR_FLOOR + softplus(pred[:, 1]))
+nu_t_te = 2.0 + softplus(pred[:, 2])
 ```
 
-Because the network is trained on the standardized target $\tilde y_{t+1}=(y_{t+1}-\bar y)/s_y$ paired with $\mathbf{x}_t$, the map $c+\operatorname{softplus}(a_\phi(\mathbf{x}_t))$ represents the conditional variance of the standardized outcome $\tilde Y_{t+1}:=(Y_{t+1}-\bar y)/s_y$ given $\mathbf{x}_t$, with $\bar y$ and $s_y$ treated as fixed training constants. Linear standardization is variance-equivariant:
-$$
-\operatorname{Var}(Y_{t+1}\mid \mathbf{x}_t)
-=s_y^2\operatorname{Var}(\tilde Y_{t+1}\mid \mathbf{x}_t).
-$$
-Thus, the back-transformed predictive variance is $[c+\operatorname{softplus}(a_\phi(\mathbf{x}_t))]s_y^2$, exactly as implemented. This back-transformation reverses only the linear standardization and leaves the forecast on the log-$RV$ scale. Obtaining a predictive distribution for $RV$ instead requires the nonlinear transformation $RV=\exp(\log RV)$: a Gaussian predictive density for $\log RV$ implies a lognormal density for $RV$, whose level-scale mean is $\mathbb{E}[RV]=\exp(\mu+\sigma^2/2)$. The present application evaluates forecasts and outcomes on the log-$RV$ scale and does not perform this level-scale transformation. Under the scores considered here, consistent linear rescaling preserves model rankings [@Kleen2024], although absolute numerical score levels generally change. Forecasts and outcomes must therefore be placed on one common scale before their scores are compared.
+Because the networks are trained directly on percent returns, their outputs need no back-transformation: $\mu_\phi(\mathbf{x}_t)$, $\sigma_\phi^2(\mathbf{x}_t)$, and $s_\phi^2(\mathbf{x}_t)$ are already on the percent scale, and the variance floor $c=10^{-3}$ corresponds to a standard deviation of only about 0.03 percent. A nonlinear transformation of the target would require more than rescaling. Had we modeled $\log RV_{t+1}$ as in the previous chapter, a Gaussian predictive density with mean $m$ and variance $v$ on the log scale would imply a lognormal density for $RV_{t+1}$, whose mean is $\exp(m+v/2)$ rather than $\exp(m)$; the density itself changes according to the change-of-variables formula. Scores are therefore comparable only when all forecasts and outcomes are expressed on one common scale, here the percent return. Under the LogS and CRPS, multiplying forecasts and outcomes by the same positive factor preserves model rankings [@Kleen2024], and shifting both by a common constant leaves the scores unchanged; rescaling does, however, change absolute score levels.
+
+Scoring the Student-$t$ forecasts needs one more ingredient. The Gaussian CRPS is available in `properscoring`, whereas the Student-$t$ CRPS uses the closed form for $\nu>1$ reported by @JordanKruegerLerch2019. The table lists each forecast's average LogS and CRPS over the 502 test days, together with its largest single-day LogS, the date of that day, and its CRPS on that day.
 
 ```{python}
 #| label: distnn-scores
 #| echo: true
 
-logs_ols = -norm.logpdf(y_te, mu_ols_te, sigma_ols_te)
-logs_dist = -norm.logpdf(y_te, mu_dist_te, sigma_dist_te)
-crps_ols = np.array([ps.crps_gaussian(y, mu=m, sig=s)
-                     for y, m, s in zip(y_te, mu_ols_te, sigma_ols_te)])
-crps_dist = np.array([ps.crps_gaussian(y, mu=m, sig=s)
-                      for y, m, s in zip(y_te, mu_dist_te, sigma_dist_te)])
-pit_ols = norm.cdf(y_te, mu_ols_te, sigma_ols_te)
-pit_dist = norm.cdf(y_te, mu_dist_te, sigma_dist_te)
+def crps_student_t(r, mu, s, nu):
+    """Closed-form CRPS of a location-scale Student-t forecast, valid for nu > 1."""
+    z = (r - mu) / s
+    const = 2 * np.sqrt(nu) * special.beta(0.5, nu - 0.5) / ((nu - 1) * special.beta(0.5, nu / 2) ** 2)
+    return s * (z * (2 * student_t.cdf(z, nu) - 1)
+                + 2 * student_t.pdf(z, nu) * (nu + z**2) / (nu - 1) - const)
 
-scores = pd.DataFrame({
-    "model": ["HAR-OLS Gaussian", "Distributional HAR-FNN"],
-    "mean_LogS": [logs_ols.mean(), logs_dist.mean()],
-    "mean_CRPS": [crps_ols.mean(), crps_dist.mean()],
-})
-scores.round(4)
+forecasts = {
+    "Constant Gaussian": ("gaussian", mu_const_te, sigma_const_te, None),
+    "Gaussian HAR-FNN": ("gaussian", mu_gauss_te, sigma_gauss_te, None),
+    "Student-t HAR-FNN": ("student_t", mu_t_te, s_t_te, nu_t_te),
+}
+
+rows, pit = [], {}
+for name, (family, mu, s, nu) in forecasts.items():
+    if family == "gaussian":
+        logs = -norm.logpdf(r_te, mu, s)
+        crps = ps.crps_gaussian(r_te, mu=mu, sig=s)
+        pit[name] = norm.cdf(r_te, mu, s)
+    else:
+        logs = -(student_t.logpdf((r_te - mu) / s, nu) - np.log(s))
+        crps = crps_student_t(r_te, mu, s, nu)
+        pit[name] = student_t.cdf((r_te - mu) / s, nu)
+    worst = int(np.argmax(logs))
+    rows.append({
+        "model": name,
+        "mean_LogS": logs.mean(),
+        "mean_CRPS": crps.mean(),
+        "largest_LogS": logs[worst],
+        "largest_LogS_date": dates_te[worst].date(),
+        "CRPS_that_day": crps[worst],
+    })
+
+scores = pd.DataFrame(rows).set_index("model")
+print(scores.round(4).to_string())
 ```
 
-@fig-distnn-empirical-bands places the two test-block forecasts on a common scale. Compare the constant-width baseline band in the top panel with the feature-dependent band below it.
+The second table summarizes the remaining outputs of the two networks over the test block: the range of the predictive standard deviations, where the Student-$t$ standard deviation is the scale multiplied by $\sqrt{\nu/(\nu-2)}$; the share of test days on which the standard deviation lies below the constant standard deviation $s_r$; and the ranges of the predicted means and of the degrees of freedom.
+
+```{python}
+#| label: distnn-sd-summary
+#| echo: true
+
+sd_t_te = s_t_te * np.sqrt(nu_t_te / (nu_t_te - 2))
+
+summary = pd.DataFrame({
+    name: {
+        "sd_min": sd.min(),
+        "sd_max": sd.max(),
+        "share_sd_below_s_r": np.mean(sd < r_scale),
+        "mean_min": mu.min(),
+        "mean_max": mu.max(),
+        "nu_min": np.nan if nu is None else nu.min(),
+        "nu_max": np.nan if nu is None else nu.max(),
+    }
+    for name, sd, mu, nu in [
+        ("Gaussian HAR-FNN", sigma_gauss_te, mu_gauss_te, None),
+        ("Student-t HAR-FNN", sd_t_te, mu_t_te, nu_t_te),
+    ]
+}).T
+print(summary.round(2).to_string())
+```
+
+@fig-distnn-empirical-bands places the constant Gaussian benchmark and the Student-$t$ HAR-FNN on a common scale. Compare how the width of each shaded band relates to the realized returns over time.
 
 ```{python}
 #| label: fig-distnn-empirical-bands
-#| fig-cap: "Realized $\\log RV_{t+1}$ on the test block (gray) with one-step-ahead Gaussian density forecasts. In each panel, the colored line is the predictive mean and the shaded band is the central 95% predictive interval; the top panel shows the HAR-OLS Gaussian baseline, the bottom panel the distributional HAR-FNN."
+#| fig-cap: "Realized close-to-close SPY returns $r_{t+1}$ in percent on the 2023–2024 test block (gray) with central 95% predictive intervals (shaded), each issued at the close of the previous trading day. Top: constant Gaussian forecast, whose interval uses the estimation-sample mean and standard deviation. Bottom: Student-$t$ HAR-FNN, whose interval endpoints are the 2.5% and 97.5% quantiles of the fitted location-scale Student-$t$ distribution. Both panels share the vertical axis."
 #| echo: true
 
-fig, axes = plt.subplots(2, 1, figsize=(11, 6.4), sharex=True)
+lower_t = mu_t_te + s_t_te * student_t.ppf(0.025, nu_t_te)
+upper_t = mu_t_te + s_t_te * student_t.ppf(0.975, nu_t_te)
+bands = [
+    ("Constant Gaussian", mu_const_te - 1.96 * sigma_const_te, mu_const_te + 1.96 * sigma_const_te, "C1"),
+    ("Student-t HAR-FNN", lower_t, upper_t, "C0"),
+]
+for label, lower, upper, _ in bands:
+    n_outside = int(np.sum((r_te < lower) | (r_te > upper)))
+    print(f"{label}: {n_outside} of {len(r_te)} realized returns outside the central 95% interval")
 
-for ax, mu, sig, label, color in zip(
-    axes,
-    [mu_ols_te, mu_dist_te],
-    [sigma_ols_te, sigma_dist_te],
-    ["HAR-OLS Gaussian", "Distributional HAR-FNN"],
-    ["C1", "C0"],
-):
-    ax.plot(dates_te, y_te, color="0.55", linewidth=0.9, label="realized log RV")
-    ax.plot(dates_te, mu, color=color, linewidth=1.1, label=f"{label} mean")
-    ax.fill_between(dates_te, mu - 1.96 * sig, mu + 1.96 * sig,
-                    color=color, alpha=0.20, label="95% band")
-    ax.set_ylabel("log RV")
-    ax.set_title(label)
-    ax.legend(frameon=False, loc="upper right", ncol=3, fontsize=9)
+fig, axes = plt.subplots(2, 1, figsize=(11, 6.4), sharex=True, sharey=True)
+for ax, (label, lower, upper, color) in zip(axes, bands):
+    _ = ax.plot(dates_te, r_te, color="0.55", linewidth=0.8, label="realized return")
+    _ = ax.fill_between(dates_te, lower, upper, color=color, alpha=0.25, label="central 95% interval")
+    _ = ax.set(title=label, ylabel="return (%)")
+    _ = ax.legend(frameon=False, loc="lower left", ncol=2, fontsize=9)
     ax.grid(True, alpha=0.25)
 
-axes[1].set_xlabel("Date")
+_ = axes[1].set_xlabel("Target date")
 plt.tight_layout()
 plt.show()
 ```
 
-The two predictive bands give the first part of the story directly. The HAR-OLS Gaussian band is a parallel pair of lines: a single training-block residual variance is replayed at every test-block date, so the forecast distribution is just a translated copy of the same bell curve. The distributional HAR-FNN band tightens in quiet stretches where the HAR averages are small and widens in stress periods—the predictive standard deviation varies by roughly a factor of 1.5 across the test block, while the baseline holds it constant. The variance head therefore produces a feature-dependent scale; whether that variation improves the density forecast is precisely what the score and calibration diagnostics below must judge.
+The constant Gaussian band is a pair of parallel lines at roughly $\pm 2.3$ percent: a single estimation-sample variance is replayed at every test date. That variance reflects an estimation sample containing the turbulent years 2020 and 2022, so during the calmer test block the band is too wide on most days. Only 3 of the 502 realized returns fall outside it, whereas a calibrated central 95% interval would miss about 5 percent of outcomes on average. The Student-$t$ HAR-FNN band instead narrows in quiet stretches and widens after volatile days, most visibly in mid-March 2023 and in early August 2024; it is also wide in the first days of 2023, when the weekly and monthly components still reflect the volatile end of 2022. By comparison, 26 of the 502 realized returns (5.2 percent) fall outside this band. Because the inputs are realized variances up to the forecast origin, the band reacts to volatility that has already been observed; it cannot anticipate a large move on a day that follows a calm period.
+
+The score table quantifies these differences. Both networks improve markedly on the constant Gaussian benchmark: average LogS falls from 1.325 to 1.210 for the Gaussian HAR-FNN and to 1.169 for the Student-$t$ HAR-FNN, and average CRPS from 0.474 to 0.446 and 0.442. Between the two networks, the Student-$t$ output has the clearly lower average LogS, whereas the two average CRPS values differ only in the third decimal. The last three columns show where much of the LogS gap between the networks comes from. On 18 December 2024, SPY fell by about 3 percent after a calm stretch in which the Gaussian network's predictive standard deviation was about 0.5 percent, so the realized return lay more than six predictive standard deviations below the predictive mean. The Gaussian density at that outcome is so small that this single day has a LogS of about 21, compared with about 8.5 for the Student-$t$ network. Divided by 502 test days, this one difference accounts for roughly 0.026 of the average LogS gap of 0.040; without that day, the gap shrinks to about 0.015. This sensitivity is the tail behavior of the LogS discussed in @sec-distnn-training-scores: the LogS evaluates only the density at the realized outcome, and the Gaussian LogS grows quadratically in the standardized surprise, whereas the Student-$t$ LogS grows only logarithmically. The CRPS instead compares the predictive CDF with the step CDF of the outcome. For a large surprise it grows roughly linearly in the distance between the outcome and the predictive location and depends mainly on location and spread rather than on tail shape; on 18 December 2024, the two networks therefore receive almost the same CRPS. As in the [previous chapter](nn_example.qmd), we do not test these differences formally; a @DieboldMariano1995 comparison of the score differentials with heteroskedasticity- and autocorrelation-consistent (HAC) standard errors, as developed in Exercise 4.3 of the [predictive-distribution chapter](evaluating_distributions.qmd), would be the appropriate formal comparison.
+
+@fig-distnn-empirical-pit turns from average scores to calibration. For each forecast, a flat histogram means that the realized returns fall about equally often into each of the 15 equal-probability intervals of the predictive distributions.
 
 ```{python}
-#| label: fig-distnn-empirical-summary
-#| fig-cap: "Average LogS (first panel) and average CRPS (second panel) on the test block—each score in its own panel, because the two are measured in different units and are comparable only across models within a panel—and PIT histograms for the two forecasts (third and fourth panels). A well-calibrated forecast yields a flat PIT histogram close to the uniform density (red dashed line)."
+#| label: fig-distnn-empirical-pit
+#| fig-cap: "PIT histograms on the 2023–2024 test block, one panel per forecast. Each PIT value is the predictive CDF issued at origin $t$, evaluated at the realized return $r_{t+1}$; the histograms use 15 equal-width bins on $[0,1]$ and are scaled as densities. The red dashed line marks the uniform density that a calibrated forecast produces in population."
 #| echo: true
 
-fig, (ax_logs, ax_crps, ax_pit_ols, ax_pit_dist) = plt.subplots(1, 4, figsize=(15, 4))
-
-labels = ["HAR-OLS\nGaussian", "Distributional\nHAR-FNN"]
-xpos = np.arange(len(labels))
-for ax, vals, title in [
-    (ax_logs, [logs_ols.mean(), logs_dist.mean()], "Average LogS"),
-    (ax_crps, [crps_ols.mean(), crps_dist.mean()], "Average CRPS"),
-]:
-    ax.bar(xpos, vals, 0.55, color=["C1", "C0"], alpha=0.85)
-    ax.set_xticks(xpos)
-    ax.set_xticklabels(labels)
-    ax.set_ylabel("Average score (lower = better)")
-    ax.set_title(title)
-    ax.grid(True, axis="y", alpha=0.3)
-
+colors = {"Constant Gaussian": "C1", "Gaussian HAR-FNN": "C2", "Student-t HAR-FNN": "C0"}
 bins = np.linspace(0, 1, 16)
-for ax, pit_vals, title, color in zip(
-    [ax_pit_ols, ax_pit_dist],
-    [pit_ols, pit_dist],
-    ["PIT: HAR-OLS Gaussian", "PIT: Distributional HAR-FNN"],
-    ["C1", "C0"],
-):
-    ax.hist(pit_vals, bins=bins, density=True, color=color,
-            edgecolor="white", alpha=0.85)
-    ax.axhline(1.0, color="red", linestyle="--", linewidth=1, label="Uniform")
-    ax.set_xlabel("PIT value")
-    ax.set_ylabel("Density")
-    ax.set_title(title)
-    ax.set_ylim(0, 3.0)
-    ax.legend(frameon=False)
+
+fig, axes = plt.subplots(1, 3, figsize=(12, 3.8), sharey=True)
+for ax, (name, pit_values) in zip(axes, pit.items()):
+    _ = ax.hist(pit_values, bins=bins, density=True, color=colors[name], edgecolor="white", alpha=0.85)
+    _ = ax.axhline(1.0, color="red", linestyle="--", linewidth=1)
+    _ = ax.set(title=name, xlabel="PIT value", ylim=(0, 2.3))
     ax.grid(True, alpha=0.25)
+axes[0].set_ylabel("Density")
 
 plt.tight_layout()
 plt.show()
 ```
 
-The averages and PITs in @fig-distnn-empirical-summary give the second part: the time-varying variance does not improve either the scores or the PIT diagnostic. The HAR-OLS Gaussian baseline has the lower average LogS (0.8767 against 0.8966) and the lower average CRPS (0.3218 against 0.3246). As in the [previous chapter](nn_example.qmd), we do not test these differences formally; a Diebold–Mariano-type comparison of the score differentials with heteroskedasticity- and autocorrelation-consistent (HAC) standard errors would be the appropriate formal comparison. The PIT histograms are centrally concentrated rather than flat: both forecasts produce too few observations in the outer bins and too many near the middle, descriptive evidence consistent with predictive distributions that are too wide. The central concentration is more pronounced for the distributional HAR-FNN. Because the PIT sample is finite and the PIT sequence may be serially dependent, the histograms are diagnostics rather than formal calibration tests.
+The constant Gaussian histogram is hump-shaped: far too few PIT values fall in the outer bins and too many near the center. Realized returns landed in the tails of this predictive distribution much less often than the forecast implies, which is the calibration counterpart of the overly wide band in @fig-distnn-empirical-bands. The two network forecasts show no comparable systematic pattern; their bin heights scatter around the uniform density without a clear hump or U-shape. Because the PIT sample is finite and the PIT sequence may be serially dependent, these histograms are descriptive diagnostics rather than formal calibration tests, and they cannot rank the two networks against each other. That ranking rests on the scores.
 
-This comparison ranks two complete forecasting procedures; it does not isolate the effect of adding a variance head. The procedures differ in their mean specification, variance specification, and optimization problem. Their score and PIT differences could therefore reflect the nonlinear mean, feature-dependent variance, joint optimization, or interactions among them. A sharper diagnostic comparison would hold the fitted mean fixed and vary only the variance estimator—for example, a constant or two-step variance against a jointly trained variance head. Applying the full HNN stabilization procedure would be a natural next experiment, but the present comparison cannot attribute its result to any single ingredient.
+The two networks share their inputs, architecture, and training settings, yet the Student-$t$ network attains the lower LogS. Do they differ in the scale of their predictive distributions or only in their tails? @fig-distnn-empirical-sd compares the predictive standard deviations of the two networks, whose ranges appear in the second table above.
 
-The methodological lesson is that no single diagnostic suffices. A practitioner who reads only the predictive bands might conclude that the distributional model is better because its uncertainty changes over time. The score comparison and PIT histograms show why that conclusion would be premature: in this test block, the extra variation in the predicted scale coincides with worse average scores and more pronounced overdispersion. Together, @fig-distnn-empirical-bands and @fig-distnn-empirical-summary distinguish what the variance head changes from whether that change improves the density forecast.
+```{python}
+#| label: fig-distnn-empirical-sd
+#| fig-cap: "Predictive standard deviations in percent on the 2023–2024 test block, each issued at origin $t$ for the return on the plotted target date. Solid line: the Gaussian HAR-FNN, with standard deviation $\\sigma_\\phi(\\mathbf{x}_t)$. Dashed line: the Student-$t$ HAR-FNN, with standard deviation $s_\\phi(\\mathbf{x}_t)\\sqrt{\\nu_\\phi(\\mathbf{x}_t)/(\\nu_\\phi(\\mathbf{x}_t)-2)}$. The dotted horizontal line is the constant Gaussian standard deviation $s_r$. Gray dots show absolute realized returns $|r_{t+1}|$ for reference."
+#| echo: true
+
+fig, ax = plt.subplots(figsize=(11, 4))
+ax.scatter(dates_te, np.abs(r_te), s=6, color="0.72", label="|realized return|")
+ax.plot(dates_te, sigma_gauss_te, color=colors["Gaussian HAR-FNN"], linewidth=1.0, label="Gaussian HAR-FNN")
+ax.plot(dates_te, sd_t_te, color=colors["Student-t HAR-FNN"], linewidth=1.0, linestyle="--",
+        label="Student-t HAR-FNN")
+ax.axhline(r_scale, color=colors["Constant Gaussian"], linestyle=":", linewidth=1.5, label="Constant Gaussian")
+ax.set_xlabel("Target date")
+ax.set_ylabel("percent")
+ax.legend(frameon=False, loc="upper left", ncol=4, fontsize=9)
+ax.grid(True, alpha=0.25)
+plt.tight_layout()
+plt.show()
+```
+
+The two standard-deviation paths are almost indistinguishable. Both rise sharply in mid-March 2023 and in early August 2024, reach lows of about 0.3 percent on the calmest days, and lie below the constant standard deviation $s_r$ on about 86 percent of test days, consistent with a constant forecast that is too wide for this test block. The two networks therefore agree on the scale of the predictive distribution, and the variance heads have learned to track the volatility information in the realized-variance inputs. The Student-$t$ network's advantage under the LogS comes from the shape of its distribution: with degrees of freedom between about 6.0 and 7.7 on the test block, its tails assign more density to large surprises such as the return of 18 December 2024. The location heads add little: the predicted means stay within about 0.15 percentage points of zero, small relative to predictive standard deviations between about 0.3 and 2.2 percent. In this application, the gains over the constant benchmark therefore come from a variance head that responds to the realized-variance inputs and, for the LogS, from the heavier-tailed output family.
+
+:::{.callout-note title="Question for Reflection"}
+
+The Student-$t$ HAR-FNN restricts its degrees of freedom to $\nu_\phi(\mathbf{x}_t)>2$. Suppose the restriction were relaxed to $\nu_\phi(\mathbf{x}_t)>0$. For which values of $\nu$ would each of the following remain finite: (i) the LogS at a realized return, and (ii) the predictive standard deviation plotted in @fig-distnn-empirical-sd?
+:::
+
+:::{.callout-tip collapse="true" title="Suggested Answer"}
+
+(i) The location-scale Student-$t$ density is positive and finite at every real outcome for any $\nu>0$, so the LogS at a realized return is finite for all $\nu>0$. (ii) The variance $s^2\nu/(\nu-2)$ is finite only for $\nu>2$. 
+:::
+
+These comparisons rank complete forecasting procedures, each fitted once on one estimation sample, the two networks with a single random seed. The Gaussian and Student-$t$ networks share their architecture, inputs, and training settings and differ only in the output family, so the LogS gap between them speaks to tail shape, with the caveat that more than half of it comes from a single test day. The size of the improvement over the constant benchmark also depends on the test period: the calmer the test block is relative to the estimation sample, the more a constant variance overstates uncertainty. Nor does the comparison show that a neural network is needed to obtain these gains: a parametric model whose variance depends on the same realized-variance inputs would be the natural benchmark for judging the added flexibility of the network. Applying the full HNN stabilization procedure, or adding inputs whose effect on the return distribution may be nonlinear, would be natural next experiments.
+
+The methodological lesson is that the diagnostics answer different questions. The bands and standard-deviation paths show whether the predictive scale responds to the information set. The PIT histograms show whether realized returns fall into the predictive distributions with the right frequencies. The scores combine calibration and concentration near the realized outcomes into one number per forecast. The constant Gaussian forecast fails the first two checks. Among the network forecasts, only the scores separate the Gaussian from the Student-$t$ output family.
 
 ## Summary
 
@@ -439,16 +521,14 @@ The methodological lesson is that no single diagnostic suffices. A practitioner 
 ## Key Takeaways
 1. Distributional networks predict parameters of a conditional distribution rather than only a point forecast.
 2. Negative log-likelihood minimizes LogS; CRPS provides an alternative when it is differentiable for the chosen model.
-3. Hemisphere networks stabilize joint learning through a constraint emphasizing volatility, blocked subsampling and blocked out-of-bag recalibration, in addition to separate heads.
+3. Hemisphere networks stabilize joint learning through a constraint emphasizing volatility, blocked subsampling and blocked out-of-bag recalibration, in addition to separate outputs for location and scale.
 4. Mixture density networks combine component distributions to represent shapes such as skewness and multiple modes.
 :::
 
 :::{.callout-warning}
 ## Common Pitfalls
 - Producing a valid density does not establish calibration, which must be checked on held-out outcomes.
-- Enforce positive scale outputs without overlooking zero-gradient regions created by hard floors.
 - Mixture components are not identified economic regimes without additional restrictions.
-- Validate added distributional flexibility against simpler forecasts when sample size is limited.
 :::
 
 ## Exercises {#sec-distnn-exercises}
