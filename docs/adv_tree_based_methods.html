@@ -402,13 +402,14 @@ window.Quarto = {
   <li><a href="#sec-adv-forest-limits" id="toc-sec-adv-forest-limits" class="nav-link" data-scroll-target="#sec-adv-forest-limits"><span class="header-section-number">13.4</span> Limitations of Standard Random Forests</a></li>
   <li><a href="#sec-adv-qrf" id="toc-sec-adv-qrf" class="nav-link" data-scroll-target="#sec-adv-qrf"><span class="header-section-number">13.5</span> Quantile Regression Forests as Distributional Forests</a></li>
   <li><a href="#sec-adv-qrf-econometric" id="toc-sec-adv-qrf-econometric" class="nav-link" data-scroll-target="#sec-adv-qrf-econometric"><span class="header-section-number">13.6</span> Econometric Use and Limits of QRF</a></li>
-  <li><a href="#sec-adv-ngboost" id="toc-sec-adv-ngboost" class="nav-link" data-scroll-target="#sec-adv-ngboost"><span class="header-section-number">13.7</span> NGBoost: Parametric Distributional Boosting</a></li>
-  <li><a href="#sec-adv-natural-gradients" id="toc-sec-adv-natural-gradients" class="nav-link" data-scroll-target="#sec-adv-natural-gradients"><span class="header-section-number">13.8</span> Natural Gradients and Fisher Scaling</a></li>
-  <li><a href="#sec-adv-parameterization" id="toc-sec-adv-parameterization" class="nav-link" data-scroll-target="#sec-adv-parameterization"><span class="header-section-number">13.9</span> Parameterization and Update Choices</a></li>
-  <li><a href="#sec-adv-comparison" id="toc-sec-adv-comparison" class="nav-link" data-scroll-target="#sec-adv-comparison"><span class="header-section-number">13.10</span> QRF vs NGBoost</a></li>
-  <li><a href="#summary" id="toc-summary" class="nav-link" data-scroll-target="#summary"><span class="header-section-number">13.11</span> Summary</a></li>
-  <li><a href="#exercises" id="toc-exercises" class="nav-link" data-scroll-target="#exercises"><span class="header-section-number">13.12</span> Exercises</a></li>
-  <li><a href="#references" id="toc-references" class="nav-link" data-scroll-target="#references"><span class="header-section-number">13.13</span> References</a></li>
+  <li><a href="#sec-adv-llf" id="toc-sec-adv-llf" class="nav-link" data-scroll-target="#sec-adv-llf"><span class="header-section-number">13.7</span> Local Linear Forests</a></li>
+  <li><a href="#sec-adv-ngboost" id="toc-sec-adv-ngboost" class="nav-link" data-scroll-target="#sec-adv-ngboost"><span class="header-section-number">13.8</span> NGBoost: Parametric Distributional Boosting</a></li>
+  <li><a href="#sec-adv-natural-gradients" id="toc-sec-adv-natural-gradients" class="nav-link" data-scroll-target="#sec-adv-natural-gradients"><span class="header-section-number">13.9</span> Natural Gradients and Fisher Scaling</a></li>
+  <li><a href="#sec-adv-parameterization" id="toc-sec-adv-parameterization" class="nav-link" data-scroll-target="#sec-adv-parameterization"><span class="header-section-number">13.10</span> Parameterization and Update Choices</a></li>
+  <li><a href="#sec-adv-comparison" id="toc-sec-adv-comparison" class="nav-link" data-scroll-target="#sec-adv-comparison"><span class="header-section-number">13.11</span> Comparing the Three Methods</a></li>
+  <li><a href="#summary" id="toc-summary" class="nav-link" data-scroll-target="#summary"><span class="header-section-number">13.12</span> Summary</a></li>
+  <li><a href="#exercises" id="toc-exercises" class="nav-link" data-scroll-target="#exercises"><span class="header-section-number">13.13</span> Exercises</a></li>
+  <li><a href="#references" id="toc-references" class="nav-link" data-scroll-target="#references"><span class="header-section-number">13.14</span> References</a></li>
   </ul></li>
   </ul>
 </nav>
@@ -427,18 +428,21 @@ window.Quarto = {
 <section id="overview" class="level2" data-number="13.1">
 <h2 data-number="13.1" class="anchored" data-anchor-id="overview"><span class="header-section-number">13.1</span> Overview</h2>
 <p>The previous chapters treated trees, random forests, and gradient boosting mainly as tools for conditional-mean or conditional-event-probability prediction. In many econometric applications, that is not enough. A risk manager may need conditional quantiles of future losses, a central bank may care about the probability of extreme inflation outcomes, and an asset-pricing application may require a full predictive distribution rather than a point forecast.</p>
-<p>This chapter extends tree-based methods in that direction. We focus on two ideas:</p>
+<p>This chapter extends tree-based methods in that direction. Two of the three methods below share a single observation: a fitted forest supplies neighborhood weights <span class="math inline">w_i(x)</span>, and the leaf mean is only one of many quantities that can be estimated from them. We focus on three ideas:</p>
 <ul>
 <li><strong>Quantile Regression Forests (QRF)</strong>, which reuse random-forest neighborhoods to estimate conditional distributions nonparametrically <span class="citation" data-cites="Meinshausen2006QRF">(<a href="#ref-Meinshausen2006QRF" role="doc-biblioref">Meinshausen 2006</a>)</span></li>
+<li><strong>Local linear forests (LLF)</strong>, which reuse the same neighborhoods but replace the constant inside a leaf with a local linear fit, reducing the bias a piecewise-constant rule leaves on smooth regression functions <span class="citation" data-cites="FriedbergTibshiraniAtheyWager2021">(<a href="#ref-FriedbergTibshiraniAtheyWager2021" role="doc-biblioref">Friedberg et al. 2021</a>)</span></li>
 <li><strong>Natural Gradient Boosting (NGBoost)</strong>, which extends boosting to parametric predictive distributions and updates their parameters with gradients rescaled by local statistical information <span class="citation" data-cites="DuanAvatiDingThaiBasuNgSchuler2020">(<a href="#ref-DuanAvatiDingThaiBasuNgSchuler2020" role="doc-biblioref">Duan et al. 2020</a>)</span></li>
 </ul>
-<p>The chapter remains predictive rather than structural: it does not estimate causal effects, and it does not cover forests that solve general local estimating equations or replace leaf constants with local slopes <span class="citation" data-cites="AtheyTibshiraniWager2019">(<a href="#ref-AtheyTibshiraniWager2019" role="doc-biblioref">Athey, Tibshirani, and Wager 2019</a>)</span>.</p>
+<p>QRF and NGBoost estimate the same object by different routes; LLF estimates a different object, a conditional mean, and belongs here because it shares QRF’s construction rather than its target.</p>
+<p>The chapter remains predictive rather than structural: it does not estimate causal effects, and it does not develop the general local-estimating-equation framework <span class="citation" data-cites="AtheyTibshiraniWager2019">(<a href="#ref-AtheyTibshiraniWager2019" role="doc-biblioref">Athey, Tibshirani, and Wager 2019</a>)</span>, of which the local linear forest below is one instance.</p>
 </section>
 <section id="roadmap" class="level2" data-number="13.2">
 <h2 data-number="13.2" class="anchored" data-anchor-id="roadmap"><span class="header-section-number">13.2</span> Roadmap</h2>
 <ol type="1">
 <li>We start from the standard random-forest weight representation and use it to diagnose what ordinary forests do and do not provide.</li>
 <li>We then define QRF through weighted empirical cumulative distribution functions (CDFs) and leaf-neighbor outcomes.</li>
+<li>We turn to local linear forests, which keep those weights and change the local model from a constant to a linear function.</li>
 <li>Next we introduce NGBoost as a boosted-tree method for fitting the parameters of a conditional distribution.</li>
 <li>We explain the role of Fisher information, natural gradients, and constrained parameterizations.</li>
 <li>We close with a comparison, summary, pitfalls, and exercises.</li>
@@ -567,7 +571,7 @@ Suggested Answer
 </section>
 <section id="sec-adv-qrf-econometric" class="level2" data-number="13.6">
 <h2 data-number="13.6" class="anchored" data-anchor-id="sec-adv-qrf-econometric"><span class="header-section-number">13.6</span> Econometric Use and Limits of QRF</h2>
-<p>QRF is attractive when heteroskedasticity or tail risk is central. Examples include volatility forecasting, downside return risk, firm default loss distributions, and macroeconomic fan charts. It can adapt prediction intervals to the covariates because the neighborhood around <span class="math inline">x</span> changes with the forest partitions.</p>
+<p>QRF is attractive when heteroskedasticity or tail risk is central. Examples include volatility forecasting, downside return risk, firm default loss distributions, and macroeconomic fan charts. It can adapt prediction intervals to the covariates because the neighborhood around <span class="math inline">x</span> changes with the forest partitions. The method is also used operationally outside economics: <span class="citation" data-cites="TaillardatMestre2020">Taillardat and Mestre (<a href="#ref-TaillardatMestre2020" role="doc-biblioref">2020</a>)</span> describe the calibration of surface temperature in the Météo-France operational forecasting chain with station-level QRF, and of hourly rainfall with a QRF variant that replaces the empirical leaf distribution by a fitted extended Pareto distribution, precisely to obtain tail mass that the observed neighbors do not contain.</p>
 <p>The main advantage is flexibility: QRF does not impose a fixed parametric family on the conditional distribution and can represent skewness, heavy tails, and multimodality through the empirical neighbor distribution. This is the relevant sense in which the method is nonparametric. It is not assumption-free: the estimate is conditional on tuning choices and fitted quantiles cannot move beyond the support represented in the training outcomes. If the relevant tail event is rare, the local neighborhood may contain little information about it. Like ordinary forests, QRF also needs validation that respects dependence, publication lags, and forecast-origin information sets.</p>
 <p><a href="#fig-qrf-fredqd" class="quarto-xref">Figure&nbsp;13.1</a> illustrates the method with the quarterly <a href="./datasets.html#fred-qd">Federal Reserve Economic Data collection (FRED-QD)</a> <span class="citation" data-cites="McCrackenNg2020FREDQD">(<a href="#ref-McCrackenNg2020FREDQD" role="doc-biblioref">McCracken and Ng 2020</a>)</span>. The target is annualized gross domestic product (GDP) growth in quarter <span class="math inline">t+1</span>, and the five predictors are dated quarter <span class="math inline">t</span>.<a href="#fn1" class="footnote-ref" id="fnref1" role="doc-noteref"><sup>1</sup></a> The horizontal axis records the target quarter <span class="math inline">t+1</span>. Look for both the changing width of the central 80% interval, formed by the estimated 10th and 90th conditional quantiles, and its behavior during the pandemic observations.</p>
 <div id="cell-fig-qrf-fredqd" class="cell" data-execution_count="2">
@@ -671,21 +675,194 @@ Figure&nbsp;13.1: QRF forecasts for one-step-ahead GDP growth (annualized log-di
 <p>The interval width varies across the test period because the QRF neighborhood changes with the predictors. A homoskedastic fixed-shape location-scale model, such as a Gaussian location model with constant conditional variance, would instead impose a constant central-interval width around its conditional mean. Homoskedasticity alone would not do so if other shape parameters could vary with predictors. The estimated band is a central 80% predictive interval, not an automatic 80% coverage guarantee. Its marginal and conditional coverage are empirical calibration questions. A finite-sample guarantee would require an additional calibration method, such as those developed in the <a href="./conformal_prediction.html">conformal-prediction chapter</a>, under its own assumptions. The pandemic quarters expose the more immediate limitation. Realized growth reaches roughly <span class="math inline">-33</span> and then <span class="math inline">+30</span> annualized percent in 2020, while the forecast band remains far inside those values. By construction, <span class="math inline">\hat F(y \mid X=x)</span> reweights outcomes observed in the training sample and therefore cannot place mass beyond their range. When the training neighborhood contains no comparable episode, changing the quantile level cannot recover the missing tail support.</p>
 <p>This failure is the distributional counterpart of the extrapolation limit from the <a href="./decision_trees.html">decision trees chapter</a>: QRF interpolates among observed outcomes for the entire predictive distribution, not only for its mean. A parametric family with unbounded support, such as the NGBoost specification below, can <em>represent</em> outcomes beyond the training range, and an explicit extreme-value model can impose tail structure. Neither choice guarantees accurate pandemic-tail forecasts under a structural break; both still require time-aware validation and a defensible distributional specification.</p>
 </section>
-<section id="sec-adv-ngboost" class="level2" data-number="13.7">
-<h2 data-number="13.7" class="anchored" data-anchor-id="sec-adv-ngboost"><span class="header-section-number">13.7</span> NGBoost: Parametric Distributional Boosting</h2>
+<section id="sec-adv-llf" class="level2" data-number="13.7">
+<h2 data-number="13.7" class="anchored" data-anchor-id="sec-adv-llf"><span class="header-section-number">13.7</span> Local Linear Forests</h2>
+<p>QRF changed <em>what</em> is estimated from the forest neighborhood while keeping the neighborhood itself. Local linear forests make the other available change: they keep both the neighborhood and the conditional-mean target, and alter the <em>local model</em> used inside it <span class="citation" data-cites="FriedbergTibshiraniAtheyWager2021">(<a href="#ref-FriedbergTibshiraniAtheyWager2021" role="doc-biblioref">Friedberg et al. 2021</a>)</span>.</p>
+<p>The starting point is that the forest prediction is already the solution of a weighted least-squares problem. The neighborhood mean <span class="math inline">\hat\mu_w(x)=\sum_{i=1}^{N}w_i(x)y_i</span> satisfies </p>
+<div class="display-math-block">
+<p><span class="math display">
+\hat\mu_w(x)=\arg\min_{c\,\in\,\mathbb{R}}\ \sum_{i=1}^{N}w_i(x)\,(y_i-c)^2 .
+</span></p>
+</div>
+<p>Written this way, the <em>Constant local model</em> limitation of <a href="#sec-adv-forest-limits" class="quarto-xref">Section&nbsp;13.4</a> is no longer a structural property of forests. It is a modeling choice: the local model inside the objective happens to contain nothing but an intercept.</p>
+<p><strong>The local linear objective.</strong> Replace the constant by a linear function of the predictors centered at the forecast point, </p>
+<div class="display-math-block">
+<p><span class="math display">
+\bigl(\hat\mu(x),\hat\theta(x)\bigr)
+=\arg\min_{c,\,\theta}\ \sum_{i=1}^{N}w_i(x)
+\Bigl(y_i-c-(x_i-x)^{\top}\theta\Bigr)^{2}.
+</span></p>
+</div>
+<p><em>Centering makes the intercept the forecast.</em> Because the design is centered at <span class="math inline">x</span>, the linear term vanishes at <span class="math inline">x_i=x</span>, so the reported prediction is <span class="math inline">\hat\mu(x)=\hat c</span>. The slope <span class="math inline">\hat\theta(x)</span> is estimated only so that the intercept does not have to absorb a within-neighborhood trend. In a pure forecasting application it is a nuisance parameter, though it is interpretable as a local derivative in its own right.</p>
+<p><strong>Closed form.</strong> Collect the rows <span class="math inline">\bigl(1,(x_i-x)^{\top}\bigr)</span> in the <span class="math inline">N\times(d+1)</span> matrix <span class="math inline">\tilde\Delta(x)</span> and let <span class="math inline">W(x)=\operatorname{diag}\bigl(w_1(x),\dots,w_N(x)\bigr)</span>. Whenever the weighted local design has full rank, the solution is </p>
+<div class="display-math-block">
+<p><span class="math display">
+\begin{pmatrix}\hat\mu(x)\\ \hat\theta(x)\end{pmatrix}
+=\Bigl(\tilde\Delta(x)^{\top}W(x)\tilde\Delta(x)\Bigr)^{-1}
+\tilde\Delta(x)^{\top}W(x)\,y .
+</span></p>
+</div>
+<p>That full-rank proviso is not a formality. The local design is frequently close to singular, because only a modest number of observations carry positive weight at <span class="math inline">x</span>, the centered predictors barely vary inside a tight neighborhood, and the predictor dimension can exceed the effective number of neighbors. Implementations therefore shrink the slope toward zero, which stabilizes the reported intercept at the cost of a little bias. The callout below gives that construction; the rest of this section does not depend on it.</p>
+<div class="callout callout-style-default callout-note callout-titled" title="Optional: Stabilizing the local slope">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-5-contents" aria-controls="callout-5" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+Optional: Stabilizing the local slope
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-5" class="callout-5-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
+<p>Local linear forests as published add a ridge penalty on the slope coordinates <span class="citation" data-cites="FriedbergTibshiraniAtheyWager2021">(<a href="#ref-FriedbergTibshiraniAtheyWager2021" role="doc-biblioref">Friedberg et al. 2021</a>)</span>: </p>
+<div class="display-math-block">
+<p><span class="math display">
+\bigl(\hat\mu(x),\hat\theta(x)\bigr)
+=\arg\min_{c,\,\theta}\ \left\{ \sum_{i=1}^{N}w_i(x)
+\Bigl(y_i-c-(x_i-x)^{\top}\theta\Bigr)^{2}
++\lambda\lVert\theta\rVert_2^2 \right\}.
+</span></p>
+</div>
+<p>With <span class="math inline">J=\operatorname{diag}(0,1,\dots,1)</span>, the <span class="math inline">(d+1)\times(d+1)</span> matrix that excludes the intercept, the solution becomes </p>
+<div class="display-math-block">
+<p><span class="math display">
+\begin{pmatrix}\hat\mu(x)\\ \hat\theta(x)\end{pmatrix}
+=\Bigl(\tilde\Delta(x)^{\top}W(x)\tilde\Delta(x)+\lambda J\Bigr)^{-1}
+\tilde\Delta(x)^{\top}W(x)\,y .
+</span></p>
+</div>
+<p>Two points are worth keeping.</p>
+<p><em>The penalty must never touch the intercept.</em> Penalizing <span class="math inline">c</span> would shrink the prediction itself toward zero, which imposes the substantively arbitrary belief that the outcome is near zero at the forecast point. For an outcome in levels, such as a price or an unemployment rate, that is indefensible. Shrinking the slope is different: it expresses the belief that the regression function is locally flat, which is exactly what an ordinary forest already assumes, so the penalty moves the estimator toward a familiar default rather than an arbitrary one.</p>
+<p><em>The penalty interpolates between two estimators already met.</em> As <span class="math inline">\lambda\to 0</span> the estimator is the unpenalized weighted local linear regression above. As <span class="math inline">\lambda\to\infty</span> the slope is forced to zero and <span class="math inline">\hat\mu(x)</span> returns to the ordinary forest mean <span class="math inline">\hat\mu_w(x)</span>. For the one-sided neighborhood of Exercise 13.3, whose unpenalized intercept is <span class="math inline">10</span> and whose forest mean is <span class="math inline">14.5</span>, the intermediate values are <span class="math inline">12</span> at <span class="math inline">\lambda=1</span> and <span class="math inline">14</span> at <span class="math inline">\lambda=10</span>. Choosing <span class="math inline">\lambda</span> is choosing a position on that path, and it is a tuning decision made on training data under the validation discipline of the <a href="./cross_validation.html">cross-validation chapter</a>.</p>
+</div>
+</div>
+</div>
+<p><strong>The splitting rule also changes.</strong> <span class="citation" data-cites="FriedbergTibshiraniAtheyWager2021">Friedberg et al. (<a href="#ref-FriedbergTibshiraniAtheyWager2021" role="doc-biblioref">2021</a>)</span> do not only change the prediction step. Because the trees are grown to define neighborhoods for a local <em>linear</em> fit, they split on residuals from a local regression rather than on raw outcome variation, so the partition targets the part of the signal the local linear model cannot itself represent. A forest grown for constant leaves and then used with a local linear prediction rule is a reasonable approximation, but it is not the estimator as published.</p>
+<p><strong>Why the slope helps: boundary bias.</strong> The clearest gain appears where the neighborhood is one-sided. Suppose the neighbors of <span class="math inline">x</span> all lie on one side of it and the regression function is locally increasing. Averaging those neighbors must overshoot, and the overshoot does not vanish as more neighbors are added on the same side, because it is bias rather than noise. A local linear fit removes it by projecting the observed trend back to <span class="math inline">x</span>. This is the forest analogue of a long-standing result for kernel regression: local linear smoothers are design-adaptive and reduce the boundary bias of local constant smoothers.</p>
+<p><a href="#fig-llf-constant-vs-linear" class="quarto-xref">Figure&nbsp;13.2</a> shows the effect on a smooth signal with leaves deliberately wide enough to make it visible.</p>
+<div id="cell-fig-llf-constant-vs-linear" class="cell" data-execution_count="3">
+<details class="code-fold">
+<summary>Show the code</summary>
+<div class="sourceCode cell-code" id="cb2"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> numpy <span class="im">as</span> np</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> matplotlib.pyplot <span class="im">as</span> plt</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.ensemble <span class="im">import</span> RandomForestRegressor</span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>rng <span class="op">=</span> np.random.default_rng(<span class="dv">20260918</span>)</span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> f_true(x):</span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> <span class="fl">1.5</span> <span class="op">*</span> x <span class="op">+</span> np.sin(<span class="fl">1.5</span> <span class="op">*</span> x)</span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>x <span class="op">=</span> np.sort(rng.uniform(<span class="op">-</span><span class="fl">3.0</span>, <span class="fl">3.0</span>, <span class="dv">200</span>))</span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>y <span class="op">=</span> f_true(x) <span class="op">+</span> rng.normal(scale<span class="op">=</span><span class="fl">0.40</span>, size<span class="op">=</span>x.shape[<span class="dv">0</span>])</span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>X <span class="op">=</span> x.reshape(<span class="op">-</span><span class="dv">1</span>, <span class="dv">1</span>)</span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a>forest <span class="op">=</span> RandomForestRegressor(</span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a>    n_estimators<span class="op">=</span><span class="dv">400</span>, min_samples_leaf<span class="op">=</span><span class="dv">25</span>, max_features<span class="op">=</span><span class="dv">1</span>, random_state<span class="op">=</span><span class="dv">20260918</span></span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a>forest.fit(X, y)</span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a>train_leaves <span class="op">=</span> forest.<span class="bu">apply</span>(X)</span>
+<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-20"><a href="#cb2-20" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> forest_weights(x0):</span>
+<span id="cb2-21"><a href="#cb2-21" aria-hidden="true" tabindex="-1"></a>    <span class="co">"""w_i(x0) = (1/B) sum_b 1{x_i in L_b(x0)} / N_b(x0)."""</span></span>
+<span id="cb2-22"><a href="#cb2-22" aria-hidden="true" tabindex="-1"></a>    leaves0 <span class="op">=</span> forest.<span class="bu">apply</span>(np.array([[x0]]))[<span class="dv">0</span>]</span>
+<span id="cb2-23"><a href="#cb2-23" aria-hidden="true" tabindex="-1"></a>    same <span class="op">=</span> train_leaves <span class="op">==</span> leaves0</span>
+<span id="cb2-24"><a href="#cb2-24" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> (same <span class="op">/</span> same.<span class="bu">sum</span>(axis<span class="op">=</span><span class="dv">0</span>)).<span class="bu">sum</span>(axis<span class="op">=</span><span class="dv">1</span>) <span class="op">/</span> same.shape[<span class="dv">1</span>]</span>
+<span id="cb2-25"><a href="#cb2-25" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-26"><a href="#cb2-26" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> llf_predict(x0, lam<span class="op">=</span><span class="fl">0.01</span>):</span>
+<span id="cb2-27"><a href="#cb2-27" aria-hidden="true" tabindex="-1"></a>    <span class="co">"""Ridge-penalized local linear forest prediction; penalty on the slope only."""</span></span>
+<span id="cb2-28"><a href="#cb2-28" aria-hidden="true" tabindex="-1"></a>    w <span class="op">=</span> forest_weights(x0)</span>
+<span id="cb2-29"><a href="#cb2-29" aria-hidden="true" tabindex="-1"></a>    d <span class="op">=</span> x <span class="op">-</span> x0</span>
+<span id="cb2-30"><a href="#cb2-30" aria-hidden="true" tabindex="-1"></a>    A <span class="op">=</span> np.array([[w.<span class="bu">sum</span>(), (w <span class="op">*</span> d).<span class="bu">sum</span>()],</span>
+<span id="cb2-31"><a href="#cb2-31" aria-hidden="true" tabindex="-1"></a>                  [(w <span class="op">*</span> d).<span class="bu">sum</span>(), (w <span class="op">*</span> d<span class="op">**</span><span class="dv">2</span>).<span class="bu">sum</span>() <span class="op">+</span> lam]])</span>
+<span id="cb2-32"><a href="#cb2-32" aria-hidden="true" tabindex="-1"></a>    b <span class="op">=</span> np.array([(w <span class="op">*</span> y).<span class="bu">sum</span>(), (w <span class="op">*</span> d <span class="op">*</span> y).<span class="bu">sum</span>()])</span>
+<span id="cb2-33"><a href="#cb2-33" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> np.linalg.solve(A, b)[<span class="dv">0</span>]</span>
+<span id="cb2-34"><a href="#cb2-34" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-35"><a href="#cb2-35" aria-hidden="true" tabindex="-1"></a>x_grid <span class="op">=</span> np.linspace(<span class="op">-</span><span class="fl">3.0</span>, <span class="fl">3.0</span>, <span class="dv">220</span>)</span>
+<span id="cb2-36"><a href="#cb2-36" aria-hidden="true" tabindex="-1"></a>forest_hat <span class="op">=</span> forest.predict(x_grid.reshape(<span class="op">-</span><span class="dv">1</span>, <span class="dv">1</span>))</span>
+<span id="cb2-37"><a href="#cb2-37" aria-hidden="true" tabindex="-1"></a>llf_hat <span class="op">=</span> np.array([llf_predict(x0) <span class="cf">for</span> x0 <span class="kw">in</span> x_grid])</span>
+<span id="cb2-38"><a href="#cb2-38" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-39"><a href="#cb2-39" aria-hidden="true" tabindex="-1"></a>fig, axes <span class="op">=</span> plt.subplots(<span class="dv">1</span>, <span class="dv">2</span>, figsize<span class="op">=</span>(<span class="dv">12</span>, <span class="fl">4.8</span>), sharey<span class="op">=</span><span class="va">True</span>)</span>
+<span id="cb2-40"><a href="#cb2-40" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> ax <span class="kw">in</span> axes:</span>
+<span id="cb2-41"><a href="#cb2-41" aria-hidden="true" tabindex="-1"></a>    ax.scatter(x, y, s<span class="op">=</span><span class="dv">14</span>, color<span class="op">=</span><span class="st">"0.45"</span>, alpha<span class="op">=</span><span class="fl">0.55</span>)</span>
+<span id="cb2-42"><a href="#cb2-42" aria-hidden="true" tabindex="-1"></a>    ax.plot(x_grid, f_true(x_grid), color<span class="op">=</span><span class="st">"0.25"</span>, lw<span class="op">=</span><span class="fl">1.6</span>, ls<span class="op">=</span><span class="st">"--"</span>, label<span class="op">=</span><span class="st">"True $f(x)$"</span>)</span>
+<span id="cb2-43"><a href="#cb2-43" aria-hidden="true" tabindex="-1"></a>    ax.set_xlabel(<span class="st">"Predictor"</span>)</span>
+<span id="cb2-44"><a href="#cb2-44" aria-hidden="true" tabindex="-1"></a>    ax.grid(<span class="va">True</span>, alpha<span class="op">=</span><span class="fl">0.3</span>)</span>
+<span id="cb2-45"><a href="#cb2-45" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-46"><a href="#cb2-46" aria-hidden="true" tabindex="-1"></a>axes[<span class="dv">0</span>].plot(x_grid, forest_hat, color<span class="op">=</span><span class="st">"C3"</span>, lw<span class="op">=</span><span class="fl">2.4</span>, label<span class="op">=</span><span class="st">"Forest (constant leaves)"</span>)</span>
+<span id="cb2-47"><a href="#cb2-47" aria-hidden="true" tabindex="-1"></a>axes[<span class="dv">0</span>].set_title(<span class="st">"Random forest: a local constant"</span>)</span>
+<span id="cb2-48"><a href="#cb2-48" aria-hidden="true" tabindex="-1"></a>axes[<span class="dv">0</span>].set_ylabel(<span class="st">"Outcome"</span>)</span>
+<span id="cb2-49"><a href="#cb2-49" aria-hidden="true" tabindex="-1"></a>axes[<span class="dv">0</span>].legend(loc<span class="op">=</span><span class="st">"upper left"</span>, frameon<span class="op">=</span><span class="va">False</span>, fontsize<span class="op">=</span><span class="dv">9</span>)</span>
+<span id="cb2-50"><a href="#cb2-50" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-51"><a href="#cb2-51" aria-hidden="true" tabindex="-1"></a>axes[<span class="dv">1</span>].plot(x_grid, llf_hat, color<span class="op">=</span><span class="st">"C0"</span>, lw<span class="op">=</span><span class="fl">2.4</span>, label<span class="op">=</span><span class="st">"Local linear forest"</span>)</span>
+<span id="cb2-52"><a href="#cb2-52" aria-hidden="true" tabindex="-1"></a>axes[<span class="dv">1</span>].set_title(<span class="st">"Local linear forest: a local slope"</span>)</span>
+<span id="cb2-53"><a href="#cb2-53" aria-hidden="true" tabindex="-1"></a>axes[<span class="dv">1</span>].legend(loc<span class="op">=</span><span class="st">"upper left"</span>, frameon<span class="op">=</span><span class="va">False</span>, fontsize<span class="op">=</span><span class="dv">9</span>)</span>
+<span id="cb2-54"><a href="#cb2-54" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-55"><a href="#cb2-55" aria-hidden="true" tabindex="-1"></a>plt.tight_layout()</span>
+<span id="cb2-56"><a href="#cb2-56" aria-hidden="true" tabindex="-1"></a>plt.show()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</details>
+<div class="cell-output cell-output-display">
+<div id="fig-llf-constant-vs-linear" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-llf-constant-vs-linear-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="adv_tree_based_methods_files/figure-html/fig-llf-constant-vs-linear-output-1.png" class="img-fluid figure-img">
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-llf-constant-vs-linear-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;13.2: Simulated data from <span class="math inline">Y=1.5X+\sin(1.5X)+\varepsilon</span> (gray points) with the true regression function (dashed). The left panel shows a random forest with wide leaves (red), whose piecewise-constant fit crosses the smooth signal in a staircase. The right panel shows a local linear forest (blue) built from the same forest and the same weights, differing only in the local model.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>The left panel shows the mechanism directly. Within each plateau the prediction cannot move, so the fitted function crosses the true curve and is worst near the middle of a wide leaf. The right panel tracks the signal using exactly the same neighborhoods. At <span class="math inline">x=0</span> the forest here sits roughly one unit below the truth while the local linear forest sits about two tenths below it. This is one simulated dataset with deliberately wide leaves, chosen to make the mechanism visible; it illustrates a bias channel rather than establishing a general ranking. The code applies the small slope penalty of the optional callout above, which matters little with leaves this wide but keeps the fit well behaved near the edges of the sample.</p>
+<p><strong>Scope and limits.</strong> Local linear forests help when the regression function has a strong smooth component, when forecast points sit near the edge of the observed predictor range, and when leaves are wide enough to span real variation in <span class="math inline">x</span>. They help little when the response is genuinely step-like, when leaves are very small, or when the predictor dimension is large enough that the local design stays ill conditioned under any amount of shrinkage that still leaves a useful slope.</p>
+<p>One limit carries over unchanged from QRF. The weights <span class="math inline">w_i(x)</span> are zero where there are no neighbors, so a local linear forest cannot invent support. Reducing boundary bias <em>inside</em> the observed range is not the same as extrapolating outside it, and the local slope should not be read as a license to forecast far beyond the training predictors.</p>
+<div class="callout callout-style-default callout-note callout-titled" title="Question for Reflection">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+Question for Reflection
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>QRF and LLF are built from the same weights <span class="math inline">w_i(x)</span>. Why can LLF not simply be used to produce conditional quantiles as well, by reading quantiles off its local linear fit?</p>
+</div>
+</div>
+<div class="callout callout-style-default callout-tip callout-titled" title="Suggested Answer">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-7-contents" aria-controls="callout-7" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+Suggested Answer
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-7" class="callout-7-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
+<p>Because the local linear fit models only the conditional mean function within the neighborhood. It returns an intercept and a slope, not a distribution over outcomes. QRF’s quantiles come from the weighted empirical distribution <span class="math inline">\sum_{i=1}^{N} w_i(x)\mathbf{1}\{y_i\le y\}</span>, which retains every neighbor’s outcome; the local linear fit collapses those outcomes into two estimated coefficients and discards the rest of the information. Obtaining quantiles would require an additional assumption about the distribution of the residuals around the local fit, which is exactly the parametric commitment that QRF avoids and NGBoost makes explicitly.</p>
+</div>
+</div>
+</div>
+</section>
+<section id="sec-adv-ngboost" class="level2" data-number="13.8">
+<h2 data-number="13.8" class="anchored" data-anchor-id="sec-adv-ngboost"><span class="header-section-number">13.8</span> NGBoost: Parametric Distributional Boosting</h2>
 <p>NGBoost takes a different route. Instead of estimating the conditional distribution nonparametrically from forest neighbors, it chooses a parametric family </p>
 <div class="display-math-block">
 <p><span class="math display">
-Y\mid X=x \sim P_{\theta(x)}
+Y\mid X=x \sim P_{\boldsymbol{\eta}(x)}
 </span></p>
 </div>
-<p> and learns its parameters by boosting. The learner works in a coordinate vector <span class="math inline">\theta(x)</span> on an unconstrained chart and maps those coordinates into valid distribution parameters. For a Gaussian distribution, for example, it can use <span class="math inline">\theta(x)=(\mu(x),\eta(x))</span> with <span class="math inline">\eta(x)=\log\sigma(x)</span>; a positive exponential rate can likewise be represented on the log scale.</p>
+<p> and learns its parameters by boosting. As in the <a href="./distributions_via_nns.html#sec-point-to-distnn">distributional-network chapter</a>, <span class="math inline">\boldsymbol{\eta}</span> denotes the parameter vector of the chosen family. What changes is the map that produces it: there a network with weights <span class="math inline">\boldsymbol{\boldsymbol{\eta}}</span>, here a sum of boosted trees, so no weight vector appears and we write <span class="math inline">\boldsymbol{\eta}(x)</span>. The learner works in a coordinate vector <span class="math inline">\boldsymbol{\eta}(x)</span> on an unconstrained chart, in which every real vector is admissible, and maps those coordinates into valid distribution parameters. For a Gaussian distribution, for example, it can use <span class="math inline">\boldsymbol{\eta}(x)=(\mu(x),\log\sigma(x))</span>; a positive exponential rate can likewise be represented on the log scale.</p>
 <p>To keep the formulas concrete, we use the negative log-likelihood (NLL), which is the logarithmic-score loss, </p>
 <div class="display-math-block">
 <p><span class="math display">
-\ell(y;\theta)=-\log p_\theta(y).
+\ell(y;\boldsymbol{\eta})=-\log p(y;\boldsymbol{\eta}),
 </span></p>
 </div>
+<p> where <span class="math inline">p(\cdot\,;\boldsymbol{\eta})</span> is the density of <span class="math inline">P_{\boldsymbol{\eta}}</span>.</p>
 <p>This choice connects NGBoost to the distributional-network chapter and the predictive-distribution evaluation chapter: minimizing average NLL is the training analogue of optimizing the logarithmic score (see the <a href="./evaluating_distributions.html#sec-mini-log-score-kl">Kullback–Leibler (KL) divergence connection</a>). NGBoost can instead use another proper scoring rule, such as the continuous ranked probability score. In that case, the natural-gradient metric is derived from the local curvature of the divergence induced by that score and need not equal the Fisher information <span class="citation" data-cites="DuanAvatiDingThaiBasuNgSchuler2020">(<a href="#ref-DuanAvatiDingThaiBasuNgSchuler2020" role="doc-biblioref">Duan et al. 2020</a>)</span>.</p>
 <div class="callout callout-style-default callout-important callout-titled">
 <div class="callout-header d-flex align-content-center">
@@ -701,15 +878,15 @@ Standard Boosting vs NGBoost
 </div>
 </div>
 </section>
-<section id="sec-adv-natural-gradients" class="level2" data-number="13.8">
-<h2 data-number="13.8" class="anchored" data-anchor-id="sec-adv-natural-gradients"><span class="header-section-number">13.8</span> Natural Gradients and Fisher Scaling</h2>
+<section id="sec-adv-natural-gradients" class="level2" data-number="13.9">
+<h2 data-number="13.9" class="anchored" data-anchor-id="sec-adv-natural-gradients"><span class="header-section-number">13.9</span> Natural Gradients and Fisher Scaling</h2>
 <p>NGBoost’s defining choice is the natural gradient. In an ordinary gradient step, parameters are updated using the Euclidean gradient of the loss. For distribution parameters, this can be poorly scaled: a one-unit change in a mean parameter and a one-unit change in a scale parameter need not have comparable effects on the predictive density. For the NLL case developed here, the relevant metric is Fisher information.</p>
 <p>As in standard boosting, the path needs an initial prediction. NGBoost starts from the constant parameter vector that best fits the marginal training distribution, </p>
 <div class="display-math-block">
 <p><span class="math display">
-\theta^{(0)}
+\boldsymbol{\eta}^{(0)}
 \in
-\arg\min_{\theta}\sum_{i=1}^N \ell(y_i;\theta),
+\arg\min_{\boldsymbol{\eta}}\sum_{i=1}^N \ell(y_i;\boldsymbol{\eta}),
 </span></p>
 </div>
 <p> so every training observation initially receives the same predictive distribution. This notation allows multiple minimizers; the discussion assumes that at least one finite interior solution exists. Boundary samples may instead require regularization, clipping, or rejection by the implementation. The boosted stages then let the coordinates, and hence the mapped distribution parameters, vary with <span class="math inline">x</span>.</p>
@@ -718,79 +895,79 @@ Standard Boosting vs NGBoost
 <p><span class="math display">
 g_i^{(m)}
 =
-\left.\nabla_\theta \ell(y_i;\theta)\right|_{\theta=\theta^{(m-1)}(x_i)}
+\left.\nabla_{\boldsymbol{\eta}} \ell(y_i;\boldsymbol{\eta})\right|_{\boldsymbol{\eta}=\boldsymbol{\eta}^{(m-1)}(x_i)}
 </span></p>
 </div>
 <p> be the ordinary gradient for observation <span class="math inline">i</span>. The Fisher information matrix—written <span class="math inline">\mathcal{I}</span> to avoid a clash with the conditional CDF <span class="math inline">\hat F</span> used earlier in this chapter—is </p>
 <div class="display-math-block">
 <p><span class="math display">
-\mathcal{I}(\theta)
+\mathcal{I}(\boldsymbol{\eta})
 =
-\mathbb{E}_{Y\sim P_\theta}
+\mathbb{E}_{Y\sim P_{\boldsymbol{\eta}}}
 \left[
-\nabla_\theta \log p_\theta(Y)
-\nabla_\theta \log p_\theta(Y)^\top
+\nabla_{\boldsymbol{\eta}} \log p(Y;\boldsymbol{\eta})
+\nabla_{\boldsymbol{\eta}} \log p(Y;\boldsymbol{\eta})^\top
 \right].
 </span></p>
 </div>
-<p>Assuming <span class="math inline">\mathcal{I}(\theta)</span> is positive definite, the natural gradient rescales the ordinary gradient: </p>
+<p>Assuming <span class="math inline">\mathcal{I}(\boldsymbol{\eta})</span> is positive definite, the natural gradient rescales the ordinary gradient: </p>
 <div class="display-math-block">
 <p><span class="math display">
 \tilde g_i^{(m)}
 =
-\mathcal{I}(\theta^{(m-1)}(x_i))^{-1}g_i^{(m)}.
+\mathcal{I}(\boldsymbol{\eta}^{(m-1)}(x_i))^{-1}g_i^{(m)}.
 </span></p>
 </div>
-<p><a href="#fig-ngboost-natural-step" class="quarto-xref">Figure&nbsp;13.2</a> makes the rescaling visible for a Gaussian negative log-likelihood parameterized by its mean <span class="math inline">\mu</span> and log standard deviation <span class="math inline">\eta=\log\sigma</span>. The contour lines are equal-loss sets for a five-observation sample. Both arrows start from the same parameter value and use the same nominal step size; they differ only in whether the loss gradient is used directly or premultiplied by inverse Fisher information.</p>
-<div id="cell-fig-ngboost-natural-step" class="cell" data-execution_count="3">
+<p><a href="#fig-ngboost-natural-step" class="quarto-xref">Figure&nbsp;13.3</a> makes the rescaling visible for a Gaussian negative log-likelihood parameterized by its mean <span class="math inline">\mu</span> and log standard deviation <span class="math inline">\log\sigma</span>, that is, <span class="math inline">\boldsymbol{\eta}=(\mu,\log\sigma)</span>. The contour lines are equal-loss sets for a five-observation sample. Both arrows start from the same parameter value and use the same nominal step size; they differ only in whether the loss gradient is used directly or premultiplied by inverse Fisher information.</p>
+<div id="cell-fig-ngboost-natural-step" class="cell" data-execution_count="4">
 <details class="code-fold">
 <summary>Show the code</summary>
-<div class="sourceCode cell-code" id="cb2"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> numpy <span class="im">as</span> np</span>
-<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> matplotlib.pyplot <span class="im">as</span> plt</span>
-<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>y_demo <span class="op">=</span> np.array([<span class="op">-</span><span class="fl">2.0</span>, <span class="op">-</span><span class="fl">0.5</span>, <span class="fl">0.0</span>, <span class="fl">1.0</span>, <span class="fl">2.0</span>])</span>
-<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>mu_grid <span class="op">=</span> np.linspace(<span class="op">-</span><span class="fl">2.5</span>, <span class="fl">2.5</span>, <span class="dv">260</span>)</span>
-<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>eta_grid <span class="op">=</span> np.linspace(<span class="op">-</span><span class="fl">1.0</span>, <span class="fl">1.2</span>, <span class="dv">240</span>)</span>
-<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>MU, ETA <span class="op">=</span> np.meshgrid(mu_grid, eta_grid)</span>
-<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>LOSS <span class="op">=</span> ETA <span class="op">+</span> <span class="fl">0.5</span> <span class="op">*</span> np.mean(</span>
-<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>    (y_demo[<span class="va">None</span>, <span class="va">None</span>, :] <span class="op">-</span> MU[:, :, <span class="va">None</span>]) <span class="op">**</span> <span class="dv">2</span></span>
-<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>    <span class="op">*</span> np.exp(<span class="op">-</span><span class="fl">2.0</span> <span class="op">*</span> ETA[:, :, <span class="va">None</span>]),</span>
-<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>    axis<span class="op">=</span><span class="dv">2</span>,</span>
-<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>LOSS <span class="op">=</span> LOSS <span class="op">-</span> LOSS.<span class="bu">min</span>()</span>
-<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a>mu0, eta0 <span class="op">=</span> <span class="op">-</span><span class="fl">1.0</span>, <span class="fl">0.4</span></span>
-<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a>mean_sq_resid <span class="op">=</span> np.mean((y_demo <span class="op">-</span> mu0) <span class="op">**</span> <span class="dv">2</span>)</span>
-<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a>ordinary <span class="op">=</span> np.array([</span>
-<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a>    np.exp(<span class="op">-</span><span class="fl">2.0</span> <span class="op">*</span> eta0) <span class="op">*</span> (mu0 <span class="op">-</span> y_demo.mean()),</span>
-<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a>    <span class="fl">1.0</span> <span class="op">-</span> np.exp(<span class="op">-</span><span class="fl">2.0</span> <span class="op">*</span> eta0) <span class="op">*</span> mean_sq_resid,</span>
-<span id="cb2-20"><a href="#cb2-20" aria-hidden="true" tabindex="-1"></a>])</span>
-<span id="cb2-21"><a href="#cb2-21" aria-hidden="true" tabindex="-1"></a>fisher <span class="op">=</span> np.diag([np.exp(<span class="op">-</span><span class="fl">2.0</span> <span class="op">*</span> eta0), <span class="fl">2.0</span>])</span>
-<span id="cb2-22"><a href="#cb2-22" aria-hidden="true" tabindex="-1"></a>natural <span class="op">=</span> np.linalg.solve(fisher, ordinary)</span>
-<span id="cb2-23"><a href="#cb2-23" aria-hidden="true" tabindex="-1"></a>step <span class="op">=</span> <span class="fl">0.8</span></span>
-<span id="cb2-24"><a href="#cb2-24" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb2-25"><a href="#cb2-25" aria-hidden="true" tabindex="-1"></a>fig, ax <span class="op">=</span> plt.subplots(figsize<span class="op">=</span>(<span class="fl">8.2</span>, <span class="fl">4.8</span>))</span>
-<span id="cb2-26"><a href="#cb2-26" aria-hidden="true" tabindex="-1"></a>levels <span class="op">=</span> [<span class="fl">0.02</span>, <span class="fl">0.05</span>, <span class="fl">0.10</span>, <span class="fl">0.20</span>, <span class="fl">0.40</span>, <span class="fl">0.80</span>, <span class="fl">1.50</span>, <span class="fl">2.50</span>, <span class="fl">4.00</span>]</span>
-<span id="cb2-27"><a href="#cb2-27" aria-hidden="true" tabindex="-1"></a>contours <span class="op">=</span> ax.contour(MU, ETA, LOSS, levels<span class="op">=</span>levels, cmap<span class="op">=</span><span class="st">"Greys"</span>)</span>
-<span id="cb2-28"><a href="#cb2-28" aria-hidden="true" tabindex="-1"></a>ax.clabel(contours, inline<span class="op">=</span><span class="va">True</span>, fontsize<span class="op">=</span><span class="dv">8</span>, fmt<span class="op">=</span><span class="st">"</span><span class="sc">%.2g</span><span class="st">"</span>)</span>
-<span id="cb2-29"><a href="#cb2-29" aria-hidden="true" tabindex="-1"></a>ax.scatter([mu0], [eta0], color<span class="op">=</span><span class="st">"black"</span>, s<span class="op">=</span><span class="dv">45</span>, zorder<span class="op">=</span><span class="dv">4</span>, label<span class="op">=</span><span class="st">"Starting value"</span>)</span>
-<span id="cb2-30"><a href="#cb2-30" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb2-31"><a href="#cb2-31" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> direction, color, label <span class="kw">in</span> [</span>
-<span id="cb2-32"><a href="#cb2-32" aria-hidden="true" tabindex="-1"></a>    (ordinary, <span class="st">"C3"</span>, <span class="st">"Ordinary gradient"</span>),</span>
-<span id="cb2-33"><a href="#cb2-33" aria-hidden="true" tabindex="-1"></a>    (natural, <span class="st">"C0"</span>, <span class="st">"Natural gradient"</span>),</span>
-<span id="cb2-34"><a href="#cb2-34" aria-hidden="true" tabindex="-1"></a>]:</span>
-<span id="cb2-35"><a href="#cb2-35" aria-hidden="true" tabindex="-1"></a>    delta <span class="op">=</span> <span class="op">-</span>step <span class="op">*</span> direction</span>
-<span id="cb2-36"><a href="#cb2-36" aria-hidden="true" tabindex="-1"></a>    ax.arrow(mu0, eta0, delta[<span class="dv">0</span>], delta[<span class="dv">1</span>], width<span class="op">=</span><span class="fl">0.012</span>,</span>
-<span id="cb2-37"><a href="#cb2-37" aria-hidden="true" tabindex="-1"></a>             head_width<span class="op">=</span><span class="fl">0.09</span>, length_includes_head<span class="op">=</span><span class="va">True</span>,</span>
-<span id="cb2-38"><a href="#cb2-38" aria-hidden="true" tabindex="-1"></a>             color<span class="op">=</span>color, alpha<span class="op">=</span><span class="fl">0.9</span>, label<span class="op">=</span>label)</span>
-<span id="cb2-39"><a href="#cb2-39" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb2-40"><a href="#cb2-40" aria-hidden="true" tabindex="-1"></a>ax.set_xlabel(<span class="vs">r"Mean parameter </span><span class="dv">$\m</span><span class="vs">u</span><span class="dv">$</span><span class="vs">"</span>)</span>
-<span id="cb2-41"><a href="#cb2-41" aria-hidden="true" tabindex="-1"></a>ax.set_ylabel(<span class="vs">r"Log standard deviation </span><span class="dv">$</span><span class="er">\</span><span class="vs">eta=</span><span class="er">\</span><span class="vs">log</span><span class="dv">\s</span><span class="vs">igma</span><span class="dv">$</span><span class="vs">"</span>)</span>
-<span id="cb2-42"><a href="#cb2-42" aria-hidden="true" tabindex="-1"></a>ax.set_title(<span class="st">"Fisher scaling changes the descent direction"</span>)</span>
-<span id="cb2-43"><a href="#cb2-43" aria-hidden="true" tabindex="-1"></a>ax.grid(<span class="va">True</span>, alpha<span class="op">=</span><span class="fl">0.18</span>)</span>
-<span id="cb2-44"><a href="#cb2-44" aria-hidden="true" tabindex="-1"></a>ax.legend(frameon<span class="op">=</span><span class="va">False</span>)</span>
-<span id="cb2-45"><a href="#cb2-45" aria-hidden="true" tabindex="-1"></a>plt.tight_layout()</span>
-<span id="cb2-46"><a href="#cb2-46" aria-hidden="true" tabindex="-1"></a>plt.show()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode cell-code" id="cb3"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> numpy <span class="im">as</span> np</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> matplotlib.pyplot <span class="im">as</span> plt</span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>y_demo <span class="op">=</span> np.array([<span class="op">-</span><span class="fl">2.0</span>, <span class="op">-</span><span class="fl">0.5</span>, <span class="fl">0.0</span>, <span class="fl">1.0</span>, <span class="fl">2.0</span>])</span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>mu_grid <span class="op">=</span> np.linspace(<span class="op">-</span><span class="fl">2.5</span>, <span class="fl">2.5</span>, <span class="dv">260</span>)</span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>log_sigma_grid <span class="op">=</span> np.linspace(<span class="op">-</span><span class="fl">1.0</span>, <span class="fl">1.2</span>, <span class="dv">240</span>)</span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>MU, LOG_SIGMA <span class="op">=</span> np.meshgrid(mu_grid, log_sigma_grid)</span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>LOSS <span class="op">=</span> LOG_SIGMA <span class="op">+</span> <span class="fl">0.5</span> <span class="op">*</span> np.mean(</span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>    (y_demo[<span class="va">None</span>, <span class="va">None</span>, :] <span class="op">-</span> MU[:, :, <span class="va">None</span>]) <span class="op">**</span> <span class="dv">2</span></span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>    <span class="op">*</span> np.exp(<span class="op">-</span><span class="fl">2.0</span> <span class="op">*</span> LOG_SIGMA[:, :, <span class="va">None</span>]),</span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>    axis<span class="op">=</span><span class="dv">2</span>,</span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a>LOSS <span class="op">=</span> LOSS <span class="op">-</span> LOSS.<span class="bu">min</span>()</span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a>mu0, log_sigma0 <span class="op">=</span> <span class="op">-</span><span class="fl">1.0</span>, <span class="fl">0.4</span></span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a>mean_sq_resid <span class="op">=</span> np.mean((y_demo <span class="op">-</span> mu0) <span class="op">**</span> <span class="dv">2</span>)</span>
+<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a>ordinary <span class="op">=</span> np.array([</span>
+<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a>    np.exp(<span class="op">-</span><span class="fl">2.0</span> <span class="op">*</span> log_sigma0) <span class="op">*</span> (mu0 <span class="op">-</span> y_demo.mean()),</span>
+<span id="cb3-19"><a href="#cb3-19" aria-hidden="true" tabindex="-1"></a>    <span class="fl">1.0</span> <span class="op">-</span> np.exp(<span class="op">-</span><span class="fl">2.0</span> <span class="op">*</span> log_sigma0) <span class="op">*</span> mean_sq_resid,</span>
+<span id="cb3-20"><a href="#cb3-20" aria-hidden="true" tabindex="-1"></a>])</span>
+<span id="cb3-21"><a href="#cb3-21" aria-hidden="true" tabindex="-1"></a>fisher <span class="op">=</span> np.diag([np.exp(<span class="op">-</span><span class="fl">2.0</span> <span class="op">*</span> log_sigma0), <span class="fl">2.0</span>])</span>
+<span id="cb3-22"><a href="#cb3-22" aria-hidden="true" tabindex="-1"></a>natural <span class="op">=</span> np.linalg.solve(fisher, ordinary)</span>
+<span id="cb3-23"><a href="#cb3-23" aria-hidden="true" tabindex="-1"></a>step <span class="op">=</span> <span class="fl">0.8</span></span>
+<span id="cb3-24"><a href="#cb3-24" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-25"><a href="#cb3-25" aria-hidden="true" tabindex="-1"></a>fig, ax <span class="op">=</span> plt.subplots(figsize<span class="op">=</span>(<span class="fl">8.2</span>, <span class="fl">4.8</span>))</span>
+<span id="cb3-26"><a href="#cb3-26" aria-hidden="true" tabindex="-1"></a>levels <span class="op">=</span> [<span class="fl">0.02</span>, <span class="fl">0.05</span>, <span class="fl">0.10</span>, <span class="fl">0.20</span>, <span class="fl">0.40</span>, <span class="fl">0.80</span>, <span class="fl">1.50</span>, <span class="fl">2.50</span>, <span class="fl">4.00</span>]</span>
+<span id="cb3-27"><a href="#cb3-27" aria-hidden="true" tabindex="-1"></a>contours <span class="op">=</span> ax.contour(MU, LOG_SIGMA, LOSS, levels<span class="op">=</span>levels, cmap<span class="op">=</span><span class="st">"Greys"</span>)</span>
+<span id="cb3-28"><a href="#cb3-28" aria-hidden="true" tabindex="-1"></a>ax.clabel(contours, inline<span class="op">=</span><span class="va">True</span>, fontsize<span class="op">=</span><span class="dv">8</span>, fmt<span class="op">=</span><span class="st">"</span><span class="sc">%.2g</span><span class="st">"</span>)</span>
+<span id="cb3-29"><a href="#cb3-29" aria-hidden="true" tabindex="-1"></a>ax.scatter([mu0], [log_sigma0], color<span class="op">=</span><span class="st">"black"</span>, s<span class="op">=</span><span class="dv">45</span>, zorder<span class="op">=</span><span class="dv">4</span>, label<span class="op">=</span><span class="st">"Starting value"</span>)</span>
+<span id="cb3-30"><a href="#cb3-30" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-31"><a href="#cb3-31" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> direction, color, label <span class="kw">in</span> [</span>
+<span id="cb3-32"><a href="#cb3-32" aria-hidden="true" tabindex="-1"></a>    (ordinary, <span class="st">"C3"</span>, <span class="st">"Ordinary gradient"</span>),</span>
+<span id="cb3-33"><a href="#cb3-33" aria-hidden="true" tabindex="-1"></a>    (natural, <span class="st">"C0"</span>, <span class="st">"Natural gradient"</span>),</span>
+<span id="cb3-34"><a href="#cb3-34" aria-hidden="true" tabindex="-1"></a>]:</span>
+<span id="cb3-35"><a href="#cb3-35" aria-hidden="true" tabindex="-1"></a>    delta <span class="op">=</span> <span class="op">-</span>step <span class="op">*</span> direction</span>
+<span id="cb3-36"><a href="#cb3-36" aria-hidden="true" tabindex="-1"></a>    ax.arrow(mu0, log_sigma0, delta[<span class="dv">0</span>], delta[<span class="dv">1</span>], width<span class="op">=</span><span class="fl">0.012</span>,</span>
+<span id="cb3-37"><a href="#cb3-37" aria-hidden="true" tabindex="-1"></a>             head_width<span class="op">=</span><span class="fl">0.09</span>, length_includes_head<span class="op">=</span><span class="va">True</span>,</span>
+<span id="cb3-38"><a href="#cb3-38" aria-hidden="true" tabindex="-1"></a>             color<span class="op">=</span>color, alpha<span class="op">=</span><span class="fl">0.9</span>, label<span class="op">=</span>label)</span>
+<span id="cb3-39"><a href="#cb3-39" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-40"><a href="#cb3-40" aria-hidden="true" tabindex="-1"></a>ax.set_xlabel(<span class="vs">r"Mean parameter </span><span class="dv">$\m</span><span class="vs">u</span><span class="dv">$</span><span class="vs">"</span>)</span>
+<span id="cb3-41"><a href="#cb3-41" aria-hidden="true" tabindex="-1"></a>ax.set_ylabel(<span class="vs">r"Log standard deviation </span><span class="dv">$</span><span class="er">\</span><span class="vs">log</span><span class="dv">\s</span><span class="vs">igma</span><span class="dv">$</span><span class="vs">"</span>)</span>
+<span id="cb3-42"><a href="#cb3-42" aria-hidden="true" tabindex="-1"></a>ax.set_title(<span class="st">"Fisher scaling changes the descent direction"</span>)</span>
+<span id="cb3-43"><a href="#cb3-43" aria-hidden="true" tabindex="-1"></a>ax.grid(<span class="va">True</span>, alpha<span class="op">=</span><span class="fl">0.18</span>)</span>
+<span id="cb3-44"><a href="#cb3-44" aria-hidden="true" tabindex="-1"></a>ax.legend(frameon<span class="op">=</span><span class="va">False</span>)</span>
+<span id="cb3-45"><a href="#cb3-45" aria-hidden="true" tabindex="-1"></a>plt.tight_layout()</span>
+<span id="cb3-46"><a href="#cb3-46" aria-hidden="true" tabindex="-1"></a>plt.show()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </details>
 <div class="cell-output cell-output-display">
 <div id="fig-ngboost-natural-step" class="quarto-float quarto-figure quarto-figure-center anchored">
@@ -799,13 +976,13 @@ g_i^{(m)}
 <img src="adv_tree_based_methods_files/figure-html/fig-ngboost-natural-step-output-1.png" class="img-fluid figure-img">
 </div>
 <figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-ngboost-natural-step-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Figure&nbsp;13.2: Ordinary and natural-gradient descent directions for Gaussian negative log-likelihood in the parameterization <span class="math inline">(\mu,\eta)</span>, where <span class="math inline">\eta=\log\sigma</span>. Contours show the sample-average loss above its minimum. Both arrows start at <span class="math inline">(\mu,\eta)=(-1,0.4)</span> and use the same nominal step size.
+Figure&nbsp;13.3: Ordinary and natural-gradient descent directions for Gaussian negative log-likelihood in the parameterization <span class="math inline">\boldsymbol{\eta}=(\mu,\log\sigma)</span>. Contours show the sample-average loss above its minimum. Both arrows start at <span class="math inline">(\mu,\log\sigma)=(-1,0.4)</span> and use the same nominal step size.
 </figcaption>
 </figure>
 </div>
 </div>
 </div>
-<p>In <a href="#fig-ngboost-natural-step" class="quarto-xref">Figure&nbsp;13.2</a>, the ordinary direction reacts to the numerical coordinates themselves, whereas the natural direction measures a change relative to how much it moves the predictive distribution. At this starting point, Fisher scaling places relatively more weight on correcting the mean: the natural-gradient arrow moves farther horizontally and less vertically than the ordinary-gradient arrow. The figure is illustrative rather than a convergence comparison: line search and repeated boosted stages still determine the realized path.</p>
+<p>In <a href="#fig-ngboost-natural-step" class="quarto-xref">Figure&nbsp;13.3</a>, the ordinary direction reacts to the numerical coordinates themselves, whereas the natural direction measures a change relative to how much it moves the predictive distribution. At this starting point, Fisher scaling places relatively more weight on correcting the mean: the natural-gradient arrow moves farther horizontally and less vertically than the ordinary-gradient arrow. The figure is illustrative rather than a convergence comparison: line search and repeated boosted stages still determine the realized path.</p>
 <p>The Bernoulli leaf update in the <a href="./gradient_boosting.html#sec-gb-general">gradient-boosting chapter</a> is a scalar instance of this Fisher-scaling idea. Its Newton denominator <span class="math inline">\sum_{i:\,x_i\in R_{jm}} p_{i,m-1}(1-p_{i,m-1})</span> is the Fisher curvature of the leaf’s log-odds parameter, so dividing the leaf score by that quantity is a one-parameter Fisher-scoring step. NGBoost extends that information scaling to a vector of distribution parameters and then approximates each component with a base learner.</p>
 <p>This chapter uses a positive loss-gradient convention: NGBoost fits a weak learner <span class="math inline">\hat h_m(x)</span> to <span class="math inline">\tilde g_i^{(m)}</span> and subtracts the fitted direction. The <a href="./gradient_boosting.html">gradient-boosting chapter</a> instead defined pseudo-residuals as <em>negative</em> gradients and added the fitted tree; the two sign conventions describe the same descent step.</p>
 <p>NGBoost chooses one stage-specific scale by a line search, </p>
@@ -815,22 +992,22 @@ Figure&nbsp;13.2: Ordinary and natural-gradient descent directions for Gaussian 
 =
 \arg\min_{\rho}
 \sum_{i=1}^N
-\ell\!\left(y_i;\theta^{(m-1)}(x_i)-\rho\,\hat h_m(x_i)\right),
+\ell\!\left(y_i;\boldsymbol{\eta}^{(m-1)}(x_i)-\rho\,\hat h_m(x_i)\right),
 </span></p>
 </div>
 <p> and then applies the learning rate <span class="math inline">\nu\in(0,1]</span>: </p>
 <div class="display-math-block">
 <p><span class="math display">
-\theta^{(m)}(x)
+\boldsymbol{\eta}^{(m)}(x)
 =
-\theta^{(m-1)}(x) - \nu\, \rho^{(m)}\, \hat h_m(x),
+\boldsymbol{\eta}^{(m-1)}(x) - \nu\, \rho^{(m)}\, \hat h_m(x),
 \qquad m=1,\ldots,M.
 </span></p>
 </div>
 <p> This update is analogous to the stagewise descent of the previous chapter, now along a vector of distribution parameters. There is one important difference in the line search: <span class="math inline">\rho^{(m)}</span> is a single scalar for the whole multi-parameter stage, whereas the exact loss-optimal <span class="math inline">\gamma_{jm}^{\star}</span> in the <a href="./gradient_boosting.html">gradient-boosting chapter</a> is chosen separately for each leaf. The learning rate <span class="math inline">\nu</span>, the number of iterations <span class="math inline">M</span>, and the need for time-aware early stopping carry over. Fisher scaling makes the natural-gradient direction, viewed as an infinitesimal tangent vector, invariant to smooth one-to-one reparameterizations and prevents the numerical units of one parameter from dominating that direction <span class="citation" data-cites="DuanAvatiDingThaiBasuNgSchuler2020">(<a href="#ref-DuanAvatiDingThaiBasuNgSchuler2020" role="doc-biblioref">Duan et al. 2020</a>)</span>. An ordinary finite coordinate update is an Euler step along this vector field and is only first-order invariant: applying separate finite steps in two parameterizations need not produce exactly corresponding parameter paths.</p>
 </section>
-<section id="sec-adv-parameterization" class="level2" data-number="13.9">
-<h2 data-number="13.9" class="anchored" data-anchor-id="sec-adv-parameterization"><span class="header-section-number">13.9</span> Parameterization and Update Choices</h2>
+<section id="sec-adv-parameterization" class="level2" data-number="13.10">
+<h2 data-number="13.10" class="anchored" data-anchor-id="sec-adv-parameterization"><span class="header-section-number">13.10</span> Parameterization and Update Choices</h2>
 <p>Distribution parameters often have constraints. A variance, standard deviation, rate, or scale parameter must be positive, and a probability must lie in <span class="math inline">(0,1)</span>. NGBoost implementations therefore usually predict unconstrained functions and transform them into valid distribution parameters.</p>
 <p>Common constraint-preserving parameterizations include:</p>
 <ul>
@@ -840,9 +1017,10 @@ Figure&nbsp;13.2: Ordinary and natural-gradient descent directions for Gaussian 
 </ul>
 <p>For a distribution with several parameters, standard NGBoost fits one base learner to each component of the natural gradient at every stage. For a Gaussian model, for example, one learner fits the mean component and another fits the log-scale component; together they form the vector <span class="math inline">\hat h_m(x)</span>. All components update simultaneously and share the stage scale <span class="math inline">\rho^{(m)}</span>. A coordinate-wise cycle or a single multi-output learner would be a different algorithmic variant, not the standard NGBoost update.</p>
 </section>
-<section id="sec-adv-comparison" class="level2" data-number="13.10">
-<h2 data-number="13.10" class="anchored" data-anchor-id="sec-adv-comparison"><span class="header-section-number">13.10</span> QRF vs NGBoost</h2>
-<p>QRF and NGBoost both produce conditional predictive distributions, but in opposite ways: QRF is nonparametric (the conditional law is the weighted empirical distribution of training outcomes in a forest neighborhood), while NGBoost is parametric (the conditional law belongs to a chosen family, and boosting iteratively fits its parameters).</p>
+<section id="sec-adv-comparison" class="level2" data-number="13.11">
+<h2 data-number="13.11" class="anchored" data-anchor-id="sec-adv-comparison"><span class="header-section-number">13.11</span> Comparing the Three Methods</h2>
+<p>The three methods do not lie on a single scale, and trying to rank them jointly is the most common error in applying them. They separate along two axes at once.</p>
+<p>Along the first axis, QRF and LLF share the forest weights <span class="math inline">w_i(x)</span> and differ in what they estimate from them: a full conditional distribution, or a conditional mean with a local slope. Along the second, QRF and NGBoost estimate the same object and differ in how: QRF is nonparametric, so the conditional law is the weighted empirical distribution of training outcomes in a forest neighborhood, while NGBoost is parametric, so the conditional law belongs to a chosen family whose parameters boosting fits iteratively.</p>
 <table class="caption-top table">
 <colgroup>
 <col style="width: 25%">
@@ -853,7 +1031,7 @@ Figure&nbsp;13.2: Ordinary and natural-gradient descent directions for Gaussian 
 <thead>
 <tr class="header">
 <th>Method</th>
-<th>Distributional object</th>
+<th>Object estimated</th>
 <th>Main advantage</th>
 <th>Main limitation</th>
 </tr>
@@ -866,18 +1044,24 @@ Figure&nbsp;13.2: Ordinary and natural-gradient descent directions for Gaussian 
 <td>Few local tail observations and no extrapolation beyond observed outcomes</td>
 </tr>
 <tr class="even">
+<td>LLF</td>
+<td>Conditional mean with a local slope</td>
+<td>Lower bias on smooth regression functions and near the boundary</td>
+<td>Returns no distribution, and the local design degrades in high dimension</td>
+</tr>
+<tr class="odd">
 <td>NGBoost</td>
-<td>Parametric distribution <span class="math inline">P_{\theta(x)}</span></td>
+<td>Parametric distribution <span class="math inline">P_{\boldsymbol{\eta}(x)}</span></td>
 <td>Smooth distribution and proper-score-based training</td>
 <td>Sensitive to distributional misspecification</td>
 </tr>
 </tbody>
 </table>
-<p>In econometric work, the choice depends on the forecasting object. If the goal is flexible local quantiles with few parametric assumptions, QRF is natural. If the goal is a smooth parametric predictive distribution with proper-score-based training, NGBoost is more natural.</p>
-<p>Both methods estimate uncertainty in the outcome <span class="math inline">Y\mid X=x</span>. Neither fitted predictive distribution automatically quantifies sampling uncertainty about the estimated forest weights, trees, or parameter functions; confidence intervals for those estimated objects require separate inferential machinery.</p>
+<p>In econometric work the forecasting object decides candidacy first. If the decision requires quantiles or a density, LLF is not a candidate however accurate its conditional mean may be, and the choice is between QRF’s flexible local quantiles and NGBoost’s smooth parametric distribution. If the decision requires a point forecast of a smooth response, fitting a full predictive distribution is work the application will not use, and LLF addresses the bias that a piecewise-constant forest would leave behind. Only once the object has narrowed the field do the advantages and limitations in the table arbitrate.</p>
+<p>All three estimate features of the outcome distribution <span class="math inline">Y\mid X=x</span>. None of them automatically quantifies sampling uncertainty about the estimated forest weights, trees, or parameter functions; confidence intervals for those estimated objects require separate inferential machinery.</p>
 </section>
-<section id="summary" class="level2" data-number="13.11">
-<h2 data-number="13.11" class="anchored" data-anchor-id="summary"><span class="header-section-number">13.11</span> Summary</h2>
+<section id="summary" class="level2" data-number="13.12">
+<h2 data-number="13.12" class="anchored" data-anchor-id="summary"><span class="header-section-number">13.12</span> Summary</h2>
 <div class="callout callout-style-default callout-important callout-titled">
 <div class="callout-header d-flex align-content-center">
 <div class="callout-icon-container">
@@ -889,8 +1073,8 @@ Key Takeaways
 </div>
 <div class="callout-body-container callout-body">
 <ol type="1">
-<li>Forest partitions define neighborhood weights through shared terminal leaves.</li>
-<li>Quantile regression forests use these weights to estimate a conditional empirical CDF and its quantiles.</li>
+<li>Forest partitions define neighborhood weights through shared terminal leaves, and the leaf mean is only one of several quantities estimable from them.</li>
+<li>Quantile regression forests use these weights to estimate a conditional empirical CDF and its quantiles; local linear forests use the same weights to fit a local slope.</li>
 <li>NGBoost fits parameters of a predictive distribution by minimizing a proper scoring rule.</li>
 <li>Under log loss, natural gradients use inverse Fisher information to rescale parameter updates.</li>
 </ol>
@@ -907,16 +1091,16 @@ Common Pitfalls
 </div>
 <div class="callout-body-container callout-body">
 <ul>
-<li>Reconstructing a bootstrap-forest mean requires resampling multiplicities, not just the original-observation QRF weights.</li>
-<li>Extreme conditional quantiles need enough relevant tail observations in the forest neighborhood.</li>
+<li>QRF weights count original observations, so reconstructing a bootstrap-forest mean needs resampling multiplicities, and extreme quantiles need enough relevant tail observations in the neighborhood.</li>
+<li>A local linear forest lowers bias inside the observed predictor range; it does not license extrapolation beyond it, because the weights are still zero where there are no neighbors.</li>
 <li>Enforce valid distributional parameters and choose support compatible with the outcome.</li>
 <li>A fitted predictive distribution does not automatically include uncertainty about the estimated model.</li>
 </ul>
 </div>
 </div>
 </section>
-<section id="exercises" class="level2" data-number="13.12">
-<h2 data-number="13.12" class="anchored" data-anchor-id="exercises"><span class="header-section-number">13.12</span> Exercises</h2>
+<section id="exercises" class="level2" data-number="13.13">
+<h2 data-number="13.13" class="anchored" data-anchor-id="exercises"><span class="header-section-number">13.13</span> Exercises</h2>
 <div class="callout callout-style-default callout-note callout-titled">
 <div class="callout-header d-flex align-content-center">
 <div class="callout-icon-container">
@@ -951,7 +1135,7 @@ w_i(x_{\text{new}})
 </div>
 </div>
 <div class="callout callout-style-default callout-warning callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-9-contents" aria-controls="callout-9" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-12-contents" aria-controls="callout-12" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -960,14 +1144,14 @@ Hint for Part 3
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-9" class="callout-9-contents callout-collapse collapse">
+<div id="callout-12" class="callout-12-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p>Separate what the coverage result determines from what it leaves open. Sketch two forecast distributions—one shifted, one too narrow—that would both produce the same excess violation rate.</p>
 </div>
 </div>
 </div>
 <div class="callout callout-style-default callout-tip callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-10-contents" aria-controls="callout-10" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-13-contents" aria-controls="callout-13" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -976,7 +1160,7 @@ Solution
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-10" class="callout-10-contents callout-collapse collapse">
+<div id="callout-13" class="callout-13-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p><strong>Part 1: Neighbor weights, CDF, and quantiles</strong></p>
 <p>Pooling gives </p>
@@ -1121,7 +1305,7 @@ f(y;\lambda)=\lambda e^{-\lambda y}
 <li>Contrast NGBoost with standard gradient boosting under mean squared error (MSE) and with QRF along three dimensions: the prediction produced, the distributional assumption, and the object fitted at each boosting or forest step.</li>
 <li>Derive the per-observation NLL <span class="math inline">\ell(y;\lambda)</span> and its ordinary gradient <span class="math inline">\partial \ell/\partial \lambda</span>. Given the Fisher information <span class="math inline">\mathcal{I}_{\lambda\lambda}=1/\lambda^2</span>, derive the natural gradient <span class="math inline">\tilde g_\lambda=\mathcal{I}_{\lambda\lambda}^{-1}\partial \ell/\partial \lambda</span>.</li>
 <li>For <span class="math inline">\lambda=0.4</span> and <span class="math inline">y=3</span>, compute the ordinary and natural gradients. For a single-observation descent step with a positive step size small enough to keep <span class="math inline">\lambda&gt;0</span>, state whether <span class="math inline">\lambda</span> and the implied conditional mean <span class="math inline">1/\lambda</span> move up or down.</li>
-<li>Let <span class="math inline">\theta(x)=\log \lambda(x)</span>, so <span class="math inline">\lambda=e^\theta</span>. Derive <span class="math inline">\partial \ell/\partial \theta</span>, <span class="math inline">\mathcal{I}_{\theta\theta}</span>, and the natural gradient in the <span class="math inline">\theta</span> parameterization. Show that mapping this infinitesimal direction back to the <span class="math inline">\lambda</span> scale gives the natural-gradient direction from Part 2.</li>
+<li>Let <span class="math inline">\eta(x)=\log \lambda(x)</span> be the unconstrained coordinate of <a href="#sec-adv-ngboost" class="quarto-xref">Section&nbsp;13.8</a>, a scalar here because the family has a single parameter, so <span class="math inline">\lambda=e^\eta</span>. Derive <span class="math inline">\partial \ell/\partial \eta</span>, <span class="math inline">\mathcal{I}_{\eta\eta}</span>, and the natural gradient in the <span class="math inline">\eta</span> parameterization. Show that mapping this infinitesimal direction back to the <span class="math inline">\lambda</span> scale gives the natural-gradient direction from Part 2.</li>
 <li>Explain why the agreement of the infinitesimal directions in Part 4 does not imply that ordinary finite Euler updates in the two coordinates generate exactly matching parameter sequences. Then explain how the log-rate parameterization enforces the constraint <span class="math inline">\lambda&gt;0</span>.</li>
 <li>For an exponential distribution, both the conditional mean and the conditional standard deviation, written <span class="math inline">\operatorname{SD}(Y\mid X=x)</span>, equal <span class="math inline">1/\lambda(x)</span>. Suppose that, at a particular predictor value <span class="math inline">x</span>, the conditional mean is <span class="math inline">2</span> and the conditional standard deviation is <span class="math inline">4</span>. Show that no value of <span class="math inline">\lambda(x)</span> matches both features, and explain why allowing a flexible function <span class="math inline">\lambda(x)</span> cannot remove this distributional misspecification.</li>
 </ol>
@@ -1129,7 +1313,7 @@ f(y;\lambda)=\lambda e^{-\lambda y}
 </div>
 </div>
 <div class="callout callout-style-default callout-warning callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-12-contents" aria-controls="callout-12" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-15-contents" aria-controls="callout-15" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -1138,27 +1322,27 @@ Hint for Part 4
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-12" class="callout-12-contents callout-collapse collapse">
+<div id="callout-15" class="callout-15-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p>Use the chain rule and the information transformation: </p>
 <div class="display-math-block">
 <p><span class="math display">
-\frac{\partial \ell}{\partial \theta}
+\frac{\partial \ell}{\partial \eta}
 =
 \frac{\partial \ell}{\partial \lambda}
-\frac{\partial \lambda}{\partial \theta},
+\frac{\partial \lambda}{\partial \eta},
 \qquad
-\mathcal I_{\theta\theta}
+\mathcal I_{\eta\eta}
 =
 \mathcal I_{\lambda\lambda}
-\left(\frac{\partial \lambda}{\partial \theta}\right)^2.
+\left(\frac{\partial \lambda}{\partial \eta}\right)^2.
 </span></p>
 </div>
 </div>
 </div>
 </div>
 <div class="callout callout-style-default callout-tip callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-13-contents" aria-controls="callout-13" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-16-contents" aria-controls="callout-16" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -1167,7 +1351,7 @@ Solution
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-13" class="callout-13-contents callout-collapse collapse">
+<div id="callout-16" class="callout-16-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p><strong>Part 1: Conceptual comparison</strong></p>
 <p>Standard gradient boosting under MSE produces a scalar point prediction, typically an estimate of the conditional mean. It imposes no complete predictive distribution and fits each new tree to residuals, which are the negative squared-error gradients. QRF produces a weighted empirical conditional distribution without choosing a parametric family; its weights come from how often observations share forest leaves with the forecast point. NGBoost produces a parametric conditional distribution and fits one sequence of base learners per distribution parameter to natural-gradient targets from a proper scoring rule.</p>
@@ -1229,29 +1413,29 @@ Solution
 </div>
 <p>Both gradients are positive. Because the update subtracts the fitted positive gradient direction, a sufficiently small single-observation descent step decreases <span class="math inline">\lambda</span>. The exponential conditional mean <span class="math inline">1/\lambda</span> therefore increases from its current value <span class="math inline">1/0.4=2.5</span>, moving toward the observed value <span class="math inline">y=3</span>.</p>
 <p><strong>Part 4: Log-rate parameterization and invariance</strong></p>
-<p>Because <span class="math inline">\lambda=e^\theta</span>, </p>
+<p>Because <span class="math inline">\lambda=e^\eta</span>, </p>
 <div class="display-math-block">
 <p><span class="math display">
-\frac{\partial \lambda}{\partial \theta}=e^\theta=\lambda.
+\frac{\partial \lambda}{\partial \eta}=e^\eta=\lambda.
 </span></p>
 </div>
 <p> Thus </p>
 <div class="display-math-block">
 <p><span class="math display">
-\frac{\partial \ell}{\partial \theta}
+\frac{\partial \ell}{\partial \eta}
 =
 \left(-\frac{1}{\lambda}+y\right)\lambda
 =
--1+y e^\theta.
+-1+y e^\eta.
 </span></p>
 </div>
 <p>The Fisher information transforms as </p>
 <div class="display-math-block">
 <p><span class="math display">
-\mathcal I_{\theta\theta}
+\mathcal I_{\eta\eta}
 =
 \mathcal I_{\lambda\lambda}
-\left(\frac{\partial \lambda}{\partial \theta}\right)^2
+\left(\frac{\partial \lambda}{\partial \eta}\right)^2
 =
 \frac{1}{\lambda^2}\lambda^2
 =1.
@@ -1260,18 +1444,18 @@ Solution
 <p> The natural gradient on the log-rate scale is therefore </p>
 <div class="display-math-block">
 <p><span class="math display">
-\tilde g_\theta
+\tilde g_\eta
 =
-\mathcal I_{\theta\theta}^{-1}
-\frac{\partial\ell}{\partial\theta}
+\mathcal I_{\eta\eta}^{-1}
+\frac{\partial\ell}{\partial\eta}
 =
 \lambda y-1.
 </span></p>
 </div>
-<p> For a small change, <span class="math inline">d\lambda=(\partial\lambda/\partial\theta)d\theta=\lambda\,d\theta</span>. Mapping the natural-gradient direction back to the rate scale gives </p>
+<p> For a small change, <span class="math inline">d\lambda=(\partial\lambda/\partial\eta)d\eta=\lambda\,d\eta</span>. Mapping the natural-gradient direction back to the rate scale gives </p>
 <div class="display-math-block">
 <p><span class="math display">
-\lambda\tilde g_\theta
+\lambda\tilde g_\eta
 =
 \lambda(\lambda y-1)
 =
@@ -1280,8 +1464,8 @@ Solution
 </div>
 <p> which is the direction obtained in Part 2. This agreement establishes the coordinate transformation of the infinitesimal natural-gradient direction.</p>
 <p><strong>Part 5: Finite coordinate updates and the positivity constraint</strong></p>
-<p>The agreement in Part 4 concerns an infinitesimal direction. After a finite log-rate step <span class="math inline">\Delta\theta</span>, the exact mapped change is <span class="math inline">\lambda(e^{\Delta\theta}-1)</span>, which equals <span class="math inline">\lambda\Delta\theta</span> only to first order. Ordinary finite Euler updates carried out separately in the two coordinates can therefore generate different parameter sequences.</p>
-<p>The log-rate parameterization also turns the constrained rate <span class="math inline">\lambda&gt;0</span> into an unconstrained parameter <span class="math inline">\theta\in\mathbb{R}</span>. Any finite value of <span class="math inline">\theta</span> maps to <span class="math inline">\lambda=e^\theta&gt;0</span>, so every update produces a valid rate.</p>
+<p>The agreement in Part 4 concerns an infinitesimal direction. After a finite log-rate step <span class="math inline">\Delta\eta</span>, the exact mapped change is <span class="math inline">\lambda(e^{\Delta\eta}-1)</span>, which equals <span class="math inline">\lambda\Delta\eta</span> only to first order. Ordinary finite Euler updates carried out separately in the two coordinates can therefore generate different parameter sequences.</p>
+<p>The log-rate parameterization also turns the constrained rate <span class="math inline">\lambda&gt;0</span> into an unconstrained parameter <span class="math inline">\eta\in\mathbb{R}</span>. Any finite value of <span class="math inline">\eta</span> maps to <span class="math inline">\lambda=e^\eta&gt;0</span>, so every update produces a valid rate.</p>
 <p><strong>Part 6: Exponential-family misspecification</strong></p>
 <p>Matching the conditional mean <span class="math inline">2</span> requires </p>
 <div class="display-math-block">
@@ -1296,9 +1480,132 @@ Solution
 </div>
 </div>
 </div>
+<div class="callout callout-style-default callout-note callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+Exercise 13.3: Local Linear Forests at the Boundary
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>A forest is trained to predict a smooth outcome from a single predictor. At the forecast point <span class="math inline">x_{\mathrm{new}}</span>, exactly four training observations carry positive weight, each equal to <span class="math inline">1/4</span>. Their positions relative to the forecast point and their outcomes are</p>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th><span class="math inline">x_i-x_{\mathrm{new}}</span></th>
+<th style="text-align: right;"><span class="math inline">0</span></th>
+<th style="text-align: right;"><span class="math inline">1</span></th>
+<th style="text-align: right;"><span class="math inline">2</span></th>
+<th style="text-align: right;"><span class="math inline">3</span></th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><span class="math inline">y_i</span></td>
+<td style="text-align: right;"><span class="math inline">10</span></td>
+<td style="text-align: right;"><span class="math inline">13</span></td>
+<td style="text-align: right;"><span class="math inline">16</span></td>
+<td style="text-align: right;"><span class="math inline">19</span></td>
+</tr>
+</tbody>
+</table>
+<p>Note that every neighbor lies at or to the right of the forecast point.</p>
+<p><strong>Questions:</strong></p>
+<ol type="1">
+<li>Show that the ordinary forest prediction <span class="math inline">\hat\mu_w(x)=\sum_{i=1}^{N}w_i(x)y_i</span> is the minimizer of <span class="math inline">\sum_{i=1}^{N}w_i(x)(y_i-c)^2</span> over <span class="math inline">c\in\mathbb{R}</span>, and evaluate it for this neighborhood.</li>
+<li>Write the local linear objective for this data, derive the <span class="math inline">2\times 2</span> system its first-order conditions imply, and state the system in terms of the weighted sums <span class="math inline">S_w</span>, <span class="math inline">S_{w\delta}</span>, <span class="math inline">S_{w\delta\delta}</span>, <span class="math inline">S_{wy}</span>, and <span class="math inline">S_{w\delta y}</span>, where <span class="math inline">\delta_i=x_i-x_{\mathrm{new}}</span>.</li>
+<li>Solve the system for <span class="math inline">\hat c</span> and <span class="math inline">\hat\theta</span>.</li>
+<li>The fit in part 3 is a whole line, not a number. Explain which quantity is reported as the forecast at <span class="math inline">x_{\mathrm{new}}</span>, and why the centering of the design is what makes that the right choice.</li>
+<li>The neighborhood here is one-sided. Explain why the gap between your answers in parts 1 and 3 is bias rather than noise, and why it would not shrink if many more neighbors were added at <span class="math inline">\delta_i&gt;0</span>.</li>
+</ol>
+<p><em>Exam level. The exercise connects the weighted-least-squares reading of a forest prediction, the local linear system, the role of centering, and the distinction between boundary bias and sampling noise. The optional callout in <a href="#sec-adv-llf" class="quarto-xref">Section&nbsp;13.7</a> extends the same system with a slope penalty.</em></p>
+</div>
+</div>
+<div class="callout callout-style-default callout-warning callout-titled">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-18-contents" aria-controls="callout-18" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+Hint for Part 2
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-18" class="callout-18-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
+<p>Differentiate <span class="math inline">\sum_{i=1}^{N}w_i(x)(y_i-c-\delta_i\theta)^2</span> with respect to <span class="math inline">c</span> and <span class="math inline">\theta</span> separately, and set both derivatives to zero. Each condition is linear in <span class="math inline">(c,\theta)</span>, so collecting the weighted sums turns the pair into a <span class="math inline">2\times 2</span> linear system.</p>
+</div>
+</div>
+</div>
+<div class="callout callout-style-default callout-tip callout-titled">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-19-contents" aria-controls="callout-19" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+Solution
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-19" class="callout-19-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
+<p><strong>Part 1: The forest mean as a weighted least-squares problem</strong></p>
+<p>The objective <span class="math inline">g(c)=\sum_{i=1}^{N}w_i(x)(y_i-c)^2</span> is strictly convex in <span class="math inline">c</span> whenever some weight is positive. Setting <span class="math inline">g'(c)=-2\sum_{i=1}^{N}w_i(x)(y_i-c)=0</span> gives <span class="math inline">c\sum_{i=1}^{N}w_i(x)=\sum_{i=1}^{N}w_i(x)y_i</span>, and since the weights sum to one, <span class="math inline">\hat c=\sum_{i=1}^{N}w_i(x)y_i=\hat\mu_w(x)</span>.</p>
+<p>For this neighborhood, </p>
+<div class="display-math-block">
+<p><span class="math display">
+\hat\mu_w(x_{\mathrm{new}})=\tfrac14(10+13+16+19)=14.5 .
+</span></p>
+</div>
+<p><strong>Part 2: The local linear system</strong></p>
+<p>With <span class="math inline">\delta_i=x_i-x_{\mathrm{new}}</span> the objective is </p>
+<div class="display-math-block">
+<p><span class="math display">
+Q(c,\theta)=\sum_{i=1}^{N}w_i(x)\bigl(y_i-c-\delta_i\theta\bigr)^2 .
+</span></p>
+</div>
+<p>The first-order conditions are </p>
+<div class="display-math-block">
+<p><span class="math display">
+\frac{\partial Q}{\partial c}=-2\sum_{i=1}^{N}w_i(x)\bigl(y_i-c-\delta_i\theta\bigr)=0,
+\qquad
+\frac{\partial Q}{\partial \theta}=-2\sum_{i=1}^{N}w_i(x)\delta_i\bigl(y_i-c-\delta_i\theta\bigr)=0 .
+</span></p>
+</div>
+<p>Writing <span class="math inline">S_w=\sum_{i=1}^{N}w_i(x)</span>, <span class="math inline">S_{w\delta}=\sum_{i=1}^{N}w_i(x)\delta_i</span>, <span class="math inline">S_{w\delta\delta}=\sum_{i=1}^{N}w_i(x)\delta_i^2</span>, <span class="math inline">S_{wy}=\sum_{i=1}^{N}w_i(x)y_i</span> and <span class="math inline">S_{w\delta y}=\sum_{i=1}^{N}w_i(x)\delta_i y_i</span>, these rearrange to </p>
+<div class="display-math-block">
+<p><span class="math display">
+\begin{pmatrix} S_w &amp; S_{w\delta}\\ S_{w\delta} &amp; S_{w\delta\delta} \end{pmatrix}
+\begin{pmatrix} c\\ \theta \end{pmatrix}
+=\begin{pmatrix} S_{wy}\\ S_{w\delta y}\end{pmatrix},
+</span></p>
+</div>
+<p> which is the closed form of <a href="#sec-adv-llf" class="quarto-xref">Section&nbsp;13.7</a> specialized to one predictor.</p>
+<p>For this data, <span class="math inline">S_w=1</span>, <span class="math inline">S_{w\delta}=3/2</span>, <span class="math inline">S_{w\delta\delta}=7/2</span>, <span class="math inline">S_{wy}=29/2</span> and <span class="math inline">S_{w\delta y}=51/2</span>.</p>
+<p><strong>Part 3: Solving the system</strong></p>
+<p>The determinant is <span class="math inline">S_wS_{w\delta\delta}-S_{w\delta}^2=7/2-9/4=5/4</span>, so </p>
+<div class="display-math-block">
+<p><span class="math display">
+\hat c=\frac{(29/2)(7/2)-(3/2)(51/2)}{5/4}=10,
+\qquad
+\hat\theta=\frac{(51/2)-(3/2)(29/2)}{5/4}=3 .
+</span></p>
+</div>
+<p>The fit is exact because the outcomes satisfy <span class="math inline">y_i=10+3\delta_i</span> with no residual, so the local linear fit reproduces them. Note that the determinant is strictly positive here only because the four neighbors sit at four distinct positions; a neighborhood whose members shared a single predictor value would make <span class="math inline">S_wS_{w\delta\delta}=S_{w\delta}^2</span> and the system singular, which is the failure the optional callout in <a href="#sec-adv-llf" class="quarto-xref">Section&nbsp;13.7</a> addresses.</p>
+<p><strong>Part 4: Which number is the forecast</strong></p>
+<p>The estimated line is <span class="math inline">\hat y(\delta)=\hat c+\hat\theta\,\delta</span> in the <em>centered</em> coordinate <span class="math inline">\delta=x-x_{\mathrm{new}}</span>. The forecast point itself is <span class="math inline">\delta=0</span>, so the prediction is <span class="math inline">\hat y(0)=\hat c=10</span>. The slope is not discarded, but it is not reported either: its job was to absorb the within-neighborhood trend so that <span class="math inline">\hat c</span> did not have to.</p>
+<p>Centering is what buys this. Had the design used raw <span class="math inline">x_i</span> rather than <span class="math inline">x_i-x_{\mathrm{new}}</span>, the intercept would be the fitted value at <span class="math inline">x=0</span>, a point that need not lie in the neighborhood at all and in many applications is not even a meaningful predictor value. Reading the forecast off a single coefficient is a convenience created by the parameterization, not a property of local linear regression.</p>
+<p><strong>Part 5: Bias, not noise</strong></p>
+<p>Every neighbor satisfies <span class="math inline">\delta_i\ge 0</span>, and the outcomes increase in <span class="math inline">\delta_i</span>. The weighted average therefore averages values drawn from a region where the regression function is systematically higher than at <span class="math inline">x_{\mathrm{new}}</span>, so it overshoots. The size of the overshoot depends on the configuration of the neighborhood and the slope of the regression function, not on sampling variability: here it equals <span class="math inline">\hat\theta \cdot S_{w\delta}=3\times 3/2=4.5</span>, which is exactly <span class="math inline">14.5-10</span>.</p>
+<p>Adding more neighbors at <span class="math inline">\delta_i&gt;0</span> does not help, because it does not change the sign of the asymmetry. Averaging more observations from one side of the forecast point reduces the variance of the estimate while leaving its systematic displacement intact. Only information from <span class="math inline">\delta_i&lt;0</span>, or a local model that can represent the trend, removes it. This is why the phenomenon is called boundary bias, and why local linear estimators are the standard remedy.</p>
+</div>
+</div>
+</div>
 </section>
-<section id="references" class="level2" data-number="13.13">
-<h2 data-number="13.13" class="anchored" data-anchor-id="references"><span class="header-section-number">13.13</span> References</h2>
+<section id="references" class="level2" data-number="13.14">
+<h2 data-number="13.14" class="anchored" data-anchor-id="references"><span class="header-section-number">13.14</span> References</h2>
 <div id="refs" class="references csl-bib-body hanging-indent" data-entry-spacing="0" role="list">
 <div id="ref-AtheyTibshiraniWager2019" class="csl-entry" role="listitem">
 Athey, Susan, Julie Tibshirani, and Stefan Wager. 2019. <span>“Generalized Random Forests.”</span> <em>Annals of Statistics</em> 47 (2): 1148–78. <a href="https://doi.org/10.1214/18-AOS1709">https://doi.org/10.1214/18-AOS1709</a>.
@@ -1306,11 +1613,17 @@ Athey, Susan, Julie Tibshirani, and Stefan Wager. 2019. <span>“Generalized Ran
 <div id="ref-DuanAvatiDingThaiBasuNgSchuler2020" class="csl-entry" role="listitem">
 Duan, Tony, Anand Avati, Daisy Yi Ding, Khanh K. Thai, Sanjay Basu, Andrew Y. Ng, and Alejandro Schuler. 2020. <span>“<span>NGBoost</span>: Natural Gradient Boosting for Probabilistic Prediction.”</span> In <em>Proceedings of the 37th International Conference on Machine Learning</em>, 119:2690–700. Proceedings of Machine Learning Research.
 </div>
+<div id="ref-FriedbergTibshiraniAtheyWager2021" class="csl-entry" role="listitem">
+Friedberg, Rina, Julie Tibshirani, Susan Athey, and Stefan Wager. 2021. <span>“Local Linear Forests.”</span> <em>Journal of Computational and Graphical Statistics</em> 30 (2): 503–17. <a href="https://doi.org/10.1080/10618600.2020.1831930">https://doi.org/10.1080/10618600.2020.1831930</a>.
+</div>
 <div id="ref-McCrackenNg2020FREDQD" class="csl-entry" role="listitem">
 McCracken, Michael W., and Serena Ng. 2020. <span>“FRED-QD: A Quarterly Database for Macroeconomic Research.”</span> Working Paper 26872. National Bureau of Economic Research. <a href="https://doi.org/10.3386/w26872">https://doi.org/10.3386/w26872</a>.
 </div>
 <div id="ref-Meinshausen2006QRF" class="csl-entry" role="listitem">
 Meinshausen, Nicolai. 2006. <span>“Quantile Regression Forests.”</span> <em>Journal of Machine Learning Research</em> 7: 983–99.
+</div>
+<div id="ref-TaillardatMestre2020" class="csl-entry" role="listitem">
+Taillardat, Maxime, and Olivier Mestre. 2020. <span>“From Research to Applications: Examples of Operational Ensemble Post-Processing in <span>France</span> Using Machine Learning.”</span> <em>Nonlinear Processes in Geophysics</em> 27 (2): 329–47. <a href="https://doi.org/10.5194/npg-27-329-2020">https://doi.org/10.5194/npg-27-329-2020</a>.
 </div>
 <div id="ref-WagerAthey2018" class="csl-entry" role="listitem">
 Wager, Stefan, and Susan Athey. 2018. <span>“Estimation and Inference of Heterogeneous Treatment Effects Using Random Forests.”</span> <em>Journal of the American Statistical Association</em> 113 (523): 1228–42. <a href="https://doi.org/10.1080/01621459.2017.1319839">https://doi.org/10.1080/01621459.2017.1319839</a>.

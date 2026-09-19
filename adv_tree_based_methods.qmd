@@ -9,20 +9,24 @@ number-offset: [12, 0]
 
 The previous chapters treated trees, random forests, and gradient boosting mainly as tools for conditional-mean or conditional-event-probability prediction. In many econometric applications, that is not enough. A risk manager may need conditional quantiles of future losses, a central bank may care about the probability of extreme inflation outcomes, and an asset-pricing application may require a full predictive distribution rather than a point forecast.
 
-This chapter extends tree-based methods in that direction. We focus on two ideas:
+This chapter extends tree-based methods in that direction. Two of the three methods below share a single observation: a fitted forest supplies neighborhood weights $w_i(x)$, and the leaf mean is only one of many quantities that can be estimated from them. We focus on three ideas:
 
 - **Quantile Regression Forests (QRF)**, which reuse random-forest neighborhoods to estimate conditional distributions nonparametrically [@Meinshausen2006QRF]
+- **Local linear forests (LLF)**, which reuse the same neighborhoods but replace the constant inside a leaf with a local linear fit, reducing the bias a piecewise-constant rule leaves on smooth regression functions [@FriedbergTibshiraniAtheyWager2021]
 - **Natural Gradient Boosting (NGBoost)**, which extends boosting to parametric predictive distributions and updates their parameters with gradients rescaled by local statistical information [@DuanAvatiDingThaiBasuNgSchuler2020]
 
-The chapter remains predictive rather than structural: it does not estimate causal effects, and it does not cover forests that solve general local estimating equations or replace leaf constants with local slopes [@AtheyTibshiraniWager2019].
+QRF and NGBoost estimate the same object by different routes; LLF estimates a different object, a conditional mean, and belongs here because it shares QRF's construction rather than its target.
+
+The chapter remains predictive rather than structural: it does not estimate causal effects, and it does not develop the general local-estimating-equation framework [@AtheyTibshiraniWager2019], of which the local linear forest below is one instance.
 
 ## Roadmap
 
 1. We start from the standard random-forest weight representation and use it to diagnose what ordinary forests do and do not provide.
 2. We then define QRF through weighted empirical cumulative distribution functions (CDFs) and leaf-neighbor outcomes.
-3. Next we introduce NGBoost as a boosted-tree method for fitting the parameters of a conditional distribution.
-4. We explain the role of Fisher information, natural gradients, and constrained parameterizations.
-5. We close with a comparison, summary, pitfalls, and exercises.
+3. We turn to local linear forests, which keep those weights and change the local model from a constant to a linear function.
+4. Next we introduce NGBoost as a boosted-tree method for fitting the parameters of a conditional distribution.
+5. We explain the role of Fisher information, natural gradients, and constrained parameterizations.
+6. We close with a comparison, summary, pitfalls, and exercises.
 
 ## Standard Forests as Weighted Averages {#sec-adv-forest-weights}
 
@@ -115,7 +119,7 @@ The conditional mean uses only a weighted average of neighboring outcomes. Condi
 
 ## Econometric Use and Limits of QRF {#sec-adv-qrf-econometric}
 
-QRF is attractive when heteroskedasticity or tail risk is central. Examples include volatility forecasting, downside return risk, firm default loss distributions, and macroeconomic fan charts. It can adapt prediction intervals to the covariates because the neighborhood around $x$ changes with the forest partitions.
+QRF is attractive when heteroskedasticity or tail risk is central. Examples include volatility forecasting, downside return risk, firm default loss distributions, and macroeconomic fan charts. It can adapt prediction intervals to the covariates because the neighborhood around $x$ changes with the forest partitions. The method is also used operationally outside economics: @TaillardatMestre2020 describe the calibration of surface temperature in the Météo-France operational forecasting chain with station-level QRF, and of hourly rainfall with a QRF variant that replaces the empirical leaf distribution by a fitted extended Pareto distribution, precisely to obtain tail mass that the observed neighbors do not contain.
 
 The main advantage is flexibility: QRF does not impose a fixed parametric family on the conditional distribution and can represent skewness, heavy tails, and multimodality through the empirical neighbor distribution. This is the relevant sense in which the method is nonparametric. It is not assumption-free: the estimate is conditional on tuning choices and fitted quantiles cannot move beyond the support represented in the training outcomes. If the relevant tail event is rare, the local neighborhood may contain little information about it. Like ordinary forests, QRF also needs validation that respects dependence, publication lags, and forecast-origin information sets.
 
@@ -215,18 +219,157 @@ The interval width varies across the test period because the QRF neighborhood ch
 
 This failure is the distributional counterpart of the extrapolation limit from the [decision trees chapter](decision_trees.qmd): QRF interpolates among observed outcomes for the entire predictive distribution, not only for its mean. A parametric family with unbounded support, such as the NGBoost specification below, can *represent* outcomes beyond the training range, and an explicit extreme-value model can impose tail structure. Neither choice guarantees accurate pandemic-tail forecasts under a structural break; both still require time-aware validation and a defensible distributional specification.
 
+## Local Linear Forests {#sec-adv-llf}
+
+QRF changed *what* is estimated from the forest neighborhood while keeping the neighborhood itself. Local linear forests make the other available change: they keep both the neighborhood and the conditional-mean target, and alter the *local model* used inside it [@FriedbergTibshiraniAtheyWager2021].
+
+The starting point is that the forest prediction is already the solution of a weighted least-squares problem. The neighborhood mean $\hat\mu_w(x)=\sum_{i=1}^{N}w_i(x)y_i$ satisfies
+$$
+\hat\mu_w(x)=\arg\min_{c\,\in\,\mathbb{R}}\ \sum_{i=1}^{N}w_i(x)\,(y_i-c)^2 .
+$$
+
+Written this way, the *Constant local model* limitation of @sec-adv-forest-limits is no longer a structural property of forests. It is a modeling choice: the local model inside the objective happens to contain nothing but an intercept.
+
+**The local linear objective.** Replace the constant by a linear function of the predictors centered at the forecast point,
+$$
+\bigl(\hat\mu(x),\hat\theta(x)\bigr)
+=\arg\min_{c,\,\theta}\ \sum_{i=1}^{N}w_i(x)
+\Bigl(y_i-c-(x_i-x)^{\top}\theta\Bigr)^{2}.
+$$
+
+*Centering makes the intercept the forecast.* Because the design is centered at $x$, the linear term vanishes at $x_i=x$, so the reported prediction is $\hat\mu(x)=\hat c$. The slope $\hat\theta(x)$ is estimated only so that the intercept does not have to absorb a within-neighborhood trend. In a pure forecasting application it is a nuisance parameter, though it is interpretable as a local derivative in its own right.
+
+**Closed form.** Collect the rows $\bigl(1,(x_i-x)^{\top}\bigr)$ in the $N\times(d+1)$ matrix $\tilde\Delta(x)$ and let $W(x)=\operatorname{diag}\bigl(w_1(x),\dots,w_N(x)\bigr)$. Whenever the weighted local design has full rank, the solution is
+$$
+\begin{pmatrix}\hat\mu(x)\\ \hat\theta(x)\end{pmatrix}
+=\Bigl(\tilde\Delta(x)^{\top}W(x)\tilde\Delta(x)\Bigr)^{-1}
+\tilde\Delta(x)^{\top}W(x)\,y .
+$$
+
+That full-rank proviso is not a formality. The local design is frequently close to singular, because only a modest number of observations carry positive weight at $x$, the centered predictors barely vary inside a tight neighborhood, and the predictor dimension can exceed the effective number of neighbors. Implementations therefore shrink the slope toward zero, which stabilizes the reported intercept at the cost of a little bias. The callout below gives that construction; the rest of this section does not depend on it.
+
+:::{.callout-note collapse="true" title="Optional: Stabilizing the local slope"}
+
+Local linear forests as published add a ridge penalty on the slope coordinates [@FriedbergTibshiraniAtheyWager2021]:
+$$
+\bigl(\hat\mu(x),\hat\theta(x)\bigr)
+=\arg\min_{c,\,\theta}\ \left\{ \sum_{i=1}^{N}w_i(x)
+\Bigl(y_i-c-(x_i-x)^{\top}\theta\Bigr)^{2}
++\lambda\lVert\theta\rVert_2^2 \right\}.
+$$
+
+With $J=\operatorname{diag}(0,1,\dots,1)$, the $(d+1)\times(d+1)$ matrix that excludes the intercept, the solution becomes
+$$
+\begin{pmatrix}\hat\mu(x)\\ \hat\theta(x)\end{pmatrix}
+=\Bigl(\tilde\Delta(x)^{\top}W(x)\tilde\Delta(x)+\lambda J\Bigr)^{-1}
+\tilde\Delta(x)^{\top}W(x)\,y .
+$$
+
+Two points are worth keeping.
+
+*The penalty must never touch the intercept.* Penalizing $c$ would shrink the prediction itself toward zero, which imposes the substantively arbitrary belief that the outcome is near zero at the forecast point. For an outcome in levels, such as a price or an unemployment rate, that is indefensible. Shrinking the slope is different: it expresses the belief that the regression function is locally flat, which is exactly what an ordinary forest already assumes, so the penalty moves the estimator toward a familiar default rather than an arbitrary one.
+
+*The penalty interpolates between two estimators already met.* As $\lambda\to 0$ the estimator is the unpenalized weighted local linear regression above. As $\lambda\to\infty$ the slope is forced to zero and $\hat\mu(x)$ returns to the ordinary forest mean $\hat\mu_w(x)$. For the one-sided neighborhood of Exercise 13.3, whose unpenalized intercept is $10$ and whose forest mean is $14.5$, the intermediate values are $12$ at $\lambda=1$ and $14$ at $\lambda=10$. Choosing $\lambda$ is choosing a position on that path, and it is a tuning decision made on training data under the validation discipline of the [cross-validation chapter](cross_validation.qmd).
+:::
+
+**The splitting rule also changes.** @FriedbergTibshiraniAtheyWager2021 do not only change the prediction step. Because the trees are grown to define neighborhoods for a local *linear* fit, they split on residuals from a local regression rather than on raw outcome variation, so the partition targets the part of the signal the local linear model cannot itself represent. A forest grown for constant leaves and then used with a local linear prediction rule is a reasonable approximation, but it is not the estimator as published.
+
+**Why the slope helps: boundary bias.** The clearest gain appears where the neighborhood is one-sided. Suppose the neighbors of $x$ all lie on one side of it and the regression function is locally increasing. Averaging those neighbors must overshoot, and the overshoot does not vanish as more neighbors are added on the same side, because it is bias rather than noise. A local linear fit removes it by projecting the observed trend back to $x$. This is the forest analogue of a long-standing result for kernel regression: local linear smoothers are design-adaptive and reduce the boundary bias of local constant smoothers.
+
+@fig-llf-constant-vs-linear shows the effect on a smooth signal with leaves deliberately wide enough to make it visible.
+
+```{python}
+#| label: fig-llf-constant-vs-linear
+#| fig-cap: "Simulated data from $Y=1.5X+\\sin(1.5X)+\\varepsilon$ (gray points) with the true regression function (dashed). The left panel shows a random forest with wide leaves (red), whose piecewise-constant fit crosses the smooth signal in a staircase. The right panel shows a local linear forest (blue) built from the same forest and the same weights, differing only in the local model."
+#| echo: true
+
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.ensemble import RandomForestRegressor
+
+rng = np.random.default_rng(20260918)
+
+def f_true(x):
+    return 1.5 * x + np.sin(1.5 * x)
+
+x = np.sort(rng.uniform(-3.0, 3.0, 200))
+y = f_true(x) + rng.normal(scale=0.40, size=x.shape[0])
+X = x.reshape(-1, 1)
+
+forest = RandomForestRegressor(
+    n_estimators=400, min_samples_leaf=25, max_features=1, random_state=20260918
+)
+forest.fit(X, y)
+train_leaves = forest.apply(X)
+
+def forest_weights(x0):
+    """w_i(x0) = (1/B) sum_b 1{x_i in L_b(x0)} / N_b(x0)."""
+    leaves0 = forest.apply(np.array([[x0]]))[0]
+    same = train_leaves == leaves0
+    return (same / same.sum(axis=0)).sum(axis=1) / same.shape[1]
+
+def llf_predict(x0, lam=0.01):
+    """Ridge-penalized local linear forest prediction; penalty on the slope only."""
+    w = forest_weights(x0)
+    d = x - x0
+    A = np.array([[w.sum(), (w * d).sum()],
+                  [(w * d).sum(), (w * d**2).sum() + lam]])
+    b = np.array([(w * y).sum(), (w * d * y).sum()])
+    return np.linalg.solve(A, b)[0]
+
+x_grid = np.linspace(-3.0, 3.0, 220)
+forest_hat = forest.predict(x_grid.reshape(-1, 1))
+llf_hat = np.array([llf_predict(x0) for x0 in x_grid])
+
+fig, axes = plt.subplots(1, 2, figsize=(12, 4.8), sharey=True)
+for ax in axes:
+    ax.scatter(x, y, s=14, color="0.45", alpha=0.55)
+    ax.plot(x_grid, f_true(x_grid), color="0.25", lw=1.6, ls="--", label="True $f(x)$")
+    ax.set_xlabel("Predictor")
+    ax.grid(True, alpha=0.3)
+
+axes[0].plot(x_grid, forest_hat, color="C3", lw=2.4, label="Forest (constant leaves)")
+axes[0].set_title("Random forest: a local constant")
+axes[0].set_ylabel("Outcome")
+axes[0].legend(loc="upper left", frameon=False, fontsize=9)
+
+axes[1].plot(x_grid, llf_hat, color="C0", lw=2.4, label="Local linear forest")
+axes[1].set_title("Local linear forest: a local slope")
+axes[1].legend(loc="upper left", frameon=False, fontsize=9)
+
+plt.tight_layout()
+plt.show()
+```
+
+The left panel shows the mechanism directly. Within each plateau the prediction cannot move, so the fitted function crosses the true curve and is worst near the middle of a wide leaf. The right panel tracks the signal using exactly the same neighborhoods. At $x=0$ the forest here sits roughly one unit below the truth while the local linear forest sits about two tenths below it. This is one simulated dataset with deliberately wide leaves, chosen to make the mechanism visible; it illustrates a bias channel rather than establishing a general ranking. The code applies the small slope penalty of the optional callout above, which matters little with leaves this wide but keeps the fit well behaved near the edges of the sample.
+
+**Scope and limits.** Local linear forests help when the regression function has a strong smooth component, when forecast points sit near the edge of the observed predictor range, and when leaves are wide enough to span real variation in $x$. They help little when the response is genuinely step-like, when leaves are very small, or when the predictor dimension is large enough that the local design stays ill conditioned under any amount of shrinkage that still leaves a useful slope.
+
+One limit carries over unchanged from QRF. The weights $w_i(x)$ are zero where there are no neighbors, so a local linear forest cannot invent support. Reducing boundary bias *inside* the observed range is not the same as extrapolating outside it, and the local slope should not be read as a license to forecast far beyond the training predictors.
+
+:::{.callout-note title="Question for Reflection"}
+
+QRF and LLF are built from the same weights $w_i(x)$. Why can LLF not simply be used to produce conditional quantiles as well, by reading quantiles off its local linear fit?
+:::
+
+:::{.callout-tip collapse="true" title="Suggested Answer"}
+
+Because the local linear fit models only the conditional mean function within the neighborhood. It returns an intercept and a slope, not a distribution over outcomes. QRF's quantiles come from the weighted empirical distribution $\sum_{i=1}^{N} w_i(x)\mathbf{1}\{y_i\le y\}$, which retains every neighbor's outcome; the local linear fit collapses those outcomes into two estimated coefficients and discards the rest of the information. Obtaining quantiles would require an additional assumption about the distribution of the residuals around the local fit, which is exactly the parametric commitment that QRF avoids and NGBoost makes explicitly.
+:::
+
 ## NGBoost: Parametric Distributional Boosting {#sec-adv-ngboost}
 
 NGBoost takes a different route. Instead of estimating the conditional distribution nonparametrically from forest neighbors, it chooses a parametric family
 $$
-Y\mid X=x \sim P_{\theta(x)}
+Y\mid X=x \sim P_{\boldsymbol{\eta}(x)}
 $$
-and learns its parameters by boosting. The learner works in a coordinate vector $\theta(x)$ on an unconstrained chart and maps those coordinates into valid distribution parameters. For a Gaussian distribution, for example, it can use $\theta(x)=(\mu(x),\eta(x))$ with $\eta(x)=\log\sigma(x)$; a positive exponential rate can likewise be represented on the log scale.
+and learns its parameters by boosting. As in the [distributional-network chapter](distributions_via_nns.qmd#sec-point-to-distnn), $\boldsymbol{\eta}$ denotes the parameter vector of the chosen family. What changes is the map that produces it: there a network with weights $\boldsymbol{\boldsymbol{\eta}}$, here a sum of boosted trees, so no weight vector appears and we write $\boldsymbol{\eta}(x)$. The learner works in a coordinate vector $\boldsymbol{\eta}(x)$ on an unconstrained chart, in which every real vector is admissible, and maps those coordinates into valid distribution parameters. For a Gaussian distribution, for example, it can use $\boldsymbol{\eta}(x)=(\mu(x),\log\sigma(x))$; a positive exponential rate can likewise be represented on the log scale.
 
 To keep the formulas concrete, we use the negative log-likelihood (NLL), which is the logarithmic-score loss,
 $$
-\ell(y;\theta)=-\log p_\theta(y).
+\ell(y;\boldsymbol{\eta})=-\log p(y;\boldsymbol{\eta}),
 $$
+where $p(\cdot\,;\boldsymbol{\eta})$ is the density of $P_{\boldsymbol{\eta}}$.
 
 This choice connects NGBoost to the distributional-network chapter and the predictive-distribution evaluation chapter: minimizing average NLL is the training analogue of optimizing the logarithmic score (see the [Kullback–Leibler (KL) divergence connection](evaluating_distributions.qmd#sec-mini-log-score-kl)). NGBoost can instead use another proper scoring rule, such as the continuous ranked probability score. In that case, the natural-gradient metric is derived from the local curvature of the divergence induced by that score and need not equal the Fisher information [@DuanAvatiDingThaiBasuNgSchuler2020].
 
@@ -242,9 +385,9 @@ NGBoost's defining choice is the natural gradient. In an ordinary gradient step,
 
 As in standard boosting, the path needs an initial prediction. NGBoost starts from the constant parameter vector that best fits the marginal training distribution,
 $$
-\theta^{(0)}
+\boldsymbol{\eta}^{(0)}
 \in
-\arg\min_{\theta}\sum_{i=1}^N \ell(y_i;\theta),
+\arg\min_{\boldsymbol{\eta}}\sum_{i=1}^N \ell(y_i;\boldsymbol{\eta}),
 $$
 so every training observation initially receives the same predictive distribution. This notation allows multiple minimizers; the discussion assumes that at least one finite interior solution exists. Boundary samples may instead require regularization, clipping, or rejection by the implementation. The boosted stages then let the coordinates, and hence the mapped distribution parameters, vary with $x$.
 
@@ -252,31 +395,31 @@ At iteration $m$, let
 $$
 g_i^{(m)}
 =
-\left.\nabla_\theta \ell(y_i;\theta)\right|_{\theta=\theta^{(m-1)}(x_i)}
+\left.\nabla_{\boldsymbol{\eta}} \ell(y_i;\boldsymbol{\eta})\right|_{\boldsymbol{\eta}=\boldsymbol{\eta}^{(m-1)}(x_i)}
 $$
 be the ordinary gradient for observation $i$. The Fisher information matrix—written $\mathcal{I}$ to avoid a clash with the conditional CDF $\hat F$ used earlier in this chapter—is
 $$
-\mathcal{I}(\theta)
+\mathcal{I}(\boldsymbol{\eta})
 =
-\mathbb{E}_{Y\sim P_\theta}
+\mathbb{E}_{Y\sim P_{\boldsymbol{\eta}}}
 \left[
-\nabla_\theta \log p_\theta(Y)
-\nabla_\theta \log p_\theta(Y)^\top
+\nabla_{\boldsymbol{\eta}} \log p(Y;\boldsymbol{\eta})
+\nabla_{\boldsymbol{\eta}} \log p(Y;\boldsymbol{\eta})^\top
 \right].
 $$
 
-Assuming $\mathcal{I}(\theta)$ is positive definite, the natural gradient rescales the ordinary gradient:
+Assuming $\mathcal{I}(\boldsymbol{\eta})$ is positive definite, the natural gradient rescales the ordinary gradient:
 $$
 \tilde g_i^{(m)}
 =
-\mathcal{I}(\theta^{(m-1)}(x_i))^{-1}g_i^{(m)}.
+\mathcal{I}(\boldsymbol{\eta}^{(m-1)}(x_i))^{-1}g_i^{(m)}.
 $$
 
-@fig-ngboost-natural-step makes the rescaling visible for a Gaussian negative log-likelihood parameterized by its mean $\mu$ and log standard deviation $\eta=\log\sigma$. The contour lines are equal-loss sets for a five-observation sample. Both arrows start from the same parameter value and use the same nominal step size; they differ only in whether the loss gradient is used directly or premultiplied by inverse Fisher information.
+@fig-ngboost-natural-step makes the rescaling visible for a Gaussian negative log-likelihood parameterized by its mean $\mu$ and log standard deviation $\log\sigma$, that is, $\boldsymbol{\eta}=(\mu,\log\sigma)$. The contour lines are equal-loss sets for a five-observation sample. Both arrows start from the same parameter value and use the same nominal step size; they differ only in whether the loss gradient is used directly or premultiplied by inverse Fisher information.
 
 ```{python}
 #| label: fig-ngboost-natural-step
-#| fig-cap: 'Ordinary and natural-gradient descent directions for Gaussian negative log-likelihood in the parameterization $(\mu,\eta)$, where $\eta=\log\sigma$. Contours show the sample-average loss above its minimum. Both arrows start at $(\mu,\eta)=(-1,0.4)$ and use the same nominal step size.'
+#| fig-cap: 'Ordinary and natural-gradient descent directions for Gaussian negative log-likelihood in the parameterization $\boldsymbol{\eta}=(\mu,\log\sigma)$. Contours show the sample-average loss above its minimum. Both arrows start at $(\mu,\log\sigma)=(-1,0.4)$ and use the same nominal step size.'
 #| echo: true
 
 import numpy as np
@@ -284,42 +427,42 @@ import matplotlib.pyplot as plt
 
 y_demo = np.array([-2.0, -0.5, 0.0, 1.0, 2.0])
 mu_grid = np.linspace(-2.5, 2.5, 260)
-eta_grid = np.linspace(-1.0, 1.2, 240)
-MU, ETA = np.meshgrid(mu_grid, eta_grid)
-LOSS = ETA + 0.5 * np.mean(
+log_sigma_grid = np.linspace(-1.0, 1.2, 240)
+MU, LOG_SIGMA = np.meshgrid(mu_grid, log_sigma_grid)
+LOSS = LOG_SIGMA + 0.5 * np.mean(
     (y_demo[None, None, :] - MU[:, :, None]) ** 2
-    * np.exp(-2.0 * ETA[:, :, None]),
+    * np.exp(-2.0 * LOG_SIGMA[:, :, None]),
     axis=2,
 )
 LOSS = LOSS - LOSS.min()
 
-mu0, eta0 = -1.0, 0.4
+mu0, log_sigma0 = -1.0, 0.4
 mean_sq_resid = np.mean((y_demo - mu0) ** 2)
 ordinary = np.array([
-    np.exp(-2.0 * eta0) * (mu0 - y_demo.mean()),
-    1.0 - np.exp(-2.0 * eta0) * mean_sq_resid,
+    np.exp(-2.0 * log_sigma0) * (mu0 - y_demo.mean()),
+    1.0 - np.exp(-2.0 * log_sigma0) * mean_sq_resid,
 ])
-fisher = np.diag([np.exp(-2.0 * eta0), 2.0])
+fisher = np.diag([np.exp(-2.0 * log_sigma0), 2.0])
 natural = np.linalg.solve(fisher, ordinary)
 step = 0.8
 
 fig, ax = plt.subplots(figsize=(8.2, 4.8))
 levels = [0.02, 0.05, 0.10, 0.20, 0.40, 0.80, 1.50, 2.50, 4.00]
-contours = ax.contour(MU, ETA, LOSS, levels=levels, cmap="Greys")
+contours = ax.contour(MU, LOG_SIGMA, LOSS, levels=levels, cmap="Greys")
 ax.clabel(contours, inline=True, fontsize=8, fmt="%.2g")
-ax.scatter([mu0], [eta0], color="black", s=45, zorder=4, label="Starting value")
+ax.scatter([mu0], [log_sigma0], color="black", s=45, zorder=4, label="Starting value")
 
 for direction, color, label in [
     (ordinary, "C3", "Ordinary gradient"),
     (natural, "C0", "Natural gradient"),
 ]:
     delta = -step * direction
-    ax.arrow(mu0, eta0, delta[0], delta[1], width=0.012,
+    ax.arrow(mu0, log_sigma0, delta[0], delta[1], width=0.012,
              head_width=0.09, length_includes_head=True,
              color=color, alpha=0.9, label=label)
 
 ax.set_xlabel(r"Mean parameter $\mu$")
-ax.set_ylabel(r"Log standard deviation $\eta=\log\sigma$")
+ax.set_ylabel(r"Log standard deviation $\log\sigma$")
 ax.set_title("Fisher scaling changes the descent direction")
 ax.grid(True, alpha=0.18)
 ax.legend(frameon=False)
@@ -339,13 +482,13 @@ $$
 =
 \arg\min_{\rho}
 \sum_{i=1}^N
-\ell\!\left(y_i;\theta^{(m-1)}(x_i)-\rho\,\hat h_m(x_i)\right),
+\ell\!\left(y_i;\boldsymbol{\eta}^{(m-1)}(x_i)-\rho\,\hat h_m(x_i)\right),
 $$
 and then applies the learning rate $\nu\in(0,1]$:
 $$
-\theta^{(m)}(x)
+\boldsymbol{\eta}^{(m)}(x)
 =
-\theta^{(m-1)}(x) - \nu\, \rho^{(m)}\, \hat h_m(x),
+\boldsymbol{\eta}^{(m-1)}(x) - \nu\, \rho^{(m)}\, \hat h_m(x),
 \qquad m=1,\ldots,M.
 $$
 This update is analogous to the stagewise descent of the previous chapter, now along a vector of distribution parameters. There is one important difference in the line search: $\rho^{(m)}$ is a single scalar for the whole multi-parameter stage, whereas the exact loss-optimal $\gamma_{jm}^{\star}$ in the [gradient-boosting chapter](gradient_boosting.qmd) is chosen separately for each leaf. The learning rate $\nu$, the number of iterations $M$, and the need for time-aware early stopping carry over. Fisher scaling makes the natural-gradient direction, viewed as an infinitesimal tangent vector, invariant to smooth one-to-one reparameterizations and prevents the numerical units of one parameter from dominating that direction [@DuanAvatiDingThaiBasuNgSchuler2020]. An ordinary finite coordinate update is an Euler step along this vector field and is only first-order invariant: applying separate finite steps in two parameterizations need not produce exactly corresponding parameter paths.
@@ -362,33 +505,36 @@ Common constraint-preserving parameterizations include:
 
 For a distribution with several parameters, standard NGBoost fits one base learner to each component of the natural gradient at every stage. For a Gaussian model, for example, one learner fits the mean component and another fits the log-scale component; together they form the vector $\hat h_m(x)$. All components update simultaneously and share the stage scale $\rho^{(m)}$. A coordinate-wise cycle or a single multi-output learner would be a different algorithmic variant, not the standard NGBoost update.
 
-## QRF vs NGBoost {#sec-adv-comparison}
+## Comparing the Three Methods {#sec-adv-comparison}
 
-QRF and NGBoost both produce conditional predictive distributions, but in opposite ways: QRF is nonparametric (the conditional law is the weighted empirical distribution of training outcomes in a forest neighborhood), while NGBoost is parametric (the conditional law belongs to a chosen family, and boosting iteratively fits its parameters).
+The three methods do not lie on a single scale, and trying to rank them jointly is the most common error in applying them. They separate along two axes at once.
 
-| Method | Distributional object | Main advantage | Main limitation |
+Along the first axis, QRF and LLF share the forest weights $w_i(x)$ and differ in what they estimate from them: a full conditional distribution, or a conditional mean with a local slope. Along the second, QRF and NGBoost estimate the same object and differ in how: QRF is nonparametric, so the conditional law is the weighted empirical distribution of training outcomes in a forest neighborhood, while NGBoost is parametric, so the conditional law belongs to a chosen family whose parameters boosting fits iteratively.
+
+| Method | Object estimated | Main advantage | Main limitation |
 |---|---|---|---|
 | QRF | Weighted empirical CDF from forest neighbors | Flexible shape and adaptive quantile intervals | Few local tail observations and no extrapolation beyond observed outcomes |
-| NGBoost | Parametric distribution $P_{\theta(x)}$ | Smooth distribution and proper-score-based training | Sensitive to distributional misspecification |
+| LLF | Conditional mean with a local slope | Lower bias on smooth regression functions and near the boundary | Returns no distribution, and the local design degrades in high dimension |
+| NGBoost | Parametric distribution $P_{\boldsymbol{\eta}(x)}$ | Smooth distribution and proper-score-based training | Sensitive to distributional misspecification |
 
-In econometric work, the choice depends on the forecasting object. If the goal is flexible local quantiles with few parametric assumptions, QRF is natural. If the goal is a smooth parametric predictive distribution with proper-score-based training, NGBoost is more natural.
+In econometric work the forecasting object decides candidacy first. If the decision requires quantiles or a density, LLF is not a candidate however accurate its conditional mean may be, and the choice is between QRF's flexible local quantiles and NGBoost's smooth parametric distribution. If the decision requires a point forecast of a smooth response, fitting a full predictive distribution is work the application will not use, and LLF addresses the bias that a piecewise-constant forest would leave behind. Only once the object has narrowed the field do the advantages and limitations in the table arbitrate.
 
-Both methods estimate uncertainty in the outcome $Y\mid X=x$. Neither fitted predictive distribution automatically quantifies sampling uncertainty about the estimated forest weights, trees, or parameter functions; confidence intervals for those estimated objects require separate inferential machinery.
+All three estimate features of the outcome distribution $Y\mid X=x$. None of them automatically quantifies sampling uncertainty about the estimated forest weights, trees, or parameter functions; confidence intervals for those estimated objects require separate inferential machinery.
 
 ## Summary
 
 :::{.callout-important}
 ## Key Takeaways
-1. Forest partitions define neighborhood weights through shared terminal leaves.
-2. Quantile regression forests use these weights to estimate a conditional empirical CDF and its quantiles.
+1. Forest partitions define neighborhood weights through shared terminal leaves, and the leaf mean is only one of several quantities estimable from them.
+2. Quantile regression forests use these weights to estimate a conditional empirical CDF and its quantiles; local linear forests use the same weights to fit a local slope.
 3. NGBoost fits parameters of a predictive distribution by minimizing a proper scoring rule.
 4. Under log loss, natural gradients use inverse Fisher information to rescale parameter updates.
 :::
 
 :::{.callout-warning}
 ## Common Pitfalls
-- Reconstructing a bootstrap-forest mean requires resampling multiplicities, not just the original-observation QRF weights.
-- Extreme conditional quantiles need enough relevant tail observations in the forest neighborhood.
+- QRF weights count original observations, so reconstructing a bootstrap-forest mean needs resampling multiplicities, and extreme quantiles need enough relevant tail observations in the neighborhood.
+- A local linear forest lowers bias inside the observed predictor range; it does not license extrapolation beyond it, because the weights are still zero where there are no neighbors.
 - Enforce valid distributional parameters and choose support compatible with the outcome.
 - A fitted predictive distribution does not automatically include uncertainty about the estimated model.
 :::
@@ -535,7 +681,7 @@ Questions:
 1. Contrast NGBoost with standard gradient boosting under mean squared error (MSE) and with QRF along three dimensions: the prediction produced, the distributional assumption, and the object fitted at each boosting or forest step.
 2. Derive the per-observation NLL $\ell(y;\lambda)$ and its ordinary gradient $\partial \ell/\partial \lambda$. Given the Fisher information $\mathcal{I}_{\lambda\lambda}=1/\lambda^2$, derive the natural gradient $\tilde g_\lambda=\mathcal{I}_{\lambda\lambda}^{-1}\partial \ell/\partial \lambda$.
 3. For $\lambda=0.4$ and $y=3$, compute the ordinary and natural gradients. For a single-observation descent step with a positive step size small enough to keep $\lambda>0$, state whether $\lambda$ and the implied conditional mean $1/\lambda$ move up or down.
-4. Let $\theta(x)=\log \lambda(x)$, so $\lambda=e^\theta$. Derive $\partial \ell/\partial \theta$, $\mathcal{I}_{\theta\theta}$, and the natural gradient in the $\theta$ parameterization. Show that mapping this infinitesimal direction back to the $\lambda$ scale gives the natural-gradient direction from Part 2.
+4. Let $\eta(x)=\log \lambda(x)$ be the unconstrained coordinate of @sec-adv-ngboost, a scalar here because the family has a single parameter, so $\lambda=e^\eta$. Derive $\partial \ell/\partial \eta$, $\mathcal{I}_{\eta\eta}$, and the natural gradient in the $\eta$ parameterization. Show that mapping this infinitesimal direction back to the $\lambda$ scale gives the natural-gradient direction from Part 2.
 5. Explain why the agreement of the infinitesimal directions in Part 4 does not imply that ordinary finite Euler updates in the two coordinates generate exactly matching parameter sequences. Then explain how the log-rate parameterization enforces the constraint $\lambda>0$.
 6. For an exponential distribution, both the conditional mean and the conditional standard deviation, written $\operatorname{SD}(Y\mid X=x)$, equal $1/\lambda(x)$. Suppose that, at a particular predictor value $x$, the conditional mean is $2$ and the conditional standard deviation is $4$. Show that no value of $\lambda(x)$ matches both features, and explain why allowing a flexible function $\lambda(x)$ cannot remove this distributional misspecification.
 
@@ -547,15 +693,15 @@ Questions:
 
 Use the chain rule and the information transformation:
 $$
-\frac{\partial \ell}{\partial \theta}
+\frac{\partial \ell}{\partial \eta}
 =
 \frac{\partial \ell}{\partial \lambda}
-\frac{\partial \lambda}{\partial \theta},
+\frac{\partial \lambda}{\partial \eta},
 \qquad
-\mathcal I_{\theta\theta}
+\mathcal I_{\eta\eta}
 =
 \mathcal I_{\lambda\lambda}
-\left(\frac{\partial \lambda}{\partial \theta}\right)^2.
+\left(\frac{\partial \lambda}{\partial \eta}\right)^2.
 $$
 :::
 
@@ -620,41 +766,41 @@ Both gradients are positive. Because the update subtracts the fitted positive gr
 
 **Part 4: Log-rate parameterization and invariance**
 
-Because $\lambda=e^\theta$,
+Because $\lambda=e^\eta$,
 $$
-\frac{\partial \lambda}{\partial \theta}=e^\theta=\lambda.
+\frac{\partial \lambda}{\partial \eta}=e^\eta=\lambda.
 $$
 Thus
 $$
-\frac{\partial \ell}{\partial \theta}
+\frac{\partial \ell}{\partial \eta}
 =
 \left(-\frac{1}{\lambda}+y\right)\lambda
 =
--1+y e^\theta.
+-1+y e^\eta.
 $$
 
 The Fisher information transforms as
 $$
-\mathcal I_{\theta\theta}
+\mathcal I_{\eta\eta}
 =
 \mathcal I_{\lambda\lambda}
-\left(\frac{\partial \lambda}{\partial \theta}\right)^2
+\left(\frac{\partial \lambda}{\partial \eta}\right)^2
 =
 \frac{1}{\lambda^2}\lambda^2
 =1.
 $$
 The natural gradient on the log-rate scale is therefore
 $$
-\tilde g_\theta
+\tilde g_\eta
 =
-\mathcal I_{\theta\theta}^{-1}
-\frac{\partial\ell}{\partial\theta}
+\mathcal I_{\eta\eta}^{-1}
+\frac{\partial\ell}{\partial\eta}
 =
 \lambda y-1.
 $$
-For a small change, $d\lambda=(\partial\lambda/\partial\theta)d\theta=\lambda\,d\theta$. Mapping the natural-gradient direction back to the rate scale gives
+For a small change, $d\lambda=(\partial\lambda/\partial\eta)d\eta=\lambda\,d\eta$. Mapping the natural-gradient direction back to the rate scale gives
 $$
-\lambda\tilde g_\theta
+\lambda\tilde g_\eta
 =
 \lambda(\lambda y-1)
 =
@@ -664,9 +810,9 @@ which is the direction obtained in Part 2. This agreement establishes the coordi
 
 **Part 5: Finite coordinate updates and the positivity constraint**
 
-The agreement in Part 4 concerns an infinitesimal direction. After a finite log-rate step $\Delta\theta$, the exact mapped change is $\lambda(e^{\Delta\theta}-1)$, which equals $\lambda\Delta\theta$ only to first order. Ordinary finite Euler updates carried out separately in the two coordinates can therefore generate different parameter sequences.
+The agreement in Part 4 concerns an infinitesimal direction. After a finite log-rate step $\Delta\eta$, the exact mapped change is $\lambda(e^{\Delta\eta}-1)$, which equals $\lambda\Delta\eta$ only to first order. Ordinary finite Euler updates carried out separately in the two coordinates can therefore generate different parameter sequences.
 
-The log-rate parameterization also turns the constrained rate $\lambda>0$ into an unconstrained parameter $\theta\in\mathbb{R}$. Any finite value of $\theta$ maps to $\lambda=e^\theta>0$, so every update produces a valid rate.
+The log-rate parameterization also turns the constrained rate $\lambda>0$ into an unconstrained parameter $\eta\in\mathbb{R}$. Any finite value of $\eta$ maps to $\lambda=e^\eta>0$, so every update produces a valid rate.
 
 **Part 6: Exponential-family misspecification**
 
@@ -679,6 +825,94 @@ $$
 At that rate, the exponential model also imposes a conditional standard deviation of $2$, not $4$. Matching the conditional standard deviation instead requires $\lambda(x)=1/4$, which imposes a conditional mean of $4$, not $2$. No rate matches both moments.
 
 Letting $\lambda(x)$ be an arbitrarily flexible function changes the common level $1/\lambda(x)$ across predictor values, but it never breaks the exponential restriction that the conditional mean equals the conditional standard deviation at each $x$. Addressing this failure requires a richer distributional family with separate location and scale behavior, not merely more flexible trees for the same one-parameter family.
+:::
+
+::: {.callout-note}
+## Exercise 13.3: Local Linear Forests at the Boundary
+
+A forest is trained to predict a smooth outcome from a single predictor. At the forecast point $x_{\mathrm{new}}$, exactly four training observations carry positive weight, each equal to $1/4$. Their positions relative to the forecast point and their outcomes are
+
+| $x_i-x_{\mathrm{new}}$ | $0$ | $1$ | $2$ | $3$ |
+|---|---:|---:|---:|---:|
+| $y_i$ | $10$ | $13$ | $16$ | $19$ |
+
+Note that every neighbor lies at or to the right of the forecast point.
+
+**Questions:**
+
+1. Show that the ordinary forest prediction $\hat\mu_w(x)=\sum_{i=1}^{N}w_i(x)y_i$ is the minimizer of $\sum_{i=1}^{N}w_i(x)(y_i-c)^2$ over $c\in\mathbb{R}$, and evaluate it for this neighborhood.
+2. Write the local linear objective for this data, derive the $2\times 2$ system its first-order conditions imply, and state the system in terms of the weighted sums $S_w$, $S_{w\delta}$, $S_{w\delta\delta}$, $S_{wy}$, and $S_{w\delta y}$, where $\delta_i=x_i-x_{\mathrm{new}}$.
+3. Solve the system for $\hat c$ and $\hat\theta$.
+4. The fit in part 3 is a whole line, not a number. Explain which quantity is reported as the forecast at $x_{\mathrm{new}}$, and why the centering of the design is what makes that the right choice.
+5. The neighborhood here is one-sided. Explain why the gap between your answers in parts 1 and 3 is bias rather than noise, and why it would not shrink if many more neighbors were added at $\delta_i>0$.
+
+*Exam level. The exercise connects the weighted-least-squares reading of a forest prediction, the local linear system, the role of centering, and the distinction between boundary bias and sampling noise. The optional callout in @sec-adv-llf extends the same system with a slope penalty.*
+:::
+
+::: {.callout-warning collapse="true"}
+## Hint for Part 2
+
+Differentiate $\sum_{i=1}^{N}w_i(x)(y_i-c-\delta_i\theta)^2$ with respect to $c$ and $\theta$ separately, and set both derivatives to zero. Each condition is linear in $(c,\theta)$, so collecting the weighted sums turns the pair into a $2\times 2$ linear system.
+:::
+
+::: {.callout-tip collapse="true"}
+## Solution
+
+**Part 1: The forest mean as a weighted least-squares problem**
+
+The objective $g(c)=\sum_{i=1}^{N}w_i(x)(y_i-c)^2$ is strictly convex in $c$ whenever some weight is positive. Setting $g'(c)=-2\sum_{i=1}^{N}w_i(x)(y_i-c)=0$ gives $c\sum_{i=1}^{N}w_i(x)=\sum_{i=1}^{N}w_i(x)y_i$, and since the weights sum to one, $\hat c=\sum_{i=1}^{N}w_i(x)y_i=\hat\mu_w(x)$.
+
+For this neighborhood,
+$$
+\hat\mu_w(x_{\mathrm{new}})=\tfrac14(10+13+16+19)=14.5 .
+$$
+
+**Part 2: The local linear system**
+
+With $\delta_i=x_i-x_{\mathrm{new}}$ the objective is
+$$
+Q(c,\theta)=\sum_{i=1}^{N}w_i(x)\bigl(y_i-c-\delta_i\theta\bigr)^2 .
+$$
+
+The first-order conditions are
+$$
+\frac{\partial Q}{\partial c}=-2\sum_{i=1}^{N}w_i(x)\bigl(y_i-c-\delta_i\theta\bigr)=0,
+\qquad
+\frac{\partial Q}{\partial \theta}=-2\sum_{i=1}^{N}w_i(x)\delta_i\bigl(y_i-c-\delta_i\theta\bigr)=0 .
+$$
+
+Writing $S_w=\sum_{i=1}^{N}w_i(x)$, $S_{w\delta}=\sum_{i=1}^{N}w_i(x)\delta_i$, $S_{w\delta\delta}=\sum_{i=1}^{N}w_i(x)\delta_i^2$, $S_{wy}=\sum_{i=1}^{N}w_i(x)y_i$ and $S_{w\delta y}=\sum_{i=1}^{N}w_i(x)\delta_i y_i$, these rearrange to
+$$
+\begin{pmatrix} S_w & S_{w\delta}\\ S_{w\delta} & S_{w\delta\delta} \end{pmatrix}
+\begin{pmatrix} c\\ \theta \end{pmatrix}
+=\begin{pmatrix} S_{wy}\\ S_{w\delta y}\end{pmatrix},
+$$
+which is the closed form of @sec-adv-llf specialized to one predictor.
+
+For this data, $S_w=1$, $S_{w\delta}=3/2$, $S_{w\delta\delta}=7/2$, $S_{wy}=29/2$ and $S_{w\delta y}=51/2$.
+
+**Part 3: Solving the system**
+
+The determinant is $S_wS_{w\delta\delta}-S_{w\delta}^2=7/2-9/4=5/4$, so
+$$
+\hat c=\frac{(29/2)(7/2)-(3/2)(51/2)}{5/4}=10,
+\qquad
+\hat\theta=\frac{(51/2)-(3/2)(29/2)}{5/4}=3 .
+$$
+
+The fit is exact because the outcomes satisfy $y_i=10+3\delta_i$ with no residual, so the local linear fit reproduces them. Note that the determinant is strictly positive here only because the four neighbors sit at four distinct positions; a neighborhood whose members shared a single predictor value would make $S_wS_{w\delta\delta}=S_{w\delta}^2$ and the system singular, which is the failure the optional callout in @sec-adv-llf addresses.
+
+**Part 4: Which number is the forecast**
+
+The estimated line is $\hat y(\delta)=\hat c+\hat\theta\,\delta$ in the *centered* coordinate $\delta=x-x_{\mathrm{new}}$. The forecast point itself is $\delta=0$, so the prediction is $\hat y(0)=\hat c=10$. The slope is not discarded, but it is not reported either: its job was to absorb the within-neighborhood trend so that $\hat c$ did not have to.
+
+Centering is what buys this. Had the design used raw $x_i$ rather than $x_i-x_{\mathrm{new}}$, the intercept would be the fitted value at $x=0$, a point that need not lie in the neighborhood at all and in many applications is not even a meaningful predictor value. Reading the forecast off a single coefficient is a convenience created by the parameterization, not a property of local linear regression.
+
+**Part 5: Bias, not noise**
+
+Every neighbor satisfies $\delta_i\ge 0$, and the outcomes increase in $\delta_i$. The weighted average therefore averages values drawn from a region where the regression function is systematically higher than at $x_{\mathrm{new}}$, so it overshoots. The size of the overshoot depends on the configuration of the neighborhood and the slope of the regression function, not on sampling variability: here it equals $\hat\theta \cdot S_{w\delta}=3\times 3/2=4.5$, which is exactly $14.5-10$.
+
+Adding more neighbors at $\delta_i>0$ does not help, because it does not change the sign of the asymmetry. Averaging more observations from one side of the forecast point reduces the variance of the estimate while leaving its systematic displacement intact. Only information from $\delta_i<0$, or a local model that can represent the trend, removes it. This is why the phenomenon is called boundary bias, and why local linear estimators are the standard remedy.
 :::
 
 :::: {.content-visible when-format="html"}
