@@ -9,7 +9,7 @@ number-offset: [9, 0]
 
 Decision trees are nonparametric estimators that approximate an unknown conditional mean or conditional event probability by repeatedly splitting the predictor space and assigning a constant prediction within each resulting region. The classical reference is the Classification and Regression Trees (CART) monograph of @BreimanFriedmanOlshenStone1984. For econometricians, trees are useful when thresholds, interactions, and regime changes matter but are hard to specify in advance. A tree can learn rules such as "if the output gap is negative and credit spreads are high, predict lower gross domestic product (GDP) growth" without the researcher having to write down all interactions beforehand.
 
-Single trees are interpretable, but that interpretability comes with three weaknesses: trees are discontinuous, unstable, and unable to extrapolate outside the support of the training data. These weaknesses motivate the next chapters: random forests average many randomized trees to stabilize predictions, while boosting builds trees sequentially to correct the current model's errors.
+Single trees are interpretable, but that interpretability comes with three weaknesses: trees are discontinuous, unstable w.r.t. small changes in the data, and unable to extrapolate outside the support of the training data. These weaknesses motivate the next chapters: random forests average many randomized trees to stabilize predictions, while boosting builds trees sequentially to correct the current model's errors.
 
 ## Roadmap
 
@@ -110,6 +110,68 @@ where $\bar y_m^L$ and $\bar y_m^R$ are the sample means of $y_i$ over the left 
 For a continuous predictor, candidate cutoffs only need to be checked at midpoints between consecutive **distinct** ordered values observed in the current node. Between two adjacent distinct values, the membership of the left and right child nodes does not change, so the objective is constant. A cutoff is skipped if either child would violate a stated minimum-observation or other admissibility constraint.
 :::
 
+@fig-dt-split-search makes the criterion and this restriction visible at once. The top panel fits the two-leaf tree at three candidate thresholds; the bottom panel traces $Q_m(j,s)$ across the whole range of $s$.
+
+```{python}
+#| label: fig-dt-split-search
+#| fig-cap: "Top: sixty simulated observations (gray) whose conditional mean has a jump at $x=0.5$ and a mild slope, with the fitted two-leaf tree at three candidate thresholds: the minimizer (red, solid) and two alternatives (blue and green, dashed). Bottom: the within-child residual sum of squares as a function of the candidate threshold, with the same three thresholds marked in the same colors. The criterion is a step function, constant between consecutive distinct observed values, so only the midpoints (small gray dots) can differ."
+#| echo: true
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+
+def within_child_rss(x, y, s):
+    """Q(s): within-child RSS after replacing each child by its own mean."""
+    left = x <= s
+    if left.sum() == 0 or (~left).sum() == 0:
+        return np.nan
+    return (((y[left] - y[left].mean()) ** 2).sum()
+            + ((y[~left] - y[~left].mean()) ** 2).sum())
+
+
+rng = np.random.default_rng(11)
+x = rng.uniform(-3, 3, 60)
+y = 2.0 * (x > 0.5) + 0.6 * x + rng.normal(0, 0.6, x.size)
+order = np.argsort(x)
+x, y = x[order], y[order]
+
+midpoints = (x[:-1] + x[1:]) / 2
+midpoint_rss = np.array([within_child_rss(x, y, s) for s in midpoints])
+s_star = midpoints[np.nanargmin(midpoint_rss)]
+
+candidates = [(s_star, "C3", "-"), (-1.5, "C0", "--"), (1.8, "C2", "--")]
+grid = np.linspace(x.min() + 0.01, x.max() - 0.01, 1200)
+grid_rss = np.array([within_child_rss(x, y, s) for s in grid])
+
+fig, (top, bottom) = plt.subplots(2, 1, figsize=(8, 7), sharex=True)
+
+top.scatter(x, y, s=18, color="0.35", alpha=0.7, label="Training observations")
+for s, color, style in candidates:
+    fitted = np.where(grid <= s, y[x <= s].mean(), y[x > s].mean())
+    top.plot(grid, fitted, color=color, linestyle=style, linewidth=2.2,
+             label=f"Two-leaf fit at $s={s:.2f}$")
+top.set_ylabel("$y$")
+top.legend(frameon=False, fontsize=9)
+top.grid(True, alpha=0.3)
+
+bottom.plot(grid, grid_rss, color="0.35", linewidth=1.8, label="$Q(s)$")
+bottom.scatter(midpoints, midpoint_rss, s=10, color="0.6", zorder=3,
+               label="Midpoints")
+for s, color, style in candidates:
+    bottom.axvline(s, color=color, linestyle=style, linewidth=1.8)
+    bottom.scatter([s], [within_child_rss(x, y, s)], color=color, s=55, zorder=4)
+bottom.set_xlabel("Candidate threshold $s$")
+bottom.set_ylabel("Within-child RSS")
+bottom.legend(frameon=False, fontsize=9)
+bottom.grid(True, alpha=0.3)
+
+plt.tight_layout()
+plt.show()
+```
+
+Two features of the bottom panel carry the argument. The criterion jumps only where an observation changes side, which is why the midpoints exhaust the candidates, and it is not monotone or single-peaked in $s$, which is why the algorithm evaluates every candidate rather than searching locally. The two non-minimizing fits in the top panel show what a worse split buys: each leaves one child that still mixes observations from both sides of the jump, so that child's mean sits between the two regimes and fits neither.
+
 After the best split is chosen, the same procedure is applied within each child node. The recursion stops when no admissible split exists or when the best impurity decrease falls below a chosen threshold, such as `min_impurity_decrease`. The scikit-learn default sets that threshold to zero and accepts a zero-decrease split. This convention can matter for a pure interaction: a first split may have no immediate gain yet reveal profitable child splits at the next depth. Maximum depth and minimum leaf size provide additional pre-pruning controls. This top-down greedy algorithm is called **recursive binary splitting**. It is computationally feasible, but each split is only myopically optimal given the splits already made; the resulting tree need not minimize RSS among all trees with the same number of leaves.
 
 @fig-regression-tree-step shows what the resulting estimator looks like in the simplest one-predictor case.
@@ -151,6 +213,61 @@ plt.show()
 ```
 
 @fig-regression-tree-step shows the defining feature of a regression tree: the fitted function is piecewise constant. This can be useful when the underlying relationship contains genuine threshold effects, but it also means that a tree cannot represent a smooth marginal effect anywhere in the input space. A tree can approximate a smooth relationship by adding more splits, but the fitted function itself is never smooth.
+
+**Two Representations of the Same Estimator**
+
+A fitted tree can be read in two equivalent ways: as the diagram of splits that gave it its name, and as the piecewise-constant function $\hat f(x) = \sum_{j=1}^J \hat w_j \mathbf{1}\{x \in R_j\}$ introduced at the start of this section. It is worth seeing both for the same object, because the diagram is what makes a tree interpretable while the step function is what it actually predicts. @fig-dt-two-split does this for the smallest tree that still involves a recursion: two splits and three leaves, fitted to the same sample as @fig-regression-tree-step.
+
+```{python}
+#| label: fig-dt-two-split
+#| fig-cap: "The same fitted estimator in its two representations. Top: the tree diagram. The root splits on the output gap; only the left child is split again, so the tree has two internal nodes and three leaves, and each leaf reports its prediction (`value`) and its number of training observations (`samples`). Bottom: the piecewise-constant function this tree computes, over the same training sample, with dotted vertical lines at the two split thresholds. Each leaf of the diagram is one horizontal segment, and each internal node is one jump."
+#| echo: true
+
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.tree import DecisionTreeRegressor, plot_tree
+
+rng = np.random.default_rng(42)
+x = np.sort(rng.uniform(-3, 3, 120))
+y = (
+    1.8
+    + 0.3 * x
+    + 0.9 * (x > 0.5)
+    - 0.6 * (x < -1.5)
+    + rng.normal(scale=0.25, size=x.shape[0])
+)
+
+# max_leaf_nodes = 3 performs exactly two splits: it repeatedly splits the leaf
+# with the largest reduction in RSS until three leaves remain.
+small_tree = DecisionTreeRegressor(max_leaf_nodes=3, random_state=42)
+small_tree.fit(x.reshape(-1, 1), y)
+
+x_grid = np.linspace(-3.2, 3.2, 500)
+y_hat = small_tree.predict(x_grid.reshape(-1, 1))
+thresholds = small_tree.tree_.threshold[small_tree.tree_.children_left != -1]
+
+fig, (top, bottom) = plt.subplots(2, 1, figsize=(9, 8.6))
+
+plot_tree(
+    small_tree,
+    feature_names=["Output gap"],
+    filled=True, rounded=True, impurity=False, precision=2, ax=top, fontsize=10,
+)
+
+bottom.scatter(x, y, s=18, color="0.35", alpha=0.7, label="Training observations")
+bottom.plot(x_grid, y_hat, color="C3", linewidth=2.5, label="Tree fit")
+for threshold in thresholds:
+    bottom.axvline(threshold, color="0.55", linestyle=":", linewidth=1.5)
+bottom.set_xlabel("Output gap")
+bottom.set_ylabel("Next-quarter inflation")
+bottom.legend(frameon=False)
+bottom.grid(True, alpha=0.3)
+
+plt.tight_layout()
+plt.show()
+```
+
+The two panels contain the same information. Reading the diagram from the root to a leaf gives the conditions that define one region $R_j$, and the `value` at that leaf is the $\hat w_j$ predicted there. Reading the step function from left to right passes through those regions in order of the predictor. Note also that only one child of the root is split further: recursive binary splitting treats each node as a separate problem, so nothing forces the two sides of a split to be refined symmetrically, and a variable already used at the root may be split on again below it.
 
 **Axis-Aligned Partitions**
 
@@ -259,6 +376,10 @@ $$
 
 where $\mathcal{I}$ is either entropy or Gini, $N_m^L$ and $N_m^R$ are the numbers of observations in the left and right children, $N_m = N_m^L + N_m^R$ is the parent size, and $\hat p_m^L$ and $\hat p_m^R$ are the positive-class shares in the left and right children. The preferred split is the one that minimizes this weighted child impurity, or equivalently maximizes impurity reduction.
 
+The size weights are not a normalization of convenience, and an unweighted average of the two child impurities would be a different and worse criterion. The regression case already uses the weighted form. The sum of squared deviations inside a child equals the number of observations in that child times that child's mean squared deviation from its own mean, so dividing $Q_m(j,s)$ by the parent size $N_m$ gives exactly the expression above, with the child's mean squared deviation in place of $\mathcal{I}$. In both cases the quantity being minimized is a per-observation loss totaled over the observations in the node, and dividing by $N_m$, which is fixed across all candidate splits of node $m$, puts that total on the same scale as the parent impurity $\mathcal{I}(\hat p_m)$ so that the two can be differenced.
+
+Dropping the weights breaks that comparison and rewards splitting off a handful of observations, because a child holding a single observation is pure by construction and contributes zero impurity no matter what the split has actually learned. Consider a node of 100 firms of which 50 default, so $\hat p_m = 1/2$ and the entropy is $\log 2 \approx 0.693$, and a candidate split that peels off one defaulting firm. The other child then has $\hat p_m^R = 49/99$ and an entropy of $0.693$, indistinguishable from the parent's at three decimals. The unweighted average $\tfrac{1}{2}(0 + 0.693) \approx 0.347$ records this as halving the impurity, whereas the weighted criterion returns $\tfrac{1}{100}(0) + \tfrac{99}{100}(0.693) \approx 0.686$, a reduction of about $0.007$. The second number is the honest accounting for a split that has classified one firm and left the remaining 99 as mixed as before. The weights are also what make the comparison with the parent meaningful in general, because the parent share is itself the size-weighted average of the child shares, an identity we use below.
+
 Because entropy is the Bernoulli entropy from the [Information Theory chapter](information_theory.qmd), the impurity reduction under entropy is exactly an information gain calculation, in the sense of the entropy and cross-entropy quantities defined in that chapter.
 
 @fig-tree-impurity compares how entropy and Gini impurity vary with the event share inside a node.
@@ -304,7 +425,7 @@ For example, take a node with $\hat p_m = 0.6$ and split it into equal-sized chi
 :::{.callout-note}
 ## Entropy vs Gini
 
-In practice, entropy and Gini lead to similar trees. Gini is slightly simpler algebraically and is the default in many software packages; entropy is more convenient in teaching because it links directly to information theory.
+In practice, entropy and Gini lead to similar trees, and both are the in-leaf value of a proper scoring rule evaluated at the leaf's own fitted probability: entropy is the negative Bernoulli log-likelihood, and Gini is twice the Brier score, since the mean squared deviation of a 0-1 outcome from the leaf share is $\hat p(1-\hat p)$. Gini is slightly simpler algebraically and is the default in many software packages, while entropy links directly to information theory.
 :::
 
 **Leaf Probabilities and Class Predictions**
@@ -423,13 +544,15 @@ But trees also have sharp limitations.
 
 For time-series econometrics, the extrapolation issue is especially important. If GDP growth, inflation, or asset volatility moves outside the historical range seen during training, a tree can only return the constant prediction from the outermost leaf. That is often too rigid for forecasting.
 
-@fig-dt-fredqd gives a concrete illustration using the quarterly [Federal Reserve Economic Data collection (FRED-QD)](datasets.qmd#fred-qd) [@McCrackenNg2020FREDQD]. The target is annualized GDP growth in quarter $t+1$, while the predictors are macro and financial variables dated quarter $t$.[^dt-fredqd-final-vintage] In this fit, a depth-3 regression tree splits first on inflation, separating the 174 quarters with inflation below 9.57% from the 14 high-inflation quarters. Within the low-inflation branch, the tree splits on lagged GDP growth and then on the term spread—the gap between long- and short-maturity yields, a well-known leading indicator of business cycle turning points [@EstrellaMishkin1998]. The high-inflation branch splits instead on the log volatility index (VIX), an option-implied measure of stock-market volatility. Two features of the fitted tree are worth noting. First, the same variable can be reused at different depths and with different thresholds: inflation splits at 9.57 near the root and again at 11.02 further down because each split is chosen conditionally on the region reached so far. Second, the piecewise-constant structure is visible in the leaf values. Regardless of how far predictors move during the test period, the tree can return only one of eight constants, the most extreme of which is $-8.33$. This is a direct manifestation of the extrapolation limitation.
+@fig-dt-fredqd gives a concrete illustration using the quarterly [Federal Reserve Economic Data collection (FRED-QD)](datasets.qmd#fred-qd) [@McCrackenNg2020FREDQD]. The target is annualized GDP growth in quarter $t+1$, and the predictors are five macro and financial variables dated quarter $t$: lagged GDP growth, inflation, the term spread between long- and short-maturity yields, which is a well-known leading indicator of business cycle turning points [@EstrellaMishkin1998], the log volatility index (VIX), an option-implied measure of stock-market volatility, and the unemployment rate.[^dt-fredqd-final-vintage]
+
+The fitted depth-2 tree splits first on inflation, separating the 174 quarters with inflation below 9.57% from the 14 high-inflation quarters. Three features are worth noting. First, the two branches then split on *different* variables: the low-inflation branch splits on lagged GDP growth, isolating the 18 quarters in which output had contracted by more than half a percentage point at an annual rate and predicting 0.68 for them against 3.73 for the remaining 156, while the high-inflation branch splits on the log VIX and predicts $-4.56$ for the four quarters that combined high inflation with high volatility. Nothing forces the two sides of a split to continue with the same variable, because each split is chosen conditionally on the region reached so far. Second, only two of the five predictors appear in the fitted tree at all; with three splits to spend, the greedy search never reaches the term spread or the unemployment rate. Allowing one more level of depth does bring the term spread into the tree; the depth-2 fit simply has no room for it. Third, the piecewise-constant structure is visible in the leaf values. Regardless of how far predictors move during the test period, the tree can return only one of four constants, the most extreme of which is $-4.56$. This is a direct manifestation of the extrapolation limitation.
 
 [^dt-fredqd-final-vintage]: This is a pedagogical final-vintage FRED-QD example. A full real-time GDP forecasting evaluation would also need to account for release calendars and data revisions.
 
 ```{python}
 #| label: fig-dt-fredqd
-#| fig-cap: "Depth-3 regression tree fit to one-step-ahead GDP growth (annualized log-difference of GDPC1) using five FRED-QD predictors. Each internal node shows the split variable and threshold; leaf nodes show the mean prediction (`value`), measured in annualized percentage points, and the number of training observations (`samples`). Colors indicate the leaf prediction: darker shading corresponds to higher predicted growth. The tree is trained on the first 75% of available quarters."
+#| fig-cap: "Depth-2 regression tree fit to one-step-ahead GDP growth (annualized log-difference of GDPC1) using five FRED-QD predictors. Each internal node shows the split variable and threshold; leaf nodes show the mean prediction (`value`), measured in annualized percentage points, and the number of training observations (`samples`). Colors indicate the leaf prediction: darker shading corresponds to higher predicted growth. The tree is trained on the first 75% of available quarters."
 #| echo: true
 
 import numpy as np
@@ -464,20 +587,20 @@ split = int(len(macro) * 0.75)
 X_train = macro.iloc[:split][feature_cols].values
 y_train = macro.iloc[:split]["y"].values
 
-tree = DecisionTreeRegressor(max_depth=3, random_state=42)
+tree = DecisionTreeRegressor(max_depth=2, random_state=42)
 tree.fit(X_train, y_train)
 
-fig, ax = plt.subplots(figsize=(14, 5.5))
+fig, ax = plt.subplots(figsize=(11, 5.5))
 plot_tree(
     tree,
     feature_names=["GDP growth", "Inflation", "Term spread", "Log VIX", "Unemployment"],
-    filled=True, rounded=True, impurity=False, precision=2, ax=ax, fontsize=7,
+    filled=True, rounded=True, impurity=False, precision=2, ax=ax, fontsize=10,
 )
 plt.tight_layout()
 plt.show()
 ```
 
-The eight displayed leaf constants make the extrapolation limit concrete: new observations can be routed to a different leaf, but the tree cannot continue a trend beyond the fitted leaf values.
+The four displayed leaf constants make the extrapolation limit concrete: new observations can be routed to a different leaf, but the tree cannot continue a trend beyond the fitted leaf values.
 
 ## Summary
 
@@ -500,7 +623,7 @@ The eight displayed leaf constants make the extrapolation limit concrete: new ob
 ## Exercises
 
 ::: {.callout-note}
-## Exercise 10.1: One-Split Regression Tree and Pruning
+## Exercise 10.1: Growing and Pruning a Regression Tree
 
 Consider the following training sample with one predictor $x$ and response $y$:
 
@@ -513,20 +636,28 @@ Consider the following training sample with one predictor $x$ and response $y$:
 
 1. Compute the root-node mean and the root-node residual sum of squares (RSS).
 2. Evaluate the candidate one-split regression trees with cutoffs $s \in \{1.5, 2.5, 3.5\}$. For each split, compute the leaf means and total RSS. Which split is chosen by recursive binary splitting?
-3. Consider the cost-complexity objective
+3. Apply recursive binary splitting once more, inside the left child of the split chosen in Part 2. The admissible cutoffs there are $s\in\{1.5,\,2.5\}$. Give the within-child RSS of each, the three leaf values of the resulting tree, and its total RSS. Stop after this second split, so the grown tree $T_0$ has three leaves.
+4. Consider the cost-complexity objective
    $$
    C_\alpha(T) = \sum_{i=1}^4 (y_i - \hat f_T(x_i))^2 + \alpha |T|,
    $$
-   where $|T|$ is the number of leaves and $\alpha\geq0$. For which values of $\alpha$ is the one-split tree from Part 2 preferred to the root-only tree (the no-split tree consisting of a single root leaf that predicts the full-sample mean)?
-4. Give the tree's prediction at $x=2.7$ and at $x=5$. What limitation of regression trees does this illustrate for forecasting trending macroeconomic variables?
+   where $|T|$ is the number of leaves and $\alpha\geq0$. Evaluate it for the two-split tree $T_0$, the one-split tree $T_1$ of Part 2, and the root-only tree (the no-split tree consisting of a single root leaf that predicts the full-sample mean). For which values of $\alpha$ is each preferred? Check that the selected trees form a nested sequence as $\alpha$ increases.
+5. Give the two-split tree's prediction at $x=2.7$ and at $x=5$. What limitation of regression trees does this illustrate for forecasting trending macroeconomic variables?
 
-*Exam level: suitable as-is. Parts 1-3 test the mechanics of tree fitting and pruning, while Part 4 checks understanding of extrapolation.*
+*Exam level: suitable as-is but they would be considered to be easy questions. Parts 1-4 test the mechanics of tree growing and pruning, while Part 5 checks understanding of extrapolation.*
 :::
 
 ::: {.callout-warning collapse="true"}
 ## Hint for Part 3
 
-The root-only tree has one leaf. The split tree has two leaves. Write the two penalized criteria explicitly and compare them.
+Only the three observations in the left child are involved. Each candidate child gets its own mean, not the mean of the left child as a whole.
+
+:::
+
+::: {.callout-warning collapse="true"}
+## Hint for Part 4
+
+The three trees have one, two and three leaves. Write all three penalized criteria explicitly as lines in $\alpha$ and compare them pairwise; the tree preferred at a given $\alpha$ is the one whose line is lowest there.
 :::
 
 ::: {.callout-tip collapse="true"}
@@ -584,21 +715,62 @@ $$
 
 Therefore the best one-split tree uses the cutoff $s=3.5$.
 
-**Part 3: Cost-complexity comparison**
+**Part 3: The second split**
 
-The root-only tree has one leaf, so its criterion is
+The right child of the chosen split is the single observation $\{5\}$, which cannot be split. The recursion therefore continues in the left child, which contains observations $1$, $2$ and $3$ with responses $\{2, 3, 2.5\}$, mean $2.5$ and RSS $0.5$.
+
+For $s=1.5$:
+
+- Left leaf: $\{2\}$ with mean $2$
+- Right leaf: $\{3, 2.5\}$ with mean $2.75$
 
 $$
-C_\alpha(\text{root only}) = 5.1875 + \alpha.
+Q(1.5) = 0 + (3-2.75)^2 + (2.5-2.75)^2 = 0.125.
 $$
 
-The one-split tree has two leaves and RSS $0.5$, so
+For $s=2.5$:
+
+- Left leaf: $\{2, 3\}$ with mean $2.5$
+- Right leaf: $\{2.5\}$ with mean $2.5$
 
 $$
-C_\alpha(\text{split}) = 0.5 + 2\alpha.
+Q(2.5) = (2-2.5)^2 + (3-2.5)^2 + 0 = 0.5.
 $$
 
-The split tree is preferred when
+The cutoff $s=1.5$ is chosen, and it reduces the left child's RSS from $0.5$ to $0.125$. The cutoff $s=2.5$ achieves nothing at all: it separates observation $3$, whose response happens to equal the mean of the node, so both children keep the parent's mean.
+
+The grown tree $T_0$ has three leaves,
+
+$$
+\hat f_{T_0}(x)=
+\begin{cases}
+2.00, & x \leq 1.5, \\
+2.75, & 1.5 < x \leq 3.5, \\
+5.00, & x > 3.5,
+\end{cases}
+$$
+
+with total RSS $0.125 + 0 = 0.125$. Note what a further split would do: the middle leaf holds two observations with different responses, so splitting it at $s=2.5$ would drive the training RSS to exactly zero with four leaves and four observations. Interpolation is one split away, which is why the next part is needed.
+
+**Part 4: The cost-complexity path**
+
+Collecting the three trees:
+
+| Tree | Leaves | RSS | $C_\alpha$ |
+|---|---|---|---|
+| $T_0$ (two splits) | $3$ | $0.125$ | $0.125 + 3\alpha$ |
+| $T_1$ (one split) | $2$ | $0.500$ | $0.500 + 2\alpha$ |
+| Root only | $1$ | $5.1875$ | $5.1875 + \alpha$ |
+
+Comparing the first two,
+
+$$
+0.125 + 3\alpha < 0.5 + 2\alpha
+\quad \Longleftrightarrow \quad
+\alpha < 0.375,
+$$
+
+and comparing the second with the root,
 
 $$
 0.5 + 2\alpha < 5.1875 + \alpha
@@ -606,26 +778,18 @@ $$
 \alpha < 4.6875.
 $$
 
-Under the maintained domain $\alpha\geq0$, the split tree is chosen for $0\leq\alpha < 4.6875$, the root-only tree is chosen for $\alpha > 4.6875$, and the two are tied at $\alpha = 4.6875$.
+So $T_0$ is selected for $0\leq\alpha<0.375$, $T_1$ for $0.375<\alpha<4.6875$, and the root-only tree for $\alpha>4.6875$, with ties at the two breakpoints. The selected trees are nested, $T_0 \supset T_1 \supset \{\text{root}\}$, and each step removes one leaf.
 
-**Part 4: Predictions and extrapolation**
+The two breakpoints are exactly the two weakest-link prices. Collapsing the internal node at $x=1.5$ costs $0.5-0.125=0.375$ in RSS and saves one leaf; collapsing the root then costs $5.1875-0.5=4.6875$ and saves one more. The cheaper branch is pruned first, which is why the sequence is nested rather than jumping between unrelated subtrees. Note that comparing $T_0$ with the root directly would give a crossing at $\alpha=2.53125$, but that comparison never decides anything: $T_1$ is strictly better than both trees throughout that neighborhood.
 
-Because the chosen split is at $x=3.5$,
+**Part 5: Predictions and extrapolation**
 
-$$
-\hat f(x)=
-\begin{cases}
-2.5, & x \leq 3.5, \\
-5, & x > 3.5.
-\end{cases}
-$$
-
-So
+From the three-leaf tree of Part 3, $x=2.7$ falls in the middle leaf and $x=5$ in the rightmost leaf, so
 
 $$
-\hat f(2.7) = 2.5,
+\hat f_{T_0}(2.7) = 2.75,
 \qquad
-\hat f(5) = 5.
+\hat f_{T_0}(5) = 5.
 $$
 
 The constant outer-leaf prediction illustrates the extrapolation problem: once $x$ is above the largest cutoff, the tree cannot continue an upward trend. The tree simply returns the same value regardless of how far $x$ moves beyond the training range.
@@ -823,7 +987,7 @@ Applying the two thresholds to the leaves of both candidate splits:
 
 Only one leaf changes: the left leaf of the split at $x=2.15$, whose default probability $1/3$ lies between the two thresholds. That is the general principle—lowering the threshold from $0.5$ to $0.2$ reclassifies exactly those leaves with $\hat p \in (0.2, 0.5]$, and no others. The leaves of the preferred split have $\hat p = 0$ and $\hat p = 3/4$, both far outside that interval, so its classifier is unchanged.
 
-Two lessons follow. First, the direction of the change is what asymmetric costs demand: because a missed default costs four times a false alarm, the rule becomes more willing to declare default, and a leaf that was previously called safe on a one-in-three default rate is now flagged. Second, the threshold matters only when fitted probabilities fall in the affected interval; a tree whose leaves are close to pure is insensitive to the cost ratio, which is a reason to report the leaf probabilities themselves rather than only the classifications.
+Two lessons follow. First, the direction of the change is what asymmetric costs demand: because a missed default costs four times a false alarm, the rule becomes more willing to declare default, and a leaf that was previously called safe on a one-in-three default rate is now flagged. Second, the preferred split's classifications are unchanged for this particular threshold change from $0.5$ to $0.2$. A different cost ratio can move the threshold past a leaf's probability and change its class even when that probability is close to zero or one. Reporting the leaf probabilities therefore shows which cost changes could alter the decisions.
 :::
 
 :::: {.content-visible when-format="html"}

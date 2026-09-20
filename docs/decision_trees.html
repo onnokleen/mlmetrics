@@ -423,7 +423,7 @@ window.Quarto = {
 <section id="overview" class="level2" data-number="10.1">
 <h2 data-number="10.1" class="anchored" data-anchor-id="overview"><span class="header-section-number">10.1</span> Overview</h2>
 <p>Decision trees are nonparametric estimators that approximate an unknown conditional mean or conditional event probability by repeatedly splitting the predictor space and assigning a constant prediction within each resulting region. The classical reference is the Classification and Regression Trees (CART) monograph of <span class="citation" data-cites="BreimanFriedmanOlshenStone1984">Breiman et al. (<a href="#ref-BreimanFriedmanOlshenStone1984" role="doc-biblioref">1984</a>)</span>. For econometricians, trees are useful when thresholds, interactions, and regime changes matter but are hard to specify in advance. A tree can learn rules such as “if the output gap is negative and credit spreads are high, predict lower gross domestic product (GDP) growth” without the researcher having to write down all interactions beforehand.</p>
-<p>Single trees are interpretable, but that interpretability comes with three weaknesses: trees are discontinuous, unstable, and unable to extrapolate outside the support of the training data. These weaknesses motivate the next chapters: random forests average many randomized trees to stabilize predictions, while boosting builds trees sequentially to correct the current model’s errors.</p>
+<p>Single trees are interpretable, but that interpretability comes with three weaknesses: trees are discontinuous, unstable w.r.t. small changes in the data, and unable to extrapolate outside the support of the training data. These weaknesses motivate the next chapters: random forests average many randomized trees to stabilize predictions, while boosting builds trees sequentially to correct the current model’s errors.</p>
 </section>
 <section id="roadmap" class="level2" data-number="10.2">
 <h2 data-number="10.2" class="anchored" data-anchor-id="roadmap"><span class="header-section-number">10.2</span> Roadmap</h2>
@@ -539,40 +539,110 @@ Why only midpoints matter
 <p>For a continuous predictor, candidate cutoffs only need to be checked at midpoints between consecutive <strong>distinct</strong> ordered values observed in the current node. Between two adjacent distinct values, the membership of the left and right child nodes does not change, so the objective is constant. A cutoff is skipped if either child would violate a stated minimum-observation or other admissibility constraint.</p>
 </div>
 </div>
-<p>After the best split is chosen, the same procedure is applied within each child node. The recursion stops when no admissible split exists or when the best impurity decrease falls below a chosen threshold, such as <code>min_impurity_decrease</code>. The scikit-learn default sets that threshold to zero and accepts a zero-decrease split. This convention can matter for a pure interaction: a first split may have no immediate gain yet reveal profitable child splits at the next depth. Maximum depth and minimum leaf size provide additional pre-pruning controls. This top-down greedy algorithm is called <strong>recursive binary splitting</strong>. It is computationally feasible, but each split is only myopically optimal given the splits already made; the resulting tree need not minimize RSS among all trees with the same number of leaves.</p>
-<p><a href="#fig-regression-tree-step" class="quarto-xref">Figure&nbsp;10.1</a> shows what the resulting estimator looks like in the simplest one-predictor case.</p>
-<div id="cell-fig-regression-tree-step" class="cell" data-execution_count="2">
+<p><a href="#fig-dt-split-search" class="quarto-xref">Figure&nbsp;10.1</a> makes the criterion and this restriction visible at once. The top panel fits the two-leaf tree at three candidate thresholds; the bottom panel traces <span class="math inline">Q_m(j,s)</span> across the whole range of <span class="math inline">s</span>.</p>
+<div id="cell-fig-dt-split-search" class="cell" data-execution_count="2">
 <details class="code-fold">
 <summary>Show the code</summary>
 <div class="sourceCode cell-code" id="cb1"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> numpy <span class="im">as</span> np</span>
 <span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> matplotlib.pyplot <span class="im">as</span> plt</span>
-<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.tree <span class="im">import</span> DecisionTreeRegressor</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>rng <span class="op">=</span> np.random.default_rng(<span class="dv">42</span>)</span>
-<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>x <span class="op">=</span> np.sort(rng.uniform(<span class="op">-</span><span class="dv">3</span>, <span class="dv">3</span>, <span class="dv">120</span>))</span>
-<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>y <span class="op">=</span> (</span>
-<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>    <span class="fl">1.8</span></span>
-<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>    <span class="op">+</span> <span class="fl">0.3</span> <span class="op">*</span> x</span>
-<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>    <span class="op">+</span> <span class="fl">0.9</span> <span class="op">*</span> (x <span class="op">&gt;</span> <span class="fl">0.5</span>)</span>
-<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>    <span class="op">-</span> <span class="fl">0.6</span> <span class="op">*</span> (x <span class="op">&lt;</span> <span class="op">-</span><span class="fl">1.5</span>)</span>
-<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>    <span class="op">+</span> rng.normal(scale<span class="op">=</span><span class="fl">0.25</span>, size<span class="op">=</span>x.shape[<span class="dv">0</span>])</span>
-<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>tree <span class="op">=</span> DecisionTreeRegressor(max_depth<span class="op">=</span><span class="dv">2</span>, min_samples_leaf<span class="op">=</span><span class="dv">12</span>, random_state<span class="op">=</span><span class="dv">42</span>)</span>
-<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>tree.fit(x.reshape(<span class="op">-</span><span class="dv">1</span>, <span class="dv">1</span>), y)</span>
-<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>x_grid <span class="op">=</span> np.linspace(<span class="op">-</span><span class="fl">3.2</span>, <span class="fl">3.2</span>, <span class="dv">500</span>)</span>
-<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>y_hat <span class="op">=</span> tree.predict(x_grid.reshape(<span class="op">-</span><span class="dv">1</span>, <span class="dv">1</span>))</span>
-<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>fig, ax <span class="op">=</span> plt.subplots(figsize<span class="op">=</span>(<span class="dv">8</span>, <span class="dv">5</span>))</span>
-<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a>ax.scatter(x, y, s<span class="op">=</span><span class="dv">18</span>, color<span class="op">=</span><span class="st">"0.35"</span>, alpha<span class="op">=</span><span class="fl">0.7</span>, label<span class="op">=</span><span class="st">"Training observations"</span>)</span>
-<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a>ax.plot(x_grid, y_hat, color<span class="op">=</span><span class="st">"C3"</span>, linewidth<span class="op">=</span><span class="fl">2.5</span>, label<span class="op">=</span><span class="st">"Tree fit"</span>)</span>
-<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a>ax.set_xlabel(<span class="st">"Output gap"</span>)</span>
-<span id="cb1-25"><a href="#cb1-25" aria-hidden="true" tabindex="-1"></a>ax.set_ylabel(<span class="st">"Next-quarter inflation"</span>)</span>
-<span id="cb1-26"><a href="#cb1-26" aria-hidden="true" tabindex="-1"></a>ax.legend(frameon<span class="op">=</span><span class="va">False</span>)</span>
-<span id="cb1-27"><a href="#cb1-27" aria-hidden="true" tabindex="-1"></a>ax.grid(<span class="va">True</span>, alpha<span class="op">=</span><span class="fl">0.3</span>)</span>
-<span id="cb1-28"><a href="#cb1-28" aria-hidden="true" tabindex="-1"></a>plt.tight_layout()</span>
-<span id="cb1-29"><a href="#cb1-29" aria-hidden="true" tabindex="-1"></a>plt.show()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> within_child_rss(x, y, s):</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    <span class="co">"""Q(s): within-child RSS after replacing each child by its own mean."""</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>    left <span class="op">=</span> x <span class="op">&lt;=</span> s</span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> left.<span class="bu">sum</span>() <span class="op">==</span> <span class="dv">0</span> <span class="kw">or</span> (<span class="op">~</span>left).<span class="bu">sum</span>() <span class="op">==</span> <span class="dv">0</span>:</span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> np.nan</span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> (((y[left] <span class="op">-</span> y[left].mean()) <span class="op">**</span> <span class="dv">2</span>).<span class="bu">sum</span>()</span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>            <span class="op">+</span> ((y[<span class="op">~</span>left] <span class="op">-</span> y[<span class="op">~</span>left].mean()) <span class="op">**</span> <span class="dv">2</span>).<span class="bu">sum</span>())</span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>rng <span class="op">=</span> np.random.default_rng(<span class="dv">11</span>)</span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>x <span class="op">=</span> rng.uniform(<span class="op">-</span><span class="dv">3</span>, <span class="dv">3</span>, <span class="dv">60</span>)</span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>y <span class="op">=</span> <span class="fl">2.0</span> <span class="op">*</span> (x <span class="op">&gt;</span> <span class="fl">0.5</span>) <span class="op">+</span> <span class="fl">0.6</span> <span class="op">*</span> x <span class="op">+</span> rng.normal(<span class="dv">0</span>, <span class="fl">0.6</span>, x.size)</span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>order <span class="op">=</span> np.argsort(x)</span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>x, y <span class="op">=</span> x[order], y[order]</span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>midpoints <span class="op">=</span> (x[:<span class="op">-</span><span class="dv">1</span>] <span class="op">+</span> x[<span class="dv">1</span>:]) <span class="op">/</span> <span class="dv">2</span></span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>midpoint_rss <span class="op">=</span> np.array([within_child_rss(x, y, s) <span class="cf">for</span> s <span class="kw">in</span> midpoints])</span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a>s_star <span class="op">=</span> midpoints[np.nanargmin(midpoint_rss)]</span>
+<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a>candidates <span class="op">=</span> [(s_star, <span class="st">"C3"</span>, <span class="st">"-"</span>), (<span class="op">-</span><span class="fl">1.5</span>, <span class="st">"C0"</span>, <span class="st">"--"</span>), (<span class="fl">1.8</span>, <span class="st">"C2"</span>, <span class="st">"--"</span>)]</span>
+<span id="cb1-25"><a href="#cb1-25" aria-hidden="true" tabindex="-1"></a>grid <span class="op">=</span> np.linspace(x.<span class="bu">min</span>() <span class="op">+</span> <span class="fl">0.01</span>, x.<span class="bu">max</span>() <span class="op">-</span> <span class="fl">0.01</span>, <span class="dv">1200</span>)</span>
+<span id="cb1-26"><a href="#cb1-26" aria-hidden="true" tabindex="-1"></a>grid_rss <span class="op">=</span> np.array([within_child_rss(x, y, s) <span class="cf">for</span> s <span class="kw">in</span> grid])</span>
+<span id="cb1-27"><a href="#cb1-27" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-28"><a href="#cb1-28" aria-hidden="true" tabindex="-1"></a>fig, (top, bottom) <span class="op">=</span> plt.subplots(<span class="dv">2</span>, <span class="dv">1</span>, figsize<span class="op">=</span>(<span class="dv">8</span>, <span class="dv">7</span>), sharex<span class="op">=</span><span class="va">True</span>)</span>
+<span id="cb1-29"><a href="#cb1-29" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-30"><a href="#cb1-30" aria-hidden="true" tabindex="-1"></a>top.scatter(x, y, s<span class="op">=</span><span class="dv">18</span>, color<span class="op">=</span><span class="st">"0.35"</span>, alpha<span class="op">=</span><span class="fl">0.7</span>, label<span class="op">=</span><span class="st">"Training observations"</span>)</span>
+<span id="cb1-31"><a href="#cb1-31" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> s, color, style <span class="kw">in</span> candidates:</span>
+<span id="cb1-32"><a href="#cb1-32" aria-hidden="true" tabindex="-1"></a>    fitted <span class="op">=</span> np.where(grid <span class="op">&lt;=</span> s, y[x <span class="op">&lt;=</span> s].mean(), y[x <span class="op">&gt;</span> s].mean())</span>
+<span id="cb1-33"><a href="#cb1-33" aria-hidden="true" tabindex="-1"></a>    top.plot(grid, fitted, color<span class="op">=</span>color, linestyle<span class="op">=</span>style, linewidth<span class="op">=</span><span class="fl">2.2</span>,</span>
+<span id="cb1-34"><a href="#cb1-34" aria-hidden="true" tabindex="-1"></a>             label<span class="op">=</span><span class="ss">f"Two-leaf fit at $s=</span><span class="sc">{</span>s<span class="sc">:.2f}</span><span class="ss">$"</span>)</span>
+<span id="cb1-35"><a href="#cb1-35" aria-hidden="true" tabindex="-1"></a>top.set_ylabel(<span class="st">"$y$"</span>)</span>
+<span id="cb1-36"><a href="#cb1-36" aria-hidden="true" tabindex="-1"></a>top.legend(frameon<span class="op">=</span><span class="va">False</span>, fontsize<span class="op">=</span><span class="dv">9</span>)</span>
+<span id="cb1-37"><a href="#cb1-37" aria-hidden="true" tabindex="-1"></a>top.grid(<span class="va">True</span>, alpha<span class="op">=</span><span class="fl">0.3</span>)</span>
+<span id="cb1-38"><a href="#cb1-38" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-39"><a href="#cb1-39" aria-hidden="true" tabindex="-1"></a>bottom.plot(grid, grid_rss, color<span class="op">=</span><span class="st">"0.35"</span>, linewidth<span class="op">=</span><span class="fl">1.8</span>, label<span class="op">=</span><span class="st">"$Q(s)$"</span>)</span>
+<span id="cb1-40"><a href="#cb1-40" aria-hidden="true" tabindex="-1"></a>bottom.scatter(midpoints, midpoint_rss, s<span class="op">=</span><span class="dv">10</span>, color<span class="op">=</span><span class="st">"0.6"</span>, zorder<span class="op">=</span><span class="dv">3</span>,</span>
+<span id="cb1-41"><a href="#cb1-41" aria-hidden="true" tabindex="-1"></a>               label<span class="op">=</span><span class="st">"Midpoints"</span>)</span>
+<span id="cb1-42"><a href="#cb1-42" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> s, color, style <span class="kw">in</span> candidates:</span>
+<span id="cb1-43"><a href="#cb1-43" aria-hidden="true" tabindex="-1"></a>    bottom.axvline(s, color<span class="op">=</span>color, linestyle<span class="op">=</span>style, linewidth<span class="op">=</span><span class="fl">1.8</span>)</span>
+<span id="cb1-44"><a href="#cb1-44" aria-hidden="true" tabindex="-1"></a>    bottom.scatter([s], [within_child_rss(x, y, s)], color<span class="op">=</span>color, s<span class="op">=</span><span class="dv">55</span>, zorder<span class="op">=</span><span class="dv">4</span>)</span>
+<span id="cb1-45"><a href="#cb1-45" aria-hidden="true" tabindex="-1"></a>bottom.set_xlabel(<span class="st">"Candidate threshold $s$"</span>)</span>
+<span id="cb1-46"><a href="#cb1-46" aria-hidden="true" tabindex="-1"></a>bottom.set_ylabel(<span class="st">"Within-child RSS"</span>)</span>
+<span id="cb1-47"><a href="#cb1-47" aria-hidden="true" tabindex="-1"></a>bottom.legend(frameon<span class="op">=</span><span class="va">False</span>, fontsize<span class="op">=</span><span class="dv">9</span>)</span>
+<span id="cb1-48"><a href="#cb1-48" aria-hidden="true" tabindex="-1"></a>bottom.grid(<span class="va">True</span>, alpha<span class="op">=</span><span class="fl">0.3</span>)</span>
+<span id="cb1-49"><a href="#cb1-49" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-50"><a href="#cb1-50" aria-hidden="true" tabindex="-1"></a>plt.tight_layout()</span>
+<span id="cb1-51"><a href="#cb1-51" aria-hidden="true" tabindex="-1"></a>plt.show()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</details>
+<div class="cell-output cell-output-display">
+<div id="fig-dt-split-search" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-dt-split-search-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="decision_trees_files/figure-html/fig-dt-split-search-output-1.png" class="img-fluid figure-img">
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-dt-split-search-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;10.1: Top: sixty simulated observations (gray) whose conditional mean has a jump at <span class="math inline">x=0.5</span> and a mild slope, with the fitted two-leaf tree at three candidate thresholds: the minimizer (red, solid) and two alternatives (blue and green, dashed). Bottom: the within-child residual sum of squares as a function of the candidate threshold, with the same three thresholds marked in the same colors. The criterion is a step function, constant between consecutive distinct observed values, so only the midpoints (small gray dots) can differ.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>Two features of the bottom panel carry the argument. The criterion jumps only where an observation changes side, which is why the midpoints exhaust the candidates, and it is not monotone or single-peaked in <span class="math inline">s</span>, which is why the algorithm evaluates every candidate rather than searching locally. The two non-minimizing fits in the top panel show what a worse split buys: each leaves one child that still mixes observations from both sides of the jump, so that child’s mean sits between the two regimes and fits neither.</p>
+<p>After the best split is chosen, the same procedure is applied within each child node. The recursion stops when no admissible split exists or when the best impurity decrease falls below a chosen threshold, such as <code>min_impurity_decrease</code>. The scikit-learn default sets that threshold to zero and accepts a zero-decrease split. This convention can matter for a pure interaction: a first split may have no immediate gain yet reveal profitable child splits at the next depth. Maximum depth and minimum leaf size provide additional pre-pruning controls. This top-down greedy algorithm is called <strong>recursive binary splitting</strong>. It is computationally feasible, but each split is only myopically optimal given the splits already made; the resulting tree need not minimize RSS among all trees with the same number of leaves.</p>
+<p><a href="#fig-regression-tree-step" class="quarto-xref">Figure&nbsp;10.2</a> shows what the resulting estimator looks like in the simplest one-predictor case.</p>
+<div id="cell-fig-regression-tree-step" class="cell" data-execution_count="3">
+<details class="code-fold">
+<summary>Show the code</summary>
+<div class="sourceCode cell-code" id="cb2"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> numpy <span class="im">as</span> np</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> matplotlib.pyplot <span class="im">as</span> plt</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.tree <span class="im">import</span> DecisionTreeRegressor</span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>rng <span class="op">=</span> np.random.default_rng(<span class="dv">42</span>)</span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>x <span class="op">=</span> np.sort(rng.uniform(<span class="op">-</span><span class="dv">3</span>, <span class="dv">3</span>, <span class="dv">120</span>))</span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>y <span class="op">=</span> (</span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>    <span class="fl">1.8</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>    <span class="op">+</span> <span class="fl">0.3</span> <span class="op">*</span> x</span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>    <span class="op">+</span> <span class="fl">0.9</span> <span class="op">*</span> (x <span class="op">&gt;</span> <span class="fl">0.5</span>)</span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>    <span class="op">-</span> <span class="fl">0.6</span> <span class="op">*</span> (x <span class="op">&lt;</span> <span class="op">-</span><span class="fl">1.5</span>)</span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>    <span class="op">+</span> rng.normal(scale<span class="op">=</span><span class="fl">0.25</span>, size<span class="op">=</span>x.shape[<span class="dv">0</span>])</span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a>tree <span class="op">=</span> DecisionTreeRegressor(max_depth<span class="op">=</span><span class="dv">2</span>, min_samples_leaf<span class="op">=</span><span class="dv">12</span>, random_state<span class="op">=</span><span class="dv">42</span>)</span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a>tree.fit(x.reshape(<span class="op">-</span><span class="dv">1</span>, <span class="dv">1</span>), y)</span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a>x_grid <span class="op">=</span> np.linspace(<span class="op">-</span><span class="fl">3.2</span>, <span class="fl">3.2</span>, <span class="dv">500</span>)</span>
+<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a>y_hat <span class="op">=</span> tree.predict(x_grid.reshape(<span class="op">-</span><span class="dv">1</span>, <span class="dv">1</span>))</span>
+<span id="cb2-20"><a href="#cb2-20" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-21"><a href="#cb2-21" aria-hidden="true" tabindex="-1"></a>fig, ax <span class="op">=</span> plt.subplots(figsize<span class="op">=</span>(<span class="dv">8</span>, <span class="dv">5</span>))</span>
+<span id="cb2-22"><a href="#cb2-22" aria-hidden="true" tabindex="-1"></a>ax.scatter(x, y, s<span class="op">=</span><span class="dv">18</span>, color<span class="op">=</span><span class="st">"0.35"</span>, alpha<span class="op">=</span><span class="fl">0.7</span>, label<span class="op">=</span><span class="st">"Training observations"</span>)</span>
+<span id="cb2-23"><a href="#cb2-23" aria-hidden="true" tabindex="-1"></a>ax.plot(x_grid, y_hat, color<span class="op">=</span><span class="st">"C3"</span>, linewidth<span class="op">=</span><span class="fl">2.5</span>, label<span class="op">=</span><span class="st">"Tree fit"</span>)</span>
+<span id="cb2-24"><a href="#cb2-24" aria-hidden="true" tabindex="-1"></a>ax.set_xlabel(<span class="st">"Output gap"</span>)</span>
+<span id="cb2-25"><a href="#cb2-25" aria-hidden="true" tabindex="-1"></a>ax.set_ylabel(<span class="st">"Next-quarter inflation"</span>)</span>
+<span id="cb2-26"><a href="#cb2-26" aria-hidden="true" tabindex="-1"></a>ax.legend(frameon<span class="op">=</span><span class="va">False</span>)</span>
+<span id="cb2-27"><a href="#cb2-27" aria-hidden="true" tabindex="-1"></a>ax.grid(<span class="va">True</span>, alpha<span class="op">=</span><span class="fl">0.3</span>)</span>
+<span id="cb2-28"><a href="#cb2-28" aria-hidden="true" tabindex="-1"></a>plt.tight_layout()</span>
+<span id="cb2-29"><a href="#cb2-29" aria-hidden="true" tabindex="-1"></a>plt.show()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </details>
 <div class="cell-output cell-output-display">
 <div id="fig-regression-tree-step" class="quarto-float quarto-figure quarto-figure-center anchored">
@@ -581,51 +651,113 @@ Why only midpoints matter
 <img src="decision_trees_files/figure-html/fig-regression-tree-step-output-1.png" class="img-fluid figure-img">
 </div>
 <figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-regression-tree-step-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Figure&nbsp;10.1: Training observations (gray points) and the fitted depth-2 regression tree (red step function) for next-quarter inflation against the current output gap. Horizontal segments are leaf predictions, and vertical jumps mark split thresholds.
+Figure&nbsp;10.2: Training observations (gray points) and the fitted depth-2 regression tree (red step function) for next-quarter inflation against the current output gap. Horizontal segments are leaf predictions, and vertical jumps mark split thresholds.
 </figcaption>
 </figure>
 </div>
 </div>
 </div>
-<p><a href="#fig-regression-tree-step" class="quarto-xref">Figure&nbsp;10.1</a> shows the defining feature of a regression tree: the fitted function is piecewise constant. This can be useful when the underlying relationship contains genuine threshold effects, but it also means that a tree cannot represent a smooth marginal effect anywhere in the input space. A tree can approximate a smooth relationship by adding more splits, but the fitted function itself is never smooth.</p>
-<p><strong>Axis-Aligned Partitions</strong></p>
-<p>With more than one predictor, recursive binary splitting produces rectangles in two dimensions and hyperrectangles in higher dimensions. Each additional split refines one existing region along a single coordinate.</p>
-<p><a href="#fig-tree-partition" class="quarto-xref">Figure&nbsp;10.2</a> makes this recursive geometry visible for two predictors.</p>
-<div id="cell-fig-tree-partition" class="cell" data-execution_count="3">
+<p><a href="#fig-regression-tree-step" class="quarto-xref">Figure&nbsp;10.2</a> shows the defining feature of a regression tree: the fitted function is piecewise constant. This can be useful when the underlying relationship contains genuine threshold effects, but it also means that a tree cannot represent a smooth marginal effect anywhere in the input space. A tree can approximate a smooth relationship by adding more splits, but the fitted function itself is never smooth.</p>
+<p><strong>Two Representations of the Same Estimator</strong></p>
+<p>A fitted tree can be read in two equivalent ways: as the diagram of splits that gave it its name, and as the piecewise-constant function <span class="math inline">\hat f(x) = \sum_{j=1}^J \hat w_j \mathbf{1}\{x \in R_j\}</span> introduced at the start of this section. It is worth seeing both for the same object, because the diagram is what makes a tree interpretable while the step function is what it actually predicts. <a href="#fig-dt-two-split" class="quarto-xref">Figure&nbsp;10.3</a> does this for the smallest tree that still involves a recursion: two splits and three leaves, fitted to the same sample as <a href="#fig-regression-tree-step" class="quarto-xref">Figure&nbsp;10.2</a>.</p>
+<div id="cell-fig-dt-two-split" class="cell" data-execution_count="4">
 <details class="code-fold">
 <summary>Show the code</summary>
-<div class="sourceCode cell-code" id="cb2"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> numpy <span class="im">as</span> np</span>
-<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> matplotlib.pyplot <span class="im">as</span> plt</span>
-<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.tree <span class="im">import</span> DecisionTreeRegressor</span>
-<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>rng <span class="op">=</span> np.random.default_rng(<span class="dv">7</span>)</span>
-<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>n <span class="op">=</span> <span class="dv">250</span></span>
-<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>gap <span class="op">=</span> rng.uniform(<span class="op">-</span><span class="fl">2.5</span>, <span class="fl">2.5</span>, n)</span>
-<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>spread <span class="op">=</span> rng.uniform(<span class="fl">0.0</span>, <span class="fl">3.5</span>, n)</span>
-<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>mu <span class="op">=</span> <span class="fl">0.8</span> <span class="op">+</span> <span class="fl">0.7</span> <span class="op">*</span> (gap <span class="op">&gt;</span> <span class="fl">0.0</span>) <span class="op">+</span> <span class="fl">0.5</span> <span class="op">*</span> (spread <span class="op">&gt;</span> <span class="fl">1.8</span>) <span class="op">+</span> <span class="fl">0.6</span> <span class="op">*</span> ((gap <span class="op">&gt;</span> <span class="fl">1.0</span>) <span class="op">&amp;</span> (spread <span class="op">&gt;</span> <span class="fl">2.4</span>))</span>
-<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>y <span class="op">=</span> mu <span class="op">+</span> rng.normal(scale<span class="op">=</span><span class="fl">0.15</span>, size<span class="op">=</span>n)</span>
-<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>X <span class="op">=</span> np.column_stack([gap, spread])</span>
-<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>tree2 <span class="op">=</span> DecisionTreeRegressor(max_depth<span class="op">=</span><span class="dv">2</span>, min_samples_leaf<span class="op">=</span><span class="dv">20</span>, random_state<span class="op">=</span><span class="dv">7</span>)</span>
-<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a>tree2.fit(X, y)</span>
-<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a>grid_gap <span class="op">=</span> np.linspace(<span class="op">-</span><span class="fl">2.5</span>, <span class="fl">2.5</span>, <span class="dv">250</span>)</span>
-<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a>grid_spread <span class="op">=</span> np.linspace(<span class="fl">0.0</span>, <span class="fl">3.5</span>, <span class="dv">250</span>)</span>
-<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a>xx, yy <span class="op">=</span> np.meshgrid(grid_gap, grid_spread)</span>
-<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a>zz <span class="op">=</span> tree2.predict(np.column_stack([xx.ravel(), yy.ravel()])).reshape(xx.shape)</span>
-<span id="cb2-20"><a href="#cb2-20" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb2-21"><a href="#cb2-21" aria-hidden="true" tabindex="-1"></a>fig, ax <span class="op">=</span> plt.subplots(figsize<span class="op">=</span>(<span class="fl">8.2</span>, <span class="fl">5.5</span>))</span>
-<span id="cb2-22"><a href="#cb2-22" aria-hidden="true" tabindex="-1"></a>vmin, vmax <span class="op">=</span> <span class="bu">min</span>(y.<span class="bu">min</span>(), zz.<span class="bu">min</span>()), <span class="bu">max</span>(y.<span class="bu">max</span>(), zz.<span class="bu">max</span>())</span>
-<span id="cb2-23"><a href="#cb2-23" aria-hidden="true" tabindex="-1"></a>ax.contourf(xx, yy, zz, levels<span class="op">=</span>np.linspace(vmin, vmax, <span class="dv">12</span>),</span>
-<span id="cb2-24"><a href="#cb2-24" aria-hidden="true" tabindex="-1"></a>            cmap<span class="op">=</span><span class="st">"viridis"</span>, alpha<span class="op">=</span><span class="fl">0.35</span>, vmin<span class="op">=</span>vmin, vmax<span class="op">=</span>vmax)</span>
-<span id="cb2-25"><a href="#cb2-25" aria-hidden="true" tabindex="-1"></a>pts <span class="op">=</span> ax.scatter(gap, spread, c<span class="op">=</span>y, s<span class="op">=</span><span class="dv">18</span>, cmap<span class="op">=</span><span class="st">"viridis"</span>,</span>
-<span id="cb2-26"><a href="#cb2-26" aria-hidden="true" tabindex="-1"></a>                 edgecolor<span class="op">=</span><span class="st">"none"</span>, alpha<span class="op">=</span><span class="fl">0.8</span>, vmin<span class="op">=</span>vmin, vmax<span class="op">=</span>vmax)</span>
-<span id="cb2-27"><a href="#cb2-27" aria-hidden="true" tabindex="-1"></a>fig.colorbar(pts, ax<span class="op">=</span>ax, label<span class="op">=</span><span class="st">"Next-quarter inflation"</span>)</span>
-<span id="cb2-28"><a href="#cb2-28" aria-hidden="true" tabindex="-1"></a>ax.set_xlabel(<span class="st">"Output gap"</span>)</span>
-<span id="cb2-29"><a href="#cb2-29" aria-hidden="true" tabindex="-1"></a>ax.set_ylabel(<span class="st">"Credit spread"</span>)</span>
-<span id="cb2-30"><a href="#cb2-30" aria-hidden="true" tabindex="-1"></a>ax.grid(<span class="va">True</span>, alpha<span class="op">=</span><span class="fl">0.2</span>)</span>
-<span id="cb2-31"><a href="#cb2-31" aria-hidden="true" tabindex="-1"></a>plt.tight_layout()</span>
-<span id="cb2-32"><a href="#cb2-32" aria-hidden="true" tabindex="-1"></a>plt.show()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode cell-code" id="cb3"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> numpy <span class="im">as</span> np</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> matplotlib.pyplot <span class="im">as</span> plt</span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.tree <span class="im">import</span> DecisionTreeRegressor, plot_tree</span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>rng <span class="op">=</span> np.random.default_rng(<span class="dv">42</span>)</span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>x <span class="op">=</span> np.sort(rng.uniform(<span class="op">-</span><span class="dv">3</span>, <span class="dv">3</span>, <span class="dv">120</span>))</span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>y <span class="op">=</span> (</span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>    <span class="fl">1.8</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>    <span class="op">+</span> <span class="fl">0.3</span> <span class="op">*</span> x</span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>    <span class="op">+</span> <span class="fl">0.9</span> <span class="op">*</span> (x <span class="op">&gt;</span> <span class="fl">0.5</span>)</span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>    <span class="op">-</span> <span class="fl">0.6</span> <span class="op">*</span> (x <span class="op">&lt;</span> <span class="op">-</span><span class="fl">1.5</span>)</span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a>    <span class="op">+</span> rng.normal(scale<span class="op">=</span><span class="fl">0.25</span>, size<span class="op">=</span>x.shape[<span class="dv">0</span>])</span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a><span class="co"># max_leaf_nodes = 3 performs exactly two splits: it repeatedly splits the leaf</span></span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a><span class="co"># with the largest reduction in RSS until three leaves remain.</span></span>
+<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a>small_tree <span class="op">=</span> DecisionTreeRegressor(max_leaf_nodes<span class="op">=</span><span class="dv">3</span>, random_state<span class="op">=</span><span class="dv">42</span>)</span>
+<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a>small_tree.fit(x.reshape(<span class="op">-</span><span class="dv">1</span>, <span class="dv">1</span>), y)</span>
+<span id="cb3-19"><a href="#cb3-19" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-20"><a href="#cb3-20" aria-hidden="true" tabindex="-1"></a>x_grid <span class="op">=</span> np.linspace(<span class="op">-</span><span class="fl">3.2</span>, <span class="fl">3.2</span>, <span class="dv">500</span>)</span>
+<span id="cb3-21"><a href="#cb3-21" aria-hidden="true" tabindex="-1"></a>y_hat <span class="op">=</span> small_tree.predict(x_grid.reshape(<span class="op">-</span><span class="dv">1</span>, <span class="dv">1</span>))</span>
+<span id="cb3-22"><a href="#cb3-22" aria-hidden="true" tabindex="-1"></a>thresholds <span class="op">=</span> small_tree.tree_.threshold[small_tree.tree_.children_left <span class="op">!=</span> <span class="op">-</span><span class="dv">1</span>]</span>
+<span id="cb3-23"><a href="#cb3-23" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-24"><a href="#cb3-24" aria-hidden="true" tabindex="-1"></a>fig, (top, bottom) <span class="op">=</span> plt.subplots(<span class="dv">2</span>, <span class="dv">1</span>, figsize<span class="op">=</span>(<span class="dv">9</span>, <span class="fl">8.6</span>))</span>
+<span id="cb3-25"><a href="#cb3-25" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-26"><a href="#cb3-26" aria-hidden="true" tabindex="-1"></a>plot_tree(</span>
+<span id="cb3-27"><a href="#cb3-27" aria-hidden="true" tabindex="-1"></a>    small_tree,</span>
+<span id="cb3-28"><a href="#cb3-28" aria-hidden="true" tabindex="-1"></a>    feature_names<span class="op">=</span>[<span class="st">"Output gap"</span>],</span>
+<span id="cb3-29"><a href="#cb3-29" aria-hidden="true" tabindex="-1"></a>    filled<span class="op">=</span><span class="va">True</span>, rounded<span class="op">=</span><span class="va">True</span>, impurity<span class="op">=</span><span class="va">False</span>, precision<span class="op">=</span><span class="dv">2</span>, ax<span class="op">=</span>top, fontsize<span class="op">=</span><span class="dv">10</span>,</span>
+<span id="cb3-30"><a href="#cb3-30" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb3-31"><a href="#cb3-31" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-32"><a href="#cb3-32" aria-hidden="true" tabindex="-1"></a>bottom.scatter(x, y, s<span class="op">=</span><span class="dv">18</span>, color<span class="op">=</span><span class="st">"0.35"</span>, alpha<span class="op">=</span><span class="fl">0.7</span>, label<span class="op">=</span><span class="st">"Training observations"</span>)</span>
+<span id="cb3-33"><a href="#cb3-33" aria-hidden="true" tabindex="-1"></a>bottom.plot(x_grid, y_hat, color<span class="op">=</span><span class="st">"C3"</span>, linewidth<span class="op">=</span><span class="fl">2.5</span>, label<span class="op">=</span><span class="st">"Tree fit"</span>)</span>
+<span id="cb3-34"><a href="#cb3-34" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> threshold <span class="kw">in</span> thresholds:</span>
+<span id="cb3-35"><a href="#cb3-35" aria-hidden="true" tabindex="-1"></a>    bottom.axvline(threshold, color<span class="op">=</span><span class="st">"0.55"</span>, linestyle<span class="op">=</span><span class="st">":"</span>, linewidth<span class="op">=</span><span class="fl">1.5</span>)</span>
+<span id="cb3-36"><a href="#cb3-36" aria-hidden="true" tabindex="-1"></a>bottom.set_xlabel(<span class="st">"Output gap"</span>)</span>
+<span id="cb3-37"><a href="#cb3-37" aria-hidden="true" tabindex="-1"></a>bottom.set_ylabel(<span class="st">"Next-quarter inflation"</span>)</span>
+<span id="cb3-38"><a href="#cb3-38" aria-hidden="true" tabindex="-1"></a>bottom.legend(frameon<span class="op">=</span><span class="va">False</span>)</span>
+<span id="cb3-39"><a href="#cb3-39" aria-hidden="true" tabindex="-1"></a>bottom.grid(<span class="va">True</span>, alpha<span class="op">=</span><span class="fl">0.3</span>)</span>
+<span id="cb3-40"><a href="#cb3-40" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-41"><a href="#cb3-41" aria-hidden="true" tabindex="-1"></a>plt.tight_layout()</span>
+<span id="cb3-42"><a href="#cb3-42" aria-hidden="true" tabindex="-1"></a>plt.show()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</details>
+<div class="cell-output cell-output-display">
+<div id="fig-dt-two-split" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-dt-two-split-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="decision_trees_files/figure-html/fig-dt-two-split-output-1.png" class="img-fluid figure-img">
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-dt-two-split-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;10.3: The same fitted estimator in its two representations. Top: the tree diagram. The root splits on the output gap; only the left child is split again, so the tree has two internal nodes and three leaves, and each leaf reports its prediction (<code>value</code>) and its number of training observations (<code>samples</code>). Bottom: the piecewise-constant function this tree computes, over the same training sample, with dotted vertical lines at the two split thresholds. Each leaf of the diagram is one horizontal segment, and each internal node is one jump.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>The two panels contain the same information. Reading the diagram from the root to a leaf gives the conditions that define one region <span class="math inline">R_j</span>, and the <code>value</code> at that leaf is the <span class="math inline">\hat w_j</span> predicted there. Reading the step function from left to right passes through those regions in order of the predictor. Note also that only one child of the root is split further: recursive binary splitting treats each node as a separate problem, so nothing forces the two sides of a split to be refined symmetrically, and a variable already used at the root may be split on again below it.</p>
+<p><strong>Axis-Aligned Partitions</strong></p>
+<p>With more than one predictor, recursive binary splitting produces rectangles in two dimensions and hyperrectangles in higher dimensions. Each additional split refines one existing region along a single coordinate.</p>
+<p><a href="#fig-tree-partition" class="quarto-xref">Figure&nbsp;10.4</a> makes this recursive geometry visible for two predictors.</p>
+<div id="cell-fig-tree-partition" class="cell" data-execution_count="5">
+<details class="code-fold">
+<summary>Show the code</summary>
+<div class="sourceCode cell-code" id="cb4"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> numpy <span class="im">as</span> np</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> matplotlib.pyplot <span class="im">as</span> plt</span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.tree <span class="im">import</span> DecisionTreeRegressor</span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>rng <span class="op">=</span> np.random.default_rng(<span class="dv">7</span>)</span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>n <span class="op">=</span> <span class="dv">250</span></span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>gap <span class="op">=</span> rng.uniform(<span class="op">-</span><span class="fl">2.5</span>, <span class="fl">2.5</span>, n)</span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>spread <span class="op">=</span> rng.uniform(<span class="fl">0.0</span>, <span class="fl">3.5</span>, n)</span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a>mu <span class="op">=</span> <span class="fl">0.8</span> <span class="op">+</span> <span class="fl">0.7</span> <span class="op">*</span> (gap <span class="op">&gt;</span> <span class="fl">0.0</span>) <span class="op">+</span> <span class="fl">0.5</span> <span class="op">*</span> (spread <span class="op">&gt;</span> <span class="fl">1.8</span>) <span class="op">+</span> <span class="fl">0.6</span> <span class="op">*</span> ((gap <span class="op">&gt;</span> <span class="fl">1.0</span>) <span class="op">&amp;</span> (spread <span class="op">&gt;</span> <span class="fl">2.4</span>))</span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a>y <span class="op">=</span> mu <span class="op">+</span> rng.normal(scale<span class="op">=</span><span class="fl">0.15</span>, size<span class="op">=</span>n)</span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a>X <span class="op">=</span> np.column_stack([gap, spread])</span>
+<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a>tree2 <span class="op">=</span> DecisionTreeRegressor(max_depth<span class="op">=</span><span class="dv">2</span>, min_samples_leaf<span class="op">=</span><span class="dv">20</span>, random_state<span class="op">=</span><span class="dv">7</span>)</span>
+<span id="cb4-14"><a href="#cb4-14" aria-hidden="true" tabindex="-1"></a>tree2.fit(X, y)</span>
+<span id="cb4-15"><a href="#cb4-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-16"><a href="#cb4-16" aria-hidden="true" tabindex="-1"></a>grid_gap <span class="op">=</span> np.linspace(<span class="op">-</span><span class="fl">2.5</span>, <span class="fl">2.5</span>, <span class="dv">250</span>)</span>
+<span id="cb4-17"><a href="#cb4-17" aria-hidden="true" tabindex="-1"></a>grid_spread <span class="op">=</span> np.linspace(<span class="fl">0.0</span>, <span class="fl">3.5</span>, <span class="dv">250</span>)</span>
+<span id="cb4-18"><a href="#cb4-18" aria-hidden="true" tabindex="-1"></a>xx, yy <span class="op">=</span> np.meshgrid(grid_gap, grid_spread)</span>
+<span id="cb4-19"><a href="#cb4-19" aria-hidden="true" tabindex="-1"></a>zz <span class="op">=</span> tree2.predict(np.column_stack([xx.ravel(), yy.ravel()])).reshape(xx.shape)</span>
+<span id="cb4-20"><a href="#cb4-20" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-21"><a href="#cb4-21" aria-hidden="true" tabindex="-1"></a>fig, ax <span class="op">=</span> plt.subplots(figsize<span class="op">=</span>(<span class="fl">8.2</span>, <span class="fl">5.5</span>))</span>
+<span id="cb4-22"><a href="#cb4-22" aria-hidden="true" tabindex="-1"></a>vmin, vmax <span class="op">=</span> <span class="bu">min</span>(y.<span class="bu">min</span>(), zz.<span class="bu">min</span>()), <span class="bu">max</span>(y.<span class="bu">max</span>(), zz.<span class="bu">max</span>())</span>
+<span id="cb4-23"><a href="#cb4-23" aria-hidden="true" tabindex="-1"></a>ax.contourf(xx, yy, zz, levels<span class="op">=</span>np.linspace(vmin, vmax, <span class="dv">12</span>),</span>
+<span id="cb4-24"><a href="#cb4-24" aria-hidden="true" tabindex="-1"></a>            cmap<span class="op">=</span><span class="st">"viridis"</span>, alpha<span class="op">=</span><span class="fl">0.35</span>, vmin<span class="op">=</span>vmin, vmax<span class="op">=</span>vmax)</span>
+<span id="cb4-25"><a href="#cb4-25" aria-hidden="true" tabindex="-1"></a>pts <span class="op">=</span> ax.scatter(gap, spread, c<span class="op">=</span>y, s<span class="op">=</span><span class="dv">18</span>, cmap<span class="op">=</span><span class="st">"viridis"</span>,</span>
+<span id="cb4-26"><a href="#cb4-26" aria-hidden="true" tabindex="-1"></a>                 edgecolor<span class="op">=</span><span class="st">"none"</span>, alpha<span class="op">=</span><span class="fl">0.8</span>, vmin<span class="op">=</span>vmin, vmax<span class="op">=</span>vmax)</span>
+<span id="cb4-27"><a href="#cb4-27" aria-hidden="true" tabindex="-1"></a>fig.colorbar(pts, ax<span class="op">=</span>ax, label<span class="op">=</span><span class="st">"Next-quarter inflation"</span>)</span>
+<span id="cb4-28"><a href="#cb4-28" aria-hidden="true" tabindex="-1"></a>ax.set_xlabel(<span class="st">"Output gap"</span>)</span>
+<span id="cb4-29"><a href="#cb4-29" aria-hidden="true" tabindex="-1"></a>ax.set_ylabel(<span class="st">"Credit spread"</span>)</span>
+<span id="cb4-30"><a href="#cb4-30" aria-hidden="true" tabindex="-1"></a>ax.grid(<span class="va">True</span>, alpha<span class="op">=</span><span class="fl">0.2</span>)</span>
+<span id="cb4-31"><a href="#cb4-31" aria-hidden="true" tabindex="-1"></a>plt.tight_layout()</span>
+<span id="cb4-32"><a href="#cb4-32" aria-hidden="true" tabindex="-1"></a>plt.show()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </details>
 <div class="cell-output cell-output-display">
 <div id="fig-tree-partition" class="quarto-float quarto-figure quarto-figure-center anchored">
@@ -634,7 +766,7 @@ Figure&nbsp;10.1: Training observations (gray points) and the fitted depth-2 reg
 <img src="decision_trees_files/figure-html/fig-tree-partition-output-1.png" class="img-fluid figure-img">
 </div>
 <figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-tree-partition-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Figure&nbsp;10.2: A depth-2 regression tree over the output gap (horizontal axis) and credit spread (vertical axis), fit to simulated data. Shaded background regions are the four leaves, colored by their fitted value; dots are the training observations, colored by their observed next-quarter inflation. Both use the same color scale, shown in the colorbar, so a dot that matches its background is well fit by its leaf. The abrupt vertical and horizontal color changes are the tree’s split thresholds.
+Figure&nbsp;10.4: A depth-2 regression tree over the output gap (horizontal axis) and credit spread (vertical axis), fit to simulated data. Shaded background regions are the four leaves, colored by their fitted value; dots are the training observations, colored by their observed next-quarter inflation. Both use the same color scale, shown in the colorbar, so a dot that matches its background is well fit by its leaf. The abrupt vertical and horizontal color changes are the tree’s split thresholds.
 </figcaption>
 </figure>
 </div>
@@ -721,30 +853,32 @@ G(\hat p) = 2\hat p(1-\hat p)
 </span></p>
 </div>
 <p>where <span class="math inline">\mathcal{I}</span> is either entropy or Gini, <span class="math inline">N_m^L</span> and <span class="math inline">N_m^R</span> are the numbers of observations in the left and right children, <span class="math inline">N_m = N_m^L + N_m^R</span> is the parent size, and <span class="math inline">\hat p_m^L</span> and <span class="math inline">\hat p_m^R</span> are the positive-class shares in the left and right children. The preferred split is the one that minimizes this weighted child impurity, or equivalently maximizes impurity reduction.</p>
+<p>The size weights are not a normalization of convenience, and an unweighted average of the two child impurities would be a different and worse criterion. The regression case already uses the weighted form. The sum of squared deviations inside a child equals the number of observations in that child times that child’s mean squared deviation from its own mean, so dividing <span class="math inline">Q_m(j,s)</span> by the parent size <span class="math inline">N_m</span> gives exactly the expression above, with the child’s mean squared deviation in place of <span class="math inline">\mathcal{I}</span>. In both cases the quantity being minimized is a per-observation loss totaled over the observations in the node, and dividing by <span class="math inline">N_m</span>, which is fixed across all candidate splits of node <span class="math inline">m</span>, puts that total on the same scale as the parent impurity <span class="math inline">\mathcal{I}(\hat p_m)</span> so that the two can be differenced.</p>
+<p>Dropping the weights breaks that comparison and rewards splitting off a handful of observations, because a child holding a single observation is pure by construction and contributes zero impurity no matter what the split has actually learned. Consider a node of 100 firms of which 50 default, so <span class="math inline">\hat p_m = 1/2</span> and the entropy is <span class="math inline">\log 2 \approx 0.693</span>, and a candidate split that peels off one defaulting firm. The other child then has <span class="math inline">\hat p_m^R = 49/99</span> and an entropy of <span class="math inline">0.693</span>, indistinguishable from the parent’s at three decimals. The unweighted average <span class="math inline">\tfrac{1}{2}(0 + 0.693) \approx 0.347</span> records this as halving the impurity, whereas the weighted criterion returns <span class="math inline">\tfrac{1}{100}(0) + \tfrac{99}{100}(0.693) \approx 0.686</span>, a reduction of about <span class="math inline">0.007</span>. The second number is the honest accounting for a split that has classified one firm and left the remaining 99 as mixed as before. The weights are also what make the comparison with the parent meaningful in general, because the parent share is itself the size-weighted average of the child shares, an identity we use below.</p>
 <p>Because entropy is the Bernoulli entropy from the <a href="./information_theory.html">Information Theory chapter</a>, the impurity reduction under entropy is exactly an information gain calculation, in the sense of the entropy and cross-entropy quantities defined in that chapter.</p>
-<p><a href="#fig-tree-impurity" class="quarto-xref">Figure&nbsp;10.3</a> compares how entropy and Gini impurity vary with the event share inside a node.</p>
-<div id="cell-fig-tree-impurity" class="cell" data-execution_count="4">
+<p><a href="#fig-tree-impurity" class="quarto-xref">Figure&nbsp;10.5</a> compares how entropy and Gini impurity vary with the event share inside a node.</p>
+<div id="cell-fig-tree-impurity" class="cell" data-execution_count="6">
 <details class="code-fold">
 <summary>Show the code</summary>
-<div class="sourceCode cell-code" id="cb3"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> numpy <span class="im">as</span> np</span>
-<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> matplotlib.pyplot <span class="im">as</span> plt</span>
-<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>p <span class="op">=</span> np.linspace(<span class="fl">0.001</span>, <span class="fl">0.999</span>, <span class="dv">500</span>)</span>
-<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>entropy <span class="op">=</span> <span class="op">-</span>(p <span class="op">*</span> np.log(p) <span class="op">+</span> (<span class="dv">1</span> <span class="op">-</span> p) <span class="op">*</span> np.log(<span class="dv">1</span> <span class="op">-</span> p))</span>
-<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>gini <span class="op">=</span> <span class="dv">2</span> <span class="op">*</span> p <span class="op">*</span> (<span class="dv">1</span> <span class="op">-</span> p)</span>
-<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>misclassification <span class="op">=</span> np.minimum(p, <span class="dv">1</span> <span class="op">-</span> p)</span>
-<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>fig, ax <span class="op">=</span> plt.subplots(figsize<span class="op">=</span>(<span class="dv">8</span>, <span class="dv">5</span>))</span>
-<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>ax.plot(p, entropy, label<span class="op">=</span><span class="st">"Entropy"</span>, linewidth<span class="op">=</span><span class="dv">2</span>)</span>
-<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>ax.plot(p, gini, label<span class="op">=</span><span class="st">"Gini impurity"</span>, linewidth<span class="op">=</span><span class="dv">2</span>)</span>
-<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a>ax.plot(p, misclassification, label<span class="op">=</span><span class="st">"Misclassification error"</span>,</span>
-<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a>        linewidth<span class="op">=</span><span class="dv">2</span>, linestyle<span class="op">=</span><span class="st">"--"</span>)</span>
-<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a>ax.set_xlabel(<span class="st">"Leaf event probability"</span>)</span>
-<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a>ax.set_ylabel(<span class="st">"Impurity"</span>)</span>
-<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a>ax.grid(<span class="va">True</span>, alpha<span class="op">=</span><span class="fl">0.3</span>)</span>
-<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a>ax.legend(frameon<span class="op">=</span><span class="va">False</span>)</span>
-<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a>plt.tight_layout()</span>
-<span id="cb3-19"><a href="#cb3-19" aria-hidden="true" tabindex="-1"></a>plt.show()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode cell-code" id="cb5"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> numpy <span class="im">as</span> np</span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> matplotlib.pyplot <span class="im">as</span> plt</span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>p <span class="op">=</span> np.linspace(<span class="fl">0.001</span>, <span class="fl">0.999</span>, <span class="dv">500</span>)</span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>entropy <span class="op">=</span> <span class="op">-</span>(p <span class="op">*</span> np.log(p) <span class="op">+</span> (<span class="dv">1</span> <span class="op">-</span> p) <span class="op">*</span> np.log(<span class="dv">1</span> <span class="op">-</span> p))</span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>gini <span class="op">=</span> <span class="dv">2</span> <span class="op">*</span> p <span class="op">*</span> (<span class="dv">1</span> <span class="op">-</span> p)</span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a>misclassification <span class="op">=</span> np.minimum(p, <span class="dv">1</span> <span class="op">-</span> p)</span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a>fig, ax <span class="op">=</span> plt.subplots(figsize<span class="op">=</span>(<span class="dv">8</span>, <span class="dv">5</span>))</span>
+<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a>ax.plot(p, entropy, label<span class="op">=</span><span class="st">"Entropy"</span>, linewidth<span class="op">=</span><span class="dv">2</span>)</span>
+<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a>ax.plot(p, gini, label<span class="op">=</span><span class="st">"Gini impurity"</span>, linewidth<span class="op">=</span><span class="dv">2</span>)</span>
+<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a>ax.plot(p, misclassification, label<span class="op">=</span><span class="st">"Misclassification error"</span>,</span>
+<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a>        linewidth<span class="op">=</span><span class="dv">2</span>, linestyle<span class="op">=</span><span class="st">"--"</span>)</span>
+<span id="cb5-14"><a href="#cb5-14" aria-hidden="true" tabindex="-1"></a>ax.set_xlabel(<span class="st">"Leaf event probability"</span>)</span>
+<span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a>ax.set_ylabel(<span class="st">"Impurity"</span>)</span>
+<span id="cb5-16"><a href="#cb5-16" aria-hidden="true" tabindex="-1"></a>ax.grid(<span class="va">True</span>, alpha<span class="op">=</span><span class="fl">0.3</span>)</span>
+<span id="cb5-17"><a href="#cb5-17" aria-hidden="true" tabindex="-1"></a>ax.legend(frameon<span class="op">=</span><span class="va">False</span>)</span>
+<span id="cb5-18"><a href="#cb5-18" aria-hidden="true" tabindex="-1"></a>plt.tight_layout()</span>
+<span id="cb5-19"><a href="#cb5-19" aria-hidden="true" tabindex="-1"></a>plt.show()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </details>
 <div class="cell-output cell-output-display">
 <div id="fig-tree-impurity" class="quarto-float quarto-figure quarto-figure-center anchored">
@@ -753,7 +887,7 @@ G(\hat p) = 2\hat p(1-\hat p)
 <img src="decision_trees_files/figure-html/fig-tree-impurity-output-1.png" class="img-fluid figure-img">
 </div>
 <figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-tree-impurity-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Figure&nbsp;10.3: Entropy (blue), Gini impurity (orange), and misclassification error (green, dashed) as functions of the leaf event probability on the horizontal axis. Entropy and Gini impurity are strictly concave; misclassification error is piecewise linear, with a kink at one half.
+Figure&nbsp;10.5: Entropy (blue), Gini impurity (orange), and misclassification error (green, dashed) as functions of the leaf event probability on the horizontal axis. Entropy and Gini impurity are strictly concave; misclassification error is piecewise linear, with a kink at one half.
 </figcaption>
 </figure>
 </div>
@@ -780,7 +914,7 @@ Entropy vs Gini
 </div>
 </div>
 <div class="callout-body-container callout-body">
-<p>In practice, entropy and Gini lead to similar trees. Gini is slightly simpler algebraically and is the default in many software packages; entropy is more convenient in teaching because it links directly to information theory.</p>
+<p>In practice, entropy and Gini lead to similar trees, and both are the in-leaf value of a proper scoring rule evaluated at the leaf’s own fitted probability: entropy is the negative Bernoulli log-likelihood, and Gini is twice the Brier score, since the mean squared deviation of a 0-1 outcome from the leaf share is <span class="math inline">\hat p(1-\hat p)</span>. Gini is slightly simpler algebraically and is the default in many software packages, while entropy links directly to information theory.</p>
 </div>
 </div>
 <p><strong>Leaf Probabilities and Class Predictions</strong></p>
@@ -911,53 +1045,54 @@ Link to the Next Chapters
 <li>Split variables and thresholds are chosen adaptively for prediction, so they should not be given a causal interpretation.</li>
 </ul>
 <p>For time-series econometrics, the extrapolation issue is especially important. If GDP growth, inflation, or asset volatility moves outside the historical range seen during training, a tree can only return the constant prediction from the outermost leaf. That is often too rigid for forecasting.</p>
-<p><a href="#fig-dt-fredqd" class="quarto-xref">Figure&nbsp;10.4</a> gives a concrete illustration using the quarterly <a href="./datasets.html#fred-qd">Federal Reserve Economic Data collection (FRED-QD)</a> <span class="citation" data-cites="McCrackenNg2020FREDQD">(<a href="#ref-McCrackenNg2020FREDQD" role="doc-biblioref">McCracken and Ng 2020</a>)</span>. The target is annualized GDP growth in quarter <span class="math inline">t+1</span>, while the predictors are macro and financial variables dated quarter <span class="math inline">t</span>.<a href="#fn1" class="footnote-ref" id="fnref1" role="doc-noteref"><sup>1</sup></a> In this fit, a depth-3 regression tree splits first on inflation, separating the 174 quarters with inflation below 9.57% from the 14 high-inflation quarters. Within the low-inflation branch, the tree splits on lagged GDP growth and then on the term spread—the gap between long- and short-maturity yields, a well-known leading indicator of business cycle turning points <span class="citation" data-cites="EstrellaMishkin1998">(<a href="#ref-EstrellaMishkin1998" role="doc-biblioref">Estrella and Mishkin 1998</a>)</span>. The high-inflation branch splits instead on the log volatility index (VIX), an option-implied measure of stock-market volatility. Two features of the fitted tree are worth noting. First, the same variable can be reused at different depths and with different thresholds: inflation splits at 9.57 near the root and again at 11.02 further down because each split is chosen conditionally on the region reached so far. Second, the piecewise-constant structure is visible in the leaf values. Regardless of how far predictors move during the test period, the tree can return only one of eight constants, the most extreme of which is <span class="math inline">-8.33</span>. This is a direct manifestation of the extrapolation limitation.</p>
-<div id="cell-fig-dt-fredqd" class="cell" data-execution_count="5">
+<p><a href="#fig-dt-fredqd" class="quarto-xref">Figure&nbsp;10.6</a> gives a concrete illustration using the quarterly <a href="./datasets.html#fred-qd">Federal Reserve Economic Data collection (FRED-QD)</a> <span class="citation" data-cites="McCrackenNg2020FREDQD">(<a href="#ref-McCrackenNg2020FREDQD" role="doc-biblioref">McCracken and Ng 2020</a>)</span>. The target is annualized GDP growth in quarter <span class="math inline">t+1</span>, and the predictors are five macro and financial variables dated quarter <span class="math inline">t</span>: lagged GDP growth, inflation, the term spread between long- and short-maturity yields, which is a well-known leading indicator of business cycle turning points <span class="citation" data-cites="EstrellaMishkin1998">(<a href="#ref-EstrellaMishkin1998" role="doc-biblioref">Estrella and Mishkin 1998</a>)</span>, the log volatility index (VIX), an option-implied measure of stock-market volatility, and the unemployment rate.<a href="#fn1" class="footnote-ref" id="fnref1" role="doc-noteref"><sup>1</sup></a></p>
+<p>The fitted depth-2 tree splits first on inflation, separating the 174 quarters with inflation below 9.57% from the 14 high-inflation quarters. Three features are worth noting. First, the two branches then split on <em>different</em> variables: the low-inflation branch splits on lagged GDP growth, isolating the 18 quarters in which output had contracted by more than half a percentage point at an annual rate and predicting 0.68 for them against 3.73 for the remaining 156, while the high-inflation branch splits on the log VIX and predicts <span class="math inline">-4.56</span> for the four quarters that combined high inflation with high volatility. Nothing forces the two sides of a split to continue with the same variable, because each split is chosen conditionally on the region reached so far. Second, only two of the five predictors appear in the fitted tree at all; with three splits to spend, the greedy search never reaches the term spread or the unemployment rate. Allowing one more level of depth does bring the term spread into the tree; the depth-2 fit simply has no room for it. Third, the piecewise-constant structure is visible in the leaf values. Regardless of how far predictors move during the test period, the tree can return only one of four constants, the most extreme of which is <span class="math inline">-4.56</span>. This is a direct manifestation of the extrapolation limitation.</p>
+<div id="cell-fig-dt-fredqd" class="cell" data-execution_count="7">
 <details class="code-fold">
 <summary>Show the code</summary>
-<div class="sourceCode cell-code" id="cb4"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> numpy <span class="im">as</span> np</span>
-<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> pandas <span class="im">as</span> pd</span>
-<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> matplotlib.pyplot <span class="im">as</span> plt</span>
-<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.tree <span class="im">import</span> DecisionTreeRegressor, plot_tree</span>
-<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>raw <span class="op">=</span> pd.read_csv(<span class="st">"data/fred_qd_current.csv"</span>)</span>
-<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>fred_qd <span class="op">=</span> raw.iloc[<span class="dv">2</span>:].copy()</span>
-<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>fred_qd[<span class="st">"sasdate"</span>] <span class="op">=</span> pd.to_datetime(fred_qd[<span class="st">"sasdate"</span>])</span>
-<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> col <span class="kw">in</span> fred_qd.columns:</span>
-<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> col <span class="op">!=</span> <span class="st">"sasdate"</span>:</span>
-<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a>        fred_qd[col] <span class="op">=</span> pd.to_numeric(fred_qd[col], errors<span class="op">=</span><span class="st">"coerce"</span>)</span>
-<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a>fred_qd <span class="op">=</span> fred_qd.sort_values(<span class="st">"sasdate"</span>).reset_index(drop<span class="op">=</span><span class="va">True</span>)</span>
-<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb4-14"><a href="#cb4-14" aria-hidden="true" tabindex="-1"></a>gdp_growth  <span class="op">=</span> <span class="dv">400</span> <span class="op">*</span> np.log(fred_qd[<span class="st">"GDPC1"</span>]).diff()</span>
-<span id="cb4-15"><a href="#cb4-15" aria-hidden="true" tabindex="-1"></a>inflation   <span class="op">=</span> <span class="dv">400</span> <span class="op">*</span> np.log(fred_qd[<span class="st">"CPIAUCSL"</span>]).diff()</span>
-<span id="cb4-16"><a href="#cb4-16" aria-hidden="true" tabindex="-1"></a>term_spread <span class="op">=</span> fred_qd[<span class="st">"GS10"</span>] <span class="op">-</span> fred_qd[<span class="st">"TB3MS"</span>]</span>
-<span id="cb4-17"><a href="#cb4-17" aria-hidden="true" tabindex="-1"></a>log_vix     <span class="op">=</span> np.log(fred_qd[<span class="st">"VIXCLSx"</span>])</span>
-<span id="cb4-18"><a href="#cb4-18" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb4-19"><a href="#cb4-19" aria-hidden="true" tabindex="-1"></a>macro <span class="op">=</span> pd.DataFrame({</span>
-<span id="cb4-20"><a href="#cb4-20" aria-hidden="true" tabindex="-1"></a>    <span class="st">"y"</span>:           gdp_growth.shift(<span class="op">-</span><span class="dv">1</span>),</span>
-<span id="cb4-21"><a href="#cb4-21" aria-hidden="true" tabindex="-1"></a>    <span class="st">"gdp_lag1"</span>:    gdp_growth,</span>
-<span id="cb4-22"><a href="#cb4-22" aria-hidden="true" tabindex="-1"></a>    <span class="st">"infl_lag1"</span>:   inflation,</span>
-<span id="cb4-23"><a href="#cb4-23" aria-hidden="true" tabindex="-1"></a>    <span class="st">"spread_lag1"</span>: term_spread,</span>
-<span id="cb4-24"><a href="#cb4-24" aria-hidden="true" tabindex="-1"></a>    <span class="st">"vix_lag1"</span>:    log_vix,</span>
-<span id="cb4-25"><a href="#cb4-25" aria-hidden="true" tabindex="-1"></a>    <span class="st">"unrate_lag1"</span>: fred_qd[<span class="st">"UNRATE"</span>],</span>
-<span id="cb4-26"><a href="#cb4-26" aria-hidden="true" tabindex="-1"></a>}).dropna()</span>
-<span id="cb4-27"><a href="#cb4-27" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb4-28"><a href="#cb4-28" aria-hidden="true" tabindex="-1"></a>feature_cols <span class="op">=</span> [<span class="st">"gdp_lag1"</span>, <span class="st">"infl_lag1"</span>, <span class="st">"spread_lag1"</span>, <span class="st">"vix_lag1"</span>, <span class="st">"unrate_lag1"</span>]</span>
-<span id="cb4-29"><a href="#cb4-29" aria-hidden="true" tabindex="-1"></a>split <span class="op">=</span> <span class="bu">int</span>(<span class="bu">len</span>(macro) <span class="op">*</span> <span class="fl">0.75</span>)</span>
-<span id="cb4-30"><a href="#cb4-30" aria-hidden="true" tabindex="-1"></a>X_train <span class="op">=</span> macro.iloc[:split][feature_cols].values</span>
-<span id="cb4-31"><a href="#cb4-31" aria-hidden="true" tabindex="-1"></a>y_train <span class="op">=</span> macro.iloc[:split][<span class="st">"y"</span>].values</span>
-<span id="cb4-32"><a href="#cb4-32" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb4-33"><a href="#cb4-33" aria-hidden="true" tabindex="-1"></a>tree <span class="op">=</span> DecisionTreeRegressor(max_depth<span class="op">=</span><span class="dv">3</span>, random_state<span class="op">=</span><span class="dv">42</span>)</span>
-<span id="cb4-34"><a href="#cb4-34" aria-hidden="true" tabindex="-1"></a>tree.fit(X_train, y_train)</span>
-<span id="cb4-35"><a href="#cb4-35" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb4-36"><a href="#cb4-36" aria-hidden="true" tabindex="-1"></a>fig, ax <span class="op">=</span> plt.subplots(figsize<span class="op">=</span>(<span class="dv">14</span>, <span class="fl">5.5</span>))</span>
-<span id="cb4-37"><a href="#cb4-37" aria-hidden="true" tabindex="-1"></a>plot_tree(</span>
-<span id="cb4-38"><a href="#cb4-38" aria-hidden="true" tabindex="-1"></a>    tree,</span>
-<span id="cb4-39"><a href="#cb4-39" aria-hidden="true" tabindex="-1"></a>    feature_names<span class="op">=</span>[<span class="st">"GDP growth"</span>, <span class="st">"Inflation"</span>, <span class="st">"Term spread"</span>, <span class="st">"Log VIX"</span>, <span class="st">"Unemployment"</span>],</span>
-<span id="cb4-40"><a href="#cb4-40" aria-hidden="true" tabindex="-1"></a>    filled<span class="op">=</span><span class="va">True</span>, rounded<span class="op">=</span><span class="va">True</span>, impurity<span class="op">=</span><span class="va">False</span>, precision<span class="op">=</span><span class="dv">2</span>, ax<span class="op">=</span>ax, fontsize<span class="op">=</span><span class="dv">7</span>,</span>
-<span id="cb4-41"><a href="#cb4-41" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb4-42"><a href="#cb4-42" aria-hidden="true" tabindex="-1"></a>plt.tight_layout()</span>
-<span id="cb4-43"><a href="#cb4-43" aria-hidden="true" tabindex="-1"></a>plt.show()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode cell-code" id="cb6"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> numpy <span class="im">as</span> np</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> pandas <span class="im">as</span> pd</span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> matplotlib.pyplot <span class="im">as</span> plt</span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.tree <span class="im">import</span> DecisionTreeRegressor, plot_tree</span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a>raw <span class="op">=</span> pd.read_csv(<span class="st">"data/fred_qd_current.csv"</span>)</span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a>fred_qd <span class="op">=</span> raw.iloc[<span class="dv">2</span>:].copy()</span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a>fred_qd[<span class="st">"sasdate"</span>] <span class="op">=</span> pd.to_datetime(fred_qd[<span class="st">"sasdate"</span>])</span>
+<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> col <span class="kw">in</span> fred_qd.columns:</span>
+<span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> col <span class="op">!=</span> <span class="st">"sasdate"</span>:</span>
+<span id="cb6-11"><a href="#cb6-11" aria-hidden="true" tabindex="-1"></a>        fred_qd[col] <span class="op">=</span> pd.to_numeric(fred_qd[col], errors<span class="op">=</span><span class="st">"coerce"</span>)</span>
+<span id="cb6-12"><a href="#cb6-12" aria-hidden="true" tabindex="-1"></a>fred_qd <span class="op">=</span> fred_qd.sort_values(<span class="st">"sasdate"</span>).reset_index(drop<span class="op">=</span><span class="va">True</span>)</span>
+<span id="cb6-13"><a href="#cb6-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-14"><a href="#cb6-14" aria-hidden="true" tabindex="-1"></a>gdp_growth  <span class="op">=</span> <span class="dv">400</span> <span class="op">*</span> np.log(fred_qd[<span class="st">"GDPC1"</span>]).diff()</span>
+<span id="cb6-15"><a href="#cb6-15" aria-hidden="true" tabindex="-1"></a>inflation   <span class="op">=</span> <span class="dv">400</span> <span class="op">*</span> np.log(fred_qd[<span class="st">"CPIAUCSL"</span>]).diff()</span>
+<span id="cb6-16"><a href="#cb6-16" aria-hidden="true" tabindex="-1"></a>term_spread <span class="op">=</span> fred_qd[<span class="st">"GS10"</span>] <span class="op">-</span> fred_qd[<span class="st">"TB3MS"</span>]</span>
+<span id="cb6-17"><a href="#cb6-17" aria-hidden="true" tabindex="-1"></a>log_vix     <span class="op">=</span> np.log(fred_qd[<span class="st">"VIXCLSx"</span>])</span>
+<span id="cb6-18"><a href="#cb6-18" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-19"><a href="#cb6-19" aria-hidden="true" tabindex="-1"></a>macro <span class="op">=</span> pd.DataFrame({</span>
+<span id="cb6-20"><a href="#cb6-20" aria-hidden="true" tabindex="-1"></a>    <span class="st">"y"</span>:           gdp_growth.shift(<span class="op">-</span><span class="dv">1</span>),</span>
+<span id="cb6-21"><a href="#cb6-21" aria-hidden="true" tabindex="-1"></a>    <span class="st">"gdp_lag1"</span>:    gdp_growth,</span>
+<span id="cb6-22"><a href="#cb6-22" aria-hidden="true" tabindex="-1"></a>    <span class="st">"infl_lag1"</span>:   inflation,</span>
+<span id="cb6-23"><a href="#cb6-23" aria-hidden="true" tabindex="-1"></a>    <span class="st">"spread_lag1"</span>: term_spread,</span>
+<span id="cb6-24"><a href="#cb6-24" aria-hidden="true" tabindex="-1"></a>    <span class="st">"vix_lag1"</span>:    log_vix,</span>
+<span id="cb6-25"><a href="#cb6-25" aria-hidden="true" tabindex="-1"></a>    <span class="st">"unrate_lag1"</span>: fred_qd[<span class="st">"UNRATE"</span>],</span>
+<span id="cb6-26"><a href="#cb6-26" aria-hidden="true" tabindex="-1"></a>}).dropna()</span>
+<span id="cb6-27"><a href="#cb6-27" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-28"><a href="#cb6-28" aria-hidden="true" tabindex="-1"></a>feature_cols <span class="op">=</span> [<span class="st">"gdp_lag1"</span>, <span class="st">"infl_lag1"</span>, <span class="st">"spread_lag1"</span>, <span class="st">"vix_lag1"</span>, <span class="st">"unrate_lag1"</span>]</span>
+<span id="cb6-29"><a href="#cb6-29" aria-hidden="true" tabindex="-1"></a>split <span class="op">=</span> <span class="bu">int</span>(<span class="bu">len</span>(macro) <span class="op">*</span> <span class="fl">0.75</span>)</span>
+<span id="cb6-30"><a href="#cb6-30" aria-hidden="true" tabindex="-1"></a>X_train <span class="op">=</span> macro.iloc[:split][feature_cols].values</span>
+<span id="cb6-31"><a href="#cb6-31" aria-hidden="true" tabindex="-1"></a>y_train <span class="op">=</span> macro.iloc[:split][<span class="st">"y"</span>].values</span>
+<span id="cb6-32"><a href="#cb6-32" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-33"><a href="#cb6-33" aria-hidden="true" tabindex="-1"></a>tree <span class="op">=</span> DecisionTreeRegressor(max_depth<span class="op">=</span><span class="dv">2</span>, random_state<span class="op">=</span><span class="dv">42</span>)</span>
+<span id="cb6-34"><a href="#cb6-34" aria-hidden="true" tabindex="-1"></a>tree.fit(X_train, y_train)</span>
+<span id="cb6-35"><a href="#cb6-35" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-36"><a href="#cb6-36" aria-hidden="true" tabindex="-1"></a>fig, ax <span class="op">=</span> plt.subplots(figsize<span class="op">=</span>(<span class="dv">11</span>, <span class="fl">5.5</span>))</span>
+<span id="cb6-37"><a href="#cb6-37" aria-hidden="true" tabindex="-1"></a>plot_tree(</span>
+<span id="cb6-38"><a href="#cb6-38" aria-hidden="true" tabindex="-1"></a>    tree,</span>
+<span id="cb6-39"><a href="#cb6-39" aria-hidden="true" tabindex="-1"></a>    feature_names<span class="op">=</span>[<span class="st">"GDP growth"</span>, <span class="st">"Inflation"</span>, <span class="st">"Term spread"</span>, <span class="st">"Log VIX"</span>, <span class="st">"Unemployment"</span>],</span>
+<span id="cb6-40"><a href="#cb6-40" aria-hidden="true" tabindex="-1"></a>    filled<span class="op">=</span><span class="va">True</span>, rounded<span class="op">=</span><span class="va">True</span>, impurity<span class="op">=</span><span class="va">False</span>, precision<span class="op">=</span><span class="dv">2</span>, ax<span class="op">=</span>ax, fontsize<span class="op">=</span><span class="dv">10</span>,</span>
+<span id="cb6-41"><a href="#cb6-41" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb6-42"><a href="#cb6-42" aria-hidden="true" tabindex="-1"></a>plt.tight_layout()</span>
+<span id="cb6-43"><a href="#cb6-43" aria-hidden="true" tabindex="-1"></a>plt.show()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </details>
 <div class="cell-output cell-output-display">
 <div id="fig-dt-fredqd" class="quarto-float quarto-figure quarto-figure-center anchored">
@@ -966,13 +1101,13 @@ Link to the Next Chapters
 <img src="decision_trees_files/figure-html/fig-dt-fredqd-output-1.png" class="img-fluid figure-img">
 </div>
 <figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-dt-fredqd-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Figure&nbsp;10.4: Depth-3 regression tree fit to one-step-ahead GDP growth (annualized log-difference of GDPC1) using five FRED-QD predictors. Each internal node shows the split variable and threshold; leaf nodes show the mean prediction (<code>value</code>), measured in annualized percentage points, and the number of training observations (<code>samples</code>). Colors indicate the leaf prediction: darker shading corresponds to higher predicted growth. The tree is trained on the first 75% of available quarters.
+Figure&nbsp;10.6: Depth-2 regression tree fit to one-step-ahead GDP growth (annualized log-difference of GDPC1) using five FRED-QD predictors. Each internal node shows the split variable and threshold; leaf nodes show the mean prediction (<code>value</code>), measured in annualized percentage points, and the number of training observations (<code>samples</code>). Colors indicate the leaf prediction: darker shading corresponds to higher predicted growth. The tree is trained on the first 75% of available quarters.
 </figcaption>
 </figure>
 </div>
 </div>
 </div>
-<p>The eight displayed leaf constants make the extrapolation limit concrete: new observations can be routed to a different leaf, but the tree cannot continue a trend beyond the fitted leaf values.</p>
+<p>The four displayed leaf constants make the extrapolation limit concrete: new observations can be routed to a different leaf, but the tree cannot continue a trend beyond the fitted leaf values.</p>
 </section>
 <section id="summary" class="level2" data-number="10.7">
 <h2 data-number="10.7" class="anchored" data-anchor-id="summary"><span class="header-section-number">10.7</span> Summary</h2>
@@ -1021,7 +1156,7 @@ Common Pitfalls
 <i class="callout-icon"></i>
 </div>
 <div class="callout-title-container flex-fill">
-Exercise 10.1: One-Split Regression Tree and Pruning
+Exercise 10.1: Growing and Pruning a Regression Tree
 </div>
 </div>
 <div class="callout-body-container callout-body">
@@ -1060,12 +1195,13 @@ Exercise 10.1: One-Split Regression Tree and Pruning
 <ol type="1">
 <li>Compute the root-node mean and the root-node residual sum of squares (RSS).</li>
 <li>Evaluate the candidate one-split regression trees with cutoffs <span class="math inline">s \in \{1.5, 2.5, 3.5\}</span>. For each split, compute the leaf means and total RSS. Which split is chosen by recursive binary splitting?</li>
+<li>Apply recursive binary splitting once more, inside the left child of the split chosen in Part 2. The admissible cutoffs there are <span class="math inline">s\in\{1.5,\,2.5\}</span>. Give the within-child RSS of each, the three leaf values of the resulting tree, and its total RSS. Stop after this second split, so the grown tree <span class="math inline">T_0</span> has three leaves.</li>
 <li>Consider the cost-complexity objective <span class="math display">
 C_\alpha(T) = \sum_{i=1}^4 (y_i - \hat f_T(x_i))^2 + \alpha |T|,
-</span> where <span class="math inline">|T|</span> is the number of leaves and <span class="math inline">\alpha\geq0</span>. For which values of <span class="math inline">\alpha</span> is the one-split tree from Part 2 preferred to the root-only tree (the no-split tree consisting of a single root leaf that predicts the full-sample mean)?</li>
-<li>Give the tree’s prediction at <span class="math inline">x=2.7</span> and at <span class="math inline">x=5</span>. What limitation of regression trees does this illustrate for forecasting trending macroeconomic variables?</li>
+</span> where <span class="math inline">|T|</span> is the number of leaves and <span class="math inline">\alpha\geq0</span>. Evaluate it for the two-split tree <span class="math inline">T_0</span>, the one-split tree <span class="math inline">T_1</span> of Part 2, and the root-only tree (the no-split tree consisting of a single root leaf that predicts the full-sample mean). For which values of <span class="math inline">\alpha</span> is each preferred? Check that the selected trees form a nested sequence as <span class="math inline">\alpha</span> increases.</li>
+<li>Give the two-split tree’s prediction at <span class="math inline">x=2.7</span> and at <span class="math inline">x=5</span>. What limitation of regression trees does this illustrate for forecasting trending macroeconomic variables?</li>
 </ol>
-<p><em>Exam level: suitable as-is. Parts 1-3 test the mechanics of tree fitting and pruning, while Part 4 checks understanding of extrapolation.</em></p>
+<p><em>Exam level: suitable as-is but they would be considered to be easy questions. Parts 1-4 test the mechanics of tree growing and pruning, while Part 5 checks understanding of extrapolation.</em></p>
 </div>
 </div>
 <div class="callout callout-style-default callout-warning callout-titled">
@@ -1080,12 +1216,28 @@ Hint for Part 3
 </div>
 <div id="callout-14" class="callout-14-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
-<p>The root-only tree has one leaf. The split tree has two leaves. Write the two penalized criteria explicitly and compare them.</p>
+<p>Only the three observations in the left child are involved. Each candidate child gets its own mean, not the mean of the left child as a whole.</p>
+</div>
+</div>
+</div>
+<div class="callout callout-style-default callout-warning callout-titled">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-15-contents" aria-controls="callout-15" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+Hint for Part 4
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-15" class="callout-15-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
+<p>The three trees have one, two and three leaves. Write all three penalized criteria explicitly as lines in <span class="math inline">\alpha</span> and compare them pairwise; the tree preferred at a given <span class="math inline">\alpha</span> is the one whose line is lowest there.</p>
 </div>
 </div>
 </div>
 <div class="callout callout-style-default callout-tip callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-15-contents" aria-controls="callout-15" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-16-contents" aria-controls="callout-16" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -1094,7 +1246,7 @@ Solution
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-15" class="callout-15-contents callout-collapse collapse">
+<div id="callout-16" class="callout-16-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p><strong>Part 1: Root node</strong></p>
 <p>The root-node mean is</p>
@@ -1145,20 +1297,82 @@ Solution
 </span></p>
 </div>
 <p>Therefore the best one-split tree uses the cutoff <span class="math inline">s=3.5</span>.</p>
-<p><strong>Part 3: Cost-complexity comparison</strong></p>
-<p>The root-only tree has one leaf, so its criterion is</p>
+<p><strong>Part 3: The second split</strong></p>
+<p>The right child of the chosen split is the single observation <span class="math inline">\{5\}</span>, which cannot be split. The recursion therefore continues in the left child, which contains observations <span class="math inline">1</span>, <span class="math inline">2</span> and <span class="math inline">3</span> with responses <span class="math inline">\{2, 3, 2.5\}</span>, mean <span class="math inline">2.5</span> and RSS <span class="math inline">0.5</span>.</p>
+<p>For <span class="math inline">s=1.5</span>:</p>
+<ul>
+<li>Left leaf: <span class="math inline">\{2\}</span> with mean <span class="math inline">2</span></li>
+<li>Right leaf: <span class="math inline">\{3, 2.5\}</span> with mean <span class="math inline">2.75</span></li>
+</ul>
 <div class="display-math-block">
 <p><span class="math display">
-C_\alpha(\text{root only}) = 5.1875 + \alpha.
+Q(1.5) = 0 + (3-2.75)^2 + (2.5-2.75)^2 = 0.125.
 </span></p>
 </div>
-<p>The one-split tree has two leaves and RSS <span class="math inline">0.5</span>, so</p>
+<p>For <span class="math inline">s=2.5</span>:</p>
+<ul>
+<li>Left leaf: <span class="math inline">\{2, 3\}</span> with mean <span class="math inline">2.5</span></li>
+<li>Right leaf: <span class="math inline">\{2.5\}</span> with mean <span class="math inline">2.5</span></li>
+</ul>
 <div class="display-math-block">
 <p><span class="math display">
-C_\alpha(\text{split}) = 0.5 + 2\alpha.
+Q(2.5) = (2-2.5)^2 + (3-2.5)^2 + 0 = 0.5.
 </span></p>
 </div>
-<p>The split tree is preferred when</p>
+<p>The cutoff <span class="math inline">s=1.5</span> is chosen, and it reduces the left child’s RSS from <span class="math inline">0.5</span> to <span class="math inline">0.125</span>. The cutoff <span class="math inline">s=2.5</span> achieves nothing at all: it separates observation <span class="math inline">3</span>, whose response happens to equal the mean of the node, so both children keep the parent’s mean.</p>
+<p>The grown tree <span class="math inline">T_0</span> has three leaves,</p>
+<div class="display-math-block">
+<p><span class="math display">
+\hat f_{T_0}(x)=
+\begin{cases}
+2.00, &amp; x \leq 1.5, \\
+2.75, &amp; 1.5 &lt; x \leq 3.5, \\
+5.00, &amp; x &gt; 3.5,
+\end{cases}
+</span></p>
+</div>
+<p>with total RSS <span class="math inline">0.125 + 0 = 0.125</span>. Note what a further split would do: the middle leaf holds two observations with different responses, so splitting it at <span class="math inline">s=2.5</span> would drive the training RSS to exactly zero with four leaves and four observations. Interpolation is one split away, which is why the next part is needed.</p>
+<p><strong>Part 4: The cost-complexity path</strong></p>
+<p>Collecting the three trees:</p>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th>Tree</th>
+<th>Leaves</th>
+<th>RSS</th>
+<th><span class="math inline">C_\alpha</span></th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><span class="math inline">T_0</span> (two splits)</td>
+<td><span class="math inline">3</span></td>
+<td><span class="math inline">0.125</span></td>
+<td><span class="math inline">0.125 + 3\alpha</span></td>
+</tr>
+<tr class="even">
+<td><span class="math inline">T_1</span> (one split)</td>
+<td><span class="math inline">2</span></td>
+<td><span class="math inline">0.500</span></td>
+<td><span class="math inline">0.500 + 2\alpha</span></td>
+</tr>
+<tr class="odd">
+<td>Root only</td>
+<td><span class="math inline">1</span></td>
+<td><span class="math inline">5.1875</span></td>
+<td><span class="math inline">5.1875 + \alpha</span></td>
+</tr>
+</tbody>
+</table>
+<p>Comparing the first two,</p>
+<div class="display-math-block">
+<p><span class="math display">
+0.125 + 3\alpha &lt; 0.5 + 2\alpha
+\quad \Longleftrightarrow \quad
+\alpha &lt; 0.375,
+</span></p>
+</div>
+<p>and comparing the second with the root,</p>
 <div class="display-math-block">
 <p><span class="math display">
 0.5 + 2\alpha &lt; 5.1875 + \alpha
@@ -1166,24 +1380,15 @@ C_\alpha(\text{split}) = 0.5 + 2\alpha.
 \alpha &lt; 4.6875.
 </span></p>
 </div>
-<p>Under the maintained domain <span class="math inline">\alpha\geq0</span>, the split tree is chosen for <span class="math inline">0\leq\alpha &lt; 4.6875</span>, the root-only tree is chosen for <span class="math inline">\alpha &gt; 4.6875</span>, and the two are tied at <span class="math inline">\alpha = 4.6875</span>.</p>
-<p><strong>Part 4: Predictions and extrapolation</strong></p>
-<p>Because the chosen split is at <span class="math inline">x=3.5</span>,</p>
+<p>So <span class="math inline">T_0</span> is selected for <span class="math inline">0\leq\alpha&lt;0.375</span>, <span class="math inline">T_1</span> for <span class="math inline">0.375&lt;\alpha&lt;4.6875</span>, and the root-only tree for <span class="math inline">\alpha&gt;4.6875</span>, with ties at the two breakpoints. The selected trees are nested, <span class="math inline">T_0 \supset T_1 \supset \{\text{root}\}</span>, and each step removes one leaf.</p>
+<p>The two breakpoints are exactly the two weakest-link prices. Collapsing the internal node at <span class="math inline">x=1.5</span> costs <span class="math inline">0.5-0.125=0.375</span> in RSS and saves one leaf; collapsing the root then costs <span class="math inline">5.1875-0.5=4.6875</span> and saves one more. The cheaper branch is pruned first, which is why the sequence is nested rather than jumping between unrelated subtrees. Note that comparing <span class="math inline">T_0</span> with the root directly would give a crossing at <span class="math inline">\alpha=2.53125</span>, but that comparison never decides anything: <span class="math inline">T_1</span> is strictly better than both trees throughout that neighborhood.</p>
+<p><strong>Part 5: Predictions and extrapolation</strong></p>
+<p>From the three-leaf tree of Part 3, <span class="math inline">x=2.7</span> falls in the middle leaf and <span class="math inline">x=5</span> in the rightmost leaf, so</p>
 <div class="display-math-block">
 <p><span class="math display">
-\hat f(x)=
-\begin{cases}
-2.5, &amp; x \leq 3.5, \\
-5, &amp; x &gt; 3.5.
-\end{cases}
-</span></p>
-</div>
-<p>So</p>
-<div class="display-math-block">
-<p><span class="math display">
-\hat f(2.7) = 2.5,
+\hat f_{T_0}(2.7) = 2.75,
 \qquad
-\hat f(5) = 5.
+\hat f_{T_0}(5) = 5.
 </span></p>
 </div>
 <p>The constant outer-leaf prediction illustrates the extrapolation problem: once <span class="math inline">x</span> is above the largest cutoff, the tree cannot continue an upward trend. The tree simply returns the same value regardless of how far <span class="math inline">x</span> moves beyond the training range.</p>
@@ -1256,7 +1461,7 @@ Exercise 10.2: Classification Trees, Impurity, and Decision Thresholds
 </div>
 </div>
 <div class="callout callout-style-default callout-warning callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-17-contents" aria-controls="callout-17" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-18-contents" aria-controls="callout-18" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -1265,14 +1470,14 @@ Hint for Part 2
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-17" class="callout-17-contents callout-collapse collapse">
+<div id="callout-18" class="callout-18-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p>The split at <span class="math inline">x=2.15</span> places firms 1-3 on the left and firms 4-6 on the right. Compute the default share in each child, then take the weighted average of the child impurities.</p>
 </div>
 </div>
 </div>
 <div class="callout callout-style-default callout-warning callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-18-contents" aria-controls="callout-18" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-19-contents" aria-controls="callout-19" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -1281,14 +1486,14 @@ Hint for Part 4
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-18" class="callout-18-contents callout-collapse collapse">
+<div id="callout-19" class="callout-19-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p>Compare the expected loss from predicting class 1 with the expected loss from predicting class 0 when the leaf event probability is <span class="math inline">\hat p</span>.</p>
 </div>
 </div>
 </div>
 <div class="callout callout-style-default callout-tip callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-19-contents" aria-controls="callout-19" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-20-contents" aria-controls="callout-20" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -1297,7 +1502,7 @@ Solution
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-19" class="callout-19-contents callout-collapse collapse">
+<div id="callout-20" class="callout-20-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p><strong>Part 1: Root impurity</strong></p>
 <p>The root node has default share</p>
@@ -1467,7 +1672,7 @@ C_{FP} &lt; \hat p(C_{FP}+C_{FN})
 </tbody>
 </table>
 <p>Only one leaf changes: the left leaf of the split at <span class="math inline">x=2.15</span>, whose default probability <span class="math inline">1/3</span> lies between the two thresholds. That is the general principle—lowering the threshold from <span class="math inline">0.5</span> to <span class="math inline">0.2</span> reclassifies exactly those leaves with <span class="math inline">\hat p \in (0.2, 0.5]</span>, and no others. The leaves of the preferred split have <span class="math inline">\hat p = 0</span> and <span class="math inline">\hat p = 3/4</span>, both far outside that interval, so its classifier is unchanged.</p>
-<p>Two lessons follow. First, the direction of the change is what asymmetric costs demand: because a missed default costs four times a false alarm, the rule becomes more willing to declare default, and a leaf that was previously called safe on a one-in-three default rate is now flagged. Second, the threshold matters only when fitted probabilities fall in the affected interval; a tree whose leaves are close to pure is insensitive to the cost ratio, which is a reason to report the leaf probabilities themselves rather than only the classifications.</p>
+<p>Two lessons follow. First, the direction of the change is what asymmetric costs demand: because a missed default costs four times a false alarm, the rule becomes more willing to declare default, and a leaf that was previously called safe on a one-in-three default rate is now flagged. Second, the preferred split’s classifications are unchanged for this particular threshold change from <span class="math inline">0.5</span> to <span class="math inline">0.2</span>. A different cost ratio can move the threshold past a leaf’s probability and change its class even when that probability is close to zero or one. Reporting the leaf probabilities therefore shows which cost changes could alter the decisions.</p>
 </div>
 </div>
 </div>
