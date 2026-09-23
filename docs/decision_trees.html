@@ -609,7 +609,7 @@ Figure&nbsp;10.1: Top: sixty simulated observations (gray) whose conditional mea
 </div>
 </div>
 <p>Two features of the bottom panel carry the argument. The criterion jumps only where an observation changes side, which is why the midpoints exhaust the candidates, and it is not monotone or single-peaked in <span class="math inline">s</span>, which is why the algorithm evaluates every candidate rather than searching locally. The two non-minimizing fits in the top panel show what a worse split buys: each leaves one child that still mixes observations from both sides of the jump, so that child’s mean sits between the two regimes and fits neither.</p>
-<p>After the best split is chosen, the same procedure is applied within each child node. The recursion stops when no admissible split exists or when the best impurity decrease falls below a chosen threshold, such as <code>min_impurity_decrease</code>. The scikit-learn default sets that threshold to zero and accepts a zero-decrease split. This convention can matter for a pure interaction: a first split may have no immediate gain yet reveal profitable child splits at the next depth. Maximum depth and minimum leaf size provide additional pre-pruning controls. This top-down greedy algorithm is called <strong>recursive binary splitting</strong>. It is computationally feasible, but each split is only myopically optimal given the splits already made; the resulting tree need not minimize RSS among all trees with the same number of leaves.</p>
+<p>After the best split is chosen, the same procedure is applied within each child node. The recursion stops when no admissible split exists or when the best impurity decrease falls below a chosen threshold, such as <code>min_impurity_decrease</code>. The scikit-learn default sets that threshold to zero and accepts a zero-decrease split. This convention can matter for a pure interaction: a first split may have no immediate gain yet reveal profitable child splits at the next depth. We can also limit the number of split levels or require a minimum number of observations in each leaf. This top-down greedy algorithm is called <strong>recursive binary splitting</strong>. It is computationally feasible, but each split is only myopically optimal given the splits already made; the resulting tree need not minimize RSS among all trees with the same number of leaves.</p>
 <p><a href="#fig-regression-tree-step" class="quarto-xref">Figure&nbsp;10.2</a> shows what the resulting estimator looks like in the simplest one-predictor case.</p>
 <div id="cell-fig-regression-tree-step" class="cell" data-execution_count="3">
 <details class="code-fold">
@@ -933,7 +933,8 @@ Entropy vs Gini
 </section>
 <section id="sec-dt-pruning" class="level2" data-number="10.5">
 <h2 data-number="10.5" class="anchored" data-anchor-id="sec-dt-pruning"><span class="header-section-number">10.5</span> Tree Size, Overfitting, and Pruning</h2>
-<p>A sufficiently deep tree can often interpolate the training sample by creating singleton or outcome-homogeneous leaves. Zero training error is not guaranteed, however: observations with identical predictor vectors but different outcomes cannot be separated by axis-aligned splits, and minimum-leaf-size or other split constraints may also prevent isolation. Even when interpolation is possible, the flexibility is dangerous because the resulting estimator typically has low bias but high variance.</p>
+<p>A sufficiently deep tree can often interpolate the training sample by creating singleton or outcome-homogeneous leaves. Zero training error is not guaranteed, however: observations with identical predictor vectors but different outcomes cannot be separated by axis-aligned splits, and minimum-leaf-size or other split constraints may also prevent isolation. A close fit to training outcomes need not translate into accurate predictions for new observations.</p>
+<p>For regression trees, additional splits can capture finer features of the conditional mean, but smaller leaves estimate their means from fewer observations. The partition itself also depends on the training sample: changing a split near the top changes the observations available to every split below it. Together, these mechanisms can make predictions from deep trees sensitive to the training sample. Pruning collapses branches, trading a coarser approximation for potentially more stable predictions.</p>
 <div class="callout callout-style-default callout-important callout-titled">
 <div class="callout-header d-flex align-content-center">
 <div class="callout-icon-container">
@@ -944,28 +945,43 @@ Bias-Variance View
 </div>
 </div>
 <div class="callout-body-container callout-body">
-<p>First consider the standard independent and identically distributed (i.i.d.) fresh-draw setup. Fix a forecast point <span class="math inline">x_0</span> and suppose a new observation at that point is generated as </p>
-<div class="display-math-block">
-<p><span class="math display">
-Y_0 = f(x_0) + \varepsilon_0,
-\qquad
-\mathbb{E}[\varepsilon_0]=0,
-\qquad
-\operatorname{Var}(\varepsilon_0)=\sigma^2,
-</span></p>
-</div>
-<p> where <span class="math inline">f(x_0)=\mathbb{E}[Y_0 \mid X_0 = x_0]</span> is the true conditional mean, <span class="math inline">X_0</span> denoting the random predictor whose value is fixed at <span class="math inline">x_0</span>, and the new draw’s noise <span class="math inline">\varepsilon_0</span> is independent of the training sample used to fit <span class="math inline">\hat f</span>. The expectation below is taken over <em>both</em> sources of randomness—the new draw <span class="math inline">Y_0</span> and the random training sample <span class="math inline">\{(X_i, Y_i)\}_{i=1}^N</span> that makes <span class="math inline">\hat f(x_0)</span> random—and the bias is measured against the true conditional mean, <span class="math inline">\operatorname{Bias}(\hat f(x_0)) = \mathbb{E}[\hat f(x_0)] - f(x_0)</span>. Under these conditions, </p>
+<p>Fix a predictor value <span class="math inline">x_0</span> and draw a new response <span class="math inline">Y_0</span> from the conditional distribution at that point, independently of the training sample. Write <span class="math inline">f(x_0)=\mathbb{E}[Y_0]</span> and <span class="math inline">\sigma^2(x_0)=\operatorname{Var}(Y_0)</span>. With finite second moments, expected squared prediction error decomposes as </p>
 <div class="display-math-block">
 <p><span class="math display">
 \mathbb{E}\left[(Y_0-\hat f(x_0))^2\right]
 =
 \underbrace{\operatorname{Var}\left(\hat f(x_0)\right)}_{\text{estimation variance}}
-+\underbrace{\operatorname{Bias}\left(\hat f(x_0)\right)^2}_{\text{squared bias}}
-+\underbrace{\sigma^2}_{\text{irreducible}}.
++\underbrace{\left(\mathbb{E}[\hat f(x_0)]-f(x_0)\right)^2}_{\text{squared bias}}
++\underbrace{\sigma^2(x_0)}_{\text{irreducible noise}}.
 </span></p>
 </div>
-<p> The independence assumption removes the cross-term between <span class="math inline">\varepsilon_0</span> and <span class="math inline">\hat f(x_0)</span>; it is part of the i.i.d. fresh-draw setup, not a consequence of an observation occurring later in time. For dependent data, a forecast decomposition instead conditions on the information set <span class="math inline">\mathcal{F}_t</span> and requires the future innovation to be conditionally orthogonal to the fitted forecast, for example <span class="math inline">\mathbb{E}[\varepsilon_{t+1}\mid\mathcal{F}_t]=0</span> when <span class="math inline">\hat f_t</span> is <span class="math inline">\mathcal{F}_t</span>-measurable.</p>
-<p>Approximation limitations of the tree function class are one source of squared bias. Pruning, other regularization choices, and finite-sample features of the fitting procedure can create additional bias. Deep trees can reduce bias by creating many small regions, but they are highly sensitive to the training sample. In the terminology of the decomposition, unrestricted trees often have low bias but high variance.</p>
+<p> The expectation on the left averages over both new responses and repeated training samples. Estimation variance measures how much the prediction at <span class="math inline">x_0</span> changes across training samples; bias is the difference between its average and <span class="math inline">f(x_0)</span> and reflects the entire fitting procedure, including restrictions on tree size.</p>
+<p>Pruning can improve prediction when the reduction in variance outweighs the increase in squared bias. The decomposition does not guarantee that every pruning step helps.</p>
+<p>For time series, a later observation is not automatically independent of the training sample; the technical note below explains the relevant condition.</p>
+</div>
+</div>
+<div class="callout callout-style-default callout-warning callout-titled" title="Technical Note: Dependent Data">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-9-contents" aria-controls="callout-9" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+Technical Note: Dependent Data
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-9" class="callout-9-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
+<p>In the independent-draw setup, the mean-zero noise <span class="math inline">Y_0-f(x_0)</span> is orthogonal to the fitted prediction, so their cross-term vanishes. For time series, use the forecast-origin information set <span class="math inline">\mathcal{F}_t</span>, containing what is available at time <span class="math inline">t</span>, as in the <a href="./cross_validation.html#sec-cv-time-series">Cross-Validation chapter</a>. Define the future innovation as <span class="math inline">\varepsilon_{t+1}=Y_{t+1}-\mathbb{E}[Y_{t+1}\mid\mathcal{F}_t]</span>. A forecast <span class="math inline">\hat y_{t+1\mid t}</span> issued at <span class="math inline">t</span> for <span class="math inline">Y_{t+1}</span> must be <span class="math inline">\mathcal{F}_t</span>-measurable. With finite second moments, </p>
+<div class="display-math-block">
+<p><span class="math display">
+\mathbb{E}[\varepsilon_{t+1}\hat y_{t+1\mid t}\mid\mathcal{F}_t]
+=\hat y_{t+1\mid t}\,\mathbb{E}[\varepsilon_{t+1}\mid\mathcal{F}_t]
+=0.
+</span></p>
+</div>
+<p> This conditional orthogonality supplies the corresponding cross-term cancellation in a forecast-error decomposition; independence of successive observations is unnecessary.</p>
+</div>
 </div>
 </div>
 <p>There are two common ways to control complexity.</p>
@@ -1002,8 +1018,6 @@ Econometric Warning
 <p>For macroeconomic or financial time series, tree depth and pruning parameters must be tuned with an honest time-aware validation scheme. Randomly shuffled folds can leak future information and make a tree appear much more accurate than it would be in real time. The correct benchmark is the actual information set available at the forecast origin.</p>
 </div>
 </div>
-<p><strong>Why Single Trees Are Unstable</strong></p>
-<p>A single split near the top of the tree changes the sample available to all later splits. As a result, small perturbations in the training data can generate a different sequence of splits and therefore a different fitted function. In predictive applications judged by held-out loss, this instability is one reason ensembles often outperform a single unrestricted tree.</p>
 <div class="callout callout-style-default callout-note callout-titled">
 <div class="callout-header d-flex align-content-center">
 <div class="callout-icon-container">
@@ -1205,7 +1219,7 @@ C_\alpha(T) = \sum_{i=1}^4 (y_i - \hat f_T(x_i))^2 + \alpha |T|,
 </div>
 </div>
 <div class="callout callout-style-default callout-warning callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-14-contents" aria-controls="callout-14" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-15-contents" aria-controls="callout-15" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -1214,14 +1228,14 @@ Hint for Part 3
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-14" class="callout-14-contents callout-collapse collapse">
+<div id="callout-15" class="callout-15-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p>Only the three observations in the left child are involved. Each candidate child gets its own mean, not the mean of the left child as a whole.</p>
 </div>
 </div>
 </div>
 <div class="callout callout-style-default callout-warning callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-15-contents" aria-controls="callout-15" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-16-contents" aria-controls="callout-16" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -1230,14 +1244,14 @@ Hint for Part 4
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-15" class="callout-15-contents callout-collapse collapse">
+<div id="callout-16" class="callout-16-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p>The three trees have one, two and three leaves. Write all three penalized criteria explicitly as lines in <span class="math inline">\alpha</span> and compare them pairwise; the tree preferred at a given <span class="math inline">\alpha</span> is the one whose line is lowest there.</p>
 </div>
 </div>
 </div>
 <div class="callout callout-style-default callout-tip callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-16-contents" aria-controls="callout-16" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-17-contents" aria-controls="callout-17" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -1246,7 +1260,7 @@ Solution
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-16" class="callout-16-contents callout-collapse collapse">
+<div id="callout-17" class="callout-17-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p><strong>Part 1: Root node</strong></p>
 <p>The root-node mean is</p>
@@ -1461,7 +1475,7 @@ Exercise 10.2: Classification Trees, Impurity, and Decision Thresholds
 </div>
 </div>
 <div class="callout callout-style-default callout-warning callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-18-contents" aria-controls="callout-18" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-19-contents" aria-controls="callout-19" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -1470,14 +1484,14 @@ Hint for Part 2
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-18" class="callout-18-contents callout-collapse collapse">
+<div id="callout-19" class="callout-19-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p>The split at <span class="math inline">x=2.15</span> places firms 1-3 on the left and firms 4-6 on the right. Compute the default share in each child, then take the weighted average of the child impurities.</p>
 </div>
 </div>
 </div>
 <div class="callout callout-style-default callout-warning callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-19-contents" aria-controls="callout-19" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-20-contents" aria-controls="callout-20" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -1486,14 +1500,14 @@ Hint for Part 4
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-19" class="callout-19-contents callout-collapse collapse">
+<div id="callout-20" class="callout-20-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p>Compare the expected loss from predicting class 1 with the expected loss from predicting class 0 when the leaf event probability is <span class="math inline">\hat p</span>.</p>
 </div>
 </div>
 </div>
 <div class="callout callout-style-default callout-tip callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-20-contents" aria-controls="callout-20" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-21-contents" aria-controls="callout-21" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -1502,7 +1516,7 @@ Solution
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-20" class="callout-20-contents callout-collapse collapse">
+<div id="callout-21" class="callout-21-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p><strong>Part 1: Root impurity</strong></p>
 <p>The root node has default share</p>
