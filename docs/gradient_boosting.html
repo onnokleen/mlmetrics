@@ -450,7 +450,7 @@ window.Quarto = {
 </section>
 <section id="sec-gb-additive" class="level2" data-number="12.3">
 <h2 data-number="12.3" class="anchored" data-anchor-id="sec-gb-additive"><span class="header-section-number">12.3</span> Additive Stagewise Modeling</h2>
-<p>Following the standard notation in the boosting literature, this chapter writes <span class="math inline">\hat F_m</span> for the fitted ensemble prediction function after iteration <span class="math inline">m</span> and <span class="math inline">F</span> for a generic candidate function. This chapter-local notation is distinct from the use of <span class="math inline">F</span> for a predictive cumulative distribution function in earlier chapters. In regression, <span class="math inline">\hat F_m(x)</span> is a point prediction; in binary classification below, it is the log-odds of the event.</p>
+<p>Following the standard notation in the boosting literature, this chapter writes <span class="math inline">\hat F_m</span> for the fitted ensemble prediction function after iteration <span class="math inline">m</span> and <span class="math inline">F</span> for a generic candidate function. This chapter-local notation is distinct from the use of <span class="math inline">F</span> for a predictive cumulative distribution function in earlier chapters. In regression, <span class="math inline">\hat F_m(x)</span> is a point prediction; in Bernoulli classification below, it is the log-odds of the event.</p>
 <p>Boosting constructs the predictor</p>
 <div class="display-math-block">
 <p><span class="math display">
@@ -599,7 +599,7 @@ Squared-Error Boosting Algorithm
 </div>
 </div>
 <p><a href="#fig-boosting-sequence" class="quarto-xref">Figure&nbsp;12.1</a> follows the fitted function from the initial constant through two later boosting stages. The data are simulated: a single predictor, an outcome that combines a sine wave, a mild linear trend, and an upward level shift beyond <span class="math inline">x = 0.8</span>, plus Gaussian noise.</p>
-<div id="cell-fig-boosting-sequence" class="cell" data-execution_count="1">
+<div id="cell-fig-boosting-sequence" class="cell" data-execution_count="2">
 <details class="code-fold">
 <summary>Show the code</summary>
 <div class="sourceCode cell-code" id="cb1"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> numpy <span class="im">as</span> np</span>
@@ -665,108 +665,127 @@ Figure&nbsp;12.1: Training observations (gray points) and the boosted fit (red l
 </section>
 <section id="sec-gb-general" class="level2" data-number="12.5">
 <h2 data-number="12.5" class="anchored" data-anchor-id="sec-gb-general"><span class="header-section-number">12.5</span> General Gradient Boosting</h2>
+<p>Squared loss gives us a particularly convenient starting point. Under <span class="math inline">\ell(y,z)=\tfrac12(y-z)^2</span>, the negative gradient <span class="math inline">y-z</span> is an ordinary residual, measured in the same units as the outcome and the prediction. The residual therefore directly describes an additive correction on the target scale. Moreover, its average within a fixed tree leaf is already the loss-minimizing correction for that leaf. These properties make squared-error boosting especially simple.</p>
 <p>Gradient boosting extends beyond squared loss by replacing the residual with the negative gradient of a differentiable loss. Suppose the objective is</p>
 <div class="display-math-block">
 <p><span class="math display">
 \sum_{i=1}^N \ell(y_i, F(x_i)),
 </span></p>
 </div>
-<p>where <span class="math inline">\ell</span> is differentiable with respect to the fitted value <span class="math inline">F(x_i)</span>.</p>
-<p>Before the stagewise updates begin, choose the loss-optimal constant predictor</p>
-<div class="display-math-block">
-<p><span class="math display">
-\hat F_0(x)\equiv\hat\gamma_0,
-\qquad
-\hat\gamma_0
-\in
-\arg\min_{\gamma\in\mathbb{R}}
-\sum_{i=1}^N \ell(y_i,\gamma).
-</span></p>
-</div>
-<p>Under squared loss this constant is the sample mean; under the Bernoulli log-loss introduced below for classification, it is the sample log-odds when both classes occur. The membership symbol <span class="math inline">\in</span> allows for losses whose sample minimizer is not unique—under absolute-error loss, for example, every value between the two middle observations of an even-sized sample minimizes.</p>
-<p>At iteration <span class="math inline">m</span>, the pseudo-residual is defined exactly as in the squared-error case: hold <span class="math inline">y_i</span> fixed, regard <span class="math inline">\ell(y_i, z)</span> as a function of the scalar prediction <span class="math inline">z</span>, differentiate, and evaluate at the current fitted value:</p>
+<p>where <span class="math inline">\ell</span> is differentiable with respect to the fitted value <span class="math inline">F(x_i)</span>. As under squared loss, we start from a constant predictor that minimizes the training loss, assuming a finite minimizer exists.</p>
+<p>At iteration <span class="math inline">m</span>, hold <span class="math inline">y_i</span> fixed, regard <span class="math inline">\ell(y_i,z)</span> as a function of the scalar prediction <span class="math inline">z</span>, and evaluate its negative derivative at the current fitted value:</p>
 <div class="display-math-block">
 <p><span class="math display">
 r_{im}
 =
 -
 \left.
-\frac{\partial \ell(y_i, z)}{\partial z}
+\frac{\partial \ell(y_i,z)}{\partial z}
 \right|_{z=\hat F_{m-1}(x_i)}.
 </span></p>
 </div>
-<p>No derivative with respect to a function is involved: <span class="math inline">\hat F_{m-1}(x_i)</span> is a number, and <span class="math inline">r_{im}</span> is positive exactly when raising the prediction for observation <span class="math inline">i</span> would lower its loss.</p>
-<p>The next tree is fitted to these pseudo-residuals, giving a tree approximation to the negative-gradient direction. That is why the method is called gradient boosting. For a general loss, distinguish three steps:</p>
-<ol type="1">
-<li>compute the pseudo-residuals,</li>
-<li>use them to choose the tree’s splits, and</li>
-<li>choose the leaf corrections for the original loss before applying shrinkage.</li>
-</ol>
-<p>We make the last step explicit below. The loss also fixes the statistical target: in population, the ideal predictor minimizes the risk <span class="math inline">\mathbb{E}[\ell(Y, F(X))]</span> over the random pair <span class="math inline">(X,Y)</span>, so changing the loss changes what the ensemble estimates.</p>
-<p><strong>Refining the leaf values.</strong> The least-squares tree fitted to the pseudo-residuals is used only for its partition of the predictor space into leaves <span class="math inline">R_{jm}</span>, <span class="math inline">j=1,\dots,J_m</span>, written as in the <a href="./decision_trees.html">decision-tree chapter</a> but now indexed by the iteration <span class="math inline">m</span>. Its leaf means average the pseudo-residuals, and such an average need not be the step that minimizes the original loss within the leaf. Each leaf value is therefore replaced by the solution of a one-dimensional minimization, the per-leaf line search of <span class="citation" data-cites="Friedman2001Greedy">J. H. Friedman (<a href="#ref-Friedman2001Greedy" role="doc-biblioref">2001</a>)</span>, provided a finite minimizer exists:</p>
+<p>A positive pseudo-residual indicates that a small increase in the prediction lowers the observation’s loss; a negative one indicates that a small decrease does so. Fitting a shallow regression tree to these pseudo-residuals gives a tree approximation to the negative-gradient direction. The update retains the same additive form,</p>
 <div class="display-math-block">
 <p><span class="math display">
-\gamma_{jm}^{\star}
-\in
-\arg\min_{\gamma} \sum_{i:\, x_i \in R_{jm}} \ell\big(y_i,\, \hat F_{m-1}(x_i) + \gamma\big).
+\hat F_m(x)=\hat F_{m-1}(x)+\nu\hat h_m(x).
 </span></p>
 </div>
-<p>For squared error, <span class="math inline">\gamma_{jm}^{\star}</span> is again the mean residual in the leaf, so nothing changes; for the Bernoulli loss introduced next, it differs. The tree added at iteration <span class="math inline">m</span> combines the partition from the pseudo-residual fit with these leaf values,</p>
-<div class="display-math-block">
-<p><span class="math display">
-\hat h_m(x)
-=
-\sum_{j=1}^{J_m} \gamma_{jm}^{\star}\,\mathbf{1}\{x \in R_{jm}\},
-</span></p>
-</div>
-<p>so the update is still <span class="math inline">\hat F_m=\hat F_{m-1}+\nu\hat h_m</span>: every <span class="math inline">x</span> in leaf <span class="math inline">R_{jm}</span> has its fitted value moved by <span class="math inline">\nu\gamma_{jm}^{\star}</span>.</p>
+<p>For a general loss, the average pseudo-residual in a leaf provides a gradient-based correction but need not minimize the original loss within that leaf. We can therefore refine the leaf values after choosing the splits: choose each leaf’s correction using the original loss, then apply shrinkage <span class="citation" data-cites="Friedman2001Greedy">(<a href="#ref-Friedman2001Greedy" role="doc-biblioref">J. H. Friedman 2001</a>)</span>.</p>
+<p>The loss also fixes the statistical target: in population, the ideal predictor minimizes <span class="math inline">\mathbb{E}[\ell(Y,F(X))]</span>, so changing the loss changes what the ensemble estimates.</p>
 <p><strong>Classification with Bernoulli Log-Loss</strong></p>
-<p>For binary outcomes <span class="math inline">y_i\in\{0,1\}</span>, let <span class="math inline">F(x_i)\in\mathbb{R}</span> denote the ensemble’s real-valued output. The sigmoid function converts this output into an event probability:</p>
+<p>For binary outcomes <span class="math inline">y_i\in\{0,1\}</span>, the ensemble predicts log-odds, just as the linear index <span class="math inline">x_i'\beta</span> does in a logit model. The sigmoid converts the ensemble output into a probability:</p>
 <div class="display-math-block">
 <p><span class="math display">
-p_i = \sigma(F(x_i)) = \frac{1}{1 + e^{-F(x_i)}}.
+p_i=\sigma(F(x_i))=\frac{1}{1+e^{-F(x_i)}}.
 </span></p>
 </div>
-<p>For any probability <span class="math inline">p_i\in(0,1)</span>, the <strong>odds</strong> of the event are <span class="math inline">p_i/(1-p_i)</span>. The <strong>log-odds</strong>, also called the <strong>logit</strong>, are the logarithm of those odds. Because the logit is the inverse of the sigmoid,</p>
+<p>The <strong>log-odds</strong>, also called the <strong>logit</strong>, are the logarithm of the odds <span class="math inline">p_i/(1-p_i)</span>:</p>
 <div class="display-math-block">
 <p><span class="math display">
-F(x_i)
-=
-\log\left(\frac{p_i}{1-p_i}\right).
+F(x_i)=\log\left(\frac{p_i}{1-p_i}\right).
 </span></p>
 </div>
-<p>Thus <span class="math inline">F(x_i)</span> is the log-odds of the event rather than a probability, and for Bernoulli boosting we refer to it simply as the log-odds. It can take any real value, while the sigmoid maps it into a probability between zero and one. The same sigmoid link appears in a logit model, where the linear index <span class="math inline">x_i'\beta</span> plays the role of the sum of trees. Adding one unit to <span class="math inline">F(x_i)</span> multiplies the event odds by <span class="math inline">e</span>; it does not add a fixed amount to the probability. The Bernoulli log-loss is</p>
+<p>The log-odds can take any real value, while the sigmoid maps them into <span class="math inline">(0,1)</span>. The Bernoulli log-loss is</p>
 <div class="display-math-block">
 <p><span class="math display">
-\ell(y_i, F(x_i))
-=
-- y_i \log p_i - (1-y_i)\log(1-p_i).
+\ell(y_i,F(x_i))=-y_i\log p_i-(1-y_i)\log(1-p_i).
 </span></p>
 </div>
-<p>Differentiating in the log-odds argument <span class="math inline">z</span>, with <span class="math inline">p = \sigma(z)</span>, gives</p>
+<p>Boosting adds corrections to the model’s log-odds output <span class="math inline">F(x_i)</span>, so we need the derivative with respect to this output. Write <span class="math inline">z</span> for a possible value of <span class="math inline">F(x_i)</span> and <span class="math inline">p=\sigma(z)</span> for the corresponding probability. Holding <span class="math inline">y_i</span> fixed, the sigmoid derivative and the chain rule give</p>
+<!-- Keep paragraph last-line centering from overriding the math alignment. -->
+<div class="display-math-block">
+<p><span style="text-align-last: auto;"><span class="math display">
+\begin{aligned}
+\frac{dp}{dz}
+&amp;=\frac{e^{-z}}{(1+e^{-z})^2}\\
+&amp;=p(1-p),\\[0.5em]
+\frac{\partial\ell(y_i,z)}{\partial z}
+&amp;=\left(-\frac{y_i}{p}+\frac{1-y_i}{1-p}\right)\frac{dp}{dz}\\
+&amp;=\left(-\frac{y_i}{p}+\frac{1-y_i}{1-p}\right)p(1-p)\\
+&amp;=-y_i(1-p)+(1-y_i)p\\
+&amp;=p-y_i\\
+&amp;=\sigma(z)-y_i.
+\end{aligned}
+</span></span></p>
+</div>
+<p>At iteration <span class="math inline">m</span>, we evaluate this derivative at the current log-odds <span class="math inline">z=\hat F_{m-1}(x_i)</span>, whose corresponding probability is <span class="math inline">p_{i,m-1}=\sigma(\hat F_{m-1}(x_i))</span>. The pseudo-residual is therefore</p>
 <div class="display-math-block">
 <p><span class="math display">
-\frac{\partial \ell(y_i, z)}{\partial z} = \sigma(z) - y_i.
+r_{im}=y_i-p_{i,m-1}.
 </span></p>
 </div>
-<p>At boosting iteration <span class="math inline">m</span> this derivative is evaluated at the current log-odds <span class="math inline">z = \hat F_{m-1}(x_i)</span>, so write <span class="math inline">p_{i,m-1} = \sigma(\hat F_{m-1}(x_i))</span> for the fitted probability that observation <span class="math inline">i</span> carries into iteration <span class="math inline">m</span>. The probability changes at every iteration, and the subscript keeps that visible. The negative gradient is then</p>
+<p>The next regression tree thus fits the discrepancy between the binary outcome and the current probability. When both classes occur in the training sample, the loss-minimizing initial probability is <span class="math inline">\bar y</span>, giving <span class="math inline">\hat F_0(x)=\log[\bar y/(1-\bar y)]</span>.</p>
+<p>The distinction between the residual and the update matters: <span class="math inline">y_i-p_{i,m-1}</span> compares an outcome with a probability, but the tree’s correction is added to the log-odds <span class="math inline">\hat F_{m-1}</span>. We then recompute the probability using the sigmoid. A common refinement uses a Newton step, which adjusts each leaf correction using the curvature of the Bernoulli loss. The Newton correction also lives on the log-odds scale. Newton’s method is an optional refinement of the gradient step; <span class="math inline">y_i-p_{i,m-1}</span> is already the negative derivative with respect to log-odds. The <a href="#gb-newton-details">optional calculation below</a> gives the details.</p>
+<div id="gb-newton-details" class="callout callout-style-default callout-tip callout-titled">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-3-contents" aria-controls="callout-3" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+Optional derivation: Bernoulli leaf corrections
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-3" class="callout-3-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
+<p>Let <span class="math inline">R_{jm}</span> denote leaf <span class="math inline">j</span> of the tree at iteration <span class="math inline">m</span>. Once the tree’s splits are fixed, we can choose a common correction <span class="math inline">\gamma</span> for all observations in that leaf by minimizing its original loss <span class="citation" data-cites="Friedman2001Greedy">(<a href="#ref-Friedman2001Greedy" role="doc-biblioref">J. H. Friedman 2001</a>)</span>:</p>
 <div class="display-math-block">
 <p><span class="math display">
-r_{im} = y_i - p_{i,m-1}.
+Q_{jm}(\gamma)
+=\sum_{i:\,x_i\in R_{jm}}
+\ell\bigl(y_i,\hat F_{m-1}(x_i)+\gamma\bigr),
+\qquad
+\gamma_{jm}^{\star}\in\arg\min_\gamma Q_{jm}(\gamma).
 </span></p>
 </div>
-<p>Classification boosting therefore retains a residual-like target, <span class="math inline">y_i-p_{i,m-1}</span>, formed from the binary outcome and the current probability. The fitted value <span class="math inline">\hat F_{m-1}(x_i)</span>, however, lives on the log-odds scale. The Newton leaf calculation below uses Bernoulli curvature to translate the probability-scale discrepancy into an update of the log-odds.</p>
-<p>For the Bernoulli loss, the per-leaf line search for <span class="math inline">\gamma_{jm}^{\star}</span> has no closed form in general. A finite minimizer exists when both classes occur in the leaf; in an all-one or all-zero leaf, the loss instead approaches its infimum as <span class="math inline">\gamma\to+\infty</span> or <span class="math inline">\gamma\to-\infty</span>, respectively. Implementations commonly use one finite Newton step from <span class="math inline">\gamma=0</span> rather than solve the leaf problem exactly, </p>
+<p>For squared loss, the minimizing correction is the mean residual in the leaf. For Bernoulli loss, there is generally no closed-form solution. With finite current log-odds, a finite minimizer exists when both classes occur in the leaf. An all-one or all-zero leaf instead approaches its infimum as <span class="math inline">\gamma\to+\infty</span> or <span class="math inline">\gamma\to-\infty</span>, respectively.</p>
+<p>A common approximation takes one Newton step from <span class="math inline">\gamma=0</span>. The first and second derivatives there are</p>
+<div class="display-math-block">
+<p><span class="math display">
+Q'_{jm}(0)=\sum_{i:\,x_i\in R_{jm}}(p_{i,m-1}-y_i),
+\qquad
+Q''_{jm}(0)=\sum_{i:\,x_i\in R_{jm}}p_{i,m-1}(1-p_{i,m-1}).
+</span></p>
+</div>
+<p>Minimizing the quadratic approximation <span class="math inline">Q_{jm}(0)+Q'_{jm}(0)\gamma+\tfrac12Q''_{jm}(0)\gamma^2</span> gives</p>
 <div class="display-math-block">
 <p><span class="math display">
 \widetilde\gamma_{jm}
-=
-\frac{\sum_{i:\, x_i \in R_{jm}} (y_i - p_{i,m-1})}{\sum_{i:\, x_i \in R_{jm}} p_{i,m-1}(1-p_{i,m-1})},
+=-\frac{Q'_{jm}(0)}{Q''_{jm}(0)}
+=\frac{\sum_{i:\,x_i\in R_{jm}}(y_i-p_{i,m-1})}
+       {\sum_{i:\,x_i\in R_{jm}}p_{i,m-1}(1-p_{i,m-1})}.
 </span></p>
 </div>
-<p> using the gradient <span class="math inline">p_{i,m-1} - y_i</span> and the curvature <span class="math inline">p_{i,m-1}(1-p_{i,m-1})</span> evaluated at the probabilities carried in from iteration <span class="math inline">m-1</span>. The tilde distinguishes this one-step update from an exact minimizer <span class="math inline">\gamma_{jm}^{\star}</span> when one exists; when the one-step value is used, <span class="math inline">\widetilde\gamma_{jm}</span> takes the place of <span class="math inline">\gamma_{jm}^{\star}</span> as the leaf value in <span class="math inline">\hat h_m</span>. The new probability is <span class="math inline">p_{im}=\sigma(\hat F_{m-1}(x_i)+\nu\widetilde\gamma_{jm})</span> for <span class="math inline">x_i\in R_{jm}</span>; the leaf correction is added to the log-odds, not directly to <span class="math inline">p_{i,m-1}</span>. Because it is a single step rather than a solved minimization, <span class="math inline">\widetilde\gamma_{jm}</span> can overshoot the loss-optimal leaf value, and on its own it is not guaranteed to lower the leaf’s loss; shrinking the correction by <span class="math inline">\nu</span> tempers exactly this risk.</p>
-<p>The scaling becomes important when the current probabilities are extreme. The curvature contribution <span class="math inline">p_{i,m-1}(1-p_{i,m-1})</span> is close to zero when <span class="math inline">p_{i,m-1}</span> is close to zero or one. If such an extreme prediction is wrong, the corresponding residual <span class="math inline">y_i-p_{i,m-1}</span> is instead close to <span class="math inline">1</span> or <span class="math inline">-1</span>. A leaf containing this confidently misclassified observation can therefore have a non-negligible numerator but little total curvature in the denominator, producing a large correction on the log-odds scale.</p>
-<p>The denominator is also the observed Fisher curvature for a one-parameter Bernoulli log-odds model within the leaf. Thus the Newton leaf update is a local Fisher-scoring step: it divides the leaf’s summed log-likelihood gradient <span class="math inline">\sum_{i:\,x_i\in R_{jm}}(y_i-p_{i,m-1})</span>—the <em>score</em> of that Bernoulli model, evaluated at <span class="math inline">\gamma=0</span>—by the amount of statistical curvature in that leaf. <a href="./adv_tree_based_methods.html#sec-adv-natural-gradients">The natural-gradient section of Chapter 13</a> generalizes the same information-scaling idea to a vector of distribution parameters.</p>
+<p>The tilde distinguishes this approximate correction from an exact minimizer <span class="math inline">\gamma_{jm}^{\star}</span>. Using <span class="math inline">\widetilde\gamma_{jm}</span> as the leaf value in <span class="math inline">\hat h_m</span> gives, for <span class="math inline">x_i\in R_{jm}</span>,</p>
+<div class="display-math-block">
+<p><span class="math display">
+p_{im}=\sigma\!\left(\hat F_{m-1}(x_i)+\nu\widetilde\gamma_{jm}\right).
+</span></p>
+</div>
+<p>Even though each pseudo-residual is bounded, the Newton correction need not be: a non-negligible summed residual divided by very small total curvature produces a large log-odds correction. One Newton step can also overshoot and increase the loss. Shrinkage reduces the step size, but no fixed positive learning rate guarantees a loss decrease for every possible leaf and current fit.</p>
+</div>
+</div>
+</div>
 <div class="callout callout-style-default callout-important callout-titled">
 <div class="callout-header d-flex align-content-center">
 <div class="callout-icon-container">
@@ -781,67 +800,75 @@ Connection to Cross-Entropy
 </div>
 </div>
 <p><strong>AdaBoost as Exponential-Loss Boosting</strong></p>
-<p>AdaBoost predates gradient boosting, but exponential loss places the two algorithms in a common framework. <span class="citation" data-cites="FreundSchapire1997">Freund and Schapire (<a href="#ref-FreundSchapire1997" role="doc-biblioref">1997</a>)</span> introduced AdaBoost. <span class="citation" data-cites="FriedmanHastieTibshirani2000">J. Friedman, Hastie, and Tibshirani (<a href="#ref-FriedmanHastieTibshirani2000" role="doc-biblioref">2000</a>)</span> later connected its observation-weighting rule to exponential-loss boosting and interpreted the resulting additive model as additive logistic regression.</p>
-<p>For binary classification with <span class="math inline">y_i \in \{-1, +1\}</span> for <span class="math inline">i=1,\ldots,N</span>, define</p>
+<p>AdaBoost predates gradient boosting and illustrates the same idea with a different loss <span class="citation" data-cites="FreundSchapire1997 FriedmanHastieTibshirani2000">(<a href="#ref-FreundSchapire1997" role="doc-biblioref">Freund and Schapire 1997</a>; <a href="#ref-FriedmanHastieTibshirani2000" role="doc-biblioref">J. Friedman, Hastie, and Tibshirani 2000</a>)</span>. For this comparison, use labels <span class="math inline">y_i\in\{-1,+1\}</span> and let <span class="math inline">F</span> be a real-valued classification score. AdaBoost uses exponential loss,</p>
 <div class="display-math-block">
 <p><span class="math display">
-\ell(y_i, F(x_i)) = e^{-y_i F(x_i)}.
+\ell(y_i,F(x_i))=e^{-y_iF(x_i)}.
 </span></p>
 </div>
-<p>The label coding and the scale of <span class="math inline">F</span> now differ from the Bernoulli section. If <span class="math inline">p(x)=\mathbb{P}(Y=+1\mid X=x)\in(0,1)</span>, minimizing <span class="math inline">p(x)e^{-F}+(1-p(x))e^F</span> gives <span class="math inline">F=\tfrac12\log[p(x)/(1-p(x))]</span>, half the log-odds. The corresponding probability map is therefore <span class="math inline">\sigma(2F)</span>, whereas the Bernoulli section above uses <span class="math inline">\sigma(F)</span>.</p>
-<p>The negative gradient at the current fit is</p>
+<p>At iteration <span class="math inline">m</span>, AdaBoost fits a classifier using observation weights</p>
+<div class="display-math-block">
+<p><span class="math display">
+w_{im}=e^{-y_i\hat F_{m-1}(x_i)}.
+</span></p>
+</div>
+<p>The product <span class="math inline">y_i\hat F_{m-1}(x_i)</span> is the signed margin: it is positive for a correctly classified observation and negative for a misclassified one. A more negative margin gives a larger weight, so the next classifier places more emphasis on the current mistakes. After fitting that classifier, AdaBoost chooses its weight in the ensemble to minimize the exponential training loss. Only this one weight is optimized at that step; the selected classifier stays fixed.</p>
+<p>Exponential loss can assign arbitrarily large weights to confidently misclassified observations. For Bernoulli boosting, with its <span class="math inline">0/1</span> labels, the pseudo-residuals instead satisfy <span class="math inline">|y_i-p_{i,m-1}|&lt;1</span>. That bound limits each observation’s contribution to the gradient at a given iteration; it does not guarantee that the fitted ensemble is insensitive to individual observations.</p>
+<div id="gb-adaboost-details" class="callout callout-style-default callout-tip callout-titled">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-5-contents" aria-controls="callout-5" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+Optional derivation: AdaBoost weights and coefficient
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-5" class="callout-5-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
+<p>With <span class="math inline">y_i\in\{-1,+1\}</span> and exponential loss, the negative gradient is</p>
 <div class="display-math-block">
 <p><span class="math display">
 r_{im}
-=
--\left.\frac{\partial \ell(y_i, z)}{\partial z}\right|_{z=\hat F_{m-1}(x_i)}
-= y_i \, e^{-y_i \hat F_{m-1}(x_i)}.
+=-\left.\frac{\partial\ell(y_i,z)}{\partial z}\right|_{z=\hat F_{m-1}(x_i)}
+=y_i\,e^{-y_i\hat F_{m-1}(x_i)}=y_iw_{im}.
 </span></p>
 </div>
-<p><strong>Weighted-classification equivalence.</strong> Define the observation weight</p>
-<div class="display-math-block">
-<p><span class="math display">
-w_{im}=e^{-y_i\hat F_{m-1}(x_i)},
-</span></p>
-</div>
-<p>so that <span class="math inline">r_{im}=y_iw_{im}</span>. Suppose the weak learner is a classifier with <span class="math inline">h(x_i)\in\{-1,+1\}</span>. Because <span class="math inline">h(x_i)^2=1</span>, its least-squares criterion satisfies</p>
+<p>Suppose the weak learner is a classifier with <span class="math inline">h(x_i)\in\{-1,+1\}</span>. Because <span class="math inline">h(x_i)^2=1</span>, its least-squares criterion satisfies</p>
 <div class="display-math-block">
 <p><span class="math display">
 \sum_{i=1}^N\bigl(r_{im}-h(x_i)\bigr)^2
-=
-C_m-2\sum_{i=1}^N w_{im}y_i h(x_i),
+=C_m-2\sum_{i=1}^Nw_{im}y_i h(x_i),
 \qquad
-C_m=\sum_{i=1}^N\bigl(w_{im}^2+1\bigr).
+C_m=\sum_{i=1}^N(w_{im}^2+1).
 </span></p>
 </div>
 <p>The constant <span class="math inline">C_m</span> does not depend on <span class="math inline">h</span>. Moreover,</p>
 <div class="display-math-block">
 <p><span class="math display">
-\mathbf{1}\{y_i\neq h(x_i)\}
-=
-\frac{1-y_i h(x_i)}{2}.
+\mathbf{1}\{y_i\neq h(x_i)\}=\frac{1-y_i h(x_i)}{2}.
 </span></p>
 </div>
 <p>Minimizing the least-squares criterion is therefore equivalent to minimizing weighted misclassification error. This equivalence relies on the restriction <span class="math inline">h(x_i)\in\{-1,+1\}</span>; it does not apply to the real-valued regression-tree leaves used elsewhere in this chapter.</p>
-<p>The signed margin of observation <span class="math inline">i</span> is <span class="math inline">y_i\hat F_{m-1}(x_i)</span>. A negative margin indicates misclassification and implies <span class="math inline">w_{im}&gt;1</span>, so the next classifier places more weight on the current mistakes. This is the AdaBoost observation-reweighting step. Write <span class="math inline">\hat g_m(x)\in\{-1,+1\}</span> for the selected classifier, before scaling its contribution to the ensemble. The full AdaBoost algorithm also chooses</p>
+<p>Write <span class="math inline">\hat g_m(x)\in\{-1,+1\}</span> for the selected classifier and <span class="math inline">\mathrm{err}_m=\sum_i w_{im}\mathbf{1}\{y_i\ne\hat g_m(x_i)\}/\sum_i w_{im}</span> for its weighted misclassification rate. Holding <span class="math inline">\hat g_m</span> fixed, the exponential loss after adding <span class="math inline">\alpha\hat g_m</span> is proportional to</p>
 <div class="display-math-block">
 <p><span class="math display">
-\alpha_m
-=
-\frac{1}{2}\log\!\left(\frac{1-\mathrm{err}_m}{\mathrm{err}_m}\right),
+(1-\mathrm{err}_m)e^{-\alpha}+\mathrm{err}_m e^{\alpha}.
 </span></p>
 </div>
-<p>where <span class="math inline">\mathrm{err}_m=\sum_i w_{im}\mathbf{1}\{y_i\ne\hat g_m(x_i)\}/\sum_i w_{im}</span> is the fitted weak classifier’s weighted misclassification rate. The unshrunk update is <span class="math inline">\hat F_m=\hat F_{m-1}+\alpha_m\hat g_m</span>. A finite positive step requires <span class="math inline">0&lt;\mathrm{err}_m&lt;1/2</span>; error <span class="math inline">1/2</span> gives zero weight, while a perfect classifier requires a stopping or finite-step convention. This step size is itself exponential-loss optimal: minimizing <span class="math inline">\sum_i w_{im}e^{-\alpha y_i\hat g_m(x_i)}=e^{-\alpha}\sum_{i:\,y_i=\hat g_m(x_i)}w_{im}+e^{\alpha}\sum_{i:\,y_i\neq\hat g_m(x_i)}w_{im}</span> over <span class="math inline">\alpha</span> gives <span class="math inline">e^{2\alpha}=(1-\mathrm{err}_m)/\mathrm{err}_m</span>, which yields the stated value of <span class="math inline">\alpha_m</span>. AdaBoost is therefore forward-stagewise exponential-loss boosting with a <span class="math inline">\pm1</span> base learner and an exact line search <span class="citation" data-cites="FriedmanHastieTibshirani2000">(<a href="#ref-FriedmanHastieTibshirani2000" role="doc-biblioref">J. Friedman, Hastie, and Tibshirani 2000</a>)</span>.</p>
-<p><strong>What the Bernoulli residual bound controls.</strong> Exponential loss assigns an unbounded weight <span class="math inline">w_{im}</span> to an observation whose negative margin keeps growing. That observation can eventually dominate the first-order fitting criterion. Returning to <span class="math inline">0/1</span> labels for Bernoulli log-loss, the pseudo-residual satisfies <span class="math inline">|y_i-p_{i,m-1}|&lt;1</span>. The bound prevents this exponentially increasing first-order contribution at any one iteration.</p>
-<p>The bound does not guarantee that the final ensemble is insensitive to one observation. Split selection is discrete: one observation can change which of two similar candidate splits is selected and thereby affect every case routed through that node. The observation also re-enters the fitting problem at each iteration, so its bounded contributions can influence several successive trees.</p>
-<p>The pseudo-residual bound also does not bound the approximate Newton leaf value <span class="math inline">\widetilde\gamma_{jm}</span>. In the Newton update derived above, the denominator is the leaf’s total curvature,</p>
+<p>Differentiating with respect to <span class="math inline">\alpha</span> and setting the derivative to zero gives <span class="math inline">e^{2\alpha}=(1-\mathrm{err}_m)/\mathrm{err}_m</span>, hence</p>
 <div class="display-math-block">
 <p><span class="math display">
-\sum_{i:\,x_i\in R_{jm}}p_{i,m-1}(1-p_{i,m-1}).
+\alpha_m=\frac12\log\!\left(\frac{1-\mathrm{err}_m}{\mathrm{err}_m}\right),
+\qquad
+\hat F_m=\hat F_{m-1}+\alpha_m\hat g_m.
 </span></p>
 </div>
-<p>The fitting procedure does not guarantee that this sum is bounded away from zero. For a confidently misclassified observation, the numerator contribution approaches <span class="math inline">1</span> or <span class="math inline">-1</span>, while its curvature contribution approaches zero. The numerator can therefore remain non-negligible when the denominator is small, producing a large leaf update.</p>
-<p>Different safeguards address different channels of influence. Minimum leaf sizes discourage splits based on very few observations; a lower bound on total leaf curvature rules out nearly flat leaves; an update cap bounds <span class="math inline">|\widetilde\gamma_{jm}|</span> directly; and penalties on leaf values shrink the update. Log-loss prevents the unbounded per-observation first-order weight generated by exponential loss, but it does not make the fitted ensemble insensitive to individual observations.</p>
+<p>A finite positive coefficient requires <span class="math inline">0&lt;\mathrm{err}_m&lt;1/2</span>. Error <span class="math inline">1/2</span> gives zero weight; a perfect classifier requires a stopping or finite-step convention. AdaBoost therefore builds the ensemble stage by stage by minimizing exponential loss over each new classifier’s coefficient <span class="citation" data-cites="FriedmanHastieTibshirani2000">(<a href="#ref-FriedmanHastieTibshirani2000" role="doc-biblioref">J. Friedman, Hastie, and Tibshirani 2000</a>)</span>.</p>
+<p>The score convention differs from Bernoulli boosting. For <span class="math inline">p(x)=\mathbb{P}(Y=+1\mid X=x)\in(0,1)</span>, minimizing the conditional risk <span class="math inline">p(x)e^{-F}+(1-p(x))e^F</span> gives <span class="math inline">F=\tfrac12\log[p(x)/(1-p(x))]</span>. The corresponding probability map is <span class="math inline">\sigma(2F)</span>, whereas Bernoulli boosting uses <span class="math inline">\sigma(F)</span>.</p>
+</div>
+</div>
+</div>
 </section>
 <section id="sec-gb-regularization" class="level2" data-number="12.6">
 <h2 data-number="12.6" class="anchored" data-anchor-id="sec-gb-regularization"><span class="header-section-number">12.6</span> Regularization in Boosting</h2>
@@ -905,7 +932,7 @@ Implementation Note: Extreme Gradient Boosting (XGBoost)
 </div>
 </div>
 <p><a href="#fig-boosting-learning-rate" class="quarto-xref">Figure&nbsp;12.2</a> plots training and validation mean squared error (MSE) along the boosting path for two learning rates, again on simulated data: one predictor, a smooth nonlinearity with a threshold shift, and independent training and validation samples of 280 observations each. The vertical axis is logarithmic, so proportional changes are equally visible everywhere and the behavior near the validation minimum is not compressed by the large initial errors. Because the held-out sample is inspected at every iteration, it is a tuning sample rather than a final test sample.</p>
-<div id="cell-fig-boosting-learning-rate" class="cell" data-execution_count="2">
+<div id="cell-fig-boosting-learning-rate" class="cell" data-execution_count="3">
 <details class="code-fold">
 <summary>Show the code</summary>
 <div class="sourceCode cell-code" id="cb3"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> numpy <span class="im">as</span> np</span>
@@ -994,7 +1021,7 @@ Question for Reflection
 </div>
 </div>
 <div class="callout callout-style-default callout-tip callout-titled" title="Suggested Answer">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-6-contents" aria-controls="callout-6" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-8-contents" aria-controls="callout-8" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -1003,7 +1030,7 @@ Suggested Answer
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-6" class="callout-6-contents callout-collapse collapse">
+<div id="callout-8" class="callout-8-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p>A small learning rate with many trees is better supported when its validation curve is flatter near the minimum, making performance less sensitive to the chosen stopping point. A larger learning rate with fewer trees is better supported when it reaches similar validation error with fewer boosting steps and lower computational cost. For forecasting, compare validation loss over the relevant forecast origins; for prediction with independent and identically distributed (i.i.d.) observations, use an appropriate independent validation sample. Training fit alone does not settle the comparison.</p>
 </div>
@@ -1011,7 +1038,7 @@ Suggested Answer
 </div>
 <p>Real macroeconomic data can be less forgiving. <a href="#fig-gb-fredqd" class="quarto-xref">Figure&nbsp;12.3</a> shows training and validation MSE curves—again on a logarithmic vertical axis—for annualized gross domestic product (GDP) growth in quarter <span class="math inline">t+1</span> from the quarterly Federal Reserve Economic Data collection (FRED-QD) developed by <span class="citation" data-cites="McCrackenNg2020FREDQD">McCracken and Ng (<a href="#ref-McCrackenNg2020FREDQD" role="doc-biblioref">2020</a>)</span>; the <a href="./datasets.html#fred-qd">data appendix</a> documents the repository copy. The five predictors are dated quarter <span class="math inline">t</span>: GDP growth, inflation, the term spread, the log of the volatility index (VIX), and the unemployment rate. The evaluation uses a fixed-estimation-window, time-ordered 75/25 holdout: each model is fitted once on the first 75% of quarters—forecast origins 1962Q3 through 2009Q2—and evaluated, without re-estimation, on the remaining 25%, origins 2009Q3 through 2025Q1.<a href="#fn1" class="footnote-ref" id="fnref1" role="doc-noteref"><sup>1</sup></a> Training MSE falls steadily in both panels. Neither validation curve improves on the stage-zero constant forecast: both attain their global minimum at zero trees, although they fluctuate locally thereafter. The learning rate governs how fast the deterioration accumulates—gradually at <span class="math inline">\nu = 0.02</span>, faster and more erratically at <span class="math inline">\nu = 0.2</span>. On the logarithmic axis this deterioration looks mild—about 6% of the zero-tree level at <span class="math inline">\nu=0.02</span> and 16% at <span class="math inline">\nu=0.2</span>—while the training MSE falls to roughly half and a tenth of its starting value, respectively; the widening gap between the two curves is the clearest visual sign that the added flexibility buys nothing out of sample.</p>
 <p>The immediate deterioration is worth confronting rather than hiding. The lesson of early stopping is not that boosting always improves for a while and then degrades; it is that the iteration count is a regularization dial whose right setting is chosen on held-out data, and here the honest setting is no boosting at all. That zero-tree conclusion is conditional on this split and on keeping the model fitted on the training quarters fixed rather than re-estimating it; a recursive or rolling design that refits at each forecast origin estimates a different deployment risk and could select a different stopping point. The result is not driven solely by the four 2020 outcomes: dropping those validation targets leaves the minimum of both validation curves at zero trees. Those quarters strongly affect the <em>level</em> of the validation MSE—the 2020 contraction and rebound generate residuals of tens of annualized percentage points, and removing those quarters cuts the zero-tree validation MSE by an order of magnitude. Under this fixed-estimation design, these predictors and boosting settings yield no validation gain over the constant. Weak usable signal, instability in the predictive relationship, and estimation error could all contribute; the exclusion check does not distinguish them. In the synthetic example above, the data-generating process is known to be stable and to contain nonlinear signal, and validation error improves substantially on the constant model before flattening out.</p>
-<div id="cell-fig-gb-fredqd" class="cell" data-execution_count="3">
+<div id="cell-fig-gb-fredqd" class="cell" data-execution_count="4">
 <details class="code-fold">
 <summary>Show the code</summary>
 <div class="sourceCode cell-code" id="cb4"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> numpy <span class="im">as</span> np</span>
@@ -1125,7 +1152,7 @@ Econometric Warning
 <p>The design exactly reuses the stratified 60% training, 20% validation, and 20% test split from the <a href="./feed_forward_nns.html#sec-ffn-credit-default">feed-forward networks chapter</a>. This reuse makes the model scores directly comparable, but it does not create a second independent test of the neural network. The network architecture remains fixed at the eight-unit, one-hidden-layer candidate selected there; we do not alter it after seeing its earlier test result.</p>
 <p>The single-tree and random-forest settings are chosen by validation log loss from small candidate sets declared in the code. For boosting, the learning rate and depth come from a small grid, and the number of trees is chosen by early stopping: the validation log loss is tracked from the initial constant prediction through each grid point’s staged predictions, and the iteration with the smallest loss is kept. Exact ties along a path favor fewer trees. If zero trees wins, we retain a constant-probability model and re-estimate its probability on the combined training and validation samples before testing. The iteration count is thus tuned jointly with the learning rate. The comparison uses the same transformed predictors for every model: continuous variables are standardized and categorical variables are one-hot encoded. Standardization helps numerical optimization for logistic regression and the network. It does not change a tree’s available split order because it is a strictly increasing transformation, but using one representation removes an incidental difference between the model pipelines. One consequence of the encoding is not incidental, though: the repayment-status codes are ordered categories (months of payment delay), and one-hot encoding discards the ordering, so no single split can implement a threshold rule such as “delay of two months or more”; the tree-based models must assemble such rules from several level-versus-rest splits. We accept this to keep one representation for all models; an ordinal encoding could well favor the tree-based methods. All transformations are estimated without the test observations.</p>
 <p>We evaluate the final probability forecasts by log loss, by the Brier score <span class="math inline">N_{\mathrm{test}}^{-1}\sum_{i=1}^{N_{\mathrm{test}}}(y_i-\hat p_i)^2</span>, and by accuracy after applying a 0.5 threshold. Log loss and the Brier score evaluate the probabilities themselves; accuracy evaluates one particular binary decision rule.</p>
-<div class="cell" data-tbl-pos="H" data-execution_count="4">
+<div class="cell" data-tbl-pos="H" data-execution_count="5">
 <details class="code-fold">
 <summary>Show the code</summary>
 <div class="sourceCode cell-code" id="cb5"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> numpy <span class="im">as</span> np</span>
@@ -1350,7 +1377,7 @@ Econometric Warning
 <span id="cb5-220"><a href="#cb5-220" aria-hidden="true" tabindex="-1"></a>    )</span>
 <span id="cb5-221"><a href="#cb5-221" aria-hidden="true" tabindex="-1"></a>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </details>
-<div id="tbl-gb-credit-comparison" class="cell quarto-float quarto-figure quarto-figure-center anchored" data-execution_count="4" data-tbl-pos="H">
+<div id="tbl-gb-credit-comparison" class="cell quarto-float quarto-figure quarto-figure-center anchored" data-tbl-pos="H" data-execution_count="5">
 <figure class="quarto-float quarto-float-tbl figure">
 <figcaption class="quarto-float-caption-top quarto-float-caption quarto-float-tbl" id="tbl-gb-credit-comparison-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
 Table&nbsp;12.1: Probability-forecast performance on the common 6,000-client test sample from the Taiwan credit-card default data. Hyperparameters for the FNN and the three tree-based methods are chosen by validation log loss; for gradient boosting, the number of trees is additionally chosen by early stopping along the validation path. Logistic regression has no tuned hyperparameter. All nonconstant models are then refitted on the combined training and validation samples. Lower log loss and Brier score are better; higher accuracy under the 0.5 threshold is better.
@@ -1448,7 +1475,7 @@ Question for Reflection
 </div>
 </div>
 <div class="callout callout-style-default callout-tip callout-titled" title="Suggested Answer">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-9-contents" aria-controls="callout-9" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-11-contents" aria-controls="callout-11" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -1457,7 +1484,7 @@ Suggested Answer
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-9" class="callout-9-contents callout-collapse collapse">
+<div id="callout-11" class="callout-11-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p>The first claim is a direct comparison of scores computed for the same 6,000 clients. The second concerns expected performance over new samples. One realized test set contains sampling variation, and the small score gaps could change for another cohort or credit regime.</p>
 </div>
@@ -1513,7 +1540,7 @@ Exercise 12.1: First Step of Gradient Boosting with Shrinkage
 </div>
 </div>
 <div class="callout-body-container callout-body">
-<p>Consider four monthly forecast-origin/target pairs. At forecast origin <span class="math inline">t</span>, the leading indicator <span class="math inline">x_t</span> is observed and is used to predict next-month output growth <span class="math inline">y_{t+1}</span>. You observe:</p>
+<p>Consider four monthly forecast-origin/target pairs, indexed by the forecast origins <span class="math inline">t=1,\dots,4</span>. At forecast origin <span class="math inline">t</span>, the leading indicator <span class="math inline">x_t</span> is observed and is used to predict next-month output growth <span class="math inline">y_{t+1}</span>. You observe:</p>
 <div class="display-math-block">
 <p><span class="math display">
 (x_t, y_{t+1}) = (1,2), (2,3), (3,2.5), (4,5).
@@ -1521,7 +1548,7 @@ Exercise 12.1: First Step of Gradient Boosting with Shrinkage
 </div>
 <p>In this small sample the indicator values happen to coincide with the time index; the stump below splits on the indicator value <span class="math inline">x</span>, not on time. Consider squared-error boosting with decision stumps as weak learners. Let the learning rate be <span class="math inline">\nu = 0.4</span>.</p>
 <ol type="1">
-<li>Compute the initial model <span class="math inline">\hat F_0(x)</span> and the residuals <span class="math inline">r_{t+1} = y_{t+1} - \hat F_0(x_t)</span>, and explain why these residuals are exactly the negative gradients of the squared-error training loss <span class="math inline">\frac{1}{2}\sum_t \bigl(y_{t+1} - F(x_t)\bigr)^2</span> with respect to the fitted values.</li>
+<li>Compute the initial model <span class="math inline">\hat F_0(x)</span> and the residuals <span class="math inline">r_{t+1} = y_{t+1} - \hat F_0(x_t)</span>, <span class="math inline">t=1,\dots,4</span>, and explain why these residuals are exactly the negative gradients of the squared-error training loss <span class="math inline">\frac{1}{2}\sum_{t=1}^{4} \bigl(y_{t+1} - F(x_t)\bigr)^2</span> with respect to the fitted values.</li>
 <li>Fit the optimal first stump <span class="math inline">\hat h_1(x)</span> by checking the candidate split points <span class="math inline">1.5</span>, <span class="math inline">2.5</span>, and <span class="math inline">3.5</span>.</li>
 <li>Write the updated model <span class="math display">
 \hat F_1(x) = \hat F_0(x) + 0.4\, \hat h_1(x).
@@ -1529,46 +1556,15 @@ Exercise 12.1: First Step of Gradient Boosting with Shrinkage
 <li>The stump from Part 2 is fitted by least squares, so its leaf values are the leaf means of the residuals. Show that the training sum of squared errors (SSE) after one shrunken update satisfies <span class="math display">
 \mathrm{SSE}(\nu)
 =
-\sum_{t} r_{t+1}^2 \;-\; \nu(2-\nu)\sum_{t} \hat h_1(x_t)^2,
+\sum_{t=1}^{4} r_{t+1}^2 \;-\; \nu(2-\nu)\sum_{t=1}^{4} \hat h_1(x_t)^2,
 </span> and verify the formula at <span class="math inline">\nu=0.4</span> and <span class="math inline">\nu=1</span> by comparing with the directly computed SSE. Conclude that on the training sample, the full step <span class="math inline">\nu=1</span> always fits at least as well as any shrunken step—and explain why this does not make <span class="math inline">\nu=1</span> the right choice out of sample.</li>
-<li>Suppose the four pairs are part of a longer monthly sample ordered by forecast origin <span class="math inline">t</span>, and the number of boosting iterations <span class="math inline">M</span> is selected from a large grid. Explain why random <span class="math inline">K</span>-fold validation does not reproduce the real-time training design and need not estimate its prediction risk. Give a mechanism by which future training observations could favor an overly large <span class="math inline">M</span>, without claiming that this direction is guaranteed. Describe a validation design for choosing <span class="math inline">M</span> and a separate design for assessing the chosen forecasting procedure.</li>
-<li><strong>A limit of stumps.</strong> For this part only, replace the scalar predictor by two binary economic indicators <span class="math inline">x_1,x_2\in\{0,1\}</span>, with all four combinations possible. Suppose the conditional mean of next-month output growth is <span class="math inline">f(x_1,x_2)=x_1x_2</span>. Show that any finite sum of decision stumps, starting from a constant, can be written as <span class="math inline">a+g_1(x_1)+g_2(x_2)</span>. Compute <span class="math display">
+<li><strong>A limit of stumps.</strong> For this part only, replace the scalar predictor by two binary economic indicators <span class="math inline">x_1,x_2\in\{0,1\}</span>, with all four combinations possible. Suppose the conditional mean of next-month output growth is <span class="math inline">f(x_1,x_2)=x_1x_2</span>. Consider a stump ensemble <span class="math inline">\hat F_M=\hat F_0+\nu\sum_{m=1}^{M}\hat h_m</span> with a constant initial model <span class="math inline">\hat F_0</span>, a learning rate <span class="math inline">\nu&gt;0</span>, and decision stumps <span class="math inline">\hat h_1,\dots,\hat h_M</span>. Show that it can be written as <span class="math display">
+\hat F_M(x_1,x_2)=a+g_1(x_1)+g_2(x_2),
+</span> where <span class="math inline">a</span> is a constant, <span class="math inline">g_1</span> is a function of <span class="math inline">x_1</span> alone, and <span class="math inline">g_2</span> is a function of <span class="math inline">x_2</span> alone. Compute the contrast <span class="math display">
 F(1,1)-F(1,0)-F(0,1)+F(0,0)
-</span> for such an additive fit and for <span class="math inline">f</span>. Can increasing <span class="math inline">M</span> or changing <span class="math inline">\nu</span> make a stump ensemble match all four conditional means? Construct a depth-2 tree that represents <span class="math inline">f</span> exactly.</li>
+</span> both for <span class="math inline">F=\hat F_M</span> and for <span class="math inline">F=f</span>. Can increasing <span class="math inline">M</span> or changing <span class="math inline">\nu</span> make a stump ensemble match all four conditional means? Construct a depth-2 tree that represents <span class="math inline">f</span> exactly.</li>
 </ol>
-<p><em>Exam level: suitable if split into two questions. Parts 1–4 combine boosting mechanics with a projection argument for shrinkage; Parts 5–6 distinguish validation of the iteration count from an interaction restriction that additional stumps cannot remove.</em></p>
-</div>
-</div>
-<div class="callout callout-style-default callout-warning callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-13-contents" aria-controls="callout-13" aria-expanded="false" aria-label="Toggle callout">
-<div class="callout-icon-container">
-<i class="callout-icon"></i>
-</div>
-<div class="callout-title-container flex-fill">
-Hint for Part 2
-</div>
-<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
-</div>
-<div id="callout-13" class="callout-13-contents callout-collapse collapse">
-<div class="callout-body-container callout-body">
-<p>For each candidate split, compute the mean residual in the left and right leaves and then the residual SSE.</p>
-</div>
-</div>
-</div>
-<div class="callout callout-style-default callout-warning callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-14-contents" aria-controls="callout-14" aria-expanded="false" aria-label="Toggle callout">
-<div class="callout-icon-container">
-<i class="callout-icon"></i>
-</div>
-<div class="callout-title-container flex-fill">
-Hint for Part 4
-</div>
-<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
-</div>
-<div id="callout-14" class="callout-14-contents callout-collapse collapse">
-<div class="callout-body-container callout-body">
-<p>Expand <span class="math inline">\sum_t \bigl(r_{t+1} - \nu \hat h_1(x_t)\bigr)^2</span>. For the cross term, use that within each leaf <span class="math inline">\hat h_1</span> is constant and equal to the mean of the residuals it fits, so <span class="math inline">\sum_t r_{t+1}\hat h_1(x_t) = \sum_t \hat h_1(x_t)^2</span>.</p>
-</div>
+<p><em>Exam level: suitable as-is. Parts 1–4 combine boosting mechanics with a projection argument for shrinkage, and Part 5 isolates an interaction restriction that additional stumps cannot remove.</em></p>
 </div>
 </div>
 <div class="callout callout-style-default callout-warning callout-titled">
@@ -1577,18 +1573,50 @@ Hint for Part 4
 <i class="callout-icon"></i>
 </div>
 <div class="callout-title-container flex-fill">
-Hint for Part 6
+Hint for Part 2
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
 <div id="callout-15" class="callout-15-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
-<p>Each stump uses at most one predictor. Group the stumps by that predictor, then substitute the additive form into the four-value contrast.</p>
+<p>For each candidate split, compute the mean residual in the left and right leaves and then the residual SSE.</p>
+</div>
+</div>
+</div>
+<div class="callout callout-style-default callout-warning callout-titled">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-16-contents" aria-controls="callout-16" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+Hint for Part 4
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-16" class="callout-16-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
+<p>Expand <span class="math inline">\sum_{t=1}^{4} \bigl(r_{t+1} - \nu \hat h_1(x_t)\bigr)^2</span>. For the cross term, use that within each leaf <span class="math inline">\hat h_1</span> is constant and equal to the mean of the residuals it fits, so <span class="math inline">\sum_{t=1}^{4} r_{t+1}\hat h_1(x_t) = \sum_{t=1}^{4} \hat h_1(x_t)^2</span>.</p>
+</div>
+</div>
+</div>
+<div class="callout callout-style-default callout-warning callout-titled">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-17-contents" aria-controls="callout-17" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+Hint for Part 5
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-17" class="callout-17-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
+<p>Each stump splits on only one of the two indicators. Group the stumps by that indicator, then substitute the additive form into the contrast.</p>
 </div>
 </div>
 </div>
 <div class="callout callout-style-default callout-tip callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-16-contents" aria-controls="callout-16" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-18-contents" aria-controls="callout-18" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -1597,7 +1625,7 @@ Solution
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-16" class="callout-16-contents callout-collapse collapse">
+<div id="callout-18" class="callout-18-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p><strong>Part 1: Initial model, residuals, and the gradient view</strong></p>
 <p>The initial model is the sample mean:</p>
@@ -1609,10 +1637,10 @@ Solution
 <p>Therefore the residuals are</p>
 <div class="display-math-block">
 <p><span class="math display">
-r = (-1.125,\,-0.125,\,-0.625,\,1.875).
+(r_2,\,r_3,\,r_4,\,r_5) = (-1.125,\,-0.125,\,-0.625,\,1.875).
 </span></p>
 </div>
-<p>These are negative gradients because differentiating the training loss <span class="math inline">\frac{1}{2}\sum_t (y_{t+1}-F(x_t))^2</span> with respect to the fitted value <span class="math inline">F(x_t)</span> gives <span class="math inline">-(y_{t+1}-F(x_t))</span>; evaluating at the current fit <span class="math inline">F=\hat F_0</span> and flipping the sign yields exactly the residual <span class="math inline">r_{t+1}</span>. Fitting the next stump to the residuals is therefore fitting it to the steepest-descent direction of the training loss.</p>
+<p>These are negative gradients because differentiating the training loss <span class="math inline">\frac{1}{2}\sum_{t=1}^{4} (y_{t+1}-F(x_t))^2</span> with respect to the fitted value <span class="math inline">F(x_t)</span> gives <span class="math inline">-(y_{t+1}-F(x_t))</span>; evaluating at the current fit <span class="math inline">F=\hat F_0</span> and flipping the sign yields exactly the residual <span class="math inline">r_{t+1}</span>. Fitting the next stump to the residuals is therefore fitting it to the steepest-descent direction of the training loss.</p>
 <p><strong>Part 2: Best first stump</strong></p>
 <p>Check the three candidate cutoffs.</p>
 <p>For split <span class="math inline">1.5</span>:</p>
@@ -1686,26 +1714,26 @@ r = (-1.125,\,-0.125,\,-0.625,\,1.875).
 <div class="display-math-block">
 <p><span class="math display">
 \mathrm{SSE}(\nu)
-=\sum_t\bigl(r_{t+1}-\nu\hat h_1(x_t)\bigr)^2
-=\sum_t r_{t+1}^2-2\nu\sum_t r_{t+1}\hat h_1(x_t)+\nu^2\sum_t\hat h_1(x_t)^2.
+=\sum_{t=1}^{4}\bigl(r_{t+1}-\nu\hat h_1(x_t)\bigr)^2
+=\sum_{t=1}^{4} r_{t+1}^2-2\nu\sum_{t=1}^{4} r_{t+1}\hat h_1(x_t)+\nu^2\sum_{t=1}^{4}\hat h_1(x_t)^2.
 </span></p>
 </div>
-<p>Within each leaf, <span class="math inline">\hat h_1</span> is constant and equals the mean of the residuals in that leaf. Summing leaf by leaf therefore gives</p>
+<p>Denote the two leaves of the stump by <span class="math inline">R_{11}</span> and <span class="math inline">R_{21}</span>. On leaf <span class="math inline">R_{j1}</span>, <span class="math inline">\hat h_1</span> is constant and equal to the mean residual <span class="math inline">\gamma_{j1}^{\star}</span> in that leaf, so <span class="math inline">\sum_{t:\,x_t\in R_{j1}} r_{t+1}=\sum_{t:\,x_t\in R_{j1}}\gamma_{j1}^{\star}</span>. Summing leaf by leaf therefore gives</p>
 <div class="display-math-block">
 <p><span class="math display">
-\sum_t r_{t+1}\hat h_1(x_t)
-=\sum_{\text{leaves}}\hat h_{\text{leaf}}\sum_{t\in\text{leaf}}r_{t+1}
-=\sum_{\text{leaves}} n_{\text{leaf}}\,\hat h_{\text{leaf}}^2
-=\sum_t\hat h_1(x_t)^2,
+\sum_{t=1}^{4} r_{t+1}\hat h_1(x_t)
+=\sum_{j=1}^{2}\gamma_{j1}^{\star}\sum_{t:\,x_t\in R_{j1}}r_{t+1}
+=\sum_{j=1}^{2}\sum_{t:\,x_t\in R_{j1}}\bigl(\gamma_{j1}^{\star}\bigr)^2
+=\sum_{t=1}^{4}\hat h_1(x_t)^2,
 </span></p>
 </div>
 <p>and substituting this identity into the expansion yields</p>
 <div class="display-math-block">
 <p><span class="math display">
-\mathrm{SSE}(\nu)=\sum_t r_{t+1}^2-\nu(2-\nu)\sum_t\hat h_1(x_t)^2.
+\mathrm{SSE}(\nu)=\sum_{t=1}^{4} r_{t+1}^2-\nu(2-\nu)\sum_{t=1}^{4}\hat h_1(x_t)^2.
 </span></p>
 </div>
-<p>Numerically, <span class="math inline">\sum_t r_{t+1}^2=1.125^2+0.125^2+0.625^2+1.875^2=5.1875</span> and <span class="math inline">\sum_t\hat h_1(x_t)^2=3\times 0.625^2+1.875^2=4.6875</span>. At <span class="math inline">\nu=0.4</span> the formula gives <span class="math inline">5.1875-0.4\times 1.6\times 4.6875=2.1875</span>, which matches the direct computation using the fitted values from Part 3:</p>
+<p>Numerically, <span class="math inline">\sum_{t=1}^{4} r_{t+1}^2=1.125^2+0.125^2+0.625^2+1.875^2=5.1875</span> and <span class="math inline">\sum_{t=1}^{4}\hat h_1(x_t)^2=3\times 0.625^2+1.875^2=4.6875</span>. At <span class="math inline">\nu=0.4</span> the formula gives <span class="math inline">5.1875-0.4\times 1.6\times 4.6875=2.1875</span>, which matches the direct computation using the fitted values from Part 3:</p>
 <div class="display-math-block">
 <p><span class="math display">
 (2-2.875)^2 + (3-2.875)^2 + (2.5-2.875)^2 + (5-3.875)^2
@@ -1719,22 +1747,18 @@ r = (-1.125,\,-0.125,\,-0.625,\,1.875).
 </span></p>
 </div>
 <p>Because <span class="math inline">\nu(2-\nu)</span> is strictly increasing on <span class="math inline">(0,1]</span>, the training SSE after one update is strictly decreasing in <span class="math inline">\nu</span>: the full step always fits the training sample at least as well as any shrunken step. Out of sample this is beside the point. Boosting is a multi-step procedure, the learning rate regularizes the whole path of updates, and the combination of <span class="math inline">\nu</span> and the stopping iteration <span class="math inline">M</span> is chosen on validation data; cautious updates often generalize better than aggressive early corrections even though they lose the one-step training comparison by construction.</p>
-<p><strong>Part 5: Selecting the iteration count for a time series</strong></p>
-<p>Random <span class="math inline">K</span>-fold validation mixes earlier and later months. A training fold can therefore contain outcomes that were unavailable at the validation forecast origin. This design does not reproduce historical training information sets. That mismatch need not bias a risk estimate under every stationary data-generating process, but random folds require additional justification; calendar ordering alone provides none, as discussed in the <a href="./cross_validation.html#sec-cv-time-series">cross-validation chapter</a>.</p>
-<p>If later observations reveal a regime-specific relationship that is useful for a validation month, a larger-<span class="math inline">M</span> ensemble may exploit that relationship more fully than a smaller one. Random folds can then favor an overly long boosting path relative to a real-time design. Under structural change, later observations can instead describe a relationship inappropriate for an earlier validation month, so neither the sign of the risk distortion nor the direction of the change in selected <span class="math inline">M</span> is guaranteed.</p>
-<p>Choose <span class="math inline">M</span> using rolling or expanding windows. At each validation origin <span class="math inline">t</span>, estimate preprocessing and the boosting path using only predictor–outcome pairs whose required values are available by <span class="math inline">t</span>, then score predictions of <span class="math inline">y_{t+1}</span> using <span class="math inline">x_t</span>. Minimize average loss across those ordered origins. Because that average has been used to choose <span class="math inline">M</span>, assess the selected procedure on a later untouched test period. If deployment retunes <span class="math inline">M</span> over time, an outer sequence of forecast origins must repeat the entire tuning procedure using only information available at each outer origin.</p>
-<p><strong>Part 6: An interaction that stumps cannot represent</strong></p>
-<p>Every stump is a function of at most one predictor. Grouping the terms in <span class="math inline">\hat F_M=\hat F_0+\nu\sum_{m=1}^M\hat h_m</span> by their split variable therefore gives</p>
+<p><strong>Part 5: An interaction that stumps cannot represent</strong></p>
+<p>Each stump has a single split, on either <span class="math inline">x_1</span> or <span class="math inline">x_2</span>, and is therefore a function of that indicator alone. Grouping the terms in <span class="math inline">\hat F_M=\hat F_0+\nu\sum_{m=1}^M\hat h_m</span> by their split variable gives</p>
 <div class="display-math-block">
 <p><span class="math display">
 \hat F_M(x_1,x_2)=a+g_1(x_1)+g_2(x_2),
 </span></p>
 </div>
-<p>where <span class="math inline">a</span> includes the initial constant and any constant trees, and <span class="math inline">g_1,g_2</span> collect the scaled stumps on the two indicators. For every such fit,</p>
+<p>with <span class="math inline">a=\hat F_0</span>, <span class="math inline">g_1(x_1)</span> equal to <span class="math inline">\nu</span> times the sum of the stumps that split on <span class="math inline">x_1</span>, and <span class="math inline">g_2(x_2)</span> equal to <span class="math inline">\nu</span> times the sum of the stumps that split on <span class="math inline">x_2</span>; if no stump splits on an indicator, the corresponding function is zero. Therefore</p>
 <div class="display-math-block">
 <p><span class="math display">
 \begin{aligned}
-&amp;F(1,1)-F(1,0)-F(0,1)+F(0,0)\\
+&amp;\hat F_M(1,1)-\hat F_M(1,0)-\hat F_M(0,1)+\hat F_M(0,0)\\
 &amp;=[a+g_1(1)+g_2(1)]-[a+g_1(1)+g_2(0)]\\
 &amp;\quad-[a+g_1(0)+g_2(1)]+[a+g_1(0)+g_2(0)]
 =0.
@@ -1752,15 +1776,18 @@ r = (-1.125,\,-0.125,\,-0.625,\,1.875).
 <i class="callout-icon"></i>
 </div>
 <div class="callout-title-container flex-fill">
-Exercise 12.2: Bernoulli Boosting, Initialization, and Newton Leaf Updates
+Exercise 12.2: Bernoulli Log-Loss and Initialization
 </div>
 </div>
 <div class="callout-body-container callout-body">
 <p>Consider binary outcomes <span class="math inline">y_i\in\{0,1\}</span> and a boosting model with finite log-odds <span class="math inline">F(x_i)</span> and probability</p>
 <div class="display-math-block">
-<p><span class="math display">
-p_i=\sigma(F(x_i))=\frac{1}{1+e^{-F(x_i)}}.
-</span></p>
+<p><span style="text-align-last: auto;"><span class="math display">
+\begin{aligned}
+p_i&amp;=\sigma(F(x_i))\\
+&amp;=\frac{1}{1+e^{-F(x_i)}}.
+\end{aligned}
+</span></span></p>
 </div>
 <p>The per-observation Bernoulli log-loss is</p>
 <div class="display-math-block">
@@ -1769,49 +1796,10 @@ p_i=\sigma(F(x_i))=\frac{1}{1+e^{-F(x_i)}}.
 </span></p>
 </div>
 <ol type="1">
-<li>Derive the first and second derivatives of <span class="math inline">\ell(y_i,z)</span> with respect to <span class="math inline">z</span>, and hence the pseudo-residual at the current fit. For a sample containing both classes, use these derivatives to find the loss-minimizing constant initial model <span class="math inline">\hat F_0(x)\equiv c</span> and prove that the minimizer is unique.</li>
-<li>What happens to the constant-model minimization when <span class="math inline">\bar y=0</span> or <span class="math inline">\bar y=1</span>? To obtain a finite convention, constrain the initial probability to <span class="math inline">p\in[\varepsilon,1-\varepsilon]</span>, where <span class="math inline">0&lt;\varepsilon&lt;1/2</span>. Derive the constrained optimum for any <span class="math inline">\bar y\in[0,1]</span>. When <span class="math inline">\bar y=0</span>, compute the sum of the resulting pseudo-residuals and explain why it need not be zero at this constrained optimum.</li>
-<li>Fix a nonempty leaf <span class="math inline">R</span> and hold its current log-odds <span class="math inline">F(x_i)</span> fixed. Define the loss from a common leaf correction <span class="math inline">\gamma</span> as <span class="math display">
-Q(\gamma)=\sum_{i:\,x_i\in R}\ell(y_i,F(x_i)+\gamma).
-</span> Derive <span class="math inline">Q'(0)</span> and <span class="math inline">Q''(0)</span>, and minimize the second-order Taylor approximation to <span class="math inline">Q</span> around <span class="math inline">\gamma=0</span> to obtain the one-step Newton correction <span class="math inline">\widetilde\gamma</span>. Explain why the bound on individual pseudo-residuals does not bound <span class="math inline">|\widetilde\gamma|</span> uniformly.</li>
-<li>A leaf contains two observations with outcomes <span class="math inline">(1,0)</span> and the same current probability <span class="math inline">p</span>. Compute <span class="math inline">\widetilde\gamma</span> at <span class="math inline">p=0.6</span> and at <span class="math inline">p=0.9</span>. Derive the exact loss-minimizing correction <span class="math inline">\gamma^\star</span> in each case, and explain the difference between the Newton corrections in terms of the summed residual and total curvature. Exact logarithms are acceptable.</li>
-<li>For the <span class="math inline">p=0.9</span> case, let <span class="math inline">F=\log 9</span> denote the common current log-odds and write the leaf loss at common log-odds <span class="math inline">z</span> as <span class="math display">
-q(z)=\log(1+e^{-z})+\log(1+e^z).
-</span> Show that <span class="math inline">q</span> is even and strictly increasing for <span class="math inline">z&gt;0</span>. Use this property to determine whether the full Newton step lowers the leaf loss. Then find all learning rates <span class="math inline">\nu\in(0,1]</span> for which <span class="math inline">q(F+\nu\widetilde\gamma)&lt;q(F)</span>, and check whether <span class="math inline">\nu=0.4</span> satisfies the condition. You may use <span class="math inline">\log9\approx2.1972</span>.</li>
+<li><strong>Gradient and pseudo-residuals.</strong> Derive the derivative of <span class="math inline">\ell(y_i,z)</span> with respect to <span class="math inline">z</span> and evaluate it at <span class="math inline">z=F(x_i)</span>. Hence obtain the pseudo-residual <span class="math inline">r_i</span>. State whether the tree’s correction is added to the probability or to the log-odds.</li>
+<li><strong>Initialization and numerical example.</strong> Suppose both classes occur in the training sample and the initial model is a constant, <span class="math inline">\hat F_0(x)\equiv c</span>. Derive the value of <span class="math inline">c</span> minimizing total log-loss and show that it is the unique minimizer. For the sample <span class="math inline">y=(1,1,0,1)</span>, compute <span class="math inline">\bar y</span>, the optimal <span class="math inline">\hat F_0</span>, the implied initial probability for each observation, and the pseudo-residuals. Exact logarithms are acceptable.</li>
 </ol>
-<p><em>Exam level: suitable as-is. Parts 1–2 study initialization and boundary constraints, Part 3 derives the Newton leaf correction, and Parts 4–5 compare that correction with exact loss minimization and diagnose when shrinkage prevents a loss increase.</em></p>
-</div>
-</div>
-<div class="callout callout-style-default callout-warning callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-18-contents" aria-controls="callout-18" aria-expanded="false" aria-label="Toggle callout">
-<div class="callout-icon-container">
-<i class="callout-icon"></i>
-</div>
-<div class="callout-title-container flex-fill">
-Hint for Part 2
-</div>
-<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
-</div>
-<div id="callout-18" class="callout-18-contents callout-collapse collapse">
-<div class="callout-body-container callout-body">
-<p>Differentiate the constant-model loss with respect to the probability <span class="math inline">p</span>. Its derivative changes sign at <span class="math inline">\bar y</span> when that point is inside the allowed interval. At an endpoint, a constrained minimum need not satisfy the unrestricted first-order condition.</p>
-</div>
-</div>
-</div>
-<div class="callout callout-style-default callout-warning callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-19-contents" aria-controls="callout-19" aria-expanded="false" aria-label="Toggle callout">
-<div class="callout-icon-container">
-<i class="callout-icon"></i>
-</div>
-<div class="callout-title-container flex-fill">
-Hint for Part 3
-</div>
-<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
-</div>
-<div id="callout-19" class="callout-19-contents callout-collapse collapse">
-<div class="callout-body-container callout-body">
-<p>The quadratic approximation is <span class="math inline">Q(0)+Q'(0)\gamma+\tfrac12Q''(0)\gamma^2</span>. The derivatives are evaluated at the probabilities before the update. To test whether the correction can be large, consider a leaf with both outcomes present but all current probabilities approaching one.</p>
-</div>
+<p><em>Exam level: suitable as-is. The two parts derive and apply the classification gradient and initialization.</em></p>
 </div>
 </div>
 <div class="callout callout-style-default callout-warning callout-titled">
@@ -1820,13 +1808,13 @@ Hint for Part 3
 <i class="callout-icon"></i>
 </div>
 <div class="callout-title-container flex-fill">
-Hint for Part 5
+Hint for Part 2
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
 <div id="callout-20" class="callout-20-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
-<p>Evenness and monotonicity make the loss comparison equivalent to comparing <span class="math inline">|F+\nu\widetilde\gamma|</span> with <span class="math inline">F&gt;0</span>. Solve the resulting double inequality for <span class="math inline">\nu</span>.</p>
+<p>A first-order condition identifies a candidate constant. To establish uniqueness, examine the second derivative of the total loss with respect to <span class="math inline">c</span>.</p>
 </div>
 </div>
 </div>
@@ -1842,134 +1830,73 @@ Solution
 </div>
 <div id="callout-21" class="callout-21-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
-<p><strong>Part 1: Derivatives and the unique constant initialization</strong></p>
-<p>Writing <span class="math inline">p=\sigma(z)</span> and using <span class="math inline">dp/dz=p(1-p)</span> gives</p>
+<p><strong>Part 1: Gradient and pseudo-residuals</strong></p>
+<p>Hold <span class="math inline">y_i</span> fixed and write <span class="math inline">p=\sigma(z)</span>. Since <span class="math inline">dp/dz=p(1-p)</span>, the chain rule gives</p>
 <div class="display-math-block">
-<p><span class="math display">
+<p><span style="text-align-last: auto;"><span class="math display">
 \begin{aligned}
 \frac{\partial\ell(y_i,z)}{\partial z}
-&amp;=-y_i(1-p)+(1-y_i)p=p-y_i,\\
-\frac{\partial^2\ell(y_i,z)}{\partial z^2}&amp;=p(1-p)&gt;0.
+&amp;=\left(-\frac{y_i}{p}+\frac{1-y_i}{1-p}\right)p(1-p)\\
+&amp;=-y_i(1-p)+(1-y_i)p\\
+&amp;=p-y_i.
 \end{aligned}
-</span></p>
+</span></span></p>
 </div>
-<p>Thus the pseudo-residual at <span class="math inline">z=F(x_i)</span> is <span class="math inline">r_i=y_i-p_i</span>. For the constant model, every probability equals <span class="math inline">p=\sigma(c)</span>, and</p>
+<p>At the current log-odds <span class="math inline">z=F(x_i)</span>, the corresponding probability is <span class="math inline">p_i</span>. The pseudo-residual is the negative derivative,</p>
+<div class="display-math-block">
+<p><span style="text-align-last: auto;"><span class="math display">
+\begin{aligned}
+r_i
+&amp;=-\left.\frac{\partial\ell(y_i,z)}{\partial z}\right|_{z=F(x_i)}\\
+&amp;=y_i-p_i.
+\end{aligned}
+</span></span></p>
+</div>
+<p>The tree’s correction is added to the log-odds <span class="math inline">F(x_i)</span>. The sigmoid then converts the updated log-odds into a new probability.</p>
+<p><strong>Part 2: Optimal constant and numerical example</strong></p>
+<p>For a constant model, all observations have the same probability <span class="math inline">p=\sigma(c)</span>. Write <span class="math inline">L(c)=\sum_{i=1}^N\ell(y_i,c)</span> for its total loss. Using Part 1,</p>
+<div class="display-math-block">
+<p><span style="text-align-last: auto;"><span class="math display">
+\begin{aligned}
+L'(c)
+&amp;=\sum_{i=1}^N(p-y_i)\\
+&amp;=N(p-\bar y).
+\end{aligned}
+</span></span></p>
+</div>
+<p>The first-order condition therefore requires <span class="math inline">p=\bar y</span>. Because both classes occur, <span class="math inline">0&lt;\bar y&lt;1</span>, so the corresponding log-odds are finite:</p>
 <div class="display-math-block">
 <p><span class="math display">
-L'(c)=\sum_{i=1}^N(p-y_i)=N(p-\bar y),
-\qquad
+\hat F_0(x)=\log\left(\frac{\bar y}{1-\bar y}\right).
+</span></p>
+</div>
+<p>For every finite <span class="math inline">c</span>, the sigmoid probability lies in <span class="math inline">(0,1)</span>, and</p>
+<div class="display-math-block">
+<p><span class="math display">
 L''(c)=Np(1-p)&gt;0.
 </span></p>
 </div>
-<p>When <span class="math inline">0&lt;\bar y&lt;1</span>, the first-order condition has the finite solution</p>
+<p>Thus <span class="math inline">L</span> is strictly convex, and the stationary point is its unique global minimizer.</p>
+<p>For <span class="math inline">y=(1,1,0,1)</span>, the sample mean is <span class="math inline">\bar y=3/4</span>, so</p>
 <div class="display-math-block">
-<p><span class="math display">
-\hat F_0(x)\equiv c=\log\left(\frac{\bar y}{1-\bar y}\right).
-</span></p>
-</div>
-<p>Strict convexity makes this stationary point the unique global minimizer.</p>
-<p><strong>Part 2: Boundary samples and a finite constraint</strong></p>
-<p>If <span class="math inline">\bar y=1</span>, then <span class="math inline">L(c)=-N\log\sigma(c)</span> is strictly decreasing and approaches its infimum of zero only as <span class="math inline">c\to+\infty</span>. If <span class="math inline">\bar y=0</span>, the loss is strictly increasing in <span class="math inline">c</span> and approaches zero only as <span class="math inline">c\to-\infty</span>. Neither sample has a finite unconstrained minimizer.</p>
-<p>For the constrained problem, write the loss directly as a function of <span class="math inline">p</span>:</p>
-<div class="display-math-block">
-<p><span class="math display">
-L(p)=-N\left[\bar y\log p+(1-\bar y)\log(1-p)\right],
-\qquad
-\frac{dL(p)}{dp}=\frac{N(p-\bar y)}{p(1-p)}.
-</span></p>
-</div>
-<p>The denominator is positive throughout <span class="math inline">[\varepsilon,1-\varepsilon]</span>. The loss decreases for <span class="math inline">p&lt;\bar y</span> and increases for <span class="math inline">p&gt;\bar y</span>, so its constrained minimizer is</p>
-<div class="display-math-block">
-<p><span class="math display">
-\hat p=\min\{1-\varepsilon,\max\{\varepsilon,\bar y\}\},
-\qquad
-\hat c=\log\left(\frac{\hat p}{1-\hat p}\right).
-</span></p>
-</div>
-<p>When <span class="math inline">\bar y=0</span>, every residual is <span class="math inline">-\varepsilon</span>, giving</p>
-<div class="display-math-block">
-<p><span class="math display">
-\sum_{i=1}^N r_i=-N\varepsilon.
-</span></p>
-</div>
-<p>The nonzero sum is consistent with constrained optimality. The unrestricted loss would decrease if <span class="math inline">p</span> moved below <span class="math inline">\varepsilon</span>, but that direction is infeasible. Clipping yields a finite constrained solution; it does not produce a finite stationary point of the original unconstrained loss.</p>
-<p><strong>Part 3: Deriving the Newton correction</strong></p>
-<p>The current probabilities <span class="math inline">p_i=\sigma(F(x_i))</span> give</p>
-<div class="display-math-block">
-<p><span class="math display">
-Q'(0)=\sum_{i:\,x_i\in R}(p_i-y_i),
-\qquad
-Q''(0)=\sum_{i:\,x_i\in R}p_i(1-p_i).
-</span></p>
-</div>
-<p>The curvature is positive because the leaf is nonempty and every current log-odds value is finite. Differentiating the quadratic approximation with respect to <span class="math inline">\gamma</span> gives <span class="math inline">Q'(0)+Q''(0)\gamma</span>. Its unique minimizer is therefore</p>
-<div class="display-math-block">
-<p><span class="math display">
-\widetilde\gamma
-=-\frac{Q'(0)}{Q''(0)}
-=\frac{\sum_{i:\,x_i\in R}(y_i-p_i)}
-       {\sum_{i:\,x_i\in R}p_i(1-p_i)}.
-</span></p>
-</div>
-<p>Positive curvature need not be bounded away from zero. For example, in a two-observation leaf with outcomes <span class="math inline">(1,0)</span> and a common probability <span class="math inline">p\to1</span>, the numerator <span class="math inline">1-2p</span> approaches <span class="math inline">-1</span> while the denominator <span class="math inline">2p(1-p)</span> approaches zero. Thus <span class="math inline">\widetilde\gamma\to-\infty</span> although both pseudo-residuals remain between <span class="math inline">-1</span> and <span class="math inline">1</span>.</p>
-<p><strong>Part 4: Newton steps and exact leaf minimizers</strong></p>
-<p>With one outcome of each class and a common current probability <span class="math inline">p</span>,</p>
-<div class="display-math-block">
-<p><span class="math display">
-\widetilde\gamma=\frac{1-2p}{2p(1-p)}.
-</span></p>
-</div>
-<p>The two numerical cases give</p>
-<div class="display-math-block">
-<p><span class="math display">
+<p><span style="text-align-last: auto;"><span class="math display">
 \begin{aligned}
-p=0.6:\quad
-\widetilde\gamma&amp;=\frac{-0.2}{0.48}
-=-\frac{5}{12}\approx-0.4167,\\
-p=0.9:\quad
-\widetilde\gamma&amp;=\frac{-0.8}{0.18}
-=-\frac{40}{9}\approx-4.4444.
+\hat F_0(x)
+&amp;=\log\left(\frac{3/4}{1/4}\right)\\
+&amp;=\log 3.
 \end{aligned}
-</span></p>
+</span></span></p>
 </div>
-<p>The current log-odds are <span class="math inline">F=\log[p/(1-p)]</span>. The exact leaf derivative is <span class="math inline">Q'(\gamma)=2\sigma(F+\gamma)-1</span>, so the unique minimizer satisfies <span class="math inline">F+\gamma^\star=0</span>. Consequently,</p>
+<p>Every initial probability is <span class="math inline">p_i=3/4</span>. The pseudo-residuals are</p>
 <div class="display-math-block">
-<p><span class="math display">
+<p><span style="text-align-last: auto;"><span class="math display">
 \begin{aligned}
-p=0.6:\quad \gamma^\star&amp;=-\log(3/2)\approx-0.4055,\\
-p=0.9:\quad \gamma^\star&amp;=-\log9\approx-2.1972.
+(r_1,r_2,r_3,r_4)
+&amp;=(1-3/4,\;1-3/4,\;0-3/4,\;1-3/4)\\
+&amp;=(1/4,\;1/4,\;-3/4,\;1/4).
 \end{aligned}
-</span></p>
+</span></span></p>
 </div>
-<p>Moving <span class="math inline">p</span> from <span class="math inline">0.6</span> to <span class="math inline">0.9</span> quadruples the magnitude of the summed residual, from <span class="math inline">0.2</span> to <span class="math inline">0.8</span>, and reduces total curvature from <span class="math inline">0.48</span> to <span class="math inline">0.18</span>. Both changes increase the magnitude of the Newton correction. The first correction is close to the exact minimizer; the second passes well beyond it. Overshooting the minimizer alone does not establish that loss increases, so Part 5 compares the attained losses.</p>
-<p><strong>Part 5: When shrinkage prevents a loss increase</strong></p>
-<p>Replacing <span class="math inline">z</span> by <span class="math inline">-z</span> interchanges the two terms of <span class="math inline">q(z)</span>, so <span class="math inline">q(-z)=q(z)</span>. Also,</p>
-<div class="display-math-block">
-<p><span class="math display">
-q'(z)=2\sigma(z)-1&gt;0
-\qquad\text{for }z&gt;0.
-</span></p>
-</div>
-<p>Thus loss is strictly increasing in <span class="math inline">|z|</span>. With <span class="math inline">F=\log9\approx2.1972</span> and <span class="math inline">\widetilde\gamma=-40/9</span>, the full step produces</p>
-<div class="display-math-block">
-<p><span class="math display">
-F+\widetilde\gamma
-=\log9-\frac{40}{9}\approx-2.2472.
-</span></p>
-</div>
-<p>Its absolute value exceeds the starting value <span class="math inline">F</span>, so <span class="math inline">q(F+\widetilde\gamma)&gt;q(F)</span>. The full Newton step increases the leaf loss despite starting in a descent direction.</p>
-<p>A shrunken step lowers loss exactly when</p>
-<div class="display-math-block">
-<p><span class="math display">
-\begin{aligned}
-\left|F-\frac{40}{9}\nu\right|&lt;F
-&amp;\quad\Longleftrightarrow\quad -F&lt;F-\frac{40}{9}\nu&lt;F\\
-&amp;\quad\Longleftrightarrow\quad
-0&lt;\nu&lt;\frac{9\log9}{20}\approx0.9888.
-\end{aligned}
-</span></p>
-</div>
-<p>The upper bound lies below one, so this is the full interval within the allowed range <span class="math inline">\nu\in(0,1]</span>. At the upper endpoint the loss equals its starting value; at <span class="math inline">\nu=1</span> it is higher. The learning rate <span class="math inline">\nu=0.4</span> lies inside the interval and therefore reduces the leaf loss. This bound is specific to the stated leaf and current probabilities: shrinkage can prevent this overshoot without making every fixed learning rate safe for every Newton update.</p>
 </div>
 </div>
 </div>
