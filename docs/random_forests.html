@@ -384,6 +384,12 @@ window.Quarto = {
  <span class="menu-text">Data Appendix</span></a>
   </div>
 </li>
+        <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./kernel_smoothing.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Kernel Smoothing Primer</span></a>
+  </div>
+</li>
     </ul>
     </div>
 </nav>
@@ -400,7 +406,7 @@ window.Quarto = {
   <li><a href="#roadmap" id="toc-roadmap" class="nav-link" data-scroll-target="#roadmap"><span class="header-section-number">11.2</span> Roadmap</a></li>
   <li><a href="#sec-rf-bagging" id="toc-sec-rf-bagging" class="nav-link" data-scroll-target="#sec-rf-bagging"><span class="header-section-number">11.3</span> From Bagging to Random Forests</a></li>
   <li><a href="#sec-rf-predictor" id="toc-sec-rf-predictor" class="nav-link" data-scroll-target="#sec-rf-predictor"><span class="header-section-number">11.4</span> The Random-Forest Predictor</a></li>
-  <li><a href="#sec-rf-weights" id="toc-sec-rf-weights" class="nav-link" data-scroll-target="#sec-rf-weights"><span class="header-section-number">11.5</span> Forest Weights and Distributional Outlook</a></li>
+  <li><a href="#sec-rf-weights" id="toc-sec-rf-weights" class="nav-link" data-scroll-target="#sec-rf-weights"><span class="header-section-number">11.5</span> Forest Weights as Local Averages</a></li>
   <li><a href="#sec-rf-oob" id="toc-sec-rf-oob" class="nav-link" data-scroll-target="#sec-rf-oob"><span class="header-section-number">11.6</span> Bootstrap Sampling and Out-of-Bag Evaluation</a></li>
   <li><a href="#sec-rf-hyperparameters" id="toc-sec-rf-hyperparameters" class="nav-link" data-scroll-target="#sec-rf-hyperparameters"><span class="header-section-number">11.7</span> Hyperparameters and Trade-Offs</a></li>
   <li><a href="#sec-rf-econometric" id="toc-sec-rf-econometric" class="nav-link" data-scroll-target="#sec-rf-econometric"><span class="header-section-number">11.8</span> Econometric Interpretation and Limits</a></li>
@@ -425,27 +431,33 @@ window.Quarto = {
 <section id="overview" class="level2" data-number="11.1">
 <h2 data-number="11.1" class="anchored" data-anchor-id="overview"><span class="header-section-number">11.1</span> Overview</h2>
 <p>Random forests address the main weakness of single decision trees: high variance. A single tree can change sharply when the sample changes slightly, especially when early splits are unstable. Random forests reduce this instability by averaging many trees grown on perturbed versions of the data and by injecting additional randomness into the split search. The original random-forest paper is <span class="citation" data-cites="Breiman2001RandomForests">Breiman (<a href="#ref-Breiman2001RandomForests" role="doc-biblioref">2001</a>)</span>.</p>
-<p>For econometricians, random forests are attractive when prediction is the goal and the conditional mean or event probability depends on nonlinearities and interactions of unknown form. They work especially well on tabular data such as firm-level balance-sheet variables, household characteristics, or macro-financial predictors. At the same time, they remain nonparametric prediction tools rather than structural models: they do not extrapolate well, and their split structure should not be read causally.</p>
+<p>For econometricians, random forests are attractive when prediction is the goal and the conditional mean or event probability depends on nonlinearities and interactions of unknown form. They work especially well on tabular data such as firm-level balance-sheet variables, household characteristics, or macro-financial predictors, and published evidence covers each of these settings:</p>
+<ul>
+<li><strong>Asset pricing.</strong> <span class="citation" data-cites="GuKellyXiu2020">Gu, Kelly, and Xiu (<a href="#ref-GuKellyXiu2020" role="doc-biblioref">2020</a>)</span> predict monthly individual stock returns from a large set of firm characteristics and macroeconomic predictors. Tree ensembles, including random forests, and neural networks are the best-performing methods, and the authors trace their gains to nonlinear predictor interactions that linear models miss.</li>
+<li><strong>Macroeconomic forecasting.</strong> <span class="citation" data-cites="MedeirosVasconcelosVeigaZilberman2021">Medeiros et al. (<a href="#ref-MedeirosVasconcelosVeigaZilberman2021" role="doc-biblioref">2021</a>)</span> forecast US inflation from a large macroeconomic dataset. The random forest delivers the smallest forecast errors at most forecast horizons and in most subsamples, ahead of linear models using the same predictors, and the authors attribute this to both its implicit variable selection and nonlinearities.</li>
+<li><strong>Household credit.</strong> <span class="citation" data-cites="FusterGoldsmithPinkhamRamadoraiWalther2022">Fuster et al. (<a href="#ref-FusterGoldsmithPinkhamRamadoraiWalther2022" role="doc-biblioref">2022</a>)</span> predict mortgage default. A random forest is more accurate out of sample than logit models, although the gains are unevenly distributed across borrower groups.</li>
+</ul>
+<p>At the same time, they remain nonparametric prediction tools rather than structural models: they do not extrapolate well, and their split structure should not be read causally.</p>
 </section>
 <section id="roadmap" class="level2" data-number="11.2">
 <h2 data-number="11.2" class="anchored" data-anchor-id="roadmap"><span class="header-section-number">11.2</span> Roadmap</h2>
 <ol type="1">
 <li>We begin with bagging and show why averaging unstable trees can reduce variance substantially.</li>
 <li>We then explain random feature selection, which turns bagging into a random forest by limiting the candidate predictors at each split.</li>
-<li>Next we study bootstrap sampling, out-of-bag evaluation, and the forest-as-weights interpretation.</li>
+<li>Next we interpret forests as weighted averages of observed outcomes and study out-of-bag evaluation, a built-in form of cross-validation that uses observations omitted from each tree’s bootstrap sample.</li>
 <li>We then discuss the main hyperparameters and the bias-variance trade-offs they control.</li>
 <li>Finally, we summarize where random forests fit well in econometric work and where caution is needed.</li>
 </ol>
 </section>
 <section id="sec-rf-bagging" class="level2" data-number="11.3">
 <h2 data-number="11.3" class="anchored" data-anchor-id="sec-rf-bagging"><span class="header-section-number">11.3</span> From Bagging to Random Forests</h2>
-<p>Suppose we have a predictor <span class="math inline">\hat T(x)</span> produced by a deep regression tree. If we grow many such trees on slightly different datasets and average them, we obtain the bagged predictor</p>
+<p>Let <span class="math inline">(x_i,y_i)</span>, <span class="math inline">i=1,\ldots,N</span>, denote the training observations, with <span class="math inline">p</span> predictors in <span class="math inline">x_i</span>. Suppose we have a predictor <span class="math inline">\hat T(x)</span> produced by a deep regression tree. If we grow many such trees on slightly different datasets and average them, we obtain the bagged predictor</p>
 <div class="display-math-block">
 <p><span class="math display">
 \hat f_B(x) = \frac{1}{B}\sum_{b=1}^B \hat T_b(x),
 </span></p>
 </div>
-<p>where <span class="math inline">\hat T_b(x)</span> is the prediction of tree <span class="math inline">b</span> and <span class="math inline">B</span> is the number of trees.</p>
+<p>where <span class="math inline">\hat T_b(x)</span> is the prediction of tree <span class="math inline">b</span> and <span class="math inline">B</span> is the number of trees. Because many trees make a forest, this is how the nomenclature of “random forests” arose: a forest is a collection of trees, and bagging is the averaging procedure that stabilizes them.</p>
 <p>Bagging stands for <strong>bootstrap aggregating</strong>:</p>
 <ul>
 <li>draw a bootstrap sample from the training data (with replacement, of the same size <span class="math inline">N</span> as the training sample)</li>
@@ -455,6 +467,65 @@ window.Quarto = {
 </ul>
 <p>A related variant, often called <strong>subagging</strong> <span class="citation" data-cites="BuhlmannYu2002">(<a href="#ref-BuhlmannYu2002" role="doc-biblioref">Bühlmann and Yu 2002</a>)</span>, instead draws subsamples of size <span class="math inline">s&lt;N</span>, usually without replacement (we write <span class="math inline">s</span> rather than <span class="math inline">L</span>, which denotes a terminal leaf below). Both approaches create many perturbed training sets; the random forest then applies equal weights <span class="math inline">1/B</span> to the resulting tree predictions.</p>
 <p>The idea works best when the individual model being averaged is unstable. Deep trees have exactly this property: small sample changes can alter early splits and therefore the whole fitted function. This high variance is a weakness for a single tree but an opportunity for averaging.</p>
+<p><a href="#fig-tree-vs-forest" class="quarto-xref">Figure&nbsp;11.1</a> makes this visible in a one-predictor example.</p>
+<div id="cell-fig-tree-vs-forest" class="cell" data-execution_count="2">
+<details class="code-fold">
+<summary>Show the code</summary>
+<div class="sourceCode cell-code" id="cb1"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> numpy <span class="im">as</span> np</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> matplotlib.pyplot <span class="im">as</span> plt</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.ensemble <span class="im">import</span> RandomForestRegressor</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>rng <span class="op">=</span> np.random.default_rng(<span class="dv">123</span>)</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>x <span class="op">=</span> np.sort(rng.uniform(<span class="op">-</span><span class="dv">3</span>, <span class="dv">3</span>, <span class="dv">180</span>))</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>y <span class="op">=</span> np.sin(<span class="fl">1.4</span> <span class="op">*</span> x) <span class="op">+</span> <span class="fl">0.25</span> <span class="op">*</span> x <span class="op">+</span> rng.normal(scale<span class="op">=</span><span class="fl">0.35</span>, size<span class="op">=</span>x.shape[<span class="dv">0</span>])</span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a><span class="co"># With a single predictor, a random forest reduces to bagging.</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>forest <span class="op">=</span> RandomForestRegressor(</span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>    n_estimators<span class="op">=</span><span class="dv">300</span>,</span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>    min_samples_leaf<span class="op">=</span><span class="dv">3</span>,</span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>    max_features<span class="op">=</span><span class="dv">1</span>,</span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>    random_state<span class="op">=</span><span class="dv">123</span>,</span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>forest.fit(x.reshape(<span class="op">-</span><span class="dv">1</span>, <span class="dv">1</span>), y)</span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>x_grid <span class="op">=</span> np.linspace(<span class="op">-</span><span class="fl">3.1</span>, <span class="fl">3.1</span>, <span class="dv">500</span>)</span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a><span class="co"># Predictions of the first three bootstrap trees and of the full average</span></span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>tree_hats <span class="op">=</span> [tree.predict(x_grid.reshape(<span class="op">-</span><span class="dv">1</span>, <span class="dv">1</span>)) <span class="cf">for</span> tree <span class="kw">in</span> forest.estimators_[:<span class="dv">3</span>]]</span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>forest_hat <span class="op">=</span> forest.predict(x_grid.reshape(<span class="op">-</span><span class="dv">1</span>, <span class="dv">1</span>))</span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a>fig, axes <span class="op">=</span> plt.subplots(<span class="dv">1</span>, <span class="dv">2</span>, figsize<span class="op">=</span>(<span class="dv">12</span>, <span class="fl">4.8</span>), sharey<span class="op">=</span><span class="va">True</span>)</span>
+<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-25"><a href="#cb1-25" aria-hidden="true" tabindex="-1"></a>axes[<span class="dv">0</span>].scatter(x, y, s<span class="op">=</span><span class="dv">16</span>, color<span class="op">=</span><span class="st">"0.35"</span>, alpha<span class="op">=</span><span class="fl">0.7</span>)</span>
+<span id="cb1-26"><a href="#cb1-26" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> tree_hat, color <span class="kw">in</span> <span class="bu">zip</span>(tree_hats, [<span class="st">"C3"</span>, <span class="st">"C1"</span>, <span class="st">"C2"</span>]):</span>
+<span id="cb1-27"><a href="#cb1-27" aria-hidden="true" tabindex="-1"></a>    axes[<span class="dv">0</span>].plot(x_grid, tree_hat, color<span class="op">=</span>color, linewidth<span class="op">=</span><span class="fl">1.6</span>)</span>
+<span id="cb1-28"><a href="#cb1-28" aria-hidden="true" tabindex="-1"></a>axes[<span class="dv">0</span>].set_title(<span class="st">"Three Bootstrap Trees"</span>)</span>
+<span id="cb1-29"><a href="#cb1-29" aria-hidden="true" tabindex="-1"></a>axes[<span class="dv">0</span>].set_xlabel(<span class="st">"Predictor"</span>)</span>
+<span id="cb1-30"><a href="#cb1-30" aria-hidden="true" tabindex="-1"></a>axes[<span class="dv">0</span>].set_ylabel(<span class="st">"Outcome"</span>)</span>
+<span id="cb1-31"><a href="#cb1-31" aria-hidden="true" tabindex="-1"></a>axes[<span class="dv">0</span>].grid(<span class="va">True</span>, alpha<span class="op">=</span><span class="fl">0.3</span>)</span>
+<span id="cb1-32"><a href="#cb1-32" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-33"><a href="#cb1-33" aria-hidden="true" tabindex="-1"></a>axes[<span class="dv">1</span>].scatter(x, y, s<span class="op">=</span><span class="dv">16</span>, color<span class="op">=</span><span class="st">"0.35"</span>, alpha<span class="op">=</span><span class="fl">0.7</span>)</span>
+<span id="cb1-34"><a href="#cb1-34" aria-hidden="true" tabindex="-1"></a>axes[<span class="dv">1</span>].plot(x_grid, forest_hat, color<span class="op">=</span><span class="st">"C0"</span>, linewidth<span class="op">=</span><span class="fl">2.3</span>)</span>
+<span id="cb1-35"><a href="#cb1-35" aria-hidden="true" tabindex="-1"></a>axes[<span class="dv">1</span>].set_title(<span class="st">"Bagged Trees"</span>)</span>
+<span id="cb1-36"><a href="#cb1-36" aria-hidden="true" tabindex="-1"></a>axes[<span class="dv">1</span>].set_xlabel(<span class="st">"Predictor"</span>)</span>
+<span id="cb1-37"><a href="#cb1-37" aria-hidden="true" tabindex="-1"></a>axes[<span class="dv">1</span>].grid(<span class="va">True</span>, alpha<span class="op">=</span><span class="fl">0.3</span>)</span>
+<span id="cb1-38"><a href="#cb1-38" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-39"><a href="#cb1-39" aria-hidden="true" tabindex="-1"></a>plt.tight_layout()</span>
+<span id="cb1-40"><a href="#cb1-40" aria-hidden="true" tabindex="-1"></a>plt.show()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</details>
+<div class="cell-output cell-output-display">
+<div id="fig-tree-vs-forest" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-tree-vs-forest-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="random_forests_files/figure-html/fig-tree-vs-forest-output-1.png" class="img-fluid figure-img">
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-tree-vs-forest-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;11.1: Simulated outcomes drawn from <span class="math inline">Y=\sin(1.4X)+0.25X+\varepsilon</span> (gray points) with fits from deep regression trees. Left panel: three individual trees, each grown on a different bootstrap sample (red, orange, and green lines). Right panel: the average of 300 such trees (blue line). All trees draw their bootstrap samples from the same 180 training observations.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>Each bootstrap tree reacts strongly to local sample noise, and the three trees disagree wherever their bootstrap samples differ. This spread at a given <span class="math inline">x</span> is variation of tree predictions for a fixed training sample, which the callout below formalizes as <span class="math inline">v(D,x)</span>. The bagged fit remains nonlinear, but averaging across many trees stabilizes it. With a single predictor, the random feature selection introduced below has nothing to choose among, so the figure isolates the averaging effect of bagging.</p>
 <div class="callout callout-style-default callout-important callout-titled">
 <div class="callout-header d-flex align-content-center">
 <div class="callout-icon-container">
@@ -465,80 +536,17 @@ Variance of an Averaged Forest
 </div>
 </div>
 <div class="callout-body-container callout-body">
-<p>The variance calculation must distinguish two sources of randomness. Let <span class="math inline">D</span> denote the random training sample and let <span class="math inline">\Theta_b</span> collect the independently generated bootstrap and feature-selection variables for tree <span class="math inline">b</span>. At a fixed prediction point <span class="math inline">x</span>, write</p>
+<p>There are two ways a forest prediction can vary: we can draw a different training sample, or grow new randomized trees using the same sample. Holding the training sample <span class="math inline">D</span> and prediction point <span class="math inline">x</span> fixed, independently randomizing each tree under the same fitting rule produces independent and identically distributed predictions <em>over the algorithmic randomness</em>. This conditional independence does not imply independence across repeated draws of the training sample.</p>
+<p>Write their conditional mean and variance as</p>
 <div class="display-math-block">
 <p><span class="math display">
-T_b(x)=T(D,\Theta_b;x).
-</span></p>
-</div>
-<p>The unhatted <span class="math inline">T_b(x)</span> is the same tree prediction as <span class="math inline">\hat T_b(x)</span> above, now viewed as a random variable through its dependence on <span class="math inline">(D,\Theta_b)</span>; we drop the hat exactly because the moments below are taken over that randomness.</p>
-<p>Conditional on <span class="math inline">D</span>, independent randomizations produce independent and identically distributed tree predictions. Define their conditional mean and variance by</p>
-<div class="display-math-block">
-<p><span class="math display">
-m(D,x)=\mathbb{E}_{\Theta}[T(D,\Theta;x)\mid D],
+m(D,x)=\mathbb{E}[\hat T_b(x)\mid D],
 \qquad
-v(D,x)=\operatorname{Var}_{\Theta}(T(D,\Theta;x)\mid D).
+v(D,x)=\operatorname{Var}(\hat T_b(x)\mid D).
 </span></p>
 </div>
-<p>For two distinct trees, the law of total covariance gives</p>
-<div class="display-math-block">
-<p><span class="math display">
-\begin{aligned}
-\operatorname{Cov}(T_b(x),T_{b'}(x))
-&amp;=
-\mathbb{E}_D\!\left[\operatorname{Cov}(T_b(x),T_{b'}(x)\mid D)\right] \\
-&amp;\quad+
-\operatorname{Cov}_D\!\left(\mathbb{E}[T_b(x)\mid D],
-\mathbb{E}[T_{b'}(x)\mid D]\right) \\
-&amp;=
-0+\operatorname{Cov}_D(m(D,x),m(D,x)) \\
-&amp;=
-\operatorname{Var}_D(m(D,x)),
-\qquad b\neq b'.
-\end{aligned}
-</span></p>
-</div>
-<p>The second equality uses conditional independence and <span class="math inline">\mathbb{E}[T_b(x)\mid D]=m(D,x)</span>. The covariance can nevertheless remain nonzero unconditionally because both trees use the same training sample. For a single tree, the law of total variance similarly gives</p>
-<div class="display-math-block">
-<p><span class="math display">
-\begin{aligned}
-\operatorname{Var}(T_b(x))
-&amp;=
-\operatorname{Var}_D\!\left(\mathbb{E}[T_b(x)\mid D]\right)
-+
-\mathbb{E}_D\!\left[\operatorname{Var}(T_b(x)\mid D)\right] \\
-&amp;=
-\operatorname{Var}_D(m(D,x))
-+
-\mathbb{E}_D[v(D,x)].
-\end{aligned}
-</span></p>
-</div>
-<p>Now consider the <span class="math inline">B</span>-tree average <span class="math inline">\hat f_B(x)=B^{-1}\sum_{b=1}^B T_b(x)</span>. Its conditional mean is</p>
-<div class="display-math-block">
-<p><span class="math display">
-\begin{aligned}
-\mathbb{E}[\hat f_B(x)\mid D]
-&amp;=
-\frac{1}{B}\sum_{b=1}^B \mathbb{E}[T_b(x)\mid D] \\
-&amp;=
-m(D,x).
-\end{aligned}
-</span></p>
-</div>
-<p>Conditional independence also implies</p>
-<div class="display-math-block">
-<p><span class="math display">
-\begin{aligned}
-\operatorname{Var}(\hat f_B(x)\mid D)
-&amp;=
-\frac{1}{B^2}\sum_{b=1}^B \operatorname{Var}(T_b(x)\mid D) \\
-&amp;=
-\frac{v(D,x)}{B}.
-\end{aligned}
-</span></p>
-</div>
-<p>Applying the law of total variance to the forest average therefore gives</p>
+<p>The mean <span class="math inline">m(D,x)</span> is the prediction obtained by averaging infinitely many trees grown from <span class="math inline">D</span>; the variance <span class="math inline">v(D,x)</span> measures how much individual tree predictions vary while <span class="math inline">D</span> stays fixed.</p>
+<p>An average of <span class="math inline">B</span> such trees has conditional mean <span class="math inline">m(D,x)</span> and conditional variance <span class="math inline">v(D,x)/B</span>. The law of total variance therefore gives</p>
 <div class="display-math-block">
 <p><span class="math display">
 \begin{aligned}
@@ -548,61 +556,24 @@ m(D,x).
 +
 \mathbb{E}_D\!\left[\operatorname{Var}(\hat f_B(x)\mid D)\right] \\
 &amp;=
-\underbrace{\operatorname{Var}_D(m(D,x))}_{\text{training-sample component}}
+\underbrace{\operatorname{Var}_D(m(D,x))}_{\text{variation across training samples}}
 +
-\underbrace{\frac{1}{B}\mathbb{E}_D[v(D,x)]}_{\text{finite-forest Monte Carlo component}}.
+\underbrace{\frac{1}{B}\mathbb{E}_D[v(D,x)]}_{\text{variation from finitely many trees}}.
 \end{aligned}
 </span></p>
 </div>
-<p>Increasing <span class="math inline">B</span> removes only the Monte Carlo component. The training-sample component remains because every tree depends on the same dataset. This decomposition also yields an equicorrelation representation, but its correlation must be interpreted <strong>unconditionally</strong>, over repeated training samples and tree randomizations. If <span class="math inline">\sigma^2(x)=\operatorname{Var}(T_b(x))&gt;0</span>, then</p>
-<div class="display-math-block">
-<p><span class="math display">
-\rho(x)
-=
-\frac{\operatorname{Cov}(T_b(x),T_{b'}(x))}{\sigma^2(x)}
-=
-\frac{\operatorname{Var}_D(m(D,x))}{\operatorname{Var}(T_b(x))},
-\qquad b\neq b',
-</span></p>
-</div>
-<p>so <span class="math inline">\rho(x)\geq 0</span> and</p>
-<div class="display-math-block">
-<p><span class="math display">
-\operatorname{Var}_D(m(D,x))=\rho(x)\sigma^2(x).
-</span></p>
-</div>
-<p>Combining this identity with the single-tree variance decomposition gives</p>
-<div class="display-math-block">
-<p><span class="math display">
-\begin{aligned}
-\mathbb{E}_D[v(D,x)]
-&amp;=
-\sigma^2(x)-\operatorname{Var}_D(m(D,x)) \\
-&amp;=
-\sigma^2(x)[1-\rho(x)].
-\end{aligned}
-</span></p>
-</div>
-<p>Substituting both components into the forest variance decomposition yields</p>
-<div class="display-math-block">
-<p><span class="math display">
-\operatorname{Var}[\hat f_B(x)]
-=
-\sigma^2(x)\left[\rho(x)+\frac{1-\rho(x)}{B}\right].
-</span></p>
-</div>
-<p>Thus the nonvanishing term in the equicorrelation formula is shared training-sample variability, not positive conditional covariance among independently randomized trees with <span class="math inline">D</span> fixed. In plain language, growing more trees averages away randomness in how the trees are constructed; it does not average away sensitivity to which training sample happened to be observed.</p>
+<p>The second component, often called Monte Carlo variance, shrinks at rate <span class="math inline">1/B</span>. The first remains: even an infinite forest can give different predictions when trained on a different sample. Growing more trees therefore stabilizes the prediction for the observed dataset without eliminating its sensitivity to which dataset was observed. Exercise 11.1 connects this decomposition to the correlation between trees.</p>
 </div>
 </div>
 <p><strong>Why Bagging Alone Is Not Enough</strong></p>
 <p>If some predictors are very strong, many bootstrap trees keep splitting on the same variables near the root and can produce very similar fitted rules. At a fixed <span class="math inline">x</span>, tightly concentrated tree predictions correspond to a small conditional variance <span class="math inline">v(D,x)</span>, so averaging then changes the prediction little relative to using a single randomized tree: <span class="math inline">\hat f_B(x)</span> is already close to <span class="math inline">m(D,x)</span>. Any instability of <span class="math inline">m(D,x)</span> across training samples remains because averaging does not remove the training-sample component <span class="math inline">\operatorname{Var}_D(m(D,x))</span>.</p>
-<p>Random forests address this directly. At each split, instead of considering all <span class="math inline">p</span> predictors, the algorithm draws a random subset of size <span class="math inline">m</span> and searches only within that subset. The best split among those <span class="math inline">m</span> predictors is used.</p>
+<p>Random forests address this directly. At each split, instead of considering all <span class="math inline">p</span> predictors, the algorithm draws a random subset of size <span class="math inline">m</span> and searches only within that subset. The best split among those <span class="math inline">m</span> predictors is used. A fresh subset is drawn at each split, not just once per tree.</p>
 <p><strong>Random feature selection</strong>, also called feature subsampling, does two things at once:</p>
 <ul>
 <li>it diversifies the fitted rules by forcing trees to try different split variables</li>
 <li>it may slightly weaken each individual tree because the globally best predictor is not always available</li>
 </ul>
-<p>This additional randomization changes both parts of the variance decomposition. It can reduce <span class="math inline">\operatorname{Var}_D(m(D,x))</span> by making the conditional mean rule less sensitive to dominant predictors, while increasing <span class="math inline">\mathbb{E}_D[v(D,x)]</span> because tree predictions are more dispersed conditional on the data. The second effect enters the forest variance only through the Monte Carlo term <span class="math inline">\mathbb{E}_D[v(D,x)]/B</span>, so it is harmless once <span class="math inline">B</span> is large—its practical meaning is that a strongly randomized forest needs more trees. Neither direction is guaranteed, and random feature selection can also change bias, which no amount of averaging removes. The actual performance of the forest depends on the relative magnitudes of these effects and must be assessed empirically.</p>
+<p>With feature subsets also drawn independently for each tree, the variance decomposition still applies: conditional on <span class="math inline">D</span>, the algorithmic randomness now includes both bootstrap sampling and feature selection. The additional randomization changes both parts of the decomposition. It can reduce <span class="math inline">\operatorname{Var}_D(m(D,x))</span> by making the conditional mean rule less sensitive to dominant predictors, while increasing <span class="math inline">\mathbb{E}_D[v(D,x)]</span> because tree predictions are more dispersed conditional on the data; neither sign is guaranteed. The second effect enters the forest variance only through the Monte Carlo term <span class="math inline">\mathbb{E}_D[v(D,x)]/B</span>, so it is harmless once <span class="math inline">B</span> is large—its practical meaning is that a strongly randomized forest needs more trees. Random feature selection also changes the rule <span class="math inline">m(D,x)</span> itself, and with it the bias of the forest. Because <span class="math inline">\mathbb{E}[\hat f_B(x)]=\mathbb{E}_D[m(D,x)]</span> for every <span class="math inline">B</span>, adding trees leaves that bias unchanged. The actual performance of the forest depends on the relative magnitudes of these effects and must be assessed empirically.</p>
 <p>The bias-variance trade-off is therefore explicit. Deep individual trees have low bias but high variance. Averaging many randomized trees lowers variance, while random feature selection and bootstrap perturbations can slightly increase bias because each tree is deliberately denied the strongest split it could use. Forests work well when the regression function contains nonlinearities and interactions that trees can capture and when variance reduction dominates this modest bias increase. They can underperform a well-specified simpler model when the true signal is close to linear, when extrapolation is needed, or when the sample is too small for flexible trees to be estimated reliably.</p>
 </section>
 <section id="sec-rf-predictor" class="level2" data-number="11.4">
@@ -629,8 +600,8 @@ m(D,x).
 </ul>
 </section>
 <section id="sec-rf-weights" class="level2" data-number="11.5">
-<h2 data-number="11.5" class="anchored" data-anchor-id="sec-rf-weights"><span class="header-section-number">11.5</span> Forest Weights and Distributional Outlook</h2>
-<p>A random forest can also be viewed as a data-adaptive local averaging estimator. First consider trees grown by subsampling without replacement, and let <span class="math inline">S_b</span> denote the subsample used to grow tree <span class="math inline">b</span>. Let <span class="math inline">L_b(x)</span> denote the terminal leaf containing the forecast point <span class="math inline">x</span> in tree <span class="math inline">b</span>, and let <span class="math inline">N_b(x)</span> be the number of sampled observations in that leaf. The regression prediction can be written as </p>
+<h2 data-number="11.5" class="anchored" data-anchor-id="sec-rf-weights"><span class="header-section-number">11.5</span> Forest Weights as Local Averages</h2>
+<p>A random forest can also be viewed as a data-adaptive local averaging estimator. For making this point, we consider squared-error regression trees, whose leaf predictions are sample means. First consider trees grown by subsampling without replacement, and let <span class="math inline">S_b</span> denote the subsample used to grow tree <span class="math inline">b</span>. Let <span class="math inline">L_b(x)</span> denote the terminal leaf containing the prediction point <span class="math inline">x</span> in tree <span class="math inline">b</span>, and let <span class="math inline">N_b(x)</span> be the number of sampled observations in that leaf. The regression prediction can be written as </p>
 <div class="display-math-block">
 <p><span class="math display">
 \hat f_B(x)
@@ -651,68 +622,9 @@ w_i(x)=\frac{1}{B}\sum_{b=1}^B
 </span></p>
 </div>
 <p> where <span class="math inline">N_b(x)</span> now counts bootstrap draws in the leaf. In either sampling design, the weights are nonnegative and sum to one.</p>
-<p>The weight <span class="math inline">w_i(x)</span> is large when observation <span class="math inline">i</span> often lands in the same terminal leaf as the forecast point. The construction resembles a fixed-distance local weighting estimator, but the forest learns its neighborhoods through tree partitions instead of prescribing them with a distance formula.</p>
-<p>This weighting view is also the bridge to more advanced forests. <em>Quantile regression forests</em> keep more than the leaf mean and use the same neighborhood weights to estimate a conditional distribution <span class="citation" data-cites="Meinshausen2006QRF">(<a href="#ref-Meinshausen2006QRF" role="doc-biblioref">Meinshausen 2006</a>)</span>. <em>Local linear forests</em> go in a different direction: they retain the forest neighborhood but fit a local linear model rather than a constant inside it <span class="citation" data-cites="FriedbergTibshiraniAtheyWager2021">(<a href="#ref-FriedbergTibshiraniAtheyWager2021" role="doc-biblioref">Friedberg et al. 2021</a>)</span>. Both are developed in the next chapter, in the <a href="./adv_tree_based_methods.html#sec-adv-qrf">quantile regression forest section</a> and the <a href="./adv_tree_based_methods.html#sec-adv-llf">local linear forest section</a> respectively.</p>
-<p><a href="#fig-tree-vs-forest" class="quarto-xref">Figure&nbsp;11.1</a> makes the variance-stabilization effect of averaging visible in a one-predictor example.</p>
-<div id="cell-fig-tree-vs-forest" class="cell" data-execution_count="2">
-<details class="code-fold">
-<summary>Show the code</summary>
-<div class="sourceCode cell-code" id="cb1"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> numpy <span class="im">as</span> np</span>
-<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> matplotlib.pyplot <span class="im">as</span> plt</span>
-<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.tree <span class="im">import</span> DecisionTreeRegressor</span>
-<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.ensemble <span class="im">import</span> RandomForestRegressor</span>
-<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>rng <span class="op">=</span> np.random.default_rng(<span class="dv">123</span>)</span>
-<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>x <span class="op">=</span> np.sort(rng.uniform(<span class="op">-</span><span class="dv">3</span>, <span class="dv">3</span>, <span class="dv">180</span>))</span>
-<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>y <span class="op">=</span> np.sin(<span class="fl">1.4</span> <span class="op">*</span> x) <span class="op">+</span> <span class="fl">0.25</span> <span class="op">*</span> x <span class="op">+</span> rng.normal(scale<span class="op">=</span><span class="fl">0.35</span>, size<span class="op">=</span>x.shape[<span class="dv">0</span>])</span>
-<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>tree <span class="op">=</span> DecisionTreeRegressor(max_depth<span class="op">=</span><span class="va">None</span>, min_samples_leaf<span class="op">=</span><span class="dv">3</span>, random_state<span class="op">=</span><span class="dv">123</span>)</span>
-<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>forest <span class="op">=</span> RandomForestRegressor(</span>
-<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>    n_estimators<span class="op">=</span><span class="dv">300</span>,</span>
-<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>    min_samples_leaf<span class="op">=</span><span class="dv">3</span>,</span>
-<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>    max_features<span class="op">=</span><span class="dv">1</span>,</span>
-<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>    random_state<span class="op">=</span><span class="dv">123</span>,</span>
-<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>tree.fit(x.reshape(<span class="op">-</span><span class="dv">1</span>, <span class="dv">1</span>), y)</span>
-<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>forest.fit(x.reshape(<span class="op">-</span><span class="dv">1</span>, <span class="dv">1</span>), y)</span>
-<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>x_grid <span class="op">=</span> np.linspace(<span class="op">-</span><span class="fl">3.1</span>, <span class="fl">3.1</span>, <span class="dv">500</span>)</span>
-<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a>tree_hat <span class="op">=</span> tree.predict(x_grid.reshape(<span class="op">-</span><span class="dv">1</span>, <span class="dv">1</span>))</span>
-<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a>forest_hat <span class="op">=</span> forest.predict(x_grid.reshape(<span class="op">-</span><span class="dv">1</span>, <span class="dv">1</span>))</span>
-<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-25"><a href="#cb1-25" aria-hidden="true" tabindex="-1"></a>fig, axes <span class="op">=</span> plt.subplots(<span class="dv">1</span>, <span class="dv">2</span>, figsize<span class="op">=</span>(<span class="dv">12</span>, <span class="fl">4.8</span>), sharey<span class="op">=</span><span class="va">True</span>)</span>
-<span id="cb1-26"><a href="#cb1-26" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-27"><a href="#cb1-27" aria-hidden="true" tabindex="-1"></a>axes[<span class="dv">0</span>].scatter(x, y, s<span class="op">=</span><span class="dv">16</span>, color<span class="op">=</span><span class="st">"0.35"</span>, alpha<span class="op">=</span><span class="fl">0.7</span>)</span>
-<span id="cb1-28"><a href="#cb1-28" aria-hidden="true" tabindex="-1"></a>axes[<span class="dv">0</span>].plot(x_grid, tree_hat, color<span class="op">=</span><span class="st">"C3"</span>, linewidth<span class="op">=</span><span class="fl">2.3</span>)</span>
-<span id="cb1-29"><a href="#cb1-29" aria-hidden="true" tabindex="-1"></a>axes[<span class="dv">0</span>].set_title(<span class="st">"Single Deep Tree"</span>)</span>
-<span id="cb1-30"><a href="#cb1-30" aria-hidden="true" tabindex="-1"></a>axes[<span class="dv">0</span>].set_xlabel(<span class="st">"Predictor"</span>)</span>
-<span id="cb1-31"><a href="#cb1-31" aria-hidden="true" tabindex="-1"></a>axes[<span class="dv">0</span>].set_ylabel(<span class="st">"Outcome"</span>)</span>
-<span id="cb1-32"><a href="#cb1-32" aria-hidden="true" tabindex="-1"></a>axes[<span class="dv">0</span>].grid(<span class="va">True</span>, alpha<span class="op">=</span><span class="fl">0.3</span>)</span>
-<span id="cb1-33"><a href="#cb1-33" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-34"><a href="#cb1-34" aria-hidden="true" tabindex="-1"></a>axes[<span class="dv">1</span>].scatter(x, y, s<span class="op">=</span><span class="dv">16</span>, color<span class="op">=</span><span class="st">"0.35"</span>, alpha<span class="op">=</span><span class="fl">0.7</span>)</span>
-<span id="cb1-35"><a href="#cb1-35" aria-hidden="true" tabindex="-1"></a>axes[<span class="dv">1</span>].plot(x_grid, forest_hat, color<span class="op">=</span><span class="st">"C0"</span>, linewidth<span class="op">=</span><span class="fl">2.3</span>)</span>
-<span id="cb1-36"><a href="#cb1-36" aria-hidden="true" tabindex="-1"></a>axes[<span class="dv">1</span>].set_title(<span class="st">"Random Forest"</span>)</span>
-<span id="cb1-37"><a href="#cb1-37" aria-hidden="true" tabindex="-1"></a>axes[<span class="dv">1</span>].set_xlabel(<span class="st">"Predictor"</span>)</span>
-<span id="cb1-38"><a href="#cb1-38" aria-hidden="true" tabindex="-1"></a>axes[<span class="dv">1</span>].grid(<span class="va">True</span>, alpha<span class="op">=</span><span class="fl">0.3</span>)</span>
-<span id="cb1-39"><a href="#cb1-39" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-40"><a href="#cb1-40" aria-hidden="true" tabindex="-1"></a>plt.tight_layout()</span>
-<span id="cb1-41"><a href="#cb1-41" aria-hidden="true" tabindex="-1"></a>plt.show()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
-</details>
-<div class="cell-output cell-output-display">
-<div id="fig-tree-vs-forest" class="quarto-float quarto-figure quarto-figure-center anchored">
-<figure class="quarto-float quarto-float-fig figure">
-<div aria-describedby="fig-tree-vs-forest-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-<img src="random_forests_files/figure-html/fig-tree-vs-forest-output-1.png" class="img-fluid figure-img">
-</div>
-<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-tree-vs-forest-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Figure&nbsp;11.1: Simulated outcomes drawn from <span class="math inline">Y=\sin(1.4X)+0.25X+\varepsilon</span> (gray points), a single deep-tree fit (red line, left panel), and a 300-tree random-forest fit (blue line, right panel). Both models use the same 180 training observations.
-</figcaption>
-</figure>
-</div>
-</div>
-</div>
-<p>The single tree reacts strongly to local sample noise. The forest remains nonlinear, but averaging across many trees stabilizes the fit.</p>
+<p>The weight <span class="math inline">w_i(x)</span> is large when observation <span class="math inline">i</span> often lands in the same terminal leaf as the prediction point, especially when that leaf contains few observations. For example, suppose three observations have outcomes <span class="math inline">2</span>, <span class="math inline">4</span>, and <span class="math inline">8</span>. If the prediction point shares a leaf with the first two in one tree and with the last two in another, the two leaf means are <span class="math inline">3</span> and <span class="math inline">6</span>. The forest prediction is <span class="math inline">(3+6)/2=4.5</span>, equivalently <span class="math inline">\tfrac14(2)+\tfrac12(4)+\tfrac14(8)</span>: the middle observation receives weight from both trees.</p>
+<p>The construction resembles kernel regression, which weights observations by their distance from the prediction point (the <a href="./kernel_smoothing.html#sec-kernel-nw">kernel smoothing primer</a> introduces it), but the forest learns its neighborhoods through tree partitions instead of prescribing them with a distance formula. The forest weights generally depend on the training outcomes as well as the predictors, because outcomes determine which splits are selected.</p>
+<p>This weighting view is also the bridge to more advanced forests. <em>Quantile Regression Forests</em> keep more than the leaf mean and use forest neighborhood weights to estimate a conditional distribution <span class="citation" data-cites="Meinshausen2006QRF">(<a href="#ref-Meinshausen2006QRF" role="doc-biblioref">Meinshausen 2006</a>)</span>. <em>Local Linear Forests</em> go in a different direction: they retain the forest neighborhood but fit a local linear model rather than a constant inside it <span class="citation" data-cites="FriedbergTibshiraniAtheyWager2021">(<a href="#ref-FriedbergTibshiraniAtheyWager2021" role="doc-biblioref">Friedberg et al. 2021</a>)</span>. Both are developed in Chapter 13, in the <a href="./adv_tree_based_methods.html#sec-adv-qrf">quantile regression forest section</a> and the <a href="./adv_tree_based_methods.html#sec-adv-llf">local linear forest section</a> respectively.</p>
 </section>
 <section id="sec-rf-oob" class="level2" data-number="11.6">
 <h2 data-number="11.6" class="anchored" data-anchor-id="sec-rf-oob"><span class="header-section-number">11.6</span> Bootstrap Sampling and Out-of-Bag Evaluation</h2>
@@ -735,6 +647,7 @@ Figure&nbsp;11.1: Simulated outcomes drawn from <span class="math inline">Y=\sin
 </span></p>
 </div>
 <p>where <span class="math inline">\mathcal{B}_i^{\text{OOB}} = \{\, b : i \notin \text{the bootstrap sample used to grow tree } b \,\}</span> is the set of trees whose bootstrap sample excludes observation <span class="math inline">i</span>, and <span class="math inline">|\mathcal{B}_i^{\text{OOB}}|</span> is its cardinality.</p>
+<p>The prediction is defined only when <span class="math inline">|\mathcal{B}_i^{\text{OOB}}|&gt;0</span>. With few trees, some observations may have no OOB prediction; grow more trees and check coverage before computing the all-observation OOB error below.</p>
 <p>The OOB construction produces an approximately out-of-sample prediction for observation <span class="math inline">i</span>, because the trees contributing to that prediction were not trained on <span class="math inline">i</span>. (We avoid the word <em>honest</em> here: in the forest literature it has the specific technical meaning of separating the observations used to choose splits from those used to compute leaf values, a stronger condition that OOB averaging does not deliver.) The <strong>OOB error</strong> is the average loss of these OOB predictions over all observations; for regression it is </p>
 <div class="display-math-block">
 <p><span class="math display">
@@ -743,7 +656,9 @@ Figure&nbsp;11.1: Simulated outcomes drawn from <span class="math inline">Y=\sin
 \frac{1}{N}\sum_{i=1}^N \big(y_i - \hat f^{\text{OOB}}(x_i)\big)^2.
 </span></p>
 </div>
-<p>Under independent and identically distributed (i.i.d.) sampling, OOB error is a useful internal estimate of prediction error for new observations drawn from the same distribution; with enough trees, it is often close to a same-size holdout estimate <span class="citation" data-cites="Breiman2001RandomForests">(<a href="#ref-Breiman2001RandomForests" role="doc-biblioref">Breiman 2001</a>)</span>. This argument relies on an exchangeability/random-holdout target. With temporal, spatial, or clustered dependence, standard row-wise bootstrap/OOB validation need not reproduce the dependence structure or information set relevant for forecasting. OOB error can therefore be misleading, and rolling, blocked, spatial, or cluster-level validation is usually more appropriate <span class="citation" data-cites="RobertsEtAl2017CV">(<a href="#ref-RobertsEtAl2017CV" role="doc-biblioref">Roberts et al. 2017</a>)</span>.</p>
+<p><strong>OOB as Built-In Cross-Validation</strong></p>
+<p>OOB error is a form of cross-validation that bagging supplies without refitting. Like the pooled K-fold estimate <span class="math inline">\widehat{\mathrm{CV}}_K</span> in the <a href="./cross_validation.html#sec-cv-kfold">cross-validation chapter</a>, it scores each observation with a predictor fitted without that observation and averages the held-out losses over all <span class="math inline">N</span> observations. The closest analogue is leave-one-out cross-validation, the case <span class="math inline">K=N</span>. Conditional on omitting observation <span class="math inline">i</span>, a bootstrap sample of size <span class="math inline">N</span> consists of <span class="math inline">N</span> draws from the remaining <span class="math inline">N-1</span> observations. Every tree in <span class="math inline">\mathcal{B}_i^{\text{OOB}}</span> is therefore grown by the forest’s usual rule on the leave-one-out sample (with <span class="math inline">N</span> rather than <span class="math inline">N-1</span> draws), and <span class="math inline">\hat f^{\text{OOB}}(x_i)</span> is a forest fitted without observation <span class="math inline">i</span> <span class="citation" data-cites="HastieTibshiraniFriedman2009">(<a href="#ref-HastieTibshiraniFriedman2009" role="doc-biblioref">Hastie, Tibshirani, and Friedman 2009, sec. 15.3.1</a>)</span>. It differs from leave-one-out cross-validation of the full forest mainly in size: it averages about <span class="math inline">e^{-1}B</span> trees rather than <span class="math inline">B</span>, which adds Monte Carlo variance that vanishes as <span class="math inline">B</span> grows. Exercise 11.2 quantifies this effect.</p>
+<p>Under independent and identically distributed (i.i.d.) sampling, OOB error is therefore a useful internal estimate of prediction error for new observations drawn from the same distribution <span class="citation" data-cites="Breiman2001RandomForests">(<a href="#ref-Breiman2001RandomForests" role="doc-biblioref">Breiman 2001</a>)</span>. The caveats of cross-validation carry over. This interpretation requires that observation <span class="math inline">i</span>’s outcome has not entered its OOB predictors through preprocessing or feature selection, which is the <a href="./cross_validation.html#sec-cv-leakage">leakage principle</a> of cross-validation. If OOB error is used to choose hyperparameters, the selected minimum is a tuning result; use a separate test sample for final evaluation. With temporal, spatial, or clustered dependence, row-wise OOB validation shares the weakness of shuffled K-fold cross-validation discussed for <a href="./cross_validation.html#sec-cv-time-series">time series</a>: it need not reproduce the dependence structure or information set relevant for forecasting. OOB error can therefore be misleading, and rolling, blocked, spatial, or cluster-level validation is usually more appropriate <span class="citation" data-cites="RobertsEtAl2017CV">(<a href="#ref-RobertsEtAl2017CV" role="doc-biblioref">Roberts et al. 2017</a>)</span>.</p>
 <div class="callout callout-style-default callout-note callout-titled">
 <div class="callout-header d-flex align-content-center">
 <div class="callout-icon-container">
@@ -782,11 +697,11 @@ Suggested Answer
 </div>
 <div id="callout-4" class="callout-4-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
-<p>Standard OOB error is closest to validating randomly held-out firm-time rows, so it is most defensible for a target resembling new cells drawn from the same panel distribution. It is not a good proxy for predicting entirely new firms or future time periods if there is firm dependence or temporal dependence. New firms call for leave-firm-out validation, future periods call for forward or blocked time splits, and combined targets may require holding out both firms and time blocks.</p>
+<p>Standard OOB error is closest to validating randomly held-out firm-time rows, so it is most defensible for a target resembling new cells drawn from the same panel distribution. It is not a good proxy for predicting entirely new firms or future time periods if there is firm dependence or temporal dependence. New firms call for leave-firm-out validation, future periods call for forward splits that hold out future time blocks, and combined targets may require holding out both firms and time blocks.</p>
 </div>
 </div>
 </div>
-<p><a href="#fig-oob-convergence" class="quarto-xref">Figure&nbsp;11.2</a> compares out-of-bag and independent-test mean squared error (MSE) as the forest grows.</p>
+<p><a href="#fig-oob-convergence" class="quarto-xref">Figure&nbsp;11.2</a> compares OOB error with the error on an independent test sample in a setting where OOB error is justified, because the observations are i.i.d. by construction. The data are simulated afresh and are unrelated to <a href="#fig-tree-vs-forest" class="quarto-xref">Figure&nbsp;11.1</a>. There are <span class="math inline">N=400</span> training observations with eight independent standard normal predictors. Only the first four enter the conditional mean, through a smooth nonlinearity, a step, and an interaction; the other four are pure noise. A second sample of 400 observations drawn from the same design serves as the test set. For each number of trees <span class="math inline">B</span> on the grid, we fit a forest with three candidate predictors per split and a minimum leaf size of 5. We then record two numbers: the OOB mean squared error (MSE) on the training observations and the MSE of the full forest on the test sample. The forests share a random seed, so each larger forest contains the trees of the smaller ones, and the curves trace a single forest as trees are added.</p>
 <div id="cell-fig-oob-convergence" class="cell" data-execution_count="3">
 <details class="code-fold">
 <summary>Show the code</summary>
@@ -847,13 +762,13 @@ Suggested Answer
 <img src="random_forests_files/figure-html/fig-oob-convergence-output-1.png" class="img-fluid figure-img">
 </div>
 <figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-oob-convergence-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Figure&nbsp;11.2: Out-of-bag (OOB) mean squared error (blue) and independent-test mean squared error (orange) against the number of trees for a forest fit to simulated independent observations. The grid begins at 25 trees, when every training observation has at least one OOB prediction in this seeded simulation.
+Figure&nbsp;11.2: Out-of-bag (OOB) mean squared error (MSE) on the 400 training observations (blue) and MSE on 400 independently drawn test observations (orange), plotted against the number of trees <span class="math inline">B</span>. The simulated data have eight independent standard normal predictors <span class="math inline">X_1,\ldots,X_8</span> and outcome <span class="math inline">Y=1.2\sin(X_1)+0.8\,\mathbf{1}\{X_2&gt;0\}+0.6X_3X_4+\varepsilon</span>, where <span class="math inline">\varepsilon\sim N(0,0.5^2)</span> is independent of the predictors. Each forest offers three candidate predictors per split and uses a minimum leaf size of 5. The grid begins at 25 trees, when every training observation has at least one OOB prediction in this seeded simulation.
 </figcaption>
 </figure>
 </div>
 </div>
 </div>
-<p>The OOB MSE falls most at the smaller tree counts, whereas the independent-test MSE is comparatively flat. Both curves stabilize as the finite-forest Monte Carlo component becomes small; further trees then mainly increase computation.</p>
+<p>The OOB MSE falls most at the smaller tree counts, whereas the independent-test MSE is comparatively flat. The difference reflects the number of trees behind each prediction: at <span class="math inline">B=25</span>, an OOB prediction averages about nine trees, whereas each test prediction averages all 25. Both curves stabilize as the finite-forest Monte Carlo component becomes small; further trees then mainly increase computation. The OOB curve lies below the test curve at every <span class="math inline">B</span>, but this gap is not evidence that OOB error is optimistic. Each curve averages only 400 squared errors, and the test MSE alone has a standard error of about 0.09 here. Rerunning the simulation with other seeds produces gaps of either sign.</p>
 </section>
 <section id="sec-rf-hyperparameters" class="level2" data-number="11.7">
 <h2 data-number="11.7" class="anchored" data-anchor-id="sec-rf-hyperparameters"><span class="header-section-number">11.7</span> Hyperparameters and Trade-Offs</h2>
@@ -868,11 +783,11 @@ Figure&nbsp;11.2: Out-of-bag (OOB) mean squared error (blue) and independent-tes
 <p><strong>Number of Candidate Features per Split</strong></p>
 <p>This hyperparameter is often called <code>max_features</code> or <code>mtry</code>.</p>
 <ul>
-<li>Smaller <code>max_features</code> diversifies the fitted trees and can lower training-sample variability. It also makes individual trees noisier conditional on the data, a Monte Carlo cost that averaging removes at rate <span class="math inline">1/B</span> and that therefore mainly requires more trees. As discussed above, it can also increase bias: when informative predictors are unavailable at useful splits, trees must substitute weaker splits that may systematically miss part of the signal. Increasing <span class="math inline">B</span> estimates the average of this randomized fitting rule more precisely; it does not correct bias in that average rule.</li>
+<li>Smaller <code>max_features</code> diversifies the fitted trees and can lower training-sample variability. It can also make individual trees noisier conditional on the data, a Monte Carlo cost that averaging removes at rate <span class="math inline">1/B</span> and that therefore mainly requires more trees. As discussed above, it can also increase bias: when informative predictors are unavailable at useful splits, trees must substitute weaker splits that may systematically miss part of the signal. Increasing <span class="math inline">B</span> estimates the average of this randomized fitting rule more precisely; it does not correct bias in that average rule.</li>
 <li>Larger <code>max_features</code> makes each tree stronger but more similar to the others.</li>
 <li>If one predictor is much stronger than the others, reducing <code>max_features</code> can materially improve the ensemble by forcing other variables into the split search.</li>
 </ul>
-<p>Common rules of thumb are to try roughly <span class="math inline">p/3</span> candidate features per split for regression and roughly <span class="math inline">\sqrt{p}</span> for classification. These particular defaults come from the widely used <code>randomForest</code> implementation <span class="citation" data-cites="LiawWiener2002">(<a href="#ref-LiawWiener2002" role="doc-biblioref">Liaw and Wiener 2002</a>)</span>; <span class="citation" data-cites="Breiman2001RandomForests">Breiman (<a href="#ref-Breiman2001RandomForests" role="doc-biblioref">2001</a>)</span> himself worked with considerably smaller values in his random-feature experiments, namely <span class="math inline">m=1</span> and <span class="math inline">m=\lfloor \log_2 p + 1 \rfloor</span>. They are not econometric laws; they are starting values that should be checked with a validation design appropriate for the data structure.</p>
+<p>Common rules of thumb are to try roughly <span class="math inline">p/3</span> candidate features per split for regression and <span class="math inline">\sqrt{p}</span> for classification. These particular defaults come from the widely used <code>randomForest</code> implementation <span class="citation" data-cites="LiawWiener2002">(<a href="#ref-LiawWiener2002" role="doc-biblioref">Liaw and Wiener 2002</a>)</span>; <span class="citation" data-cites="Breiman2001RandomForests">Breiman (<a href="#ref-Breiman2001RandomForests" role="doc-biblioref">2001</a>)</span> himself worked with considerably smaller values in his random-feature experiments, for example <span class="math inline">\lfloor \log_2 p + 1 \rfloor</span>. They are not econometric laws; they are starting values that should be checked with a validation design appropriate for the data structure.</p>
 <p><strong>Leaf Size and Tree Depth</strong></p>
 <p>Random forests typically use deep trees, but the leaf size still matters.</p>
 <ul>
@@ -880,7 +795,7 @@ Figure&nbsp;11.2: Out-of-bag (OOB) mean squared error (blue) and independent-tes
 <li>Larger leaves smooth the prediction surface and can improve performance when the signal is weak or noisy.</li>
 </ul>
 <p><strong>Monotonicity Constraints in Some Implementations</strong></p>
-<p>Monotonicity constraints are not part of the classical random-forest theory developed in this chapter, but some modern implementations allow them. The idea is straightforward: if economic reasoning implies that a predictor should move the fitted outcome only upward or only downward, the ensemble can be restricted to respect that sign pattern. (The same device reappears for gradient boosting in a <a href="./gradient_boosting.html">later chapter</a>.) This can make a forest more credible when the unrestricted fit shows local reversals that are hard to defend economically.</p>
+<p>Monotonicity constraints are not part of the classical random-forest theory developed in this chapter, but some modern implementations allow them. The idea is straightforward: if economic reasoning implies that a predictor should move the fitted outcome only upward or only downward, the ensemble can be restricted to respect that sign pattern. (The same device reappears for gradient boosting in Chapter 12, in the <a href="./gradient_boosting.html#sec-gb-regularization">section on regularization in boosting</a>.) This can make a forest more credible when the unrestricted fit shows local reversals that are hard to defend economically.</p>
 <p>Mechanically, the constraint is enforced inside each tree by rejecting any candidate split on the constrained feature that would produce children violating the sign pattern. Tree-growing algorithms additionally propagate bounds through the tree so that splits on <em>other</em> features cannot eventually create leaves that break the global monotonicity. Since every tree in the forest respects the constraint, the averaged prediction does too.</p>
 <p><strong>In scikit-learn.</strong> Since version 1.4, <code>RandomForestRegressor</code> accepts a <code>monotonic_cst</code> argument with one integer per feature: <code>+1</code> for increasing, <code>-1</code> for decreasing, and <code>0</code> for no constraint:</p>
 <div class="sourceCode" id="cb3"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.ensemble <span class="im">import</span> RandomForestRegressor</span>
@@ -892,55 +807,14 @@ Figure&nbsp;11.2: Out-of-bag (OOB) mean squared error (blue) and independent-tes
 <span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <p>See the scikit-learn example <a href="https://scikit-learn.org/stable/auto_examples/ensemble/plot_monotonic_constraints.html">Monotonic Constraints</a> for a visual comparison of constrained and unconstrained fits.</p>
 <p>The same warning applies as elsewhere: a monotonicity restriction is a predictive shape constraint, not a structural identification device. If the sign restriction is wrong or only locally valid, the forest can become systematically misspecified.</p>
-<p><strong>Practical Bias-Variance Summary</strong></p>
-<p>The forest design has two levers:</p>
-<ol type="1">
-<li>Make each tree strong.</li>
-<li>Diversify the fitted rules so that averaging removes more of their sampling instability.</li>
-</ol>
-<p>The best tuning balances those two goals rather than maximizing either one in isolation. Changing <code>max_features</code> can affect bias, training-sample variability, and finite-forest Monte Carlo variability at the same time.</p>
 </section>
 <section id="sec-rf-econometric" class="level2" data-number="11.8">
 <h2 data-number="11.8" class="anchored" data-anchor-id="sec-rf-econometric"><span class="header-section-number">11.8</span> Econometric Interpretation and Limits</h2>
 <p>Random forests are well suited to <strong>prediction with many candidate interactions</strong>. They can uncover nonlinear combinations of predictors without the econometrician specifying them manually, which is valuable in cross-sectional or panel-style prediction tasks with rich covariate sets.</p>
 <p>But several limits remain.</p>
 <p><strong>No Extrapolation</strong></p>
-<p>Like single trees, forests average leaf values. That means they remain local averaging estimators. If the forecast point lies outside the historical support of the training data, the forest cannot extrapolate a trend; it returns a weighted average of observed outcomes from nearby leaves.</p>
-<p><strong>Interpretation Is Predictive, Not Structural</strong></p>
-<p>A variable that appears important for a forest is not necessarily a causal driver. The forest is optimized for prediction, not identification.</p>
-<p><strong>Standard OOB Evaluation Can Fail for Dependent Data</strong></p>
-<p>In macroeconomic and financial forecasting, three distinct questions are easy to run together.</p>
-<p>The first concerns <strong>algorithmic randomization</strong>. Row bootstrap samples diversify the fitted trees; in that role they are part of the learning algorithm, not automatically an approximation to the sampling distribution of an estimator. Whether row sampling, subsampling, or contiguous-block sampling improves prediction depends on the data-generating process, feature construction, and forecast target.</p>
-<p>The second concerns <strong>dependence-aware estimation and inference</strong>. If block resampling is meant to preserve a time-series sampling law, its validity requires a named scheme, assumptions on dependence, an appropriate block-length sequence or selector, and a result for the estimator and target at hand. A generic block bootstrap is therefore a design option, not an automatic remedy.</p>
-<p>The third concerns <strong>evaluation</strong>, and it is decisive for real-time forecasting. An observation at date <span class="math inline">t</span> is OOB for trees that did not draw it, but those trees can still be trained on dates after <span class="math inline">t</span>. Its OOB prediction can therefore use information unavailable at the forecast origin. Changing the resampling scheme does not by itself fix an evaluation that ignores the arrow of time. The direction of the distortion is not guaranteed. With a structural break halfway through the sample, post-break observations can contaminate a pre-break OOB prediction and make the assessment pessimistic. At an early post-break origin, later observations from the new regime can make it optimistic. Rolling or expanding validation windows instead reproduce the actual information set at each origin <span class="citation" data-cites="RobertsEtAl2017CV">(<a href="#ref-RobertsEtAl2017CV" role="doc-biblioref">Roberts et al. 2017</a>)</span>.</p>
-<div class="callout callout-style-default callout-warning callout-titled">
-<div class="callout-header d-flex align-content-center">
-<div class="callout-icon-container">
-<i class="callout-icon"></i>
-</div>
-<div class="callout-title-container flex-fill">
-Econometric Warning
-</div>
-</div>
-<div class="callout-body-container callout-body">
-<p>For forecasting problems with serial dependence, publication lags, and real-time data revisions, standard random-forest OOB error is not a valid real-time performance measure. Use rolling or expanding validation windows that replicate the actual information set at the forecast origin.</p>
-</div>
-</div>
-<p><strong>Variable Importance: Useful but Imperfect</strong></p>
-<p>Forests are often accompanied by variable-importance measures. The two most common versions are:</p>
-<ul>
-<li><strong>Impurity-based importance</strong>: sum the reduction in the split criterion, such as residual sum of squares (RSS) or Gini impurity (both defined in the <a href="./decision_trees.html">chapter on decision trees</a>), attributed to each predictor across all trees.</li>
-<li><strong>Permutation importance</strong>: shuffle one predictor in an out-of-bag or validation sample, recompute predictive performance, and use the resulting deterioration as the importance measure.</li>
-</ul>
-<p>Both measures can be useful screening devices, but they have limitations <span class="citation" data-cites="Strobl2007">(<a href="#ref-Strobl2007" role="doc-biblioref">Strobl et al. 2007</a>)</span>:</p>
-<ul>
-<li>impurity-based importance can favor variables with many possible split points</li>
-<li>importance does not measure causal effect size</li>
-<li>correlated predictors can split the signal across variables and make each one look less important than it truly is</li>
-</ul>
-<p>Permutation importance answers a different predictive perturbation question from impurity reduction: how much worse this fitted forest predicts when one column is broken. It does not identify the variable’s causal effect or its unique information contribution.</p>
-<p>Two cautions matter especially for the dependent, correlated data of this book. First, permuting a column row by row destroys the predictor’s temporal ordering along with its relationship to the target, so in a time-series setting the deterioration mixes the loss of the variable’s signal with the destruction of its serial structure. Permuting contiguous blocks can serve as a sensitivity check because it preserves dependence within each block, but it still breaks dependence across block boundaries and its result depends on the chosen block length. Block permutation therefore reduces rather than eliminates the serial-structure problem; it does not isolate a clean signal contribution. Second, when predictors are correlated, row-wise permutation evaluates the forest at feature combinations that never occur in the data—a permuted term spread paired with an unpermuted unemployment rate may describe a macroeconomic state that has never existed. The resulting number measures how much the fitted function relies on that column once its joint relationship with the others is broken, which is not the same as how much predictive information the variable carries.</p>
-<p><a href="#fig-rf-fredqd" class="quarto-xref">Figure&nbsp;11.3</a> illustrates the stabilization argument directly using the quarterly <a href="./datasets.html#fred-qd">Federal Reserve Economic Data collection (FRED-QD)</a> <span class="citation" data-cites="McCrackenNg2020FREDQD">(<a href="#ref-McCrackenNg2020FREDQD" role="doc-biblioref">McCracken and Ng 2020</a>)</span>. The target is annualized gross domestic product (GDP) growth in quarter <span class="math inline">t+1</span>, while the predictors are dated quarter <span class="math inline">t</span>.<a href="#fn1" class="footnote-ref" id="fnref1" role="doc-noteref"><sup>1</sup></a> The top panel shows test-period predictions from a single unrestricted decision tree; the bottom panel shows predictions from a 500-tree random forest trained on the same predictors. The single-tree forecast jumps between a small set of leaf constants. Averaging 500 step-function predictions produces a less jumpy forest path. The plot cannot by itself demonstrate in-sample overfitting or identify statistical bias and variance, which are repeated-sample concepts. It does show that neither model approaches the annualized GDP-growth rates of roughly <span class="math inline">-33\%</span> and <span class="math inline">+30\%</span> observed in 2020; the forest is especially flat at those extremes. A tree ensemble averages leaf constants estimated from historical data and therefore cannot forecast outside the range those constants span.</p>
+<p>Like single trees, forests average leaf values. That means they remain local averaging estimators. If the prediction point lies outside the historical support of the training data, the forest cannot extrapolate a trend; it returns a weighted average of observed outcomes from nearby leaves.</p>
+<p><a href="#fig-rf-fredqd" class="quarto-xref">Figure&nbsp;11.3</a> illustrates this limit, together with the stabilizing effect of averaging, using the quarterly <a href="./datasets.html#fred-qd">Federal Reserve Economic Data collection (FRED-QD)</a> <span class="citation" data-cites="McCrackenNg2020FREDQD">(<a href="#ref-McCrackenNg2020FREDQD" role="doc-biblioref">McCracken and Ng 2020</a>)</span>. The target is annualized gross domestic product (GDP) growth in quarter <span class="math inline">t+1</span>, while the predictors are dated quarter <span class="math inline">t</span>: GDP growth, inflation, the term spread, the log of the volatility index (VIX), and the unemployment rate.<a href="#fn1" class="footnote-ref" id="fnref1" role="doc-noteref"><sup>1</sup></a> The top panel shows test-period predictions from a single unrestricted decision tree; the bottom panel shows predictions from a 500-tree random forest trained on the same predictors. The single-tree forecast jumps between a small set of leaf constants. Averaging 500 step-function predictions produces a less jumpy forest path. The plot cannot by itself demonstrate in-sample overfitting or identify statistical bias and variance, which are repeated-sample concepts. It does show that neither model approaches the annualized GDP-growth rates of roughly <span class="math inline">-33\%</span> and <span class="math inline">+30\%</span> observed in 2020; the forest is especially flat at those extremes. A tree ensemble averages leaf constants estimated from historical data and therefore cannot forecast outside the range those constants span.</p>
 <div id="cell-fig-rf-fredqd" class="cell" data-execution_count="4">
 <details class="code-fold">
 <summary>Show the code</summary>
@@ -964,45 +838,46 @@ Econometric Warning
 <span id="cb4-18"><a href="#cb4-18" aria-hidden="true" tabindex="-1"></a>log_vix     <span class="op">=</span> np.log(fred_qd[<span class="st">"VIXCLSx"</span>])</span>
 <span id="cb4-19"><a href="#cb4-19" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb4-20"><a href="#cb4-20" aria-hidden="true" tabindex="-1"></a>macro <span class="op">=</span> pd.DataFrame({</span>
-<span id="cb4-21"><a href="#cb4-21" aria-hidden="true" tabindex="-1"></a>    <span class="st">"date"</span>:        fred_qd[<span class="st">"sasdate"</span>],</span>
-<span id="cb4-22"><a href="#cb4-22" aria-hidden="true" tabindex="-1"></a>    <span class="st">"y"</span>:           gdp_growth.shift(<span class="op">-</span><span class="dv">1</span>),</span>
-<span id="cb4-23"><a href="#cb4-23" aria-hidden="true" tabindex="-1"></a>    <span class="st">"gdp_lag1"</span>:    gdp_growth,</span>
-<span id="cb4-24"><a href="#cb4-24" aria-hidden="true" tabindex="-1"></a>    <span class="st">"infl_lag1"</span>:   inflation,</span>
-<span id="cb4-25"><a href="#cb4-25" aria-hidden="true" tabindex="-1"></a>    <span class="st">"spread_lag1"</span>: term_spread,</span>
-<span id="cb4-26"><a href="#cb4-26" aria-hidden="true" tabindex="-1"></a>    <span class="st">"vix_lag1"</span>:    log_vix,</span>
-<span id="cb4-27"><a href="#cb4-27" aria-hidden="true" tabindex="-1"></a>    <span class="st">"unrate_lag1"</span>: fred_qd[<span class="st">"UNRATE"</span>],</span>
-<span id="cb4-28"><a href="#cb4-28" aria-hidden="true" tabindex="-1"></a>}).dropna()</span>
-<span id="cb4-29"><a href="#cb4-29" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb4-30"><a href="#cb4-30" aria-hidden="true" tabindex="-1"></a>feature_cols <span class="op">=</span> [<span class="st">"gdp_lag1"</span>, <span class="st">"infl_lag1"</span>, <span class="st">"spread_lag1"</span>, <span class="st">"vix_lag1"</span>, <span class="st">"unrate_lag1"</span>]</span>
-<span id="cb4-31"><a href="#cb4-31" aria-hidden="true" tabindex="-1"></a>split <span class="op">=</span> <span class="bu">int</span>(<span class="bu">len</span>(macro) <span class="op">*</span> <span class="fl">0.75</span>)</span>
-<span id="cb4-32"><a href="#cb4-32" aria-hidden="true" tabindex="-1"></a>X_train <span class="op">=</span> macro.iloc[:split][feature_cols].values</span>
-<span id="cb4-33"><a href="#cb4-33" aria-hidden="true" tabindex="-1"></a>y_train <span class="op">=</span> macro.iloc[:split][<span class="st">"y"</span>].values</span>
-<span id="cb4-34"><a href="#cb4-34" aria-hidden="true" tabindex="-1"></a>X_test  <span class="op">=</span> macro.iloc[split:][feature_cols].values</span>
-<span id="cb4-35"><a href="#cb4-35" aria-hidden="true" tabindex="-1"></a>y_test  <span class="op">=</span> macro.iloc[split:][<span class="st">"y"</span>].values</span>
-<span id="cb4-36"><a href="#cb4-36" aria-hidden="true" tabindex="-1"></a>test_dates <span class="op">=</span> macro.iloc[split:][<span class="st">"date"</span>]</span>
-<span id="cb4-37"><a href="#cb4-37" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb4-38"><a href="#cb4-38" aria-hidden="true" tabindex="-1"></a>single_tree <span class="op">=</span> DecisionTreeRegressor(random_state<span class="op">=</span><span class="dv">42</span>)</span>
-<span id="cb4-39"><a href="#cb4-39" aria-hidden="true" tabindex="-1"></a>forest <span class="op">=</span> RandomForestRegressor(n_estimators<span class="op">=</span><span class="dv">500</span>, max_features<span class="op">=</span><span class="st">"sqrt"</span>, random_state<span class="op">=</span><span class="dv">42</span>)</span>
-<span id="cb4-40"><a href="#cb4-40" aria-hidden="true" tabindex="-1"></a>single_tree.fit(X_train, y_train)</span>
-<span id="cb4-41"><a href="#cb4-41" aria-hidden="true" tabindex="-1"></a>forest.fit(X_train, y_train)</span>
-<span id="cb4-42"><a href="#cb4-42" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb4-43"><a href="#cb4-43" aria-hidden="true" tabindex="-1"></a>fig, axes <span class="op">=</span> plt.subplots(<span class="dv">2</span>, <span class="dv">1</span>, figsize<span class="op">=</span>(<span class="dv">11</span>, <span class="dv">6</span>), sharex<span class="op">=</span><span class="va">True</span>)</span>
-<span id="cb4-44"><a href="#cb4-44" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> ax, pred, label, color <span class="kw">in</span> <span class="bu">zip</span>(</span>
-<span id="cb4-45"><a href="#cb4-45" aria-hidden="true" tabindex="-1"></a>    axes,</span>
-<span id="cb4-46"><a href="#cb4-46" aria-hidden="true" tabindex="-1"></a>    [single_tree.predict(X_test), forest.predict(X_test)],</span>
-<span id="cb4-47"><a href="#cb4-47" aria-hidden="true" tabindex="-1"></a>    [<span class="st">"Single tree (unconstrained depth)"</span>, <span class="st">"Random forest (500 trees)"</span>],</span>
-<span id="cb4-48"><a href="#cb4-48" aria-hidden="true" tabindex="-1"></a>    [<span class="st">"C1"</span>, <span class="st">"C0"</span>],</span>
-<span id="cb4-49"><a href="#cb4-49" aria-hidden="true" tabindex="-1"></a>):</span>
-<span id="cb4-50"><a href="#cb4-50" aria-hidden="true" tabindex="-1"></a>    ax.plot(test_dates, y_test, color<span class="op">=</span><span class="st">"0.5"</span>, linewidth<span class="op">=</span><span class="dv">1</span>, label<span class="op">=</span><span class="st">"Realized GDP growth"</span>)</span>
-<span id="cb4-51"><a href="#cb4-51" aria-hidden="true" tabindex="-1"></a>    ax.plot(test_dates, pred,   color<span class="op">=</span>color, linewidth<span class="op">=</span><span class="fl">1.5</span>, label<span class="op">=</span>label)</span>
-<span id="cb4-52"><a href="#cb4-52" aria-hidden="true" tabindex="-1"></a>    ax.axhline(<span class="dv">0</span>, color<span class="op">=</span><span class="st">"0.8"</span>, linewidth<span class="op">=</span><span class="fl">0.7</span>, linestyle<span class="op">=</span><span class="st">"--"</span>)</span>
-<span id="cb4-53"><a href="#cb4-53" aria-hidden="true" tabindex="-1"></a>    ax.set_ylabel(<span class="st">"pct. pts. ann."</span>)</span>
-<span id="cb4-54"><a href="#cb4-54" aria-hidden="true" tabindex="-1"></a>    ax.legend(frameon<span class="op">=</span><span class="va">False</span>, loc<span class="op">=</span><span class="st">"upper right"</span>)</span>
-<span id="cb4-55"><a href="#cb4-55" aria-hidden="true" tabindex="-1"></a>    ax.grid(<span class="va">True</span>, alpha<span class="op">=</span><span class="fl">0.25</span>)</span>
-<span id="cb4-56"><a href="#cb4-56" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb4-57"><a href="#cb4-57" aria-hidden="true" tabindex="-1"></a>axes[<span class="dv">1</span>].set_xlabel(<span class="st">"Quarter"</span>)</span>
-<span id="cb4-58"><a href="#cb4-58" aria-hidden="true" tabindex="-1"></a>plt.tight_layout()</span>
-<span id="cb4-59"><a href="#cb4-59" aria-hidden="true" tabindex="-1"></a>plt.show()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<span id="cb4-21"><a href="#cb4-21" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Row t contains predictors from t and the outcome and date from t+1.</span></span>
+<span id="cb4-22"><a href="#cb4-22" aria-hidden="true" tabindex="-1"></a>    <span class="st">"target_date"</span>: fred_qd[<span class="st">"sasdate"</span>].shift(<span class="op">-</span><span class="dv">1</span>),</span>
+<span id="cb4-23"><a href="#cb4-23" aria-hidden="true" tabindex="-1"></a>    <span class="st">"y"</span>:           gdp_growth.shift(<span class="op">-</span><span class="dv">1</span>),</span>
+<span id="cb4-24"><a href="#cb4-24" aria-hidden="true" tabindex="-1"></a>    <span class="st">"gdp_lag1"</span>:    gdp_growth,</span>
+<span id="cb4-25"><a href="#cb4-25" aria-hidden="true" tabindex="-1"></a>    <span class="st">"infl_lag1"</span>:   inflation,</span>
+<span id="cb4-26"><a href="#cb4-26" aria-hidden="true" tabindex="-1"></a>    <span class="st">"spread_lag1"</span>: term_spread,</span>
+<span id="cb4-27"><a href="#cb4-27" aria-hidden="true" tabindex="-1"></a>    <span class="st">"vix_lag1"</span>:    log_vix,</span>
+<span id="cb4-28"><a href="#cb4-28" aria-hidden="true" tabindex="-1"></a>    <span class="st">"unrate_lag1"</span>: fred_qd[<span class="st">"UNRATE"</span>],</span>
+<span id="cb4-29"><a href="#cb4-29" aria-hidden="true" tabindex="-1"></a>}).dropna()</span>
+<span id="cb4-30"><a href="#cb4-30" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-31"><a href="#cb4-31" aria-hidden="true" tabindex="-1"></a>feature_cols <span class="op">=</span> [<span class="st">"gdp_lag1"</span>, <span class="st">"infl_lag1"</span>, <span class="st">"spread_lag1"</span>, <span class="st">"vix_lag1"</span>, <span class="st">"unrate_lag1"</span>]</span>
+<span id="cb4-32"><a href="#cb4-32" aria-hidden="true" tabindex="-1"></a>split <span class="op">=</span> <span class="bu">int</span>(<span class="bu">len</span>(macro) <span class="op">*</span> <span class="fl">0.75</span>)</span>
+<span id="cb4-33"><a href="#cb4-33" aria-hidden="true" tabindex="-1"></a>X_train <span class="op">=</span> macro.iloc[:split][feature_cols].values</span>
+<span id="cb4-34"><a href="#cb4-34" aria-hidden="true" tabindex="-1"></a>y_train <span class="op">=</span> macro.iloc[:split][<span class="st">"y"</span>].values</span>
+<span id="cb4-35"><a href="#cb4-35" aria-hidden="true" tabindex="-1"></a>X_test  <span class="op">=</span> macro.iloc[split:][feature_cols].values</span>
+<span id="cb4-36"><a href="#cb4-36" aria-hidden="true" tabindex="-1"></a>y_test  <span class="op">=</span> macro.iloc[split:][<span class="st">"y"</span>].values</span>
+<span id="cb4-37"><a href="#cb4-37" aria-hidden="true" tabindex="-1"></a>test_dates <span class="op">=</span> macro.iloc[split:][<span class="st">"target_date"</span>]</span>
+<span id="cb4-38"><a href="#cb4-38" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-39"><a href="#cb4-39" aria-hidden="true" tabindex="-1"></a>single_tree <span class="op">=</span> DecisionTreeRegressor(random_state<span class="op">=</span><span class="dv">42</span>)</span>
+<span id="cb4-40"><a href="#cb4-40" aria-hidden="true" tabindex="-1"></a>forest <span class="op">=</span> RandomForestRegressor(n_estimators<span class="op">=</span><span class="dv">500</span>, max_features<span class="op">=</span><span class="st">"sqrt"</span>, random_state<span class="op">=</span><span class="dv">42</span>)</span>
+<span id="cb4-41"><a href="#cb4-41" aria-hidden="true" tabindex="-1"></a>single_tree.fit(X_train, y_train)</span>
+<span id="cb4-42"><a href="#cb4-42" aria-hidden="true" tabindex="-1"></a>forest.fit(X_train, y_train)</span>
+<span id="cb4-43"><a href="#cb4-43" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-44"><a href="#cb4-44" aria-hidden="true" tabindex="-1"></a>fig, axes <span class="op">=</span> plt.subplots(<span class="dv">2</span>, <span class="dv">1</span>, figsize<span class="op">=</span>(<span class="dv">11</span>, <span class="dv">6</span>), sharex<span class="op">=</span><span class="va">True</span>)</span>
+<span id="cb4-45"><a href="#cb4-45" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> ax, pred, label, color <span class="kw">in</span> <span class="bu">zip</span>(</span>
+<span id="cb4-46"><a href="#cb4-46" aria-hidden="true" tabindex="-1"></a>    axes,</span>
+<span id="cb4-47"><a href="#cb4-47" aria-hidden="true" tabindex="-1"></a>    [single_tree.predict(X_test), forest.predict(X_test)],</span>
+<span id="cb4-48"><a href="#cb4-48" aria-hidden="true" tabindex="-1"></a>    [<span class="st">"Single tree (unconstrained depth)"</span>, <span class="st">"Random forest (500 trees)"</span>],</span>
+<span id="cb4-49"><a href="#cb4-49" aria-hidden="true" tabindex="-1"></a>    [<span class="st">"C1"</span>, <span class="st">"C0"</span>],</span>
+<span id="cb4-50"><a href="#cb4-50" aria-hidden="true" tabindex="-1"></a>):</span>
+<span id="cb4-51"><a href="#cb4-51" aria-hidden="true" tabindex="-1"></a>    ax.plot(test_dates, y_test, color<span class="op">=</span><span class="st">"0.5"</span>, linewidth<span class="op">=</span><span class="dv">1</span>, label<span class="op">=</span><span class="st">"Realized GDP growth"</span>)</span>
+<span id="cb4-52"><a href="#cb4-52" aria-hidden="true" tabindex="-1"></a>    ax.plot(test_dates, pred,   color<span class="op">=</span>color, linewidth<span class="op">=</span><span class="fl">1.5</span>, label<span class="op">=</span>label)</span>
+<span id="cb4-53"><a href="#cb4-53" aria-hidden="true" tabindex="-1"></a>    ax.axhline(<span class="dv">0</span>, color<span class="op">=</span><span class="st">"0.8"</span>, linewidth<span class="op">=</span><span class="fl">0.7</span>, linestyle<span class="op">=</span><span class="st">"--"</span>)</span>
+<span id="cb4-54"><a href="#cb4-54" aria-hidden="true" tabindex="-1"></a>    ax.set_ylabel(<span class="st">"pct. pts. ann."</span>)</span>
+<span id="cb4-55"><a href="#cb4-55" aria-hidden="true" tabindex="-1"></a>    ax.legend(frameon<span class="op">=</span><span class="va">False</span>, loc<span class="op">=</span><span class="st">"upper right"</span>)</span>
+<span id="cb4-56"><a href="#cb4-56" aria-hidden="true" tabindex="-1"></a>    ax.grid(<span class="va">True</span>, alpha<span class="op">=</span><span class="fl">0.25</span>)</span>
+<span id="cb4-57"><a href="#cb4-57" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-58"><a href="#cb4-58" aria-hidden="true" tabindex="-1"></a>axes[<span class="dv">1</span>].set_xlabel(<span class="st">"Target quarter"</span>)</span>
+<span id="cb4-59"><a href="#cb4-59" aria-hidden="true" tabindex="-1"></a>plt.tight_layout()</span>
+<span id="cb4-60"><a href="#cb4-60" aria-hidden="true" tabindex="-1"></a>plt.show()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </details>
 <div class="cell-output cell-output-display">
 <div id="fig-rf-fredqd" class="quarto-float quarto-figure quarto-figure-center anchored">
@@ -1011,12 +886,15 @@ Econometric Warning
 <img src="random_forests_files/figure-html/fig-rf-fredqd-output-1.png" class="img-fluid figure-img">
 </div>
 <figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-rf-fredqd-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Figure&nbsp;11.3: Out-of-sample one-step-ahead GDP growth forecasts over the last 25% of the FRED-QD sample from a single deep decision tree (top) and a 500-tree random forest (bottom), each trained on five lagged predictors. The gray line is realized GDP growth, measured as the annualized log-difference of GDPC1.
+Figure&nbsp;11.3: Out-of-sample one-step-ahead GDP growth forecasts over the last 25% of the usable FRED-QD sample from a single deep decision tree (top, orange) and a 500-tree random forest (bottom, blue). Both models are fitted once on the first 75% using five predictors dated one quarter before the target. The horizontal axis dates the target quarter; the gray line is realized GDP growth, measured as the annualized log-difference of GDPC1.
 </figcaption>
 </figure>
 </div>
 </div>
 </div>
+<p><strong>Interpretation Is Predictive, Not Structural</strong></p>
+<p>The forest is optimized for prediction, not identification, and this limits how its output can be read. Forest software usually reports a variable-importance score for each predictor. <em>Impurity-based importance</em> sums the reduction in the split criterion, such as the residual sum of squares (RSS) or Gini impurity (both defined in the <a href="./decision_trees.html">chapter on decision trees</a>), over all splits on that predictor in all trees. <em>Permutation importance</em> shuffles one predictor in an out-of-bag or validation sample and records how much the fitted forest’s loss increases.</p>
+<p>Both scores measure how much this fitted forest relies on a predictor, not its causal effect or the information it carries on its own. Impurity-based importance can favor predictors with many possible split points, and correlated predictors can share credit so that each looks unimportant on its own <span class="citation" data-cites="Strobl2007">(<a href="#ref-Strobl2007" role="doc-biblioref">Strobl et al. 2007</a>)</span>. With time series, row-wise shuffling also destroys the predictor’s serial structure, so the loss increase mixes the loss of signal with that distortion.</p>
 </section>
 <section id="summary" class="level2" data-number="11.9">
 <h2 data-number="11.9" class="anchored" data-anchor-id="summary"><span class="header-section-number">11.9</span> Summary</h2>
@@ -1034,7 +912,7 @@ Key Takeaways
 <li>Random forests average randomized trees to reduce the variability of a single-tree predictor.</li>
 <li>Adding trees reduces finite-forest Monte Carlo variance at rate <span class="math inline">1/B</span> while leaving training-sample uncertainty.</li>
 <li>Random feature subsets diversify split opportunities, with a bias-variance trade-off that must be validated.</li>
-<li>Out-of-bag predictions aggregate trees whose bootstrap samples excluded the observation.</li>
+<li>Out-of-bag error amounts to leave-one-out cross-validation of a forest with about <span class="math inline">e^{-1}B</span> trees, obtained without refitting.</li>
 </ol>
 </div>
 </div>
@@ -1050,7 +928,6 @@ Common Pitfalls
 <div class="callout-body-container callout-body">
 <ul>
 <li>OOB error does not reproduce historical forecasting when its trees use observations from later dates.</li>
-<li>Variable importance is not a causal ranking, especially when predictors are correlated.</li>
 <li>Forest averages cannot extrapolate a smooth trend beyond the training support.</li>
 <li>Offering nearly all predictors at every split can leave trees highly correlated.</li>
 </ul>
@@ -1069,7 +946,7 @@ Exercise 11.1: Variance Reduction in a Random Forest
 </div>
 </div>
 <div class="callout-body-container callout-body">
-<p>Fix a point <span class="math inline">x_0</span>. Let <span class="math inline">D</span> be a random training sample and let tree <span class="math inline">b</span> use an independent randomization <span class="math inline">\Theta_b</span>, so <span class="math inline">T_b=T(D,\Theta_b;x_0)</span>. All moments in this exercise are <strong>unconditional</strong>, over repeated draws of both <span class="math inline">D</span> and the tree randomizations. Suppose</p>
+<p>Fix a point <span class="math inline">x_0</span> and write <span class="math inline">T_b=\hat T_b(x_0)</span> for the prediction of tree <span class="math inline">b</span>. Let <span class="math inline">D</span> be a random training sample. Conditional on <span class="math inline">D</span>, suppose the trees are identically distributed and independently randomized, as in the chapter’s variance decomposition. Unless conditioning on <span class="math inline">D</span> is stated explicitly, all moments in this exercise are <strong>unconditional</strong>, over repeated draws of both <span class="math inline">D</span> and the tree randomizations. Suppose</p>
 <div class="display-math-block">
 <p><span class="math display">
 \mathbb{E}[T_b] = \mu, \qquad \operatorname{Var}[T_b] = \sigma^2&gt;0,
@@ -1081,7 +958,7 @@ Exercise 11.1: Variance Reduction in a Random Forest
 \operatorname{Corr}(T_b,T_{b'}) = \rho, \qquad 0 \le \rho \le 1.
 </span></p>
 </div>
-<p>Conditional on <span class="math inline">D</span>, the independent randomizations make different tree predictions independent. The unconditional correlation <span class="math inline">\rho</span> arises because all trees depend on the same random training sample. Under this construction, nonnegativity is automatic because <span class="math inline">\rho\sigma^2=\operatorname{Var}_D(m(D,x_0))\geq 0</span>.</p>
+<p>The unconditional correlation <span class="math inline">\rho</span> arises because all trees depend on the same random training sample, even though their predictions are independent conditional on <span class="math inline">D</span>.</p>
 <p>Define the forest predictor as</p>
 <div class="display-math-block">
 <p><span class="math display">
@@ -1089,18 +966,80 @@ Exercise 11.1: Variance Reduction in a Random Forest
 </span></p>
 </div>
 <ol type="1">
-<li>Show that <span class="math inline">\mathbb{E}[\bar T_B] = \mu</span>.</li>
-<li>Derive the variance formula <span class="math display">
-\operatorname{Var}[\bar T_B] = \sigma^2\left[\rho + \frac{1-\rho}{B}\right].
-</span></li>
-<li>Let <span class="math inline">\sigma^2 = 9</span>, <span class="math inline">\rho = 0.2</span>, and <span class="math inline">B=100</span>. Compute the variance of a single tree and the variance of the forest. By what percentage is variance reduced?</li>
-<li>What is the limit of <span class="math inline">\operatorname{Var}[\bar T_B]</span> as <span class="math inline">B \to \infty</span>? Relate this limit to the training-sample component <span class="math inline">\operatorname{Var}_D(m(D,x_0))</span> from the chapter and explain why increasing <span class="math inline">B</span> cannot remove it. Then explain why the effect of changing <code>max_features</code> is an empirical bias-variance trade-off rather than a guaranteed reduction in one fixed correlation parameter.</li>
-<li><strong>How many trees are enough?</strong> For <span class="math inline">\rho&gt;0</span>, use Parts 2 and 4 to show that <span class="math display">
-\frac{\operatorname{Var}[\bar T_B]}{\operatorname{Var}[\bar T_\infty]} = 1 + \frac{1-\rho}{\rho B},
-</span> so that the relative excess variance from using finitely many trees depends on <span class="math inline">\rho</span> and <span class="math inline">B</span> but not on <span class="math inline">\sigma^2</span>. Find the smallest <span class="math inline">B</span> for which this excess is at most 5% when <span class="math inline">\rho = 0.2</span>, and repeat for <span class="math inline">\rho = 0.05</span>.</li>
-<li>Holding <span class="math inline">\sigma^2</span> and bias fixed, explain why the lower-<span class="math inline">\rho</span> case needs more trees to approach its own variance limit even though that limit is lower. Relate this result to a forest using more aggressive random feature selection. Finally, treat the boundary <span class="math inline">\rho=0</span> separately: state <span class="math inline">\operatorname{Var}(\bar T_B)</span> and explain why relative distance from the zero limiting variance is not defined.</li>
+<li><p>Show that <span class="math inline">\mathbb{E}[\bar T_B]=\mu</span> and derive </p>
+<div class="display-math-block">
+<p><span class="math display">
+\operatorname{Var}[\bar T_B]=\sigma^2\left[\rho+\frac{1-\rho}{B}\right].
+</span></p>
+</div>
+<p> For <span class="math inline">\sigma^2=9</span>, <span class="math inline">\rho=0.2</span>, and <span class="math inline">B=100</span>, compute the forest variance and its percentage reduction relative to one tree.</p></li>
+<li><p>Use the laws of total covariance and total variance to show that </p>
+<div class="display-math-block">
+<p><span class="math display">
+\operatorname{Var}_D(m(D,x_0))=\rho\sigma^2,
+\qquad
+\mathbb{E}_D[v(D,x_0)]=(1-\rho)\sigma^2.
+</span></p>
+</div>
+<p> Identify which component increasing <span class="math inline">B</span> removes and explain why conditional independence of the trees does not imply that the infinite forest has zero unconditional variance.</p></li>
+<li><p><strong>How many trees are enough?</strong> Write <span class="math inline">\bar T_\infty=m(D,x_0)</span>. For <span class="math inline">\rho&gt;0</span>, use Parts 1 and 2 to derive </p>
+<div class="display-math-block">
+<p><span class="math display">
+\frac{\operatorname{Var}[\bar T_B]}{\operatorname{Var}[\bar T_\infty]}
+=1+\frac{1-\rho}{\rho B},
+</span></p>
+</div>
+<p> and find the smallest <span class="math inline">B</span> for which the relative excess variance is at most 5% when <span class="math inline">\rho=0.2</span> and when <span class="math inline">\rho=0.05</span>. Holding <span class="math inline">\sigma^2</span> fixed, explain why the lower-<span class="math inline">\rho</span> case needs more trees to approach its lower variance limit. At <span class="math inline">\rho=0</span>, state the finite-<span class="math inline">B</span> variance and explain why an absolute tolerance is needed instead.</p></li>
+<li><p><strong>Comparing prediction risk.</strong> Let a new outcome <span class="math inline">Y_0</span> at <span class="math inline">x_0</span> have mean <span class="math inline">f(x_0)</span> and finite variance <span class="math inline">\tau^2</span>, independently of <span class="math inline">D</span> and the tree randomizations. Two forest specifications satisfy the assumptions above, with:</p>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 20%">
+<col style="width: 26%">
+<col style="width: 26%">
+<col style="width: 26%">
+</colgroup>
+<thead>
+<tr class="header">
+<th>Specification</th>
+<th style="text-align: right;">Bias <span class="math inline">\mu-f(x_0)</span></th>
+<th style="text-align: right;">Single-tree variance <span class="math inline">\sigma^2</span></th>
+<th style="text-align: right;">Correlation <span class="math inline">\rho</span></th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Forest 1</td>
+<td style="text-align: right;"><span class="math inline">0</span></td>
+<td style="text-align: right;"><span class="math inline">9</span></td>
+<td style="text-align: right;"><span class="math inline">0.2</span></td>
+</tr>
+<tr class="even">
+<td>Forest 2</td>
+<td style="text-align: right;"><span class="math inline">0.5</span></td>
+<td style="text-align: right;"><span class="math inline">12</span></td>
+<td style="text-align: right;"><span class="math inline">0.1</span></td>
+</tr>
+</tbody>
+</table>
+<p>Derive each forest’s mean squared prediction error <span class="math inline">\mathbb{E}[(Y_0-\bar T_B)^2]</span> as a function of the common tree count <span class="math inline">B</span>. Find the smallest integer <span class="math inline">B</span> for which Forest 2 has lower prediction risk. Explain why choosing a feature-subsampling setting solely because it lowers <span class="math inline">\rho</span> is not justified.</p></li>
 </ol>
-<p><em>Exam level: suitable as-is. Parts 1–2 derive forest variance, Part 3 applies it, Part 4 separates the two variance components, Part 5 determines the tree count, and Part 6 interprets the result and its boundary case.</em></p>
+<p><em>Exam level: suitable as-is. Part 1 combines the variance derivation with a numerical check, Part 2 separates the sources of uncertainty, Part 3 derives a tree-count requirement, and Part 4 compares complete prediction risks.</em></p>
+</div>
+</div>
+<div class="callout callout-style-default callout-warning callout-titled">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-8-contents" aria-controls="callout-8" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+Hint for Part 1
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-8" class="callout-8-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
+<p>Expand the variance of the average into own-variance and covariance terms, and count how many of each there are. Use <span class="math inline">\operatorname{Cov}(T_b,T_{b'})=\rho\sigma^2</span> for <span class="math inline">b\neq b'</span>.</p>
+</div>
 </div>
 </div>
 <div class="callout callout-style-default callout-warning callout-titled">
@@ -1115,7 +1054,7 @@ Hint for Part 2
 </div>
 <div id="callout-9" class="callout-9-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
-<p>Expand the variance of the average into own-variance and covariance terms, and count how many of each there are. Use <span class="math inline">\operatorname{Cov}(T_b,T_{b'}) = \rho\sigma^2</span> for <span class="math inline">b \neq b'</span>.</p>
+<p>For two distinct trees, split their unconditional covariance into the expected conditional covariance and the covariance of their conditional means. Use conditional independence for the first term and recall that both conditional means equal <span class="math inline">m(D,x_0)</span>.</p>
 </div>
 </div>
 </div>
@@ -1125,13 +1064,13 @@ Hint for Part 2
 <i class="callout-icon"></i>
 </div>
 <div class="callout-title-container flex-fill">
-Hint for Part 3
+Hint for Part 4
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
 <div id="callout-10" class="callout-10-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
-<p>First compute the bracketed term. Then compare with the single-tree variance <span class="math inline">9</span>.</p>
+<p>Write <span class="math inline">Y_0-\bar T_B</span> as <span class="math inline">(Y_0-f(x_0))+(f(x_0)-\mu)+(\mu-\bar T_B)</span>. Identify which cross terms vanish before comparing the two risks.</p>
 </div>
 </div>
 </div>
@@ -1147,7 +1086,7 @@ Solution
 </div>
 <div id="callout-11" class="callout-11-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
-<p><strong>Part 1: Expectation</strong></p>
+<p><strong>Part 1: Mean, variance, and numerical check</strong></p>
 <p>By linearity of expectation,</p>
 <div class="display-math-block">
 <p><span class="math display">
@@ -1162,7 +1101,6 @@ Solution
 </span></p>
 </div>
 <p>So averaging does not change the mean prediction.</p>
-<p><strong>Part 2: Variance</strong></p>
 <p>Using the variance-of-a-sum formula,</p>
 <div class="display-math-block">
 <p><span class="math display">
@@ -1202,7 +1140,6 @@ Solution
 \sigma^2\left[\rho + \frac{1-\rho}{B}\right].
 </span></p>
 </div>
-<p><strong>Part 3: Numerical example</strong></p>
 <p>For a single tree,</p>
 <div class="display-math-block">
 <p><span class="math display">
@@ -1229,16 +1166,38 @@ Solution
 = 79.2\%.
 </span></p>
 </div>
-<p><strong>Part 4: Infinite-forest limit</strong></p>
-<p>As <span class="math inline">B \to \infty</span>,</p>
+<p><strong>Part 2: Training-sample and Monte Carlo variance</strong></p>
+<p>For <span class="math inline">b\neq b'</span>, the law of total covariance gives</p>
 <div class="display-math-block">
 <p><span class="math display">
-\operatorname{Var}[\bar T_B] \to \sigma^2 \rho.
+\begin{aligned}
+\rho\sigma^2
+&amp;=\operatorname{Cov}(T_b,T_{b'}) \\
+&amp;=\mathbb{E}_D[\operatorname{Cov}(T_b,T_{b'}\mid D)] \\
+&amp;\quad+\operatorname{Cov}_D(\mathbb{E}[T_b\mid D],\mathbb{E}[T_{b'}\mid D]) \\
+&amp;=0+\operatorname{Var}_D(m(D,x_0)).
+\end{aligned}
 </span></p>
 </div>
-<p>Under the decomposition in the chapter, <span class="math inline">\sigma^2\rho=\operatorname{Var}_D(m(D,x_0))</span>. Averaging can eliminate finite-forest Monte Carlo variability, but not the training-sample variability of the infinite-forest predictor. Changing <code>max_features</code> can alter this training-sample component by changing the fitted rule, but it can also change individual-tree variability and bias. Its net effect is therefore a tuning question, not a guaranteed consequence of lowering a fixed conditional tree correlation.</p>
-<p><strong>Part 5: How many trees are enough</strong></p>
-<p>Dividing the Part 2 formula by the Part 4 limit <span class="math inline">\sigma^2\rho</span>,</p>
+<p>Conditional independence makes the first term zero, while both conditional means equal <span class="math inline">m(D,x_0)</span>. Applying total variance to one tree then gives</p>
+<div class="display-math-block">
+<p><span class="math display">
+\sigma^2
+=\operatorname{Var}_D(m(D,x_0))+\mathbb{E}_D[v(D,x_0)]
+=\rho\sigma^2+\mathbb{E}_D[v(D,x_0)],
+</span></p>
+</div>
+<p>so <span class="math inline">\mathbb{E}_D[v(D,x_0)]=(1-\rho)\sigma^2</span>. The forest variance is therefore</p>
+<div class="display-math-block">
+<p><span class="math display">
+\operatorname{Var}(\bar T_B)
+=\underbrace{\rho\sigma^2}_{\text{training-sample variance}}
++\underbrace{\frac{(1-\rho)\sigma^2}{B}}_{\text{Monte Carlo variance}}.
+</span></p>
+</div>
+<p>Increasing <span class="math inline">B</span> removes the second term. The limit <span class="math inline">\rho\sigma^2</span> remains because <span class="math inline">m(D,x_0)</span> changes with the training sample. Conditional independence concerns fresh randomizations for a fixed <span class="math inline">D</span>; it does not make the shared training sample nonrandom.</p>
+<p><strong>Part 3: How many trees are enough</strong></p>
+<p>Dividing the Part 1 variance by the Part 2 limit <span class="math inline">\sigma^2\rho</span>,</p>
 <div class="display-math-block">
 <p><span class="math display">
 \frac{\operatorname{Var}[\bar T_B]}{\operatorname{Var}[\bar T_\infty]}
@@ -1258,8 +1217,7 @@ B \ge \frac{20(1-\rho)}{\rho}.
 </span></p>
 </div>
 <p>For <span class="math inline">\rho = 0.2</span> this is <span class="math inline">B \ge 20(0.8)/0.2 = 80</span> trees; for <span class="math inline">\rho = 0.05</span> it is <span class="math inline">B \ge 20(0.95)/0.05 = 380</span>.</p>
-<p><strong>Part 6: Interpretation and the zero-correlation boundary</strong></p>
-<p>Holding <span class="math inline">\sigma^2</span> and bias fixed, the lower-<span class="math inline">\rho</span> case needs almost five times as many trees to come within 5% of its own limit. There is no contradiction: lowering <span class="math inline">\rho</span> lowers the variance floor <span class="math inline">\sigma^2\rho</span>, but raises the ratio <span class="math inline">(1-\rho)/\rho</span> that governs relative distance from that floor because more of the single-tree variance must be averaged away. Within this stylized model, more aggressive random feature selection represented by the lower <span class="math inline">\rho</span> should therefore be paired with more trees. In an actual tuning exercise, changing <code>max_features</code> can change <span class="math inline">\sigma^2</span>, <span class="math inline">\rho</span>, and bias together, so validation must judge the complete predictor.</p>
+<p>Holding <span class="math inline">\sigma^2</span> fixed, the lower-<span class="math inline">\rho</span> case needs almost five times as many trees to come within 5% of its own limit. Lowering <span class="math inline">\rho</span> lowers the variance floor <span class="math inline">\sigma^2\rho</span> but raises the ratio <span class="math inline">(1-\rho)/\rho</span>: a larger share of the single-tree variance must be averaged away, and the reference variance is smaller.</p>
 <p>At <span class="math inline">\rho=0</span>, </p>
 <div class="display-math-block">
 <p><span class="math display">
@@ -1267,6 +1225,36 @@ B \ge \frac{20(1-\rho)}{\rho}.
 </span></p>
 </div>
 <p> The finite-<span class="math inline">B</span> variance is well defined and converges to zero, but its ratio to the zero limiting variance is not. An absolute tolerance, rather than a relative percentage above the limit, is needed at this boundary.</p>
+<p><strong>Part 4: Comparing complete prediction risks</strong></p>
+<p>The new outcome is independent of the fitted forest, and both <span class="math inline">Y_0-f(x_0)</span> and <span class="math inline">\bar T_B-\mu</span> have mean zero. Expanding the squared prediction error therefore gives</p>
+<div class="display-math-block">
+<p><span class="math display">
+\mathbb{E}[(Y_0-\bar T_B)^2]
+=\tau^2+(\mu-f(x_0))^2
++\sigma^2\left[\rho+\frac{1-\rho}{B}\right].
+</span></p>
+</div>
+<p>Writing <span class="math inline">R_1(B)</span> and <span class="math inline">R_2(B)</span> for the two prediction risks,</p>
+<div class="display-math-block">
+<p><span class="math display">
+\begin{aligned}
+R_1(B)&amp;=\tau^2+1.8+\frac{7.2}{B},\\
+R_2(B)&amp;=\tau^2+0.25+1.2+\frac{10.8}{B}
+       =\tau^2+1.45+\frac{10.8}{B}.
+\end{aligned}
+</span></p>
+</div>
+<p>The irreducible noise <span class="math inline">\tau^2</span> is common and cancels. Forest 2 is better exactly when</p>
+<div class="display-math-block">
+<p><span class="math display">
+R_2(B)-R_1(B)
+=-0.35+\frac{3.6}{B}&lt;0
+\quad\Longleftrightarrow\quad
+B&gt;\frac{72}{7}.
+</span></p>
+</div>
+<p>The smallest integer is <span class="math inline">B=11</span>. Forest 2 has a lower limiting risk but more Monte Carlo variance at each finite <span class="math inline">B</span>; for <span class="math inline">B\leq10</span>, that extra variance outweighs its advantage in limiting risk.</p>
+<p>Changing <code>max_features</code> can alter bias, single-tree variance, and correlation together. Here, even though Forest 2 has lower correlation, it performs worse at small tree counts. A correlation comparison alone therefore cannot rank the prediction risks of two fitting rules.</p>
 </div>
 </div>
 </div>
@@ -1280,18 +1268,20 @@ Exercise 11.2: Out-of-Bag Predictions and Dependent Data
 </div>
 </div>
 <div class="callout-body-container callout-body">
-<p>Suppose a random forest is trained on a sample of size <span class="math inline">N</span>, and each tree uses a bootstrap sample of size <span class="math inline">N</span> drawn with replacement from the original data.</p>
+<p>Suppose a random forest with <span class="math inline">B</span> independently randomized trees is trained on a sample of size <span class="math inline">N\geq2</span>, and each tree uses an independent bootstrap sample of size <span class="math inline">N</span> drawn with replacement from the original data.</p>
 <ol type="1">
 <li>Show that the probability a fixed observation <span class="math inline">i</span> is not selected in one bootstrap sample is <span class="math display">
 q_N=\left(1-\frac{1}{N}\right)^N,
 </span> and conclude that <span class="math inline">q_N\to e^{-1}</span> as <span class="math inline">N \to \infty</span>. If <span class="math inline">K_i</span> is the number of trees whose bootstrap samples omit observation <span class="math inline">i</span>, show that <span class="math inline">K_i\sim\operatorname{Binomial}(B,q_N)</span> and find <span class="math inline">\mathbb{E}[K_i]</span>. For <span class="math inline">B=500</span> and large <span class="math inline">N</span>, approximately how many trees enter the OOB prediction?</li>
-<li>To isolate finite-forest Monte Carlo variability, condition on the training sample <span class="math inline">D</span> and on <span class="math inline">K_i=k&gt;0</span>. Suppose the OOB-eligible tree predictions are conditionally independent with common variance <span class="math inline">v_i</span>. Compare the variance of their <span class="math inline">k</span>-tree average with a hypothetical <span class="math inline">B</span>-tree average made from <span class="math inline">B</span> independent draws from this same OOB-eligible tree distribution.</li>
-<li>Replace <span class="math inline">K_i</span> by its expectation <span class="math inline">Bq_N</span> and show that the approximate variance ratio from Part 2 is <span class="math inline">1/q_N\to e</span>. For <span class="math inline">v_i=9</span> and <span class="math inline">B=500</span>, compare <span class="math inline">9/184</span> with the same-distribution benchmark <span class="math inline">9/500</span>. Explain why the factor <span class="math inline">e</span> is not an exact finite-<span class="math inline">N</span>, finite-<span class="math inline">B</span> identity, referring to both the randomness of <span class="math inline">K_i</span> and the event <span class="math inline">K_i=0</span>. Why is this hypothetical benchmark not necessarily the Monte Carlo variance of the usual full forest?</li>
-<li>Explain why OOB prediction can serve as an internal validation device under i.i.d. sampling.</li>
-<li>You are forecasting quarterly inflation with a long macroeconomic time series. Explain why standard OOB error is not a valid real-time evaluation method in this setting, why the direction of its distortion is not guaranteed, and suggest a more appropriate validation design.</li>
-<li>Two highly correlated predictors contain nearly the same signal. A forest assigns each a small individual permutation importance. Explain why this result does not establish that either variable is uninformative, and propose one grouped perturbation that better measures their joint predictive role.</li>
+<li>To isolate finite-forest Monte Carlo variability, condition on the training sample <span class="math inline">D</span>. Given <span class="math inline">K_i=k&gt;0</span>, suppose the <span class="math inline">k</span> eligible tree predictions are independent draws from the same OOB-eligible distribution, with mean <span class="math inline">m_i</span> and finite variance <span class="math inline">v_i&gt;0</span>. Both <span class="math inline">m_i</span> and <span class="math inline">v_i</span> may depend on <span class="math inline">D</span> but do not depend on <span class="math inline">k</span>. Derive the conditional mean and variance of <span class="math inline">\hat f^{\mathrm{OOB}}(x_i)</span> given <span class="math inline">D,K_i=k</span>. Then use total variance to show that <span class="math display">
+\operatorname{Var}(\hat f^{\mathrm{OOB}}(x_i)\mid D,K_i&gt;0)
+=v_i\,\mathbb{E}[1/K_i\mid D,K_i&gt;0].
+</span> Express the expectation on the right as a finite binomial sum; you do not need to evaluate it.</li>
+<li>Compare the exact variance from Part 2 with that of a hypothetical average of <span class="math inline">B</span> independent draws from the same OOB-eligible distribution. Replacing <span class="math inline">K_i</span> by <span class="math inline">Bq_N</span>, show that the approximate variance ratio is <span class="math inline">1/q_N\to e</span>. For <span class="math inline">v_i=9</span> and <span class="math inline">B=500</span>, compare <span class="math inline">9/184</span> with the benchmark <span class="math inline">9/500</span>. Explain why <span class="math inline">e</span> is only an approximation and why this benchmark need not be the Monte Carlo variance of the usual full forest.</li>
+<li>Explain why OOB prediction can serve as an internal validation device under i.i.d. sampling when the fitting settings are fixed and the held-out outcome has not entered preprocessing or feature selection. Would minimizing OOB error over many settings leave the selected minimum suitable as a final performance estimate? Give the reason and an appropriate final evaluation design.</li>
+<li>You are forecasting quarterly inflation with a long macroeconomic time series. Explain why standard OOB predictions do not reproduce real-time training information sets. Using a structural break halfway through the sample, give mechanisms by which the resulting error estimate could be pessimistic for pre-break dates and optimistic for early post-break dates. Specify a more appropriate validation design.</li>
 </ol>
-<p><em>Exam level: suitable as-is. Part 1 derives the OOB count, Parts 2–3 analyze its Monte Carlo consequence, Part 4 explains the i.i.d. validation logic, Part 5 addresses real-time dependence, and Part 6 tests an importance diagnostic.</em></p>
+<p><em>Exam level: suitable as-is. Part 1 derives the OOB count, Parts 2–3 distinguish exact Monte Carlo variance from a large-forest approximation, Part 4 separates tuning from assessment, and Part 5 addresses real-time evaluation.</em></p>
 </div>
 </div>
 <div class="callout callout-style-default callout-warning callout-titled">
@@ -1300,13 +1290,13 @@ q_N=\left(1-\frac{1}{N}\right)^N,
 <i class="callout-icon"></i>
 </div>
 <div class="callout-title-container flex-fill">
-Hint for Part 1
+Hint for Parts 2–3
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
 <div id="callout-13" class="callout-13-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
-<p>In one draw, the chance of not selecting observation <span class="math inline">i</span> is <span class="math inline">1-1/N</span>. The bootstrap sample contains <span class="math inline">N</span> independent draws with replacement.</p>
+<p>Apply total variance over the distribution of <span class="math inline">K_i</span> conditional on <span class="math inline">K_i&gt;0</span>. Check whether the conditional mean of the prediction changes with <span class="math inline">k</span>. For the binomial sum, normalize the probabilities on <span class="math inline">k=1,\ldots,B</span> by <span class="math inline">\mathbb{P}(K_i&gt;0\mid D)</span>.</p>
 </div>
 </div>
 </div>
@@ -1316,34 +1306,18 @@ Hint for Part 1
 <i class="callout-icon"></i>
 </div>
 <div class="callout-title-container flex-fill">
-Hint for Parts 2–3
-</div>
-<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
-</div>
-<div id="callout-14" class="callout-14-contents callout-collapse collapse">
-<div class="callout-body-container callout-body">
-<p>Conditional on <span class="math inline">K_i=k&gt;0</span>, the variance of an average of <span class="math inline">k</span> independent eligible tree predictions is <span class="math inline">v_i/k</span>. For the exact unconditional calculation, ask whether <span class="math inline">\mathbb{E}[1/K_i\mid K_i&gt;0]</span> equals <span class="math inline">1/\mathbb{E}[K_i]</span>.</p>
-</div>
-</div>
-</div>
-<div class="callout callout-style-default callout-warning callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-15-contents" aria-controls="callout-15" aria-expanded="false" aria-label="Toggle callout">
-<div class="callout-icon-container">
-<i class="callout-icon"></i>
-</div>
-<div class="callout-title-container flex-fill">
 Hint for Part 5
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-15" class="callout-15-contents callout-collapse collapse">
+<div id="callout-14" class="callout-14-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p>Ask whether a bootstrap resample respects time order, publication lags, and real-time information sets. To determine why the sign is ambiguous, place a structural break halfway through the sample and consider pre-break and early post-break forecast origins separately.</p>
 </div>
 </div>
 </div>
 <div class="callout callout-style-default callout-tip callout-titled">
-<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-16-contents" aria-controls="callout-16" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-15-contents" aria-controls="callout-15" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -1352,7 +1326,7 @@ Solution
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-16" class="callout-16-contents callout-collapse collapse">
+<div id="callout-15" class="callout-15-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p><strong>Part 1: OOB probability</strong></p>
 <p>In a single bootstrap draw, the probability of not selecting observation <span class="math inline">i</span> is</p>
@@ -1388,20 +1362,46 @@ K_i\sim\operatorname{Binomial}(B,q_N),
 500 \times e^{-1} \approx 500 \times 0.368 \approx 184.
 </span></p>
 </div>
-<p><strong>Part 2: The OOB prediction averages fewer trees</strong></p>
-<p>Conditional on <span class="math inline">K_i=k&gt;0</span>, independence of the eligible randomized-tree draws gives</p>
+<p><strong>Part 2: Exact variance with a random OOB count</strong></p>
+<p>Conditional on <span class="math inline">D,K_i=k&gt;0</span>, the eligible predictions are independent with common mean <span class="math inline">m_i</span> and variance <span class="math inline">v_i</span>, so</p>
 <div class="display-math-block">
 <p><span class="math display">
-\operatorname{Var}_{\Theta}(\text{$k$-tree average}\mid K_i=k)
-=\frac{v_i}{k},
-\qquad
-\operatorname{Var}_{\Theta}(\text{same-distribution $B$-tree average})
-=\frac{v_i}{B}.
+\begin{aligned}
+\mathbb{E}[\hat f^{\mathrm{OOB}}(x_i)\mid D,K_i=k]&amp;=m_i,\\
+\operatorname{Var}(\hat f^{\mathrm{OOB}}(x_i)\mid D,K_i=k)&amp;=\frac{v_i}{k}.
+\end{aligned}
 </span></p>
 </div>
-<p>The second quantity is a hypothetical benchmark made from the same exclusion-conditional tree distribution, not the usual full forest.</p>
+<p>Apply total variance over the positive values of <span class="math inline">K_i</span>:</p>
+<div class="display-math-block">
+<p><span class="math display">
+\begin{aligned}
+&amp;\operatorname{Var}(\hat f^{\mathrm{OOB}}(x_i)\mid D,K_i&gt;0)\\
+&amp;\quad=\mathbb{E}\!\left[\frac{v_i}{K_i}\,\middle|\,D,K_i&gt;0\right]
+  +\operatorname{Var}(m_i\mid D,K_i&gt;0)\\
+&amp;\quad=v_i\,\mathbb{E}[1/K_i\mid D,K_i&gt;0].
+\end{aligned}
+</span></p>
+</div>
+<p>The second term is zero because <span class="math inline">m_i</span> is fixed once <span class="math inline">D</span> is fixed and does not vary with the count. The bootstrap omission probability does not depend on the observed values in <span class="math inline">D</span>, so <span class="math inline">K_i\mid D</span> has the binomial distribution from Part 1. Consequently,</p>
+<div class="display-math-block">
+<p><span class="math display">
+\mathbb{E}[1/K_i\mid D,K_i&gt;0]
+=\frac{\displaystyle\sum_{k=1}^{B}\frac{1}{k}
+  \binom{B}{k}q_N^k(1-q_N)^{B-k}}
+{1-(1-q_N)^B}.
+</span></p>
+</div>
+<p>The denominator conditions on an OOB prediction existing. The event <span class="math inline">K_i=0</span> has probability <span class="math inline">(1-q_N)^B</span>; assigning a default prediction on that event would define a different statistic.</p>
 <p><strong>Part 3: Approximation and finite-sample caveats</strong></p>
-<p>Replacing the random count <span class="math inline">K_i</span> by its expectation <span class="math inline">Bq_N</span> gives the approximation</p>
+<p>The hypothetical <span class="math inline">B</span>-tree average has conditional variance <span class="math inline">v_i/B</span>. Thus the exact ratio, conditional on <span class="math inline">D</span> and an OOB prediction existing, is</p>
+<div class="display-math-block">
+<p><span class="math display">
+\frac{v_i\,\mathbb{E}[1/K_i\mid D,K_i&gt;0]}{v_i/B}
+=B\,\mathbb{E}[1/K_i\mid D,K_i&gt;0].
+</span></p>
+</div>
+<p>For large <span class="math inline">B</span>, replacing the random count by <span class="math inline">Bq_N</span> and neglecting the small probability of zero eligible trees gives the approximation</p>
 <div class="display-math-block">
 <p><span class="math display">
 \frac{v_i/(Bq_N)}{v_i/B}
@@ -1418,21 +1418,15 @@ K_i\sim\operatorname{Binomial}(B,q_N),
 </span></p>
 </div>
 <p>The approximate OOB Monte Carlo variance is therefore about <span class="math inline">2.72</span> times the same-distribution <span class="math inline">B</span>-tree benchmark.</p>
-<p>The factor <span class="math inline">e</span> is therefore a useful large-<span class="math inline">N</span>, large-<span class="math inline">B</span> approximation, not an exact identity. Even after conditioning on an OOB prediction being available, the exact calculation involves</p>
-<div class="display-math-block">
-<p><span class="math display">
-\mathbb{E}\!\left[\frac{1}{K_i}\,\middle|\,K_i&gt;0\right],
-</span></p>
-</div>
-<p>which is not <span class="math inline">1/\mathbb{E}[K_i]</span>, and <span class="math inline">K_i=0</span> occurs with probability <span class="math inline">(1-q_N)^B</span>. The usual full forest includes trees trained on observation <span class="math inline">i</span>. Inclusion can change both the conditional mean and variance of a tree prediction, so <span class="math inline">v_i/B</span> need not describe its Monte Carlo variance. The calculation is best read as a controlled comparison within the OOB-eligible tree distribution: using only <span class="math inline">K_i</span> eligible draws creates more simulation noise than using <span class="math inline">B</span> draws from that same distribution.</p>
-<p><strong>Part 4: Why OOB works under i.i.d. sampling</strong></p>
-<p>For observation <span class="math inline">i</span>, the OOB prediction averages only trees that were not trained on <span class="math inline">i</span>. That makes the prediction approximately out-of-sample for that observation. Repeating this over all observations yields a validation-style error estimate without creating a separate holdout set.</p>
+<p>The factor <span class="math inline">e</span> requires both a large-<span class="math inline">N</span> approximation to <span class="math inline">q_N</span> and a large-<span class="math inline">B</span> approximation to the reciprocal-count expectation. In general, <span class="math inline">\mathbb{E}[1/K_i\mid D,K_i&gt;0]\neq1/(Bq_N)</span>, and for small <span class="math inline">B</span> the conditioning on <span class="math inline">K_i&gt;0</span> matters.</p>
+<p>The usual full forest includes trees trained on observation <span class="math inline">i</span>. Inclusion can change both the conditional mean and variance of a tree prediction, so <span class="math inline">v_i/B</span> need not describe its Monte Carlo variance. The comparison holds the eligible-tree distribution fixed: an average of <span class="math inline">k\leq B</span> draws has at least as much Monte Carlo variance as an average of <span class="math inline">B</span> draws from that distribution.</p>
+<p><strong>Part 4: Internal validation and final assessment</strong></p>
+<p>For observation <span class="math inline">i</span>, the OOB prediction averages only trees that were not trained on <span class="math inline">i</span>. That makes the prediction approximately out-of-sample for that observation. Under i.i.d. sampling, a held-out observation is distributed like a fresh draw from the same population, so the loss of its OOB prediction estimates the prediction error for new observations. Averaging these losses over all observations therefore yields a validation-style error estimate without creating a separate holdout set.</p>
+<p>This argument requires the stated exclusion of the held-out outcome from preprocessing and feature selection as well as from tree fitting. If many settings are compared by OOB error, the selected minimum also reflects favorable noise in the tuning estimates. It is no longer an independent assessment of the selected fitting procedure. Use an untouched test sample, or an outer validation loop that repeats all OOB-based selection using only its training observations.</p>
 <p><strong>Part 5: Why OOB can fail in macroeconomic forecasting</strong></p>
-<p>In a macroeconomic time series, standard bootstrap resampling does not preserve temporal ordering, dependence, publication delays, or real-time data vintages. A tree used in the OOB prediction for date <span class="math inline">t</span> may still have been trained on observations from dates after <span class="math inline">t</span>, which would not have been available in real time. This contaminates the forecast-origin information set, so standard OOB error does not estimate the intended real-time risk.</p>
+<p>In a macroeconomic time series, a tree used in the OOB prediction for date <span class="math inline">t</span> may have been trained on observations from dates after <span class="math inline">t</span>, which would not have been available in real time. Omitting row <span class="math inline">t</span> does not exclude these future training observations or correct publication delays and data revisions. Standard OOB predictions therefore do not reproduce historical forecasting information sets, and their error need not estimate the intended real-time risk. A timing mismatch alone does not establish the magnitude or sign of any statistical bias.</p>
 <p>To see why the distortion can have either sign, suppose a structural break occurs halfway through the sample. For a pre-break date, OOB trees trained partly on post-break observations may predict worse than a valid real-time forest trained on the homogeneous pre-break history, making the OOB assessment pessimistic. For an early post-break date, OOB trees may use later observations from the new regime that were unavailable at the forecast origin, often making the assessment optimistic.</p>
 <p>A more appropriate design uses validation based on rolling or expanding windows, where each training set contains only information available up to the forecast origin and the validation observation lies strictly in the future.</p>
-<p><strong>Part 6: Correlated predictors and importance</strong></p>
-<p>When the predictors contain nearly the same signal, either can substitute for the other after one column is permuted. Their individual permutation importances can therefore be small even though the pair is strongly predictive. One diagnostic is to permute the two columns jointly in the validation sample and recompute the loss. The resulting deterioration measures how much the fitted forest relies on breaking their joint contribution, although it remains a predictive perturbation measure rather than a causal effect.</p>
 </div>
 </div>
 </div>
@@ -1449,11 +1443,23 @@ Bühlmann, Peter, and Bin Yu. 2002. <span>“Analyzing Bagging.”</span> <em>Th
 <div id="ref-FriedbergTibshiraniAtheyWager2021" class="csl-entry" role="listitem">
 Friedberg, Rina, Julie Tibshirani, Susan Athey, and Stefan Wager. 2021. <span>“Local Linear Forests.”</span> <em>Journal of Computational and Graphical Statistics</em> 30 (2): 503–17. <a href="https://doi.org/10.1080/10618600.2020.1831930">https://doi.org/10.1080/10618600.2020.1831930</a>.
 </div>
+<div id="ref-FusterGoldsmithPinkhamRamadoraiWalther2022" class="csl-entry" role="listitem">
+Fuster, Andreas, Paul Goldsmith-Pinkham, Tarun Ramadorai, and Ansgar Walther. 2022. <span>“Predictably Unequal? The Effects of Machine Learning on Credit Markets.”</span> <em>Journal of Finance</em> 77 (1): 5–47. <a href="https://doi.org/10.1111/jofi.13090">https://doi.org/10.1111/jofi.13090</a>.
+</div>
+<div id="ref-GuKellyXiu2020" class="csl-entry" role="listitem">
+Gu, Shihao, Bryan Kelly, and Dacheng Xiu. 2020. <span>“<span class="nocase">Empirical asset pricing via machine learning</span>.”</span> <em>Review of Financial Studies</em> 33 (5): 2223–73. <a href="https://doi.org/10.1093/rfs/hhaa009">https://doi.org/10.1093/rfs/hhaa009</a>.
+</div>
+<div id="ref-HastieTibshiraniFriedman2009" class="csl-entry" role="listitem">
+Hastie, Trevor, Robert Tibshirani, and Jerome Friedman. 2009. <em>The Elements of Statistical Learning: Data Mining, Inference, and Prediction</em>. 2nd ed. New York: Springer. <a href="https://doi.org/10.1007/978-0-387-84858-7">https://doi.org/10.1007/978-0-387-84858-7</a>.
+</div>
 <div id="ref-LiawWiener2002" class="csl-entry" role="listitem">
 Liaw, Andy, and Matthew Wiener. 2002. <span>“Classification and Regression by randomForest.”</span> <em>R News</em> 2 (3): 18–22.
 </div>
 <div id="ref-McCrackenNg2020FREDQD" class="csl-entry" role="listitem">
 McCracken, Michael W., and Serena Ng. 2020. <span>“FRED-QD: A Quarterly Database for Macroeconomic Research.”</span> Working Paper 26872. National Bureau of Economic Research. <a href="https://doi.org/10.3386/w26872">https://doi.org/10.3386/w26872</a>.
+</div>
+<div id="ref-MedeirosVasconcelosVeigaZilberman2021" class="csl-entry" role="listitem">
+Medeiros, Marcelo C., Gabriel F. R. Vasconcelos, Álvaro Veiga, and Eduardo Zilberman. 2021. <span>“Forecasting Inflation in a Data-Rich Environment: The Benefits of Machine Learning Methods.”</span> <em>Journal of Business &amp; Economic Statistics</em> 39 (1): 98–119. <a href="https://doi.org/10.1080/07350015.2019.1637745">https://doi.org/10.1080/07350015.2019.1637745</a>.
 </div>
 <div id="ref-Meinshausen2006QRF" class="csl-entry" role="listitem">
 Meinshausen, Nicolai. 2006. <span>“Quantile Regression Forests.”</span> <em>Journal of Machine Learning Research</em> 7: 983–99.
