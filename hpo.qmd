@@ -31,7 +31,7 @@ This chapter extends the basic validation ideas from the [Cross Validation chapt
 
 ## Why Reliable HPO Is Hard
 
-Suppose the true generalization error of a configuration $\lambda$ is $c(\lambda)$. We do not observe $c(\lambda)$ directly. We observe a noisy estimate from a validation split, cross-validation scheme, or rolling forecast exercise. If we evaluate many configurations and pick the one with the lowest estimated error, the winner is selected partly because of genuine quality and partly because of favorable noise in the estimate.
+Fix a loss function and a training sample, and consider a hyperparameter configuration $\lambda$, meaning one value for each hyperparameter. Recall from the [Cross Validation chapter](cross_validation.qmd) that the generalization risk of a fitted model is its expected loss on a fresh observation that was not used for fitting, such as a future outcome in a forecasting application. We write $c(\lambda)$ for the generalization risk of the model fitted with configuration $\lambda$ on the training sample. This risk is a fixed but unknown number: the fitted model is held fixed, as in that chapter, and the expectation is taken under the unknown distribution of the fresh observation. We observe only a noisy estimate of $c(\lambda)$ from a validation split, cross-validation scheme, or rolling forecast exercise. If we evaluate many configurations and pick the one with the lowest estimate, the winner is selected partly because of genuine quality and partly because of favorable noise in the estimate.
 
 The clean separation between training, validation, and test data from [Reliable Workflow: Validation vs Test Set](cross_validation.qmd#sec-cv-reliable-workflow) therefore becomes even more important in HPO. Training data estimate model parameters. Validation data compare hyperparameter settings. Test data remain untouched until the search procedure is finished.
 
@@ -39,7 +39,7 @@ The danger is easy to miss. Even a small comparison can favor a configuration wh
 
 :::{.callout-note title="Selection Bias from Search"}
 
-For a fixed collection of configurations, suppose configuration $j$ has true risk $c_j$ and validation estimate
+For a fixed collection of configurations, suppose configuration $j$ has generalization risk $c_j$ and validation estimate
 
 $$
 \hat c_j = c_j + \varepsilon_j,
@@ -53,7 +53,7 @@ $$
 \min_{1 \le j \le J} \hat c_j
 $$
 
-is typically optimistically biased as an estimate of the true risk of the selected configuration. Formally,
+is typically optimistically biased as an estimate of the generalization risk of the selected configuration. Formally,
 
 $$
 \mathbb{E}\left[\min_{1 \le j \le J} \hat c_j\right]
@@ -65,7 +65,7 @@ $$
 
 Equality requires at least one fixed configuration to attain the minimum almost surely, possibly tied with others; otherwise the inequality is strict.
 
-This display compares the winning validation loss with the best *true* risk in the grid. The claim we actually care about concerns the configuration the search selects, $\hat\jmath = \arg\min_j \hat c_j$, whose true risk $c_{\hat\jmath}$ is itself random because the winner is random. The bridge is one further inequality: since $c_{\hat\jmath} \ge \min_j c_j$ by definition of a minimum, taking expectations gives $\mathbb{E}[c_{\hat\jmath}] \ge \min_j c_j$. Chaining the two,
+This display compares the winning validation loss with the smallest generalization risk in the grid. The claim we actually care about concerns the configuration the search selects, $\hat\jmath = \arg\min_j \hat c_j$, whose generalization risk $c_{\hat\jmath}$ is itself random because the winner is random. The bridge is one further inequality: since $c_{\hat\jmath} \ge \min_j c_j$ by definition of a minimum, taking expectations gives $\mathbb{E}[c_{\hat\jmath}] \ge \min_j c_j$. Chaining the two,
 
 $$
 \mathbb{E}\Big[\min_{1\le j\le J}\hat c_j\Big]
@@ -75,14 +75,14 @@ $$
 \mathbb{E}\big[c_{\hat\jmath}\big],
 $$
 
-The quantity inside the expectation on the left is the reported validation loss $\hat c_{\hat\jmath}$. Thus the expected reported validation loss is no larger than the expected true risk of the selected configuration. This is an average over repeated samples and search outcomes; an individual realized validation loss need not understate its configuration's risk.
+The quantity inside the expectation on the left is the reported validation loss $\hat c_{\hat\jmath}$. Thus the expected reported validation loss is no larger than the expected generalization risk of the selected configuration. This is an average over repeated samples and search outcomes; an individual realized validation loss need not understate its configuration's risk.
 :::
 
-The same logic is visible in @fig-hpo-selection-bias. The selected configuration is the one with the lowest realized validation loss, but its blue point, which represents true risk, sits above the red validation point. The figure should be read as a visualization of selection-induced optimism, not as a claim about one particular algorithm.
+The same logic is visible in the stylized @fig-hpo-selection-bias. The selected configuration is the one with the lowest realized validation loss, but its blue point, which represents its generalization risk, sits above the red validation point. 
 
 ```{python}
 #| label: fig-hpo-selection-bias
-#| fig-cap: "Illustration of selection bias from hyperparameter search. The horizontal axis indexes 20 candidate configurations. The blue line shows each configuration's true risk, the red line shows a noisy validation estimate, and the dashed vertical line marks the configuration selected by minimizing validation loss. For the selected configuration, the realized validation loss lies below the true risk, illustrating how search can make the winner look too good."
+#| fig-cap: "Illustration of selection bias from hyperparameter search. The horizontal axis indexes 20 candidate configurations. The blue line shows each configuration's generalization risk, the red line shows a noisy validation estimate, and the dashed vertical line marks the configuration selected by minimizing validation loss. For the selected configuration, the realized validation loss lies below the generalization risk, illustrating how search can make the winner look too good."
 #| echo: true
 
 import numpy as np
@@ -100,7 +100,7 @@ validation_risk = true_risk + rng.normal(0.0, 0.035, n_cfg)
 best_idx = np.argmin(validation_risk)
 
 fig, ax = plt.subplots(figsize=(9, 4.8))
-ax.plot(cfg, true_risk, marker="o", linewidth=2, color="C0", label="True risk")
+ax.plot(cfg, true_risk, marker="o", linewidth=2, color="C0", label="Generalization risk")
 ax.plot(cfg, validation_risk, marker="s", linewidth=1.6, color="C3", alpha=0.8, label="Validation estimate")
 ax.axvline(cfg[best_idx], linestyle="--", color="0.4", linewidth=1.4)
 ax.scatter(cfg[best_idx], validation_risk[best_idx], s=95, color="C3", zorder=3)
@@ -113,9 +113,9 @@ ax.annotate(
     fontsize=10,
 )
 ax.annotate(
-    "True risk of selected configuration",
+    "Generalization risk of\nselected configuration",
     xy=(cfg[best_idx], true_risk[best_idx]),
-    xytext=(cfg[best_idx] + 1.2, true_risk[best_idx] + 0.03),
+    xytext=(cfg[best_idx] + 2.0, true_risk[best_idx] - 0.085),
     arrowprops={"arrowstyle": "->", "color": "0.25"},
     fontsize=10,
 )
@@ -128,63 +128,9 @@ plt.tight_layout()
 plt.show()
 ```
 
-Recall the [nested-validation design](cross_validation.qmd#sec-cv-nested): the inner loop selects hyperparameters, and untouched outer blocks evaluate the full procedure “fit, tune, select, refit.” For independent and identically distributed (i.i.d.) observations, both loops may use $K$-fold splits. Temporal dependence calls for time-aware folds; repeated firms, households, or spatial clusters may instead require grouped splits, depending on the intended deployment. The outer design must reproduce which observations and outcomes would be available when the procedure is used.
+Recall the [nested-validation design](cross_validation.qmd#sec-cv-nested): the inner loop selects hyperparameters, and untouched outer blocks evaluate the full procedure “fit, tune, select, refit.” The search procedure includes its search space, algorithm, and stopping budget. Comparing several such procedures on the same outer results would turn those results into another selection criterion. A final assessment should therefore evaluate the procedure chosen before inspecting that assessment sample.
 
-@fig-hpo-nested-time-series gives a time-series version of this logic. The outer split determines where reliable evaluation occurs. Inside the outer training window, the researcher runs a second, time-aware tuning exercise. Only after the inner loop selects hyperparameters is the model refit on the full outer training sample and evaluated once on the untouched outer validation block.
-
-```{python}
-#| label: fig-hpo-nested-time-series
-#| fig-cap: "Schematic of nested time-series hyperparameter tuning. The top row shows one outer split: an outer training window followed by an untouched outer validation block used only for final evaluation of the tuned procedure. The lower rows show two inner expanding-window folds constructed only inside the outer training window. In each inner fold, the left block is the inner training sample and the right block is the inner validation block used to compare hyperparameter configurations. After tuning, the selected configuration is refit on the full outer training window and then evaluated once on the outer validation block."
-#| echo: true
-
-import matplotlib.pyplot as plt
-from matplotlib.patches import Rectangle
-
-fig, ax = plt.subplots(figsize=(11.5, 4.8))
-ax.set_xlim(-10, 103)
-ax.set_ylim(0, 4.9)
-ax.axis("off")
-
-rows = [
-    (3.35, "Outer split", [(8, 68, "Outer training", "#9ecae1"), (76, 16, "Outer validation", "#f4a6a6")]),
-    (2.35, "Inner fold 1", [(8, 34, "Inner train", "#c7e9c0"), (44, 10, "Inner validate", "#fdd49e")]),
-    (1.35, "Inner fold 2", [(8, 46, "Inner train", "#c7e9c0"), (58, 10, "Inner validate", "#fdd49e")]),
-    (0.35, "Refit", [(8, 68, "Refit on full outer training window", "#bcbddc")]),
-]
-
-for y, label, blocks in rows:
-    ax.text(6, y + 0.2, label, ha="right", va="center", fontsize=10, fontweight="bold")
-    for x0, width, text, color in blocks:
-        rect = Rectangle((x0, y), width, 0.42, facecolor=color, edgecolor="0.25", linewidth=1.0)
-        ax.add_patch(rect)
-        ax.text(x0 + width / 2, y + 0.21, text, ha="center", va="center", fontsize=10)
-
-for xpos, text in [(8, "Past"), (76, "Future")]:
-    ax.text(xpos, 4.00, text, ha="center", va="bottom", fontsize=10)
-
-ax.annotate(
-    "Inner folds are built only inside the outer training window",
-    xy=(42, 2.55),
-    xytext=(15, 4.55),
-    arrowprops={"arrowstyle": "->", "color": "0.25"},
-    fontsize=10,
-)
-ax.annotate(
-    "Final reliable evaluation",
-    xy=(84, 3.56),
-    xytext=(79, 0.95),
-    arrowprops={"arrowstyle": "->", "color": "0.25"},
-    fontsize=10,
-)
-ax.text(42, 0.95, "Select hyperparameters from inner-loop performance, then refit before testing.", ha="center", fontsize=10)
-
-plt.tight_layout()
-plt.show()
-```
-
-The search procedure includes its search space, algorithm, and stopping budget. Comparing several such procedures on the same outer results would turn those results into another selection criterion. A final assessment should therefore evaluate the procedure chosen before inspecting that assessment sample.
-
-The inner loop must respect the same validation rules as the evaluation of a single model. In forecasting applications, the inner folds use the [expanding or rolling windows](cross_validation.qmd#sec-cv-time-series) from the Cross Validation chapter, with purging or an embargo when outcomes are built from overlapping future windows, and every data-dependent preprocessing step is [fitted on each inner training sample only](cross_validation.qmd#sec-cv-leakage). Violating these rules does more damage in HPO than in the evaluation of one fixed model, because the resulting optimism is typically not the same for every configuration. For example, under random $K$-fold splits of strongly dependent observations, each validation observation has close neighbors in the training sample. Configurations with deep trees or small minimum leaf sizes can fit the local pattern that these neighbors share with the validation observation, whereas heavily regularized configurations exploit it less. The leak therefore lowers the validation loss most for the most flexible configurations and tilts the search toward them.
+The inner loop must respect the same validation rules as the evaluation of a single model: [time-aware splits](cross_validation.qmd#sec-cv-time-series) for time series, and every data-dependent preprocessing step [fitted on each inner training sample only](cross_validation.qmd#sec-cv-leakage). Violating these rules does more damage in HPO than in the evaluation of one fixed model, because the resulting optimism is typically not the same for every configuration. For example, under random $K$-fold splits of strongly dependent observations, each validation observation has close neighbors in the training sample. Configurations with deep trees or small minimum leaf sizes can fit the local pattern that these neighbors share with the validation observation, whereas heavily regularized configurations exploit it less. The leak therefore lowers the validation loss most for the most flexible configurations and tilts the search toward them.
 
 :::{.callout-note title="Question for Reflection"}
 
@@ -204,7 +150,7 @@ $$
 \lambda^\star = \arg\min_{\lambda \in \Lambda} c(\lambda),
 $$
 
-where $c(\lambda)$ denotes the true out-of-sample risk or expected forecast loss. In practice we do not observe $c(\lambda)$. We work with an estimate
+where $c(\lambda)$ is the generalization risk of configuration $\lambda$ from the previous section. In practice we do not observe $c(\lambda)$. We work with an estimate
 
 $$
 \hat c(\lambda),
@@ -296,7 +242,7 @@ plt.show()
 
 **Learning from completed trials.** Random search does not use one configuration's validation loss to choose the next configuration. Bayesian optimization (BO) does: it fits a **surrogate model**, a statistical model of the relationship between hyperparameter configurations and their losses, and uses that model to decide which configuration to evaluate next. There are therefore two fitted models. The forecasting or classification model maps economic predictors to outcomes; the surrogate maps hyperparameter settings to validation losses. Only evaluating the former requires a new training and validation run [@SnoekLarochelleAdams2012].
 
-We first fix the data splits, preprocessing, and fitting seed so that repeating a configuration gives the same validation loss $\hat c(\lambda)$. The unknown object for the search is this fixed validation surface at configurations we have not tried. The surface remains a sample-based estimate of population risk $c(\lambda)$; learning it precisely does not remove validation-selection bias.
+We first fix the data splits, preprocessing, and fitting seed so that repeating a configuration gives the same validation loss $\hat c(\lambda)$. The unknown object for the search is this fixed validation surface at configurations we have not tried. The surface remains a sample-based estimate of the generalization risk $c(\lambda)$; learning it precisely does not remove validation-selection bias.
 
 **A Gaussian process over the validation surface.** A **Gaussian process (GP)** assigns a joint Gaussian prior to the function values at any finite collection of configurations. Write $C(\lambda)$ for the surrogate's random function value at $\lambda$: in this fixed-objective setup, it represents uncertainty about the unobserved value of $\hat c(\lambda)$. For a simple GP, specify a constant prior mean $\mu$ and a **covariance kernel** $k(\lambda,\lambda')$, which gives the prior covariance between the function values at two settings. The Gaussian assumption concerns these unknown function values; it does not require the economic predictors or outcomes to be Gaussian.
 
@@ -349,7 +295,7 @@ s_t(\lambda)^2
 \end{aligned}
 $$
 
-The posterior mean adjusts the prior level using observed losses and their covariance with the candidate. The posterior variance subtracts the information provided by completed trials from the prior variance. At an evaluated setting, noise-free conditioning gives $m_t(\lambda_j)=\hat c_j$ and $s_t(\lambda_j)=0$. Far from all evaluated settings under this kernel, the covariances approach zero, so the prediction returns toward the prior mean and variance. The uncertainty band is conditional on the chosen GP model, rather than a confidence interval for population risk.
+The posterior mean adjusts the prior level using observed losses and their covariance with the candidate. The posterior variance subtracts the information provided by completed trials from the prior variance. At an evaluated setting, noise-free conditioning gives $m_t(\lambda_j)=\hat c_j$ and $s_t(\lambda_j)=0$. Far from all evaluated settings under this kernel, the covariances approach zero, so the prediction returns toward the prior mean and variance. The uncertainty band is conditional on the chosen GP model, rather than a confidence interval for the generalization risk.
 
 We hold $\mu$, $\sigma_0$, and $\rho$ fixed in the example below to make every step visible. Software can instead estimate GP parameters from the Gaussian likelihood of the archived losses. These are settings of the surrogate, distinct from the model hyperparameters $\lambda$ being searched. In code, solve linear systems involving $K_t$ rather than forming its inverse explicitly.
 
@@ -557,7 +503,7 @@ A GP is fitted to 12 completed trials and predicts losses at 2,500 unevaluated c
 Computing the EI values requires no new forecasting-model fits; the GP uses the existing 12 configuration–loss pairs. After selecting a candidate, run the actual training and validation procedure there and append the observed loss. If validation uses several folds, that one trial requires a model fit within each fold. A surrogate prediction cannot substitute for the observed validation result.
 :::
 
-**What changes with noisy evaluations?** The preceding loop models a fixed validation surface. If repeated runs vary, or if we instead model latent population risk $c(\lambda)$ using sample validation losses, an observation model is needed. In the latter formulation, reinterpret $C(\lambda)$ as the surrogate's random belief about $c(\lambda)$ and write $\hat c_j=c(\lambda_j)+\varepsilon_j$. Suppose the error vector is Gaussian with mean zero and covariance $\Sigma_t$, independent of the latent GP. Gaussian conditioning then replaces $K_t^{-1}$ in both prediction formulas by $(K_t+\Sigma_t)^{-1}$. The resulting $s_t(\lambda)$ describes uncertainty about the latent function; it excludes the extra noise of a fresh evaluation. Shared validation observations can create correlated errors, so taking $\Sigma_t$ diagonal is a working approximation rather than a consequence of cross-validation.
+**What changes with noisy evaluations?** The preceding loop models a fixed validation surface. If repeated runs vary, or if we instead model the latent generalization risk $c(\lambda)$ using sample validation losses, an observation model is needed. In the latter formulation, reinterpret $C(\lambda)$ as the surrogate's random belief about $c(\lambda)$ and write $\hat c_j=c(\lambda_j)+\varepsilon_j$. Suppose the error vector is Gaussian with mean zero and covariance $\Sigma_t$, independent of the latent GP. Gaussian conditioning then replaces $K_t^{-1}$ in both prediction formulas by $(K_t+\Sigma_t)^{-1}$. The resulting $s_t(\lambda)$ describes uncertainty about the latent function; it excludes the extra noise of a fresh evaluation. Shared validation observations can create correlated errors, so taking $\Sigma_t$ diagonal is a working approximation rather than a consequence of cross-validation.
 
 With noisy observations, $\min_j\hat c_j$ can select a favorable noise realization. One practical plug-in benchmark is
 
@@ -634,7 +580,7 @@ The two logarithmic coordinates are mapped to the unit square before fitting the
 
 Both methods receive 15 model evaluations and share the same first five randomly drawn configurations. Random search draws its remaining ten configurations independently. Bayesian optimization instead fits a Matérn-kernel GP after every completed trial and selects the next point by maximizing expected improvement over a fixed pool of 2,500 candidate points. Predicting losses and computing EI for that pool uses only the surrogate; each selected point then requires one new classifier fit and validation evaluation. Validation log loss is the only search objective. Preprocessing is estimated on the training sample and applied unchanged to validation observations.
 
-Here the split, preprocessing, and classifier seed are fixed. The GP therefore models the deterministic validation surface $\lambda\mapsto\hat c(\lambda)$ on this sample, using the same EI calculation with that surface as its latent function. Its uncertainty concerns configurations not yet evaluated; it is not a confidence interval for population risk $c(\lambda)$. We use a Matérn covariance kernel, an alternative to the squared-exponential kernel with a parameter controlling function smoothness. The code fixes its smoothness parameter at 2.5 and its length scale at 0.3 in each unit-square coordinate, and standardizes the observed losses before fitting the GP. A small training-diagonal regularizer provides numerical stability. The regularizer is fixed in standardized-loss units and is not an estimate of validation-sampling variance. The standard deviation supplied to EI is the latent-function standard deviation.
+Here the split, preprocessing, and classifier seed are fixed. The GP therefore models the deterministic validation surface $\lambda\mapsto\hat c(\lambda)$ on this sample, using the same EI calculation with that surface as its latent function. Its uncertainty concerns configurations not yet evaluated; it is not a confidence interval for the generalization risk $c(\lambda)$. We use a Matérn covariance kernel, an alternative to the squared-exponential kernel with a parameter controlling function smoothness. The code fixes its smoothness parameter at 2.5 and its length scale at 0.3 in each unit-square coordinate, and standardizes the observed losses before fitting the GP. A small training-diagonal regularizer provides numerical stability. The regularizer is fixed in standardized-loss units and is not an estimate of validation-sampling variance. The standard deviation supplied to EI is the latent-function standard deviation.
 
 @fig-hpo-credit-bo shows both where Bayesian optimization evaluates the objective and how quickly each method improves its incumbent validation loss.
 
@@ -1095,7 +1041,7 @@ plt.show()
 The tuning method should match the statistical design, not just the software defaults.
 
 1. **Choose the evaluation metric first.** Decide whether the target is mean squared forecast error, log score, continuous ranked probability score (CRPS), classification loss, or another application-specific measure. Hyperparameters should be selected against the criterion that actually matters.
-2. **Choose a validation design that respects the information set.** For i.i.d. data, $K$-fold cross-validation may be adequate. For temporal dependence, use expanding windows, rolling windows, or purged time-aware splits as appropriate; for clustered or panel observations, also match any group holdout to the intended prediction task.
+2. **Choose a validation design that respects the information set.** For independent and identically distributed (i.i.d.) data, $K$-fold cross-validation may be adequate. For temporal dependence, use the [expanding windows, rolling windows, or purged time-aware splits](cross_validation.qmd#sec-cv-time-series) of the Cross Validation chapter as appropriate; for clustered or panel observations, also match any group holdout to the intended prediction task.
 3. **Define a defensible search space.** Use theory, prior empirical knowledge, and sample-size limits to avoid absurd configurations.
 4. **Start with a baseline.** Random search is a strong default because it is simple, parallel, and robust.
 5. **Escalate only when the budget justifies it.** Use BO when evaluations are expensive enough that learning from past trials matters. Use Hyperband when partial-resource evaluations are genuinely informative.
@@ -1288,7 +1234,7 @@ Random search may still be preferable when the search space is very high-dimensi
 
 A neural network predicts future firm default probabilities from panel data. A full training run takes 81 epochs, corresponding to 9 hours of computation per configuration. A successive-halving bracket with elimination rate $\eta=3$ starts with 27 configurations at 3 epochs. Promoted configurations resume from checkpoints.
 
-To study screening errors separately from the full bracket, consider a two-configuration comparison in which only the smaller early validation loss is promoted. Configuration A has lower true full-budget risk than B, with difference $\Delta=c_A-c_B=-0.02$. At each validation date $j$, let $D_j$ be A's average loss across the validation firms minus B's average loss across the same firms. Use the stylized Gaussian model
+To study screening errors separately from the full bracket, consider a two-configuration comparison in which only the smaller early validation loss is promoted. Configuration A has lower full-budget generalization risk than B, with difference $\Delta=c_A-c_B=-0.02$. At each validation date $j$, let $D_j$ be A's average loss across the validation firms minus B's average loss across the same firms. Use the stylized Gaussian model
 $$
 D_j=\Delta+b+u_j,
 $$
