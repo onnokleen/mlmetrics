@@ -544,7 +544,7 @@ $$
 g(\lambda) = p(\lambda \mid \widehat C > c^\ast).
 $$
 
-The search idea is simple: propose candidates that look likely under the good-trial density and unlikely under the bad-trial density. Where both fitted densities are positive, this means favoring large values of
+The search idea is simple: propose candidates that look likely under the good-trial density and unlikely under the bad-trial density. Where both fitted densities are positive, this means favoring large values of the acquisition function
 
 $$
 \frac{\ell(\lambda)}{g(\lambda)}.
@@ -552,7 +552,8 @@ $$
 
 Under the TPE construction, maximizing the density ratio is equivalent to maximizing expected improvement [@BergstraBardenetBengioKegl2011]. Exercise 14.1 derives the relationship.
 
-**Fitting the densities.** We present the fits for continuous hyperparameters; an integer-valued hyperparameter with many values, such as a layer width, is treated as continuous and rounded. The original construction fits a separate one-dimensional density for each hyperparameter in each group [@BergstraBardenetBengioKegl2011, Section 4.2]. Each fit is a mixture of two ingredients: the sampling density specified for random search, such as a uniform density over the search interval, and the values of the hyperparameter observed in the group's trials. The observed values enter through a *Parzen estimator*, that is, a [kernel density estimator](kernel_smoothing.qmd#sec-kernel-kde) with one Gaussian kernel per observed value. With $n$ observed values in the group, the *adaptive Parzen estimator* of TPE is the equally weighted mixture of the sampling density and these $n$ kernels, so each of the $n+1$ components has weight $1/(n+1)$. Each kernel's standard deviation is the larger distance to its nearest left and right neighbors, clipped between positive bandwidth bounds; the endpoints of the search interval serve as potential neighbors, and the kernels are truncated to the interval. The kernels move probability toward the settings the group's trials used, and the sampling density keeps the whole search interval reachable, which matters when a group contains few trials.
+**Fitting the densities.** TPE fits each hyperparameter separately: for every hyperparameter and each group, a one-dimensional density of that hyperparameter's values among the group's trials [@BergstraBardenetBengioKegl2011, Section 4.2]. We present the fit for a continuous hyperparameter only. 
+The fit is a *Parzen estimator*, another name for the [kernel density estimator](kernel_smoothing.qmd#sec-kernel-kde), with Gaussian kernels centered at the observed values.
 
 Write $\ell_q$ and $g_q$ for the one-dimensional fits of hyperparameter $q$ in the good and bad group, and $\lambda^{(q)}$ for the value of hyperparameter $q$ in a configuration $\lambda$; subscripts on $\lambda$ remain reserved for trials. TPE models the joint densities as products,
 
@@ -563,8 +564,6 @@ g(\lambda)=\prod_{q}g_q\!\left(\lambda^{(q)}\right),
 $$
 
 so the ratio $\ell(\lambda)/g(\lambda)$ is the product of the one-dimensional ratios $\ell_q(\lambda^{(q)})/g_q(\lambda^{(q)})$. The product is a modeling assumption: within a group, it treats the hyperparameters as independent, whereas the conditional density $p(\lambda \mid \widehat C \le c^\ast)$ can carry dependence that the product form does not capture; for example, among the good trials, a small learning rate may go together with many boosting rounds.
-
-The original method also covers mixed and conditional search spaces. A categorical hyperparameter receives smoothed category frequencies in place of a kernel density, and a conditional hyperparameter is fitted only from the trials in which it was active. A choice that activates further hyperparameters, such as the number of hidden layers, thus opens a *branch* of the search space, and this branching is the tree in the method's name; it is unrelated to decision trees. A configuration's density is then the product over its active hyperparameters only.
 
 :::{.callout-note}
 ## TPE Algorithm
@@ -939,16 +938,24 @@ BO selects learning rate 0.2000 and minimum leaf size 94; random search selects 
 
 ## Multi-Fidelity Search
 
-**Multi-fidelity search** evaluates configurations at different resource levels, such as training epochs, sample sizes, or boosting rounds. Cheap partial runs screen candidates before the search commits to full training.
+**Multi-fidelity search** evaluates configurations at different resource levels, such as training epochs, sample sizes, or boosting rounds. The resource level is the **fidelity** of an evaluation: the validation loss after a partial run is a cheap but imperfect proxy for the loss after full training, which is the quantity the search is meant to minimize. A multi-fidelity method is a rule for which configurations are evaluated at which fidelity, and it uses the cheap proxies to screen candidates before committing to full training. Successive halving is the basic rule, and Hyperband below is a family of successive-halving runs.
 
-**Successive halving** starts with many configurations at a small resource level $r$. It retains the best fraction $1/\eta$ by validation loss, raises their total resource to $\eta r$, and repeats.
+**Successive halving** starts with many configurations at a small resource level $r$. It retains the best fraction $1/\eta$ by validation loss, raises their total resource to $\eta r$, and repeats, so each survivor is evaluated at successively higher fidelity.
 
-For early screening to retain strong configurations, the early rankings must be informative about performance after full training.
+For early screening to retain strong configurations, the ranking at low fidelity must be informative about the ranking after full training.
 
 :::{.callout-note}
 ## Successive Halving Algorithm
 
-Let $p^{[0]}$ be a positive integer giving the initial number of configurations, $r^{[0]}>0$ the initial resource per configuration, $\eta>1$ the elimination rate, and $T_{\mathrm{SH}}$ the terminal round index. Choose resource levels that are feasible for the training procedure and specify a fixed rule for breaking tied validation losses. Each round is called a **rung**; start at round $t=0$.
+Let $p^{[0]}$ be a positive integer giving the initial number of configurations and let $r^{[0]}>0$ be the resource allocated to each configuration before the first screening step.
+
+For example, suppose $p^{[0]}=27$ and $r^{[0]}=3$ epochs. Train each of the 27 models for 3 epochs. Then compare their validation losses.
+
+Choose an integer $\eta\ge2$. At each screening step, retain the best $1/\eta$ of the configurations, rounding the number retained down to an integer. For example, with $\eta=3$, keep the best 9 of the 27 configurations.
+
+Choose a nonnegative integer $T_{\mathrm{SH}}$, the planned index of the last round, so that the final resource $r^{[0]}\eta^{T_{\mathrm{SH}}}$ reaches the desired training budget per configuration. In the example above, choosing a full training budget of 81 epochs gives $T_{\mathrm{SH}}=3$: four evaluation rounds at 3, 9, 27, and 81 epochs, with three screening steps.
+
+Choose resource levels that are feasible for the training procedure and specify a fixed rule for breaking tied validation losses. Each round is called a **rung**, the resource levels forming a ladder that the surviving configurations climb; start at round $t=0$.
 
 1. At round $t$, evaluate the current $p^{[t]}$ configurations at total resource $r^{[t]}$ and rank them by validation loss.
 2. If $t=T_{\mathrm{SH}}$, fewer than $\eta$ configurations remain, or the next rung would exceed the budget, stop and return the lowest-loss configuration evaluated at this rung, using the stated tie rule.
@@ -960,15 +967,15 @@ Let $p^{[0]}$ be a positive integer giving the initial number of configurations,
    $$
 4. Advance to round $t+1$ and repeat. Stopping before another elimination ensures that the final evaluated survivor is retained.
 
-Compute depends on whether training restarts at each rung or resumes from a checkpoint. Restarting costs $p^{[t]}r^{[t]}$ in round $t$. Continuation costs $p^{[0]}r^{[0]}$ initially and $p^{[t]}(r^{[t]}-r^{[t-1]})$ in each later round.
+We count resource use in configuration–resource units: evaluating $p$ configurations at resource level $r$ uses $pr$ units. Restarting uses $p^{[t]}r^{[t]}$ units in round $t$. When a checkpoint allows training to resume by adding only the resource increment, continuation uses $p^{[0]}r^{[0]}$ units initially and $p^{[t]}(r^{[t]}-r^{[t-1]})$ in each later round. These totals are proportional to computation when a resource unit has comparable cost across configurations and resource levels. When the resource is sample size, computational cost depends on the fitting procedure and whether increasing the sample requires refitting.
 :::
 
-**Hyperband** runs several successive-halving schedules, called **brackets**, with different initial numbers of configurations and resource levels. Some brackets screen many configurations cheaply; others give fewer configurations more training before eliminating any [@LiJamiesonDeSalvoRostamizadehTalwalkar2018].
+Successive halving leaves one choice open: the initial resource $r^{[0]}$. A small $r^{[0]}$ screens many configurations for a given budget but eliminates slow-starting ones before they reveal their quality; a large $r^{[0]}$ protects them but affords fewer candidates. Which is better depends on how informative early rankings are, and that is unknown before the search. **Hyperband** replaces the choice by a sweep: it runs several successive-halving schedules, called **brackets**, with different initial numbers of configurations and resource levels, so that some brackets screen many configurations cheaply while others give fewer configurations more training before eliminating any [@LiJamiesonDeSalvoRostamizadehTalwalkar2018].
 
 :::{.callout-note}
 ## Hyperband as a Family of Brackets
 
-Measure resources in units of the minimum admissible allocation, so that the minimum resource is 1. Let $R_{\max}\ge1$ be the maximum resource per configuration in those units and let $\eta>1$ be the elimination rate. Define
+Measure resources in units of the minimum admissible allocation, so that the minimum resource is 1. Let $R_{\max}\ge1$ be the maximum resource per configuration in those units and let $\eta\ge2$ be an integer elimination rate. Define
 
 $$
 s_{\max} = \left\lfloor \log_{\eta}(R_{\max}) \right\rfloor,
@@ -976,24 +983,26 @@ s_{\max} = \left\lfloor \log_{\eta}(R_{\max}) \right\rfloor,
 B = (s_{\max}+1)R_{\max}.
 $$
 
-Here $B$ is the nominal budget per bracket under restarting, approximately the cost of $s_{\max}+1$ full training runs. A sweep of all $s_{\max}+1$ brackets has nominal cost approximately $(s_{\max}+1)B$. Checkpoint continuation uses the incremental costs above.
+Here $B$ is the nominal resource budget per bracket under restarting, corresponding to $s_{\max}+1$ full training runs. Rounding the configuration counts can change the allocated total. A sweep of all $s_{\max}+1$ brackets uses approximately $(s_{\max}+1)B$ configuration–resource units under restarting. Checkpoint continuation uses the incremental resource amounts above.
 
 Hyperband then runs several successive-halving brackets indexed by $s=s_{\max},\ldots,0$, with $t$ indexing the rounds within each bracket. A common parameterization is
 
 $$
 n_s = \left\lceil \frac{B}{R_{\max}}\frac{\eta^s}{s+1} \right\rceil,
 \qquad
-r_s = R_{\max}\eta^{-s},
+r_s = R_{\max}\eta^{-s}.
 $$
 
-where bracket $s$ starts with $n_s$ configurations at resource level $r_s$. Large-$s$ brackets explore many configurations cheaply, while small-$s$ brackets explore fewer configurations more deeply from the start.
+For each bracket $s$, draw a fresh sample of $n_s$ configurations from the distributions used for random search. Run successive halving with $p^{[0]}=n_s$, $r^{[0]}=r_s$, and $T_{\mathrm{SH}}=s$, allocating the resources needed to complete all $s+1$ rungs. The final rung evaluates the survivors at $R_{\max}$. Large-$s$ brackets explore many configurations cheaply, while small-$s$ brackets explore fewer configurations more deeply from the start.
+
+Use the same validation design and loss throughout. In the version presented here, select the configuration with the lowest validation loss among all configurations evaluated at $R_{\max}$, using the fixed tie rule.
 :::
 
-@fig-hyperband-brackets shows the schedules for $R_{\max}=27$ and $\eta=3$, giving $s_{\max}=3$ and $B=108$. Each row follows one bracket as configurations are eliminated and the survivors receive more resources.
+@fig-hyperband-brackets shows three of the four brackets for $R_{\max}=27$ and $\eta=3$, giving $s_{\max}=3$ and $B=108$. Each row follows one bracket from its first rung to its last; each box reports how many configurations are evaluated at that rung and the resource level each of them has received.
 
 ```{python}
 #| label: fig-hyperband-brackets
-#| fig-cap: "Three of the four Hyperband brackets for $R_{\\max}=27$ and $\\eta=3$, which give $s_{\\max}=3$ and $B=108$. Each rounded box reports the number of surviving configurations at a stage and the total resource level reached by each one. Starting counts follow the formula above: $n_3=27$, $n_2=12$, and $n_1=6$ (the omitted bracket $s=0$ evaluates $n_0=4$ configurations at the full level 27 with no elimination). Moving from left to right within a bracket, configurations are eliminated at rate $\\eta$ and the resource level per survivor is multiplied by $\\eta$. Under from-scratch accounting, nominal bracket costs are 108, 99, and 108 resource units; checkpoint continuation uses less incremental computation."
+#| fig-cap: "Three of the four Hyperband brackets for $R_{\\max}=27$ and $\\eta=3$, which give $s_{\\max}=3$ and $B=108$. Each rounded box reports the number of surviving configurations at a rung and the total resource level reached by each one. Starting counts follow the formula above: $n_3=27$, $n_2=12$, and $n_1=6$ (the omitted bracket $s=0$ evaluates $n_0=4$ configurations at the full level 27 with no elimination). Moving from left to right within a bracket, configurations are eliminated at rate $\\eta$ and the resource level per survivor is multiplied by $\\eta$. Under restarting, the three displayed brackets allocate 108, 99, and 108 configuration–resource units."
 #| echo: true
 
 import matplotlib.pyplot as plt
@@ -1005,7 +1014,7 @@ ax.set_ylim(0, 8)
 ax.axis("off")
 
 stage_x = [1.1, 4.0, 6.9, 9.8]
-stage_labels = ["Stage 0", "Stage 1", "Stage 2", "Stage 3"]
+stage_labels = ["Rung 0", "Rung 1", "Rung 2", "Rung 3"]
 for xpos, label in zip(stage_x, stage_labels):
     ax.text(xpos, 7.55, label, ha="center", va="bottom", fontsize=11, fontweight="bold")
 
@@ -1036,7 +1045,7 @@ for bracket in brackets:
         ax.add_patch(patch)
         count_label = "config" if count == 1 else "configs"
         ax.text(xpos, bracket["y"] + 0.10, f"{count} {count_label}", ha="center", va="center", fontsize=10)
-        ax.text(xpos, bracket["y"] - 0.14, f"budget {budget}", ha="center", va="center", fontsize=9)
+        ax.text(xpos, bracket["y"] - 0.14, f"resource {budget}", ha="center", va="center", fontsize=9)
         if prev_x is not None:
             ax.annotate(
                 "",
@@ -1047,13 +1056,17 @@ for bracket in brackets:
         prev_x = xpos
         prev_y = bracket["y"]
 
-    ax.text(5.7, 0.55, "Moving right: fewer configurations receive more resources.", ha="center", fontsize=10)
+ax.text(5.7, 0.55, "Moving right: fewer configurations receive more resources.", ha="center", fontsize=10)
 
 plt.tight_layout()
 plt.show()
 ```
 
-As $s$ falls from 3 to 0, the starting counts fall from 27 to 12, 6, and 4, while the initial resource levels rise from 1 to 3, 9, and 27. The brackets spend roughly equal nominal budgets on different balances of search breadth and training depth.
+The brackets share the elimination rate and the final resource level $R_{\max}=27$; they differ in where they start. As $s$ falls from 3 to 0, the starting counts fall from 27 to 12, 6, and 4, while the initial resource levels rise from 1 to 3, 9, and 27. The number of elimination rounds falls from three to zero, and the number of configurations that receive full training rises from 1 to 4.
+
+The wide bracket ($s=3$) screens 27 configurations and makes its first elimination after one resource unit. A slow-starting configuration may be discarded before it reveals its quality. The deep bracket ($s=1$) gives each of its six candidates nine resource units before its first elimination, allowing more time for a slow starter to reveal its quality. The benefit depends on how informative the rankings become with additional training. The omitted bracket $s=0$ trains four randomly sampled configurations fully, avoiding early elimination for those candidates.
+
+Under restarting, the four brackets allocate 108, 99, 108, and 108 configuration–resource units. Hyperband thus spreads roughly equal nominal resource budgets across broad screening, later screening, and a small set of fully trained random candidates.
 
 **Unreliable early rankings.** A slow-starting model may need a larger initial training budget to reveal its quality. A short validation block creates a different problem: noisy loss estimates can discard a good configuration even if it is sufficiently trained. More informative validation losses address that uncertainty. Exercise 14.2 separates these two sources of screening error.
 
@@ -1245,30 +1258,23 @@ Random search may be preferable when evaluations are cheap and many can run in p
 :::{.callout-note}
 ## Exercise 14.2: Hyperband Under Noisy Learning Curves
 
-A neural network predicts future firm default probabilities from panel data. A full training run takes 81 epochs, corresponding to 9 hours of computation per configuration. A successive-halving bracket with elimination rate $\eta=3$ starts with 27 configurations at 3 epochs. Promoted configurations resume from checkpoints.
+A neural network predicts future firm default probabilities from panel data. A full training run takes 81 epochs. A successive-halving bracket with elimination rate $\eta=3$ starts with 27 configurations at 3 epochs. In Part 1, promoted models continue training from where the previous round ended.
 
-To study screening errors separately from the full bracket, consider a two-configuration comparison in which only the smaller early validation loss is promoted. Configuration A has lower full-budget generalization risk than B, with difference $\Delta=c_A-c_B=-0.02$. At each validation date $j$, let $D_j$ be A's average loss across the validation firms minus B's average loss across the same firms. Use the stylized Gaussian model
+To study screening errors separately from the full bracket, consider a two-configuration comparison in which only the configuration with the smaller early validation loss is promoted. Configuration A has lower full-budget generalization risk than B, with difference $\Delta=c_A-c_B=-0.02$. At each validation date $j$, let $D_j$ be A's average loss across the validation firms minus B's average loss across the same firms. Use the stylized Gaussian model
 $$
 D_j=\Delta+b+u_j,
 $$
-where $b$ is the relative disadvantage of A from evaluating both models before training is complete. The mean-zero errors $u_j$ are jointly Gaussian with variance $\tau^2>0$. Use $n$ consecutive validation dates and let $\bar D_n=n^{-1}\sum_{j=1}^n D_j$. Configuration A is discarded when $\bar D_n>0$. Under the covariance assumptions in Parts 3 and 4, equality has probability zero.
+where $b$ is the relative disadvantage of A from evaluating both models before training is complete. The mean-zero errors $u_j$ are jointly Gaussian with variance $\tau^2>0$. Use $n$ consecutive validation dates and let $\bar D_n=n^{-1}\sum_{j=1}^n D_j$. Configuration A is discarded when $\bar D_n>0$. Under the covariance assumptions in Parts 2 and 3, equality has probability zero.
 
-1. Give the number of configurations and the total epoch level at each rung. Calculate the bracket's incremental checkpoint cost and compare it with training all 27 configurations to 81 epochs.
-2. For a general schedule $p^{[t]}=p^{[0]}\eta^{-t}$ and $r^{[t]}=r^{[0]}\eta^t$, $t=0,\ldots,T_{\mathrm{SH}}$, ignore rounding and derive total compute under (i) restarting at each rung and (ii) checkpoint continuation. Verify both expressions for the numerical bracket. Explain why equal nominal Hyperband bracket budgets need not imply equal incremental costs.
-3. First assume the $u_j$ are independent. Derive the probability that the better full-budget configuration A is discarded, expressing it using $\Phi$. Compare its limit as $n\to\infty$ when $b=0$ and when $b=0.03$. Does a longer validation window necessarily repair the disadvantage of a slow-starting model?
-4. Now set $b=0$ and allow serial dependence, with $\operatorname{Cov}(u_j,u_{j+h})=\tau^2\rho^h$ for $h\ge1$ and $0\le\rho<1$. Derive $\operatorname{Var}(\bar D_n)$ by counting pairs at each lag, and hence the discard probability. For fixed $n>1$, explain how positive correlation changes that probability relative to the independent case. Distinguish what a larger initial training budget addresses from what a longer or more informative validation window addresses.
+1. Give the number of configurations and the total epoch level at each rung. Calculate the total training cost, counting the initial epochs for all configurations and the additional epochs for promoted configurations. Compare this total with training all 27 configurations to 81 epochs. Then take the wide ($s=3$) and deep ($s=1$) brackets of @fig-hyperband-brackets, which both cost 108 resource units when every model is trained from scratch at each round, and compute their costs when surviving models continue their earlier training.
+2. First assume the $u_j$ are independent. Derive the probability that the better full-budget configuration A is discarded, expressing it using $\Phi$. Compare its limit as $n\to\infty$ when $b=0$ and when $b=0.03$. Does a longer validation window necessarily repair the disadvantage of a slow-starting model?
+3. Now set $b=0$ and allow serial dependence, with $\operatorname{Cov}(u_j,u_{j+h})=\tau^2\rho^h$ for $h\ge1$ and $0\le\rho<1$. Derive $\operatorname{Var}(\bar D_n)$ by counting pairs at each lag, and hence the discard probability. For fixed $n>1$, explain how positive correlation changes that probability relative to the independent case. Distinguish what a larger initial training budget addresses from what a longer or more informative validation window addresses.
 
-*Exam level. Parts 1 and 2 connect the resource schedule to two accounting conventions. Parts 3 and 4 derive screening-error probabilities and separate slow learning from serially dependent validation noise. Answers may be left in terms of the standard normal CDF; no probability tables or code are required.*
+*Exam level. Part 1 compares training from scratch at every round with continuing earlier training. Parts 2 and 3 derive screening-error probabilities and separate slow learning from serially dependent validation noise. Answers may be left in terms of the standard normal CDF; no probability tables or code are required.*
 :::
 
 :::{.callout-warning collapse="true"}
-## Hint for Part 2
-
-In a promoted rung, continuation pays for $r^{[t]}-r^{[t-1]}$ additional epochs per survivor. Substitute the geometric schedules before summing over rungs.
-:::
-
-:::{.callout-warning collapse="true"}
-## Hint for Part 4
+## Hint for Part 3
 
 At lag $h$, there are $n-h$ distinct pairs of validation dates. Each covariance enters the variance of the sum twice.
 :::
@@ -1276,49 +1282,26 @@ At lag $h$, there are $n-h$ distinct pairs of validation dates. Each covariance 
 :::{.callout-tip collapse="true"}
 ## Solution
 
-**Part 1: Schedule and checkpoint cost**
+**Part 1: Schedule and total training cost**
 
 The successive rungs are 27 configurations at 3 epochs, 9 at 9 epochs, 3 at 27 epochs, and 1 at 81 epochs. Each total epoch level includes training already completed. Thus
 $$
 \begin{aligned}
-\text{checkpoint cost}
+\text{total training cost}
 &=27\times3+9\times(9-3)+3\times(27-9)+1\times(81-27)\\
 &=81+54+54+54\\
 &=243
 \end{aligned}
 $$
-configuration-epochs. Training every initial configuration fully costs $27\times81=2{,}187$ configuration-epochs. Checkpoint continuation therefore uses one ninth of that compute. These are computational costs, not elapsed times under parallel execution.
+configuration-epochs. Training every initial configuration fully costs $27\times81=2{,}187$ configuration-epochs. Continuing the surviving models' earlier training therefore uses one ninth of that total. These are computational costs, not elapsed times under parallel execution.
 
-**Part 2: General resource accounting**
+For the wide bracket of @fig-hyperband-brackets, continuing earlier training costs
+$$
+27\times1+9\times(3-1)+3\times(9-3)+1\times(27-9)=81
+$$
+resource units; for the deep bracket it costs $6\times9+2\times(27-9)=90$. Training from scratch at each round costs $27+27+27+27=108$ and $54+54=108$. Equal costs under from-scratch training therefore do not imply equal costs under continuation; the saving is larger for the bracket with more rounds, because every round after the first adds only the increment in resource for the survivors.
 
-With restarting, each rung costs
-$$
-\begin{aligned}
-p^{[t]}r^{[t]}&=(p^{[0]}\eta^{-t})(r^{[0]}\eta^t)\\
-&=p^{[0]}r^{[0]}.
-\end{aligned}
-$$
-Summing over $T_{\mathrm{SH}}+1$ rungs gives total cost $(T_{\mathrm{SH}}+1)p^{[0]}r^{[0]}$. For continuation, the initial rung costs $p^{[0]}r^{[0]}$, while every later rung costs
-$$
-\begin{aligned}
-p^{[t]}(r^{[t]}-r^{[t-1]})
-&=p^{[0]}\eta^{-t}r^{[0]}(\eta^t-\eta^{t-1})\\
-&=p^{[0]}r^{[0]}\left(1-\frac1\eta\right).
-\end{aligned}
-$$
-Consequently,
-$$
-\text{continuation cost}=p^{[0]}r^{[0]}\left[1+T_{\mathrm{SH}}\left(1-\frac1\eta\right)\right].
-$$
-For the numerical bracket, $p^{[0]}r^{[0]}=81$ and $T_{\mathrm{SH}}=3$. Restarting costs $4\times81=324$; continuation costs $81[1+3(2/3)]=243$, as in Part 1.
-
-At a common nominal restarting budget, brackets can have different numbers of rungs. The ratio of continuation cost to nominal cost is
-$$
-\frac{1+T_{\mathrm{SH}}(1-1/\eta)}{T_{\mathrm{SH}}+1},
-$$
-which depends on the number of rungs. Equal nominal restarting budgets therefore need not imply equal costs under checkpoint continuation.
-
-**Part 3: Noise and slow starters**
+**Part 2: Noise and slow starters**
 
 Under independent errors,
 $$
@@ -1335,7 +1318,7 @@ $$
 $$
 When $b=0$, the mean difference is $-0.02$, and the discard probability tends to zero. With $b=0.03$, the early mean difference is $0.01$, and the probability tends to one. More validation dates make the early ranking more precise, but that ranking systematically favors B when A's slow-starting disadvantage exceeds its full-budget advantage. Increasing validation precision alone cannot correct that reversal.
 
-**Part 4: Serially dependent validation losses**
+**Part 3: Serially dependent validation losses**
 
 There are $n$ variance terms and $n-h$ pairs at lag $h$, so
 $$
@@ -1352,9 +1335,15 @@ $$
 \frac{\Delta\sqrt n}{\tau\sqrt{1+2\sum_{h=1}^{n-1}(1-h/n)\rho^h}}
 \right).
 $$
-For $n>1$ and $\rho>0$, the variance exceeds $\tau^2/n$. Since $\Delta<0$, the argument of $\Phi$ moves toward zero, increasing the discard probability toward one half relative to independence. Averaging over many firms at the same dates does not eliminate persistent common shocks in these date-level loss differences.
+For $n>1$ and $\rho>0$, the variance exceeds $\tau^2/n$. Since $\Delta<0$, the argument of $\Phi$ moves toward zero, increasing the discard probability toward one half relative to independence.
 
-A larger initial training budget can reduce the slow-starting disadvantage $b$. A longer validation window can reduce sampling noise, but serial dependence limits the information gained from additional dates. Training longer and validating more precisely address different sources of screening error.
+In both parts, joint Gaussianity gives $\bar D_n\sim\mathcal{N}(\Delta+b,\operatorname{Var}(\bar D_n))$, so the discard probability is $\Phi\big((\Delta+b)/\operatorname{sd}(\bar D_n)\big)$: Part 2 has $\operatorname{sd}(\bar D_n)=\tau/\sqrt n$, and Part 3 sets $b=0$ and lets serial dependence enlarge the standard deviation.
+
+Using more validation dates reduces the standard deviation of the average loss difference $\bar D_n$. Positive serial correlation between the date-level loss differences reduces the information gained from additional dates.
+
+Now return to the slow-starting case in Part 2, where $b=0.03$ and the expected early loss difference is $\Delta+b=0.01$. As the number of validation dates grows, $\bar D_n$ concentrates around this positive value. Since A is discarded when $\bar D_n>0$, its discard probability approaches one.
+
+More training before the first screening step can reduce A's early disadvantage $b$. More validation dates make the estimate of the early loss difference more precise.
 :::
 
 :::: {.content-visible when-format="html"}
