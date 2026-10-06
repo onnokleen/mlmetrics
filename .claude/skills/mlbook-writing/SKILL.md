@@ -21,6 +21,10 @@ Every term, abbreviation, symbol, and coined label used at $p$ must be resolvabl
 
 **Before writing or revising, build the ledger.** For a revision inside chapter $N$: skim the chapter from the top down to the edit site and list what has been defined so far (terms, acronyms, symbols, coined labels). For new sections: also check which chapters precede $N$. Write against the ledger, not against your own knowledge of the material.
 
+## Established writing taste
+
+Before drafting or refining prose, read and apply `~/.claude/skills/writing-taste/SKILL.md`. Its rules are established user preferences; apply them as house style without requesting a new taste decision. Keep this skill's domain-specific requirements and the task's review/edit scope.
+
 ## How to operate
 
 **Step 1 — Identify mode.** Existing prose to improve → `refine`. Bullet points, a sketch, or "add a section on X" → `draft`. If ambiguous, ask once.

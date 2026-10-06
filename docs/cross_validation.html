@@ -576,6 +576,7 @@ Figure&nbsp;2.1: Overfitting in polynomial regression. Left panel: the <span cla
 <li><strong>Limited data usage</strong>: We are not using all available data for training.</li>
 </ol>
 <p>The K-fold design introduced below addresses the first and third drawbacks: by averaging over <span class="math inline">K</span> splits, it reduces the dependence of the estimate on any one arbitrary split, and it lets every observation serve in validation exactly once. Cross-validation does not by itself prevent contamination from repeated model comparison.</p>
+<p><span id="sec-cv-reliable-workflow"></span></p>
 <div class="callout callout-style-default callout-important callout-titled">
 <div class="callout-header d-flex align-content-center">
 <div class="callout-icon-container">
@@ -673,6 +674,20 @@ Common Choices for K
 <p>The number of folds <span class="math inline">K</span> is a design choice, not a hyperparameter of the fitted model: <span class="math inline">K</span> determines the validation criterion but is not selected by minimizing that same criterion.</p>
 </div>
 </div>
+<p><strong>Making the tuning choice explicit.</strong> For model selection, let <span class="math inline">\lambda\in\Lambda</span> denote a hyperparameter configuration in the candidate set <span class="math inline">\Lambda</span>; in the polynomial example, <span class="math inline">\lambda</span> is simply the degree <span class="math inline">d</span>. Write <span class="math inline">\hat f_\lambda^{-k}</span> for the model fitted with configuration <span class="math inline">\lambda</span> on all folds except <span class="math inline">k</span>. The earlier notation <span class="math inline">\hat f^{-k}</span> left this fixed configuration implicit. Its pooled validation criterion is </p>
+<div class="display-math-block">
+<p><span class="math display">
+\widehat{\mathrm{CV}}_K(\lambda)
+=\frac{1}{N}\sum_{k=1}^{K}\sum_{i\in D_k}L\big(y_i,\hat f_\lambda^{-k}(x_i)\big).
+</span></p>
+</div>
+<p> Use the same folds, loss function, and weighting for every configuration. For a finite grid <span class="math inline">\Lambda</span> evaluated in full, select </p>
+<div class="display-math-block">
+<p><span class="math display">
+\hat\lambda\in\arg\min_{\lambda\in\Lambda}\widehat{\mathrm{CV}}_K(\lambda),
+</span></p>
+</div>
+<p> with a rule fixed in advance for breaking ties. The selected configuration <span class="math inline">\hat\lambda</span> depends on the observed validation losses. Its winning criterion value is used for selection; assessing that selection requires the separate data described in the <a href="#sec-cv-reliable-workflow">validation and test workflow</a>.</p>
 <div class="callout callout-style-default callout-note callout-titled">
 <div class="callout-header d-flex align-content-center">
 <div class="callout-icon-container">
@@ -1417,11 +1432,11 @@ Figure&nbsp;2.5: Nested cross-validation with five outer folds and, within outer
 </div>
 </div>
 <p>The right panel of <a href="#fig-nested-cv" class="quarto-xref">Figure&nbsp;2.5</a> makes the separation operational. The four inner folds rotate between training and validation, but <span class="math inline">D_1^{\mathrm{out}}</span> never changes role. After the inner loss estimates select a configuration, denoted <span class="math inline">\hat\lambda_1</span> below, the procedure refits on the complete outer training sample and evaluates once on <span class="math inline">D_1^{\mathrm{out}}</span>. Repeating the same sequence for the other four outer splits produces one reliable held-out loss for every observation.</p>
-<p>Nested cross-validation separates the two questions. Let <span class="math inline">\Lambda</span> denote the set of candidate hyperparameter configurations. In ordinary nested K-fold CV, the full sample is first partitioned into <span class="math inline">K_{\mathrm{out}}</span> <strong>outer folds</strong>. Then:</p>
+<p>Nested cross-validation repeats the selection of <span class="math inline">\hat\lambda</span> separately inside each outer training sample, using the candidate set <span class="math inline">\Lambda</span>. In ordinary nested K-fold CV, the full sample is first partitioned into <span class="math inline">K_{\mathrm{out}}</span> <strong>outer folds</strong>. Then:</p>
 <ol type="1">
 <li>Hold out outer fold <span class="math inline">D_k^{\mathrm{out}}</span> and keep it completely untouched while making modeling decisions.</li>
 <li>Using only the remaining outer training observations, run an <strong>inner cross-validation</strong> search over <span class="math inline">\lambda\in\Lambda</span>. Every data-dependent step—including imputation, standardization, feature selection, and early stopping—must be repeated using each inner split’s training observations.</li>
-<li>Select the configuration <span class="math inline">\hat\lambda_k</span> with the best inner-CV criterion.</li>
+<li>Select the evaluated configuration with the smallest inner-CV criterion, using the fixed tie-breaking rule. Denote this selection by <span class="math inline">\hat\lambda_k</span>: the subscript identifies the outer split in which the search is performed.</li>
 <li>Refit the complete pipeline with <span class="math inline">\hat\lambda_k</span> on all observations in the outer training sample.</li>
 <li>Evaluate that fitted pipeline once on <span class="math inline">D_k^{\mathrm{out}}</span>.</li>
 <li>Repeat Steps 1–5 for every outer fold and pool the outer-fold losses.</li>
@@ -1510,7 +1525,7 @@ Exercise 2.1: Why Model Search Creates Optimistically Low Validation-Loss Estima
 </div>
 </div>
 <div class="callout-body-container callout-body">
-<p>Throughout this exercise, treat the fitted forecasting rules <span class="math inline">\hat f_A</span> and <span class="math inline">\hat f_B</span> as fixed. Their generalization risks are therefore fixed numbers, whereas their validation-loss estimates are random because the validation sample is random. Expectations and probabilities are over the validation sample, and in Part 5 also over the independent test sample introduced there.</p>
+<p>Throughout this exercise, treat the fitted forecasting rules <span class="math inline">\hat f_A</span> and <span class="math inline">\hat f_B</span> as fixed. Their generalization risks are therefore fixed numbers, whereas their validation-loss estimates are random because the validation sample is random. Expectations and probabilities are over the validation sample.</p>
 <p>For Parts 1–3, suppose the two fitted rules have the same finite generalization risk, </p>
 <div class="display-math-block">
 <p><span class="math display">
@@ -1548,7 +1563,7 @@ R_0-\frac{1}{2}\mathbb{E}\big[|\eta_A-\eta_B|\big]
 =
 R_0-\frac{\sigma\sqrt{1-c}}{\sqrt{\pi}},
 </span> and explain why stronger positive dependence between candidate loss estimates reduces the selection-induced optimism. Specialize the result to independent errors.</li>
-<li>For Parts 4–5, drop the equal-risk restriction and write <span class="math inline">R_A=R(\hat f_A)</span> and <span class="math inline">R_B=R(\hat f_B)</span> for the fixed, finite generalization risks, labeling the models so that <span class="math inline">R_A\leq R_B</span>. The random validation-loss estimates satisfy <span class="math inline">\mathbb E[\hat R_A]=R_A</span> and <span class="math inline">\mathbb E[\hat R_B]=R_B</span>; no Gaussian assumption is imposed. Compare <span class="math display">
+<li>Now drop the equal-risk restriction and write <span class="math inline">R_A=R(\hat f_A)</span> and <span class="math inline">R_B=R(\hat f_B)</span> for the fixed, finite generalization risks, labeling the models so that <span class="math inline">R_A\leq R_B</span>. The random validation-loss estimates satisfy <span class="math inline">\mathbb E[\hat R_A]=R_A</span> and <span class="math inline">\mathbb E[\hat R_B]=R_B</span>; no Gaussian assumption is imposed. Compare <span class="math display">
 \mathbb E[\min(\hat R_A,\hat R_B)]
 </span> with the smaller generalization risk <span class="math inline">R_A</span>. Prove your comparison and give a necessary and sufficient condition for the inequality to be strict. Express your condition as a probability statement about <span class="math inline">\hat R_A</span> and <span class="math inline">\hat R_B</span>.</li>
 </ol>
