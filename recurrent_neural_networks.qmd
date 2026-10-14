@@ -342,7 +342,30 @@ $$
 
 where $k$ indexes time and each factor is $H\times H$. Each one-step Jacobian follows from $\mathbf{h}_k = g(\mathbf{z}_k)$ with $\mathbf{z}_k$ affine in $\mathbf{h}_{k-1}$. The factors need not commute, so their order matters. For backward propagation, the one-step transpose is $\mathbf{W}_{hh}^{\top}\operatorname{diag}(g'(\mathbf{z}_k))$: transposing reverses the multiplication order.
 
-The backward calculation can therefore be implemented one step at a time. Starting from $\nabla_{\mathbf h_T}L_T$, compute $\boldsymbol\delta_t$ as above, accumulate the weight-gradient contribution, and propagate to the previous state using
+Substituting the ordered Jacobian product into the gradient formula and reversing the factor order under transposition gives:
+$$
+\begin{aligned}
+\nabla_{\mathbf h_t}L_T
+&= \left(\frac{\partial \mathbf{h}_{t+1}}{\partial \mathbf{h}_{t}}\right)^{\top}
+   \cdots
+   \left(\frac{\partial \mathbf{h}_{T}}{\partial \mathbf{h}_{T-1}}\right)^{\top}
+   \nabla_{\mathbf h_T}L_T \\[0.5em]
+&= \mathbf W_{hh}^{\top}\operatorname{diag}\big(g'(\mathbf z_{t+1})\big)
+   \cdots
+   \mathbf W_{hh}^{\top}\operatorname{diag}\big(g'(\mathbf z_{T})\big)\,
+   \nabla_{\mathbf h_T}L_T .
+\end{aligned}
+$$
+Read from the right, the two factors nearest the terminal gradient belong to date $T$: multiplying by $\operatorname{diag}(g'(\mathbf z_T))$ gives $\boldsymbol\delta_T$, and multiplying by $\mathbf W_{hh}^{\top}$ gives $\nabla_{\mathbf h_{T-1}}L_T$. Each further pair of factors moves the gradient one date earlier. The error signal at date $t$ therefore contains the whole product from $t$ to $T$,
+$$
+\boldsymbol\delta_t
+= \operatorname{diag}\big(g'(\mathbf z_t)\big)
+  \left(\frac{\partial\mathbf h_T}{\partial\mathbf h_t}\right)^{\top}
+  \nabla_{\mathbf h_T}L_T,
+$$
+where for $t=T$ the Jacobian product is empty and equals the identity, and the matrix gradient $\sum_{t=1}^{T}\boldsymbol\delta_t\mathbf h_{t-1}^{\top}$ adds these carried gradients over the dates at which the shared weights were used.
+
+The backward calculation can therefore be implemented one step at a time, and the product itself is never formed. Starting from $\nabla_{\mathbf h_T}L_T$, compute $\boldsymbol\delta_t$ as above, accumulate the weight-gradient contribution, and propagate to the previous state using
 $$
 \nabla_{\mathbf h_{t-1}}L_T
 = \mathbf W_{hh}^{\top}\boldsymbol\delta_t,
